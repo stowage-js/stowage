@@ -1,17 +1,18 @@
 # The runtimes v0.1 promises
 
-v0.1 promises Node, Bun, Deno and Cloudflare Workers, cell by cell against the five reference
-flows rather than as one list, because `adapter-fs` cannot exist on Workers and a large upload
-from a Worker runs against a CPU and duration budget this project has not measured. Supported
-means one thing: the conformance suite covers that cell in CI. The alternative was a second,
-weaker level for runtimes tried by hand before a release, and on a project with one maintainer
-that is a promise which decays without anyone noticing.
+v0.1 promises Node, Bun, Deno and `workerd`, cell by cell against the five reference flows
+rather than as one list, because `adapter-fs` cannot exist on `workerd` and the CPU and
+duration budget that Cloudflare's network puts on a long multipart upload is unmeasured.
+Supported means one thing: the conformance suite covers that cell in CI. The alternative was a
+second, weaker level for runtimes tried by hand before a release, and on a project with one
+maintainer that is a promise which decays without anyone noticing.
 
-Hosts are not listed. Deno Deploy, AWS Lambda and Vercel inherit a runtime and add limits this
-project cannot measure, so naming one would promise something the conformance suite never
-checks.
+Hosts are not listed. Cloudflare's network, Deno Deploy, AWS Lambda and Vercel inherit a
+runtime and add limits this project cannot measure, so naming one would promise something the
+conformance suite never checks. A host limit can still take a cell away, as Cloudflare's does
+for flow 1: the matrix promises less than the runtime can do, never more.
 
-|                                            | Node                 | Bun                  | Deno                 | Workers        |
+|                                            | Node                 | Bun                  | Deno                 | `workerd`      |
 | ------------------------------------------ | -------------------- | -------------------- | -------------------- | -------------- |
 | 1 large upload from a server                | yes                  | yes                  | yes                  | no             |
 | 2 browser upload through a presigned `PUT`  | yes                  | yes                  | yes                  | yes            |
@@ -24,8 +25,8 @@ checks.
 
 - Node's floor is 24, and CI runs 24 and 26. Node 22 reaches end of life on 2027-04-30, inside
   the timeframe of this release, and adding a line back later costs less than taking one away.
-- Bun and Deno have no floor: the README names the version CI last ran green. Workers is pinned
-  to a compatibility date that the spec names.
+- Bun and Deno have no floor: the README names the version CI last ran green. `workerd` is
+  pinned to a compatibility date that the spec names.
 - `adapter-fs` declares Node, Bun and Deno, while `@stowage/core`, `adapter-memory` and
   `adapter-s3` declare all four. Each package declares its own runtimes in the spec and the
   README, and through `engines` for the Node floor alone, which Bun and Deno ignore.
