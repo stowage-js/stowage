@@ -42,10 +42,25 @@ Something an adapter offers beyond the parity core and declares, such as presign
 range reads. An adapter that lacks a capability says so rather than failing at call time.
 _Avoid_: feature, feature flag, extension
 
+**Runtime**:
+The JavaScript engine and standard library the code runs on: Node, Bun, Deno, workerd.
+_Avoid_: environment, platform, target
+
+**Host**:
+A service that runs code on a runtime, such as Deno Deploy, AWS Lambda or Cloudflare's network.
+A host inherits what its runtime can do and adds limits of its own. stowage names runtimes, not
+hosts.
+_Avoid_: platform, provider, deployment target
+
 **Reference flow**:
 One of the five call sequences that v0.1 is designed to support, each of which names the adapters
 and runtimes it covers and the conditions under which it counts as supported.
 _Avoid_: use case, user story, scenario
+
+**Runtime matrix**:
+The grid of reference flows against runtimes that fixes what v0.1 promises. A cell counts as
+supported only where the conformance suite covers it, and there is no weaker level below that.
+_Avoid_: support matrix, compatibility table
 
 **Conformance suite**:
 Tests run against an adapter to show that it implements the API as specified.
