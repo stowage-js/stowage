@@ -53,8 +53,9 @@ it performs one call and hands back that page with its cursor.
 _Avoid_: iterator, result, page
 
 **Parity core**:
-The operations every adapter supports alike: `put`, `get`, `stat`, `list`, `delete`, `copy`. An
-application that stays inside the parity core changes its adapter without changing its code.
+The operations every adapter supports alike: `put`, `get`, `stat`, `exists`, `list`, `delete`,
+`deleteAll`, `copy` and `move`. An application that stays inside the parity core changes its
+adapter without changing its code.
 _Avoid_: basic operations, common API, lowest common denominator
 
 **Capability**:
