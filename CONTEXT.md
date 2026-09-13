@@ -49,7 +49,8 @@ _Avoid_: token, continuation token, page marker
 
 **Listing**:
 What `list` returns. Iterated it yields every object and walks the pages itself; asked for a page
-it performs one call and hands back that page with its cursor.
+it performs one call and hands back that page with its cursor. A delimiter shapes a page, not the
+iteration: the pseudo-directories it produces reach the caller through a page alone.
 _Avoid_: iterator, result, page
 
 **Parity core**:

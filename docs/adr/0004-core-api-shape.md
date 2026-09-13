@@ -45,6 +45,9 @@ per adapter, and R2 speaking S3's wire protocol makes that key a question of its
   for every call the core describes.
 - `get` produces the object's description from the same response as its body. S3 sends it in the
   `GET` headers; `adapter-fs` stats the handle it already opened.
+- A delimiter shapes a page rather than the iteration. Iterating yields objects alone, which with
+  a delimiter is the objects at that level; the pseudo-directories below the prefix reach the
+  caller through `page()`.
 - `stat` throws when the key is absent, like `get` and `copy` do, and `exists` is the one
   operation that asks without throwing. Which class is thrown is the error hierarchy's decision.
 - `delete` is variadic and always answers with a report, so deleting one key and deleting a
