@@ -43,10 +43,10 @@ range reads. An adapter that lacks a capability says so rather than failing at c
 _Avoid_: feature, feature flag, extension
 
 **Reference flow**:
-One of the five sequences of calls v0.1 is designed against. Each names the adapters and
-runtimes it covers and the conditions under which it counts as supported.
+One of the five call sequences that v0.1 is designed to support, each of which names the adapters
+and runtimes it covers and the conditions under which it counts as supported.
 _Avoid_: use case, user story, scenario
 
 **Conformance suite**:
-The tests an adapter runs against itself to show that it implements the API as specified.
+Tests run against an adapter to show that it implements the API as specified.
 _Avoid_: compliance tests, adapter test kit, acceptance tests
