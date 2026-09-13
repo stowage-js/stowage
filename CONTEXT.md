@@ -14,6 +14,11 @@ _Avoid_: cloud, backend, service
 An implementation of the storage API for one provider.
 _Avoid_: driver, connector, client
 
+**Wire protocol**:
+The HTTP API a provider publishes, which an adapter implements directly rather than through
+the provider's own SDK.
+_Avoid_: protocol, transport, REST API
+
 **Object**:
 A sequence of bytes stored under a key, together with its content type and its metadata.
 _Avoid_: file, blob, entry
