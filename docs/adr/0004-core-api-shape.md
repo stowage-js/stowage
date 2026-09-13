@@ -61,5 +61,6 @@ per adapter, and R2 speaking S3's wire protocol makes that key a question of its
 - How an adapter declares what it supports is still open. The closed core already keeps an
   operation the parity core lacks off the portable type, which leaves the runtime declaration to
   cover differences inside the core, such as user metadata and range reads.
-- The stub the decision was read off is on the branch `spike/core-api`, commit `96a7d25`, with
-  the four shapes and the five reference flows written against each.
+- The stub the decision came from is on the branch `spike/core-api`, commit `cfc771c`: four
+  shapes, the five reference flows written against each, and the type errors each shape does and
+  does not produce.
