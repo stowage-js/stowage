@@ -46,3 +46,35 @@ await s3Registry.put("k", body, { storageClass: "DEEP_FREEZE" });
 
 // @ts-expect-error — presigning is not on a portable storage
 await anyRegistry.presignGet("k", { expiresIn: 60 });
+
+// ---------- D, the decided shape ----------
+
+import { s3 as chosenS3 } from "./d-chosen/adapter-s3.ts";
+import type { Storage as ChosenStorage } from "./d-chosen/core.ts";
+
+declare const portable: ChosenStorage;
+const chosen = chosenS3({ bucket: "b", region: "r", credentials });
+
+// @ts-expect-error — the portable type knows no provider options
+await portable.put("k", body, { storageClass: "STANDARD" });
+
+// @ts-expect-error — and no unknown options either
+await portable.put("k", body, { storageKlass: 42 });
+
+// @ts-expect-error — presigning is not on the portable type
+await portable.presignGet("k", { expiresIn: 60 });
+
+// @ts-expect-error — wrong value for a declared provider option
+await chosen.put("k", body, { storageClass: "DEEP_FREEZE" });
+
+// @ts-expect-error — no clone: another bucket is another storage
+chosen.withBucket("other");
+
+// @ts-expect-error — pages() is gone; a listing reads flat or one page at a time
+portable.list().pages();
+
+// The parts that must compile: the stat travels with the body, delete is variadic either way.
+const object = await portable.get("k", { range: { start: 0, end: 1023 } });
+object.stat.contentType;
+await portable.delete("a");
+await portable.delete("a", "b", "c");

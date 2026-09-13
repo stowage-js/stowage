@@ -66,10 +66,21 @@ failure window wrong, and inside one adapter it is a server-side copy plus a del
 is used by none of the five flows; `deleteAll(prefix)` is used by flow 5. `stat() → null` (C)
 removes `exists` at the price of a silent missing-object case at every call site.
 
-## Still open, for the ticket to close
+## D — what was decided (`d-chosen/`)
 
-1. Bucket bound or per call, and where bucket management lives.
-2. `list()`: pages, flat, or both — and if both, two methods or one listing object.
-3. Provider options: generic map, closed core, or provider-keyed registry.
-4. Facade or handle, and whether convenience methods sit on the storage or on what `get()` returns.
-5. Which of `exists`, `stat`-returns-null, `copy`, `move`, `deleteMany`, `deleteAll` stay.
+Not one of A, B or C: the half of each that survived reading the flows. It is written as two
+files, `core.ts` and `adapter-s3.ts`, because the package boundary is part of the answer.
+
+- **Bucket bound at construction, no clone.** Another bucket is another storage.
+- **No facade.** `get()` hands back a handle carrying the stat from the same response, which is
+  what removes A's second round trip in flow 4.
+- **One listing, two readings.** Flat for flow 5, `.page()` for flow 3. `pages()` is gone: no
+  reference flow used it.
+- **The core is closed.** No generic parameter, no registry, no index signature. Provider options
+  live on `S3Storage`, which widens `put` and adds the presigning the parity core does not have.
+  The portable type refuses `storageClass`, refuses an unknown option, and has no `presignGet` —
+  all three asserted in `expected-failures.ts`.
+- **`stat()` throws, `exists()` asks.** The throwing path belongs to #14.
+- **`delete()` is variadic** and always returns a report; `deleteAll(prefix)` stays beside it.
+- **No bucket management.** Not parity core; if it comes, it comes as a separate client per
+  provider.
