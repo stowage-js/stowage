@@ -64,6 +64,16 @@ Something an adapter offers beyond the parity core and declares, such as presign
 range reads. An adapter that lacks a capability says so rather than failing at call time.
 _Avoid_: feature, feature flag, extension
 
+**Error code**:
+The name stowage gives a failure, drawn from a closed set that means the same thing in every
+adapter. It is what a caller branches on.
+_Avoid_: error type, error class, status
+
+**Provider code**:
+The string a provider uses for the same failure, such as `NoSuchKey`. It travels on the error
+beside the error code, and a caller never matches on it.
+_Avoid_: error code, status code, reason
+
 **Runtime**:
 The JavaScript engine and standard library the code runs on: Node, Bun, Deno, workerd.
 _Avoid_: environment, platform, target
