@@ -106,7 +106,7 @@ _Avoid_: test, check, scenario
 
 **Conformance target**:
 What an adapter supplies so the conformance suite can run against it: how to construct a storage,
-what the adapter declares, and how to clear up afterwards.
+what the adapter declares, and how to clean up afterwards.
 _Avoid_: fixture, subject, adapter under test
 
 **Harness**:

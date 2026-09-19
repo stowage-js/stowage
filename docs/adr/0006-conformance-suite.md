@@ -8,7 +8,7 @@ the commitment.
 It exports an array of cases rather than a runner. A case is `{ name, requires, cost, run }`, and
 a harness maps each one onto the test function of its runtime: `describeConformance(target, { describe, test })`
 covers Vitest, `bun:test` and `Deno.test`, whose signatures agree, without the package depending
-on any of the three. `workerd` has no test function to hand over, so there a worker calls
+on any of the three. `workerd` has no test function to give it, so there a worker calls
 `runAll()` and serializes `ConformanceResult[]` — `{ case, status, reason, error }` — which makes
 that result published API rather than an internal shape. The alternative was a single
 `runConformance()` reporting a tree of its own, which produces one test under every framework,
@@ -41,7 +41,7 @@ the declaration is also visible in the types, is decided separately.
 
 `NotFound`, `InvalidKey`, `InvalidOption` and `Unsupported` are owed by every adapter, since any
 adapter can be handed an absent or invalid key. `AccessDenied`, `InvalidCredentials` and `Expired`
-hang on the optional credential factories, because ADR 0005 already records that `adapter-fs` has
+depend on the optional credential factories, because ADR 0005 already records that `adapter-fs` has
 no clock to be wrong about. Supplied, they are owed; absent, the case reports itself skipped with
 its reason. Dropping those three codes from the suite was the alternative, and it would leave the
 three-way split of S3's `403` — the part of ADR 0005 that took the most argument — unchecked in
