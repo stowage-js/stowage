@@ -91,6 +91,12 @@ Something an adapter offers beyond the parity core and declares, such as presign
 range reads. An adapter that lacks a capability says so rather than failing at call time.
 _Avoid_: feature, feature flag, extension
 
+**Presigned URL**:
+A URL that carries its own authorization, so a client holding no credential can call it. It is bound
+to one operation on one key, to the content it may carry, and to a moment it stops working — at the
+latest when the credential that signed it expires.
+_Avoid_: signed URL, temporary link, upload URL
+
 **Error code**:
 The name stowage gives a failure, drawn from a closed set that means the same thing in every
 adapter. It is what a caller branches on.
