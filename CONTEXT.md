@@ -38,6 +38,12 @@ What `get` hands back: the object's description together with its bytes, readabl
 bytes, as text or as JSON.
 _Avoid_: handle, file, response
 
+**Part**:
+One piece of an upload, sent as a request of its own and assembled by the provider into a single
+object. Its size is the memory an upload costs, because an adapter holds a part whole in order to
+sign it.
+_Avoid_: chunk, block, segment
+
 **Key**:
 The full name an object is stored under. Keys are flat, and the API has no directories.
 _Avoid_: path, filename, id
