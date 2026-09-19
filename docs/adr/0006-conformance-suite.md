@@ -9,8 +9,39 @@ It exports an array of cases rather than a runner. A case is `{ name, requires, 
 a harness maps each one onto the test function of its runtime: `describeConformance(target, { describe, test })`
 covers Vitest, `bun:test` and `Deno.test`, whose signatures agree, without the package depending
 on any of the three. `workerd` has no test function to give it, so there a worker calls
-`runAll()` and serializes `ConformanceResult[]` — `{ case, status, reason, error }` — which makes
-that result published API rather than an internal shape. The alternative was a single
+`runAll(target)` and serializes its result, which makes `ConformanceResult` published API rather
+than an internal shape:
+
+```ts
+export interface ConformanceCaseMetadata {
+  readonly name: string;
+  readonly requires: readonly CapabilityName[];
+  readonly cost: "fast" | "slow";
+}
+
+export interface SerializedConformanceError {
+  readonly name: string;
+  readonly message: string;
+  readonly stack?: string;
+  readonly code?: StorageErrorCode;
+}
+
+export type ConformanceResult =
+  | { readonly case: ConformanceCaseMetadata; readonly status: "passed" }
+  | { readonly case: ConformanceCaseMetadata; readonly status: "skipped"; readonly reason: string }
+  | {
+      readonly case: ConformanceCaseMetadata;
+      readonly status: "failed";
+      readonly error: SerializedConformanceError;
+    };
+```
+
+`runAll(target, options?)` returns `Promise<readonly ConformanceResult[]>`. It copies `name`,
+`requires` and `cost` into `case` rather than returning the conformance case and its `run`
+function. It also
+normalizes a thrown value to `name` and `message`, adds `stack` when the value supplies one, and
+adds `code` only for a recognized `StorageErrorCode`; it never exposes `cause` or the original
+thrown value. The alternative was a single
 `runConformance()` reporting a tree of its own, which produces one test under every framework,
 and one red test is what someone debugging a third-party adapter learns nothing from.
 
@@ -34,10 +65,26 @@ would owe evidence for a promise its provider may not even make.
 A case names the capability it requires. Where the adapter does not declare it, the suite inverts
 the case: the call must fail with `Unsupported`. A declaration nobody checks is an assertion, and
 inverting checks it from both sides — whoever declares `userMetadata` has to deliver it, and
-whoever does not has to refuse it. The capability names are a closed set in `@stowage/core`,
-beside `StorageErrorCode` and for the reason ADR 0005 gives for that union: a suite that can only
-match on a message is the most fragile suite there is. How an adapter declares them, and whether
-the declaration is also visible in the types, is decided separately.
+whoever does not has to refuse it. This resolves the declaration left open by ADR 0004:
+`@stowage/core` publishes both the closed runtime list and its derived name type:
+
+```ts
+export const capabilityNames = [
+  "presignedUrls",
+  "rangeReads",
+  "userMetadata",
+] as const;
+
+export type CapabilityName = (typeof capabilityNames)[number];
+```
+
+`ConformanceTarget.capabilities` has the published shape `readonly CapabilityName[]`. An adapter
+lists each capability it implements once. For selection and inversion, membership in that array
+is the declaration: a case whose `requires` names are all present runs with its ordinary
+expectations; if any required name is absent, the suite runs the case in inversion mode and the
+capability call must fail with `Unsupported`. Keeping the names closed beside `StorageErrorCode`
+serves the reason ADR 0005 gives for that union: a suite that can only match on a message is the
+most fragile suite there is.
 
 `NotFound`, `InvalidKey`, `InvalidOption` and `Unsupported` are owed by every adapter, since any
 adapter can be handed an absent or invalid key. `AccessDenied`, `InvalidCredentials` and `Expired`
@@ -56,9 +103,13 @@ every adapter this repository did not write.
 - A new case fails a third-party adapter that was green yesterday, so new cases land in minor
   releases only. A patch release of the suite may repair a case that was wrong and may not add
   one. Inside 0.x this means a conformance case does not force a major.
-- A case carries `cost: "fast" | "slow"`, and `describeConformance` runs the fast ones by default.
-  Listing past 1000 keys and uploading past the single-`PUT` limit cost minutes and money against
-  a real endpoint. This refines ADR 0002: covered in CI means the full set, on all four runtimes,
+- A case carries `cost: "fast" | "slow"`. `describeConformance(target, { describe, test })` and
+  `runAll(target)` run fast cases by default; this remains the per-commit invocation. Scheduled
+  and release CI must pass `includeSlow: true` —
+  `describeConformance(target, { describe, test, includeSlow: true })` or
+  `runAll(target, { includeSlow: true })` — to run both fast and slow cases. Listing past 1000 keys
+  and uploading past the single-`PUT` limit cost minutes and money against a real endpoint. This
+  explicit full-suite invocation is what ADR 0002 means by covered in CI, on all four runtimes,
   on a schedule and before every release. The slow cases may run less often; they may not run on
   fewer cells.
 - No case names a runtime. Flow 5 has no target on `workerd`, because `adapter-fs` cannot be
