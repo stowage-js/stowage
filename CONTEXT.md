@@ -40,8 +40,9 @@ _Avoid_: handle, file, response
 
 **Part**:
 One piece of an upload, sent as a request of its own and assembled by the provider into a single
-object. Its size is the memory an upload costs, because an adapter holds a part whole in order to
-sign it.
+object. Its size is the memory cost of one in-flight part, because an adapter holds a part whole
+in order to sign it. Total upload memory is the part size multiplied by the number of parts in
+flight.
 _Avoid_: chunk, block, segment
 
 **Key**:
