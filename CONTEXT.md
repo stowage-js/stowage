@@ -25,9 +25,8 @@ the provider's own SDK.
 _Avoid_: protocol, transport, REST API
 
 **Credential**:
-What an adapter authenticates a request with, such as an access key and the secret belonging to
-it. Its form is the adapter's own, because no two providers authenticate alike and the parity
-core needs none of it.
+What an adapter authenticates a request with, such as an access key and its secret. Its form
+belongs to the adapter rather than to the parity core, and differs from one provider to the next.
 _Avoid_: secret, key, token
 
 **Object**:

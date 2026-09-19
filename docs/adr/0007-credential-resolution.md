@@ -9,9 +9,9 @@ object covers the common case and a function covers the rest, which is all that 
 `CredentialProvider` interface the concept proposed. Caching, refresh and chaining are what such
 a function does, not what a type has to prescribe.
 
-The adapter resolves before every request it signs and keeps nothing between calls. That puts
-the lifetime of a credential out of the adapter's sight, which is why `S3Credentials` carries no
-expiry field: an adapter that never holds a credential has nothing to expire. A multipart upload
+The adapter resolves before every request it signs and keeps nothing between calls, so it never
+holds a credential long enough for one to expire. That is why `S3Credentials` carries no expiry
+field: the only code that could act on it is the function the caller wrote. A multipart upload
 signs each part with a freshly resolved credential rather than with the one the first part used,
 so a rotation halfway through reaches the second half.
 
