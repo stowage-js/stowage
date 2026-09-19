@@ -49,6 +49,13 @@ that shows up on the first call, and the provider's message says so. `exists` tu
 indistinguishable from an empty one. Deleting a key that is not there succeeds, since S3 answers
 `204` either way and `adapter-fs` swallows `ENOENT` to match.
 
+`delete` is best effort, not atomic. A per-key failure does not stop the other keys, and the
+operation does not roll back keys the provider already accepted. It resolves with
+`{ requested: number; failed: readonly StorageError[] }`: `requested` is the number of keys the
+caller supplied, and each entry in `failed` carries the key it concerns. A failure of the operation
+as a whole, such as invalid credentials, an unreachable provider or an inaccessible bucket,
+rejects with the usual `StorageError` instead of returning a per-key report.
+
 Abort is the one failure that is not a `StorageError`. An aborted `AbortSignal` produces the
 runtime's `AbortError`, which `fetch` throws by itself and `signal.throwIfAborted()` gives the
 adapters that do not call `fetch`. It is the caller's own action rather than a failure of the
@@ -66,8 +73,9 @@ a conformance suite that can only match on a message is the most fragile suite t
   conformance suite asserts the code, which both operations can keep, and not the detail below it.
 - `exists` cannot answer `false` for a key it is not allowed to see. Under credentials narrow
   enough that S3 answers `403` for absent keys, it throws rather than reporting absence.
-- A delete report counts the keys the provider accepted, not the objects that were removed. No
-  adapter can promise the second number, because S3 does not send it.
+- A delete report identifies every per-key failure; subtracting `failed.length` from `requested`
+  counts the keys the provider accepted, not the objects that were removed. No adapter can promise
+  the second number, because S3 does not send it.
 - Callers handle two shapes: `isStorageError()` for storage failures and `err.name === "AbortError"`
   for their own cancellation.
 - A failure that arrives after the operation's promise resolved is wrapped as well — a body stream
