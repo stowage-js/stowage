@@ -4,16 +4,19 @@
 Resolvable<S3Credentials>`. `S3Credentials` is `accessKeyId`, `secretAccessKey` and an optional
 `sessionToken`, and it is the adapter's own type: no two providers authenticate alike, and the
 parity core needs none of it. What `@stowage/core` contributes is the pattern around it, `type
-Resolvable<T> = T | (() => T | Promise<T>)` — a value, or a function that yields one. A static
-object covers the common case and a function covers the rest, which is all that survives of the
+ResolverOptions = { forceRefresh: boolean }` and `type Resolvable<T> = T | ((options?:
+ResolverOptions) => T | Promise<T>)` — a value, or a function that yields one. A static object
+covers the common case and a function covers the rest, which is all that survives of the
 `CredentialProvider` interface the concept proposed. Caching, refresh and chaining are what such
 a function does, not what a type has to prescribe.
 
-The adapter resolves before every request it signs and keeps nothing between calls, so it never
-holds a credential long enough for one to expire. That is why `S3Credentials` carries no expiry
-field: the only code that could act on it is the function the caller wrote. A multipart upload
-signs each part with a freshly resolved credential rather than with the one the first part used,
-so a rotation halfway through reaches the second half.
+The adapter resolves before every request it signs and does not cache credentials between calls.
+A resolved credential can still expire before or during a request. That is why `S3Credentials`
+carries no expiry field: detecting expiry and refreshing remain the responsibility of the function
+the caller wrote. If the provider reports `Expired`, the adapter retries once and calls that
+function with `{ forceRefresh: true }` for the second attempt. A multipart upload signs each part
+with a freshly resolved credential rather than with the one the first part used, so a rotation
+halfway through reaches the second half.
 
 What v0.1 ships as resolvers is static credentials and `fromEnv`. The other two the concept
 named are absent: no reference flow runs on EC2 or EKS, IMDSv2 is a token handshake that cannot
