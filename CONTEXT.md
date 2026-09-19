@@ -24,6 +24,11 @@ The HTTP API a provider publishes, which an adapter implements directly rather t
 the provider's own SDK.
 _Avoid_: protocol, transport, REST API
 
+**Credential**:
+What an adapter authenticates a request with, such as an access key and its secret. Its form
+belongs to the adapter rather than to the parity core, and differs from one provider to the next.
+_Avoid_: secret, key, token
+
 **Object**:
 A sequence of bytes stored under a key, together with its content type and its metadata.
 _Avoid_: file, blob, entry
