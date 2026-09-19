@@ -9,8 +9,9 @@ adapter is read against, and a subpath of `@stowage/core` cannot show what an ad
 from outside the core. The alternative was a single package, which makes the zero-dependency
 promise trivial to keep and puts the file system adapter into every Worker bundle.
 
-Everything is published ESM only. The Node floor is 24, where `require()` of an ESM graph works
-unflagged, so a CommonJS caller on a promised line loads the package without a second build.
+Everything is published ESM only. The Node floor is 24, where `require()` of a fully synchronous
+ESM graph works unflagged, so a CommonJS caller on a promised line loads the package without a
+second build.
 Bun, Deno and `workerd` read nothing else. A dual build would also give `StorageError` two
 identities whenever both outputs end up in one graph: ADR 0005 branded the error under
 `Symbol.for`, so matching on `code` survives that, but `instanceof` does not.
@@ -21,10 +22,11 @@ adapters removes the question of whether `adapter-s3@0.4` runs against `core@0.6
 release of `adapter-fs` that changed nothing, paid in 0.x against a compatibility matrix that
 would otherwise have to be written down and tested.
 
-The bare name `stowage` is not available. `stowage@0.5.0` was published on 2026-09-16 from an
-unrelated account, four days after this repository became public, with a description close to
-this README and a `repository` field pointing at a GitHub repository created two hours before the
-publish. Nothing is published under that name, and ADR 0004 left no entry point for it anyway:
+This repository publishes nothing under the bare name `stowage`. An unrelated `stowage@0.5.0`
+package was published on 2026-09-16 from an unrelated account, four days after this repository
+became public, with a description close to this README and a `repository` field pointing at a
+GitHub repository created two hours before the publish. ADR 0004 left no entry point for that
+name anyway:
 there is no facade and no manager, so an application that uses two adapters holds two values.
 
 ## Consequences
