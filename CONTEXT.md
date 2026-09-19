@@ -95,5 +95,21 @@ supported only where the conformance suite covers it, and there is no weaker lev
 _Avoid_: support matrix, compatibility table
 
 **Conformance suite**:
-Tests run against an adapter to show that it implements the API as specified.
+The published set of cases an adapter runs to show that it implements the API as specified. It
+asserts what the API lets a caller observe, and nothing below that.
 _Avoid_: compliance tests, adapter test kit, acceptance tests
+
+**Conformance case**:
+One assertion of the conformance suite, named and runnable on its own. It states the capability
+it needs and how expensive it is to run.
+_Avoid_: test, check, scenario
+
+**Conformance target**:
+What an adapter supplies so the conformance suite can run against it: how to construct a storage,
+what the adapter declares, and how to clean up afterwards.
+_Avoid_: fixture, subject, adapter under test
+
+**Harness**:
+The code that runs the conformance cases on one runtime and reports them. Every runtime has its
+own; the cases do not.
+_Avoid_: runner, driver, wrapper
