@@ -23,6 +23,9 @@ for flow 1: the matrix promises less than the runtime can do, never more.
 
 ## Consequences
 
+- Covered in CI means the whole conformance suite on that cell. ADR 0006 splits it into cases
+  cheap enough for every commit and cases that run on a schedule and before a release, so a cell
+  may be covered less often than every commit, but never by fewer cases.
 - Node's floor is 24, and CI runs 24 and 26. Node 22 reaches end of life on 2027-04-30, inside
   the timeframe of this release, and adding a line back later costs less than taking one away.
 - Bun and Deno have no floor: the README names the version CI last ran green. `workerd` is
