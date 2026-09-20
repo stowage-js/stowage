@@ -51,8 +51,8 @@ there is no facade and no manager, so an application that uses two adapters hold
   configuration, the Deno one a `deno.json`, and neither belongs in a published package.
 - `ci.yml` runs on pull requests and on pushes to `main`: build, `tsc --noEmit`, lint, format
   check, then the `fast` conformance tier across the matrix of ADR 0002. `conformance-full.yml`
-  runs the `slow` tier on a schedule and on demand, which is the split ADR 0006 asks for. Which
-  S3 endpoint those cells run against is decided separately.
+  runs the `slow` tier on a schedule, on demand and before every release, which is the split ADR
+  0006 asks for. ADR 0012 names the endpoints those cells run against.
 - Changesets keeps a version pull request open on `main`, and publishing runs from GitHub Actions
   through npm trusted publishing, so no npm token sits on a developer machine and every release
   carries provenance. No workflow requires a changeset on a pull request, because a change to an
