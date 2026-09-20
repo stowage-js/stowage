@@ -90,9 +90,10 @@ call sites do not change, not because a string can be swapped.
   read endpoint and bucket from the environment, which is this repository's test code rather than
   a published way to construct a storage.
 - An unknown key in the resolved credential is `InvalidCredentials` naming the key, found in the
-  same pass as the empty required fields rather than as the `InvalidOption` of ADR 0005. A resolver
-  that answers `sessionTokn` has no options problem: it signs without a session token, and the
-  request fails at the provider one round trip later.
+  same pass as the empty required fields rather than as the `InvalidOption` of ADR 0005. Without
+  that validation, a resolver that answered `sessionTokn` would have its unknown key ignored,
+  signing would proceed without a session token, and the provider would reject the request one
+  round trip later.
 - `docs/spec/v0.1.md` carries the connection URL among its non-goals, and the `adapter-s3` README
   shows how a caller who holds one splits it into the four options.
 - Both conformance factories construct from outside the adapter, as the conformance suite

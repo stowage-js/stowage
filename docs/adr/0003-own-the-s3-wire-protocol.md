@@ -37,8 +37,10 @@ positions the payload hashing decision still has to weigh.
   error that names the region from `x-amz-bucket-region`, which costs one round trip once
   during development instead of a per-bucket cache in production. Addressing is virtual-hosted
   by default, path-style behind a flag, and R2 needs an explicit endpoint either way.
-- The endpoint is checked when the storage is constructed: an absolute `http:` or `https:` URL
-  with no userinfo, no query and no fragment, and anything else is `InvalidOption` naming the
+- The endpoint is checked when the storage is constructed: an absolute `https:` URL, except that
+  plain `http:` is permitted for a local emulator only when its host is a loopback address. The
+  adapter enforces that exception; every other plaintext endpoint is `InvalidOption`. Either form
+  must have no userinfo, no query and no fragment, and anything else is `InvalidOption` naming the
   option rather than quoting its value. Without that check an endpoint carrying a credential
   reaches `fetch`, which refuses it with `TypeError: Request cannot be constructed from a URL
   that includes credentials` — the Fetch standard requires that on every runtime — so the caller
