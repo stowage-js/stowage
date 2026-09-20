@@ -60,8 +60,8 @@ already changed.
   `list` therefore returns pseudo-directory markers and keys from other tools, and `get`, `delete`
   and the source of a copy accept them.
 - A prefix follows the addressable key's rule, and on top of it may be empty, may end on `/`, and
-  may end in the middle of a segment. A prefix longer than 1024 bytes lists nothing rather than
-  being refused, because no key it could match is writable.
+  may end in the middle of a segment. With a prefix longer than 1024 bytes, `list` still exposes
+  matching addressable keys created by other tools through both its page and iteration forms.
 - `adapter-memory` enforces the core rule exactly, neither more nor less. It is published
   separately because a third-party adapter is read against it, so an adapter that accepted keys
   S3 refuses would teach the wrong rule.

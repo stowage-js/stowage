@@ -58,9 +58,9 @@ adapter can be written against all of them. An adapter may refuse beyond it.
 _Avoid_: valid key, safe key, allowed key
 
 **Addressable key**:
-A key stowage acts on without creating it: what `get`, `stat`, `exists`, `delete` and the source
-of a copy accept. It rules out only what would break the request or leave the storage, so objects
-that other tools put in the bucket stay reachable.
+A key stowage acts on without creating it: what `get`, `stat`, `exists`, `delete`, the source of
+`copy` and `move`, and a presigned `GET` accept. It rules out only what would break the request or
+leave the storage, so objects that other tools put in the bucket stay reachable.
 _Avoid_: readable key, existing key
 
 **Prefix**:
