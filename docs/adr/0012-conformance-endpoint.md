@@ -19,7 +19,7 @@ account token to start, and its signature validation is off unless `S3_VALIDATE_
 set. Ceph's RADOS Gateway needs a cluster around it, and Ceph's own S3 compliance document is marked
 a draft that might not be accurate.
 
-SeaweedFS is chosen over the three that remain. It is the endpoint the SigV4 spike already ran
+SeaweedFS is chosen over the four that remain. It is the endpoint the SigV4 spike already ran
 against, so its behavior on all four operations, on presigning and on the failure paths has been
 seen rather than read off a table; it is released monthly under Apache-2.0, at 4.47 on 2026-09-14;
 its signature comparison is in `weed/s3api/auth_signature_v4.go` rather than implied; and its
@@ -32,8 +32,9 @@ reached 1.0.0 on 2026-09-16. `versitygw` states that its matrix "represents API 
 exact behavioral parity with AWS S3", and it is a gateway that needs a backend underneath it.
 
 SeaweedFS is not S3 either. The spike found that its `encoding-type=url` handling and its XML
-element order differ from what AWS documents, and issue 11321, open since 2026-09-15, has a listing
-return empty when `start-after` sorts before the prefix. Three further points of the bar are
+element order differ from what AWS documents. Issue 11321 closed on 2026-09-15, but the fix merged
+after 4.47 and the pinned 4.47 image still returns an empty listing when `start-after` sorts before
+the prefix. Three further points of the bar are
 unverified for every candidate, SeaweedFS included: whether `EntityTooSmall` and `InvalidPart` are
 returned as S3 returns them, whether a presigned `PUT` enforces the `Content-Length` and
 `Content-Type` it signed, and whether `HEAD` is answered without a body. No data sheet settles
@@ -71,9 +72,10 @@ this repository happens to test against and nothing about the API a third-party 
 - A capability the endpoint lacks disqualifies it; a behavior it gets wrong goes on the divergence
   list. An endpoint without multipart or without presigning would leave reference flow 1 and
   reference flow 2 unchecked per commit, which is half of what v0.1 promises.
-- The list starts with the two divergences the spike found and the one open SeaweedFS issue. Each
-  entry names the upstream issue where one exists, so the next person to read it can tell a bug that
-  is being fixed from a difference that is intended.
+- The list starts with the two divergences the spike found and the one closed SeaweedFS issue whose
+  divergence the pinned image still exhibits. Each entry names the upstream issue where one exists,
+  so the next person to read it can tell a bug that is being fixed from a difference that is
+  intended.
 - The CI bucket at each provider holds nothing else and carries a lifecycle rule that expires
   objects after one day and aborts incomplete multipart uploads after one day. ADR 0006 gives each
   run its own `keyPrefix` and a `cleanup()` that deletes below it; the lifecycle rule is what

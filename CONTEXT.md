@@ -149,8 +149,8 @@ _Avoid_: runner, driver, wrapper
 
 **Emulator**:
 A server that speaks a provider's wire protocol without being the provider. The conformance suite
-runs against one so that a change can be checked without a bucket, a credential and the cost of a
-real request.
+runs against one so that a change can be checked without a bucket, a provider-issued credential and
+the cost of a real request.
 _Avoid_: mock, fake, local S3
 
 **Divergence**:
