@@ -98,7 +98,8 @@ this repository happens to test against and nothing about the API a third-party 
   S3 and not against R2.
 - The first run of `conformance-full.yml` settles one point that no documentation states: whether
   R2 honors the four response overrides of ADR 0011. The case runs in the `slow` tier against the
-  real R2 bucket, and ADR 0014 drops the overrides if R2 accepts and ignores them.
+  real R2 bucket and compares every requested override with its returned response header, so an
+  accepted but ignored override is an observed failure rather than conformance evidence.
 - Since wrangler 4.115.0, released 2026-07-28, `local_dev.experimental_s3_credentials` serves a
   local R2 bucket over a SigV4-authenticated S3 API. A second emulator is not worth two start paths
   and two digests while the field carries its `experimental` prefix. When the prefix goes, this is

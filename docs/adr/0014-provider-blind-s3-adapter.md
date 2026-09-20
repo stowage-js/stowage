@@ -27,11 +27,13 @@ own pages carry 48.8 TiB and 50 TB, R2 carries 5 TiB footnoted as 4.995 TiB, and
 answers with the same code and status on both.
 
 The sharpest difference is in the failures. R2 has no `InvalidAccessKeyId` — a key it does not
-know is `Unauthorized` at `401`, where AWS answers `InvalidAccessKeyId` at `403` — and no
-`ExpiredToken`: an expired credential or presigned URL is `ExpiredRequest` at `403`, where AWS
-answers `ExpiredToken` at `400`. Throttling is `TooManyRequests` at `429` against S3's `SlowDown`
-at `503`. Code and status differ in all three, so neither half of the mapping ADR 0005 describes
-carries over on its own. Below that family the two agree: `NoSuchKey`, `NoSuchBucket`,
+know is `Unauthorized` at `401`, where AWS answers `InvalidAccessKeyId` at `403` — and documents
+`ExpiredRequest` at `403` where AWS answers `ExpiredToken` at `400`. R2 `Expired` handling remains
+unconfirmed, however: ADR 0012's conformance case skips R2, so this documented mapping must not be
+treated as conformance evidence until it is observed against real R2. Throttling is
+`TooManyRequests` at `429` against S3's `SlowDown` at `503`. Code and status differ in all three,
+so neither half of the mapping ADR 0005 describes carries over on its own. Below that family the
+two agree: `NoSuchKey`, `NoSuchBucket`,
 `AccessDenied`, `SignatureDoesNotMatch`, `EntityTooSmall`, `EntityTooLarge`, `InvalidPart`,
 `NoSuchUpload`, `PreconditionFailed`, `BadDigest`, `ServiceUnavailable` and `InternalError` carry
 the same string and the same status on both, and R2's error document has the shape S3's has.
@@ -46,8 +48,10 @@ One promise is left standing on one provider's documentation alone. The four res
 that `presignGet` carries are documented on `GetObject` by AWS, and the string `response-content`
 appears nowhere in R2's, which is neither support nor refusal. They stay in v0.1 and the first run
 of the `slow` tier against a real R2 bucket settles them, beside the points ADR 0012 already
-leaves to a first run. If R2 accepts and ignores them they go, because an option accepted and not
-honored is the one outcome the conformance suite cannot observe.
+leaves to a first run. The successful `GetObject` cases assert each override against its response
+header: `responseContentType` equals `Content-Type`, `responseContentDisposition` equals
+`Content-Disposition`, `responseCacheControl` equals `Cache-Control`, and `responseExpires` equals
+`Expires`. An accepted but ignored override therefore fails its assertion.
 
 ## Consequences
 
@@ -55,7 +59,9 @@ honored is the one outcome the conformance suite cannot observe.
   is neither AWS nor R2 stays configurable and unpromised, which is what ADR 0003 already says.
 - `list` yields every object below the prefix once across its pages, in no promised order. The
   conformance suite asserts membership rather than sequence, and a caller who needs order sorts a
-  page itself. A page holds at most 1000 keys, and a larger page size is `InvalidOption`.
+  combined collection only after collecting every page; sorting pages independently cannot
+  establish a global order. A page holds at most 1000 keys, and a larger page size is
+  `InvalidOption`.
 - A listing entry that arrives without a key, a size or a last-modified time is a `ProviderError`.
   AWS marks every field of its `Object` type except the key optional, and neither provider has
   been seen to omit one.
@@ -72,15 +78,16 @@ honored is the one outcome the conformance suite cannot observe.
   carried both providers' numbers for that threshold and for the object ceiling; one number stands
   here, and the ceiling is the provider's answer rather than the adapter's check.
 - `401` is `InvalidCredentials` in the status mapping of ADR 0005, because a `401` says the
-  request was not authenticated at all. The three-way split of `403` that ADR 0005 argues for
-  survives on both providers, fed by different codes: on AWS by `InvalidAccessKeyId`,
-  `ExpiredToken` and `AccessDenied`, on R2 by `Unauthorized`, `ExpiredRequest` and `AccessDenied`.
+  request was not authenticated at all. The three-way split of `403` that ADR 0005 argues for is
+  observed on AWS through `InvalidAccessKeyId`, `ExpiredToken` and `AccessDenied`. R2 documents
+  `Unauthorized`, `ExpiredRequest` and `AccessDenied`, but its `ExpiredRequest` branch remains
+  unverified until the conformance case observes it against real R2.
 - One code table holds both vendors' strings rather than one table per provider, which would need
-  the flag this decision does not have. The strings do not collide. `Unauthorized` and
-  `ExpiredRequest` reach `InvalidCredentials` and `Expired`, `InvalidObjectName` reaches
-  `InvalidKey`, and `TooManyRequests` and `ServiceUnavailable` reach `ProviderError`. ADR 0013
-  retries the last two by status either way; the table is what gives them a name the caller can
-  read.
+  the flag this decision does not have. The strings do not collide. `Unauthorized` reaches
+  `InvalidCredentials`, and `ExpiredRequest` is provisionally mapped to `Expired` pending a real
+  R2 observation; `InvalidObjectName` reaches `InvalidKey`, and `TooManyRequests` and
+  `ServiceUnavailable` reach `ProviderError`. ADR 0013 retries the last two by status either way;
+  the table is what gives them a name the caller can read.
 - `put` sends a `Content-Type` on every request and uses `application/octet-stream` where the
   caller named none, so what `stat` reports does not depend on which provider stored the object.
 - `CompleteMultipartUpload` is not judged by its status line. The adapter parses the response
@@ -88,8 +95,9 @@ honored is the one outcome the conformance suite cannot observe.
   the status that arrived. ADR 0013 keeps that request out of the retry group, so a body saying
   the commit failed ends the operation.
 - The four response overrides on `presignGet` are provisional. `conformance-full.yml` settles them
-  on its first run, and the case that covers them is the one case in the suite whose expectation
-  is not yet fixed.
+  on its first run by comparing `responseContentType`, `responseContentDisposition`,
+  `responseCacheControl` and `responseExpires` with `Content-Type`, `Content-Disposition`,
+  `Cache-Control` and `Expires`, respectively.
 - Reference flow 2 promises that a rejected upload reaches the client as an HTTP status, not that
   a browser can read the body. R2 sends no CORS headers on the `403` for an expired presigned URL,
   so page JavaScript sees a network error instead. The cases of ADR 0011 judge status and provider
