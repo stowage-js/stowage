@@ -62,15 +62,20 @@ is absent, which is the same assertion at the level the type system already make
   reference flow asks for it.
 - `presignGet` takes `responseContentType`, `responseContentDisposition`, `responseCacheControl` and
   `responseExpires` together, on `S3Storage` rather than on the portable type. S3 answers all four
-  as query parameters, and carrying three of them is a line nobody can explain.
+  as query parameters, and carrying three of them is a line nobody can explain. R2 documents
+  neither support nor refusal, which is why ADR 0014 leaves the four provisional until the first
+  run against a real R2 bucket.
 - The provider answers the browser, so the adapter never sees the rejection and the error codes of
   ADR 0005 do not reach it. `@stowage/core` exports no function that turns a foreign `Response` into
   a `StorageError`: it would be a second public way into the error mapping, for a request the
   adapter neither made nor configured.
 - The conformance suite carries the rejections as cases in the expensive tier under `presignedUrls`:
   a deviating content type, a deviating length, and an expired URL, each checked on the status and
-  the provider code of the raw response. They are what flow 2 promises, and an adapter that declares
-  `presignedUrls` could otherwise claim them without delivering them.
+  the provider code of the raw response, read from a runtime rather than from a browser. They are
+  what flow 2 promises, and an adapter that declares `presignedUrls` could otherwise claim them
+  without delivering them. What reaches the browser can be less: R2 sends no CORS headers on the
+  `403` for an expired URL, so page JavaScript sees a network error where the status itself names
+  the cause.
 - Flow 2 names two bucket preconditions rather than assuming them: the bucket policy must allow
   `UNSIGNED-PAYLOAD` (ADR 0009), and the bucket needs a CORS configuration, because a signed content
   type outside the CORS safelist makes the upload a preflighted cross-origin request. Bucket

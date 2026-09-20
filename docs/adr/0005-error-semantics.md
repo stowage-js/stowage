@@ -32,9 +32,12 @@ different places.
 
 The core owns the class, the union, the guard and the mapping from HTTP status, and each adapter
 owns the table from its provider's codes. A recognized provider code decides alone. Failing that,
-the status decides for the unambiguous ones — `404` is `NotFound`, `403` is `AccessDenied`, and
-`408`, `429` and `5xx` fall through — and anything left is `ProviderError` with the raw string in
-`providerCode`. The provider's own message is passed through word for word:
+the status decides for the unambiguous ones — `404` is `NotFound`, `403` is `AccessDenied`, `401`
+is `InvalidCredentials`, and `408`, `429` and `5xx` fall through — and anything left is
+`ProviderError` with the raw string in `providerCode`. `CompleteMultipartUpload` is the one
+response whose status decides nothing, because AWS documents that it can carry an error document
+under `200`, so the adapter reads that body before it reads the status. The provider's own message
+is passed through word for word:
 `@tweedegolf/storage-abstraction` flattens every failure to `err.message` and drops the code, the
 status and the request id, which are the three fields that make an S3 failure traceable at all. The
 error carries `code`, `operation`, `key`, `bucket`, `provider`, `status`, `providerCode`,

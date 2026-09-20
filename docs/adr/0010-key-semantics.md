@@ -28,8 +28,9 @@ then refuses, which would leave a file browser unable to open what it displays.
 A key is a string of Unicode characters whose length is measured in UTF-8 bytes, from 1 to 1024,
 which is how S3 measures it. Counting characters instead would place the limit differently
 depending on the script a key is written in. Nothing normalizes the Unicode form, which follows
-from the first paragraph and costs something concrete: a file system that stores names in NFD,
-as APFS does, returns a key in a different form from the one it was given.
+from the first paragraph and costs something concrete on both sides of the parity core: a file
+system that stores names in NFD, as APFS does, returns a key in a different form from the one it
+was given, and R2, which normalizes to NFC before storing, holds one object where S3 holds two.
 
 There is no allowlist of characters. `#`, `%`, `?`, `+`, a space and any character above ASCII
 are all legal in a key, so an adapter has to encode a key itself, segment by segment, and may
@@ -74,9 +75,10 @@ already changed.
   runs `adapter-fs` on Linux and macOS and names Windows nowhere, so `adapter-fs` carries no rule
   for reserved names such as `CON`, for `<>:"|*?`, or for a trailing dot. Windows also collides
   `Invoice.pdf` with `invoice.pdf`, which no key rule can repair.
-- The Unicode form of a key survives a round trip everywhere except on a file system that
-  normalizes names, where `adapter-fs` returns NFD for a key written in NFC. The adapter declares
-  the divergence; how an adapter declares anything is still open in #29.
+- The Unicode form of a key survives a round trip except where the provider normalizes it:
+  `adapter-fs` returns NFD for a key written in NFC on a file system that stores names that way,
+  and `adapter-s3` against R2 holds one object for two forms S3 keeps apart. Each adapter states
+  that in its README, and ADR 0014 keeps v0.1 from promising which of the two happens.
 - `adapter-fs` checks on every access that the resolved real path lies under its root, and reports
   `NotFound` when it does not. The key rule cannot see this: a symlink inside the root pointing at
   `/etc` turns an ordinary key into a way out. `NotFound` is the honest answer — the key is valid

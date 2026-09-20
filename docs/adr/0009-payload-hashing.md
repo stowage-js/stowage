@@ -40,16 +40,15 @@ question of what happens where the strategy is missing does not arise.
   body shorter than a part allocates only what it needs.
 - The part size is fixed before the first part and does not change during an upload, because R2
   requires every part except the last to be the same size. Where the total length is known, the
-  adapter raises the size up front so that 10,000 parts cover the object: 48.8 TiB on S3, 5 TiB on
-  R2.
+  adapter raises the size up front so that 10,000 parts cover the object.
 - A stream of unknown length keeps the configured size and fails once the object needs more than
   10,000 parts, which is about 78 GiB at the default. The error names the part size that was set and
   the two ways past it, a known length or a larger configured size. Raising the default for unknown
   lengths instead would charge every small upload the memory of the largest conceivable one.
 - Two thresholds separate a single `PUT` from a multipart upload. A body of unknown length becomes
   multipart once it fills one part, because buffering further spends memory nobody asked for. A body
-  whose length is known goes as a single `PUT` up to the provider's limit, 5 GB on S3 and 5 GiB on
-  R2, since its bytes are already in memory and splitting them costs round trips and saves nothing.
+  whose length is known goes as a single `PUT` up to 5 GB, the lower of the two providers' limits,
+  since its bytes are already in memory and splitting them costs round trips and saves nothing.
 - Presigned URLs sign `UNSIGNED-PAYLOAD`. SigV4 specifies that for a query-signed request and the
   signer never sees the body, so this is a property of presigning rather than a second strategy. A
   presigned `PUT` carries no integrity check unless the caller signs a checksum header into it, and
