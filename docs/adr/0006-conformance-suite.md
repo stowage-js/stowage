@@ -82,9 +82,11 @@ export type CapabilityName = (typeof capabilityNames)[number];
 lists each capability it implements once. For selection and inversion, membership in that array
 is the declaration: a case whose `requires` names are all present runs with its ordinary
 expectations; if any required name is absent, the suite runs the case in inversion mode and the
-capability call must fail with `Unsupported`. Keeping the names closed beside `StorageErrorCode`
-serves the reason ADR 0005 gives for that union: a suite that can only match on a message is the
-most fragile suite there is.
+capability call must fail with `Unsupported`. `presignedUrls` is the one exception, recorded in
+ADR 0011: its methods live on the concrete adapter type, so an adapter that does not declare it
+has no call to fail, and the inverted case checks that the method is absent instead. Keeping the
+names closed beside `StorageErrorCode` serves the reason ADR 0005 gives for that union: a suite
+that can only match on a message is the most fragile suite there is.
 
 `NotFound`, `InvalidKey`, `InvalidOption` and `Unsupported` are owed by every adapter, since any
 adapter can be handed an absent or invalid key. `AccessDenied`, `InvalidCredentials` and `Expired`
