@@ -46,12 +46,25 @@ What `get` hands back: the object's description together with its bytes, readabl
 bytes, as text or as JSON.
 _Avoid_: handle, file, response
 
+**Body**:
+The bytes a caller hands `put`, either in hand or as a stream that can be read once. Which of the
+two it is decides how the upload is sent and whether it can be sent again after a failure that
+would pass.
+_Avoid_: content, payload, data
+
 **Part**:
 One piece of an upload, sent as a request of its own and assembled by the provider into a single
 object. Its size is the memory cost of one in-flight part, because an adapter holds a part whole
 in order to sign it. Total upload memory is the part size multiplied by the number of parts in
 flight.
 _Avoid_: chunk, block, segment
+
+**Multipart upload**:
+An upload sent as several parts and committed in one final request. It belongs to the adapter:
+nothing about it reaches the API, so there is no upload to resume and no count of parts to read,
+and an upload that neither completes nor aborts leaves its parts with the provider, which charges
+for them.
+_Avoid_: chunked upload, resumable upload, streaming upload
 
 **Key**:
 The full name an object is stored under, written as Unicode characters and measured in UTF-8

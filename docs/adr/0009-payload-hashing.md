@@ -32,23 +32,24 @@ question of what happens where the strategy is missing does not arise.
 
 ## Consequences
 
-- The default part size is 8 MiB and is configurable. The memory an upload occupies is that size
-  times the number of parts in flight.
+- The default part size is 8 MiB and is configurable, in the option group ADR 0016 defines. The
+  memory an upload occupies is that size times the number of parts in flight.
 - A part is read into one `Uint8Array` allocated at part size, rather than collected as a list of
   chunks and joined before hashing. `digest` takes one contiguous `BufferSource`, and joining
   afterwards would hold the part twice, which would make the number above twice the part size. A
   body shorter than a part allocates only what it needs.
 - The part size is fixed before the first part and does not change during an upload, because R2
-  requires every part except the last to be the same size. Where the total length is known, the
-  adapter raises the size up front so that 10,000 parts cover the object.
-- A stream of unknown length keeps the configured size and fails once the object needs more than
-  10,000 parts, which is about 78 GiB at the default. The error names the part size that was set and
-  the two ways past it, a known length or a larger configured size. Raising the default for unknown
-  lengths instead would charge every small upload the memory of the largest conceivable one.
-- Two thresholds separate a single `PUT` from a multipart upload. A body of unknown length becomes
-  multipart once it fills one part, because buffering further spends memory nobody asked for. A body
-  whose length is known goes as a single `PUT` up to 5 GB, the lower of the two providers' limits,
-  since its bytes are already in memory and splitting them costs round trips and saves nothing.
+  requires every part except the last to be the same size. It is the configured size for every
+  upload: ADR 0016 takes the length the caller could announce out of `put`, and with it the reason
+  to compute a size per object.
+- A stream fails once the object needs more than 10,000 parts, which is about 78 GiB at the
+  default. The error names the part size that was set and the way past it, a larger configured
+  size. Raising the default instead would charge every small upload the memory of the largest
+  conceivable one.
+- The type of the body separates a single `PUT` from a multipart upload, which ADR 0016 records.
+  Bytes the adapter holds go as one `PUT` up to 5 GB, the limit AWS documents, since splitting them
+  costs round trips and saves nothing. A stream becomes multipart once it fills one part, because
+  buffering further spends memory nobody asked for.
 - Presigned URLs sign `UNSIGNED-PAYLOAD`. SigV4 specifies that for a query-signed request and the
   signer never sees the body, so this is a property of presigning rather than a second strategy. A
   presigned `PUT` carries no integrity check unless the caller signs a checksum header into it, and

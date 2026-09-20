@@ -74,9 +74,15 @@ header: `responseContentType` equals `Content-Type`, `responseContentDisposition
   reason: R2 strips it on the way out and counts it in `x-amz-missing-meta`, so writing it would
   lose it silently. Metadata values may hold any Unicode, which both providers carry RFC 2047
   encoded.
-- A body of known length goes as one `PUT` up to 5 GB and as a multipart upload above it. ADR 0009
-  carried both providers' numbers for that threshold and for the object ceiling; one number stands
-  here, and the ceiling is the provider's answer rather than the adapter's check.
+- A body of bytes goes as one `PUT` up to 5 GB and as a multipart upload above it, the type of the
+  body having decided the shape (ADR 0016). ADR 0009 carried both providers' numbers for that
+  threshold and for the object ceiling; one number stands here, and the ceiling is the provider's
+  answer rather than the adapter's check.
+- `copy` above the size a single request carries reaches its fallback through the provider's
+  refusal rather than through a ceiling the adapter knows, which is how it stays blind where AWS
+  documents 5 GB and R2 documents nothing. R2 supports `UploadPartCopy` with
+  `x-amz-copy-source-range`, so the fallback works on both, and where R2 accepts the copy outright
+  it never runs.
 - `401` is `InvalidCredentials` in the status mapping of ADR 0005, because a `401` says the
   request was not authenticated at all. The three-way split of `403` that ADR 0005 argues for is
   observed on AWS through `InvalidAccessKeyId`, `ExpiredToken` and `AccessDenied`. R2 documents

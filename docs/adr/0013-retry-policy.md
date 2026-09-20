@@ -13,7 +13,8 @@ against the offset is a separate feature, and v0.1 does not have it.
 The operation does not narrow the group, with one exception. `CompleteMultipartUpload` is not
 repeated after a transport failure that received no response, because the completion may have been
 committed, and the second request would then meet an upload id that is gone and report `NotFound`
-where the first request succeeded. `CreateMultipartUpload` is repeated, and an upload the first
+where the first request succeeded. What the caller is told in that one ambiguous case, and why no
+abort follows it either, is ADR 0016's. `CreateMultipartUpload` is repeated, and an upload the first
 request may have created is left behind. ADR 0005 already says that parts stay and are charged for
 when a failed upload cannot abort itself, and the remedy is the same one: a lifecycle rule for
 incomplete uploads on the bucket, which ADR 0012 requires on the conformance buckets anyway.
@@ -22,11 +23,11 @@ What may be repeated at all is decided by the body. A part is held whole in memo
 signed (ADR 0009), so it goes out again from that buffer. A body the caller supplied as a stream
 does not: once `fetch` has read it there is nothing left to send, and `fetch` offers no way to
 learn whether a byte was read before the failure. A request carrying a stream is therefore never
-repeated, not even when it failed while connecting. The cost falls on a single `PUT` of known
-length, which ADR 0009 sends as one request: a caller who streams five gigabytes gets no retry.
-Sending every upload through multipart so that each part is buffered would buy that retry and
-would charge every small upload three requests in place of one; that trade belongs to the
-multipart semantics rather than here.
+repeated, not even when it failed while connecting. That rule costs a caller nothing at `put`,
+because ADR 0016 sends a streamed body as buffered parts rather than as one request: the bytes a
+caller streams travel in a body the adapter can send again, and the alternative that was weighed
+there — every upload through multipart, three requests for the smallest one — was not needed to
+get it.
 
 The budget belongs to the HTTP request rather than to the operation, and it is three attempts, the
 original and two repeats. Per operation, an upload of two hundred parts would spend everything on
@@ -111,8 +112,9 @@ reason.
   default cost.
 - `retry: false` still sends two requests when a credential has expired. The ADR says so because
   the combination looks like a leak otherwise.
-- A caller who streams a body of known length into `put` gets no retry on it, while the same bytes
-  handed over as a `Uint8Array` get three attempts.
+- Every request `adapter-s3` sends carries a body it can send again, so nothing a caller passes to
+  `put` is beyond the three attempts. A stream pays for that in parts (ADR 0016) rather than in
+  retries it does not get.
 - On `workerd`, every repeat spends one more subrequest from the budget ADR 0002 names, so a paged
   listing under load can run out. Nothing detects the runtime, because ADR 0002 forbids it; the
   lever is `maxAttempts` or `retry: false`, set by a caller who knows where the code runs.
