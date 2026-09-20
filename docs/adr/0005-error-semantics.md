@@ -81,6 +81,13 @@ a conformance suite that can only match on a message is the most fragile suite t
 - A delete report identifies every per-key failure; subtracting `failed.length` from `requested`
   counts the keys the provider accepted, not the objects that were removed. No adapter can promise
   the second number, because S3 does not send it.
+- An unknown key in an options object is `InvalidOption`, wherever it arrives: in the
+  configuration a storage is constructed from and in the options of a single call. TypeScript
+  refuses a misspelled `regoin` only where the object is written as a literal against the type,
+  and a configuration read from JSON or spread from a wider object reaches the adapter unchecked,
+  where the misspelling silently means the default. The error names the key and never its value.
+  The rule ends at the resolved credential, whose unknown key is `InvalidCredentials` for the
+  reason ADR 0007 gives.
 - Callers handle two shapes: `isStorageError()` for storage failures and `err.name === "AbortError"`
   for their own cancellation.
 - A failure that arrives after the operation's promise resolved is wrapped as well — a body stream
