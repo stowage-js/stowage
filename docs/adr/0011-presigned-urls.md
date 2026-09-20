@@ -1,4 +1,4 @@
-# A presigned URL binds one request exactly, and v0.1 signs only `GET` and `PUT`
+# Presigned URLs are reusable bearer tokens bound to one operation, key, and signed request values; v0.1 signs only `GET` and `PUT`
 
 `@stowage/adapter-s3` exposes `presignGet` and `presignPut` on `S3Storage`, and nothing else that a
 client without a credential can call. A POST policy — the base64-encoded document a browser posts as
@@ -22,11 +22,14 @@ StringToSign is the policy document itself, with no canonical request and no pay
 
 Binding through signed headers is exact because of how the signature is verified. The provider
 rebuilds the canonical request from the values actually sent under the names in
-`X-Amz-SignedHeaders`, so a body of a different length produces a different signature and the
-request is denied. A browser can meet both bindings: `Content-Length` is a forbidden request header,
-which means the user agent sets it from the body's length and the page cannot forge it, and
-`Content-Type` is a header the page may set. The limit is that a body of unknown length carries no
-`Content-Length` at all, so a stream cannot be uploaded through a presigned `PUT`.
+`X-Amz-SignedHeaders`, and SigV4 signs each header value; `UNSIGNED-PAYLOAD` excludes the body
+bytes from that signature. Changing a signed header therefore makes signature verification fail.
+If the body length does not match the signed `Content-Length`, that is separate HTTP body-framing
+validation rather than a signature mismatch. A browser can meet both bindings: `Content-Length` is
+a forbidden request header, which means the user agent sets it from the body's length and the page
+cannot forge it, and `Content-Type` is a header the page may set. The limit is that a body of
+unknown length carries no `Content-Length` at all, so a stream cannot be uploaded through a
+presigned `PUT`.
 
 Presigning is the one capability that adds a method rather than changing a behavior, and that is
 what makes it the exception to the inversion rule in ADR 0006. The rule there is written against
