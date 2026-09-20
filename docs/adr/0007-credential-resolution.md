@@ -59,7 +59,7 @@ requires the unscoped permission in Deno.
   that bound is the token's lifetime, whatever the caller asked for.
 - Both conformance factories construct from outside the adapter, as the conformance suite
   requires. A storage with a wrong secret is a static object; an expired credential cannot be
-  invented, because S3 does not answer `ExpiredToken` for a token it has never issued. The
-  decision about which S3 endpoint the suite runs against therefore owes it a real short-lived
-  STS token in the expensive tier. Until then `Expired` is a code v0.1 hands out and has never
-  observed.
+  invented, because S3 does not answer `ExpiredToken` for a token it has never issued. ADR 0012
+  therefore has the scheduled run request an STS token of the shortest duration AWS grants and
+  run the `Expired` case once it has expired. Against R2 the case reports itself skipped, so
+  `Expired` is a code v0.1 has observed against S3 alone.

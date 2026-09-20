@@ -124,4 +124,6 @@ every adapter this repository did not write.
   be changed.
 - There is no registry of adapters that pass, no badge and no way to mark a case as an accepted
   failure. Whoever passes says so in their own README. A declared deviation is a capability left
-  undeclared, which the inverted case already covers.
+  undeclared, which the inverted case already covers. Where the endpoint a harness runs against
+  answers differently from S3 itself, ADR 0012 keeps that divergence in the harness, outside this
+  package.

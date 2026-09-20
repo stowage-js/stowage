@@ -146,3 +146,15 @@ _Avoid_: fixture, subject, adapter under test
 The code that runs the conformance cases on one runtime and reports them. Every runtime has its
 own; the cases do not.
 _Avoid_: runner, driver, wrapper
+
+**Emulator**:
+A server that speaks a provider's wire protocol without being the provider. The conformance suite
+runs against one so that a change can be checked without a bucket, a credential and the cost of a
+real request.
+_Avoid_: mock, fake, local S3
+
+**Divergence**:
+A named difference between what an emulator does and what the provider it stands in for does. It is
+recorded against the conformance case it shows up in, and the same case run against the provider is
+what settles it.
+_Avoid_: known issue, quirk, accepted failure
