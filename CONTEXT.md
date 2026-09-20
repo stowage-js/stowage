@@ -1,7 +1,8 @@
 # stowage
 
 stowage puts object storage providers behind one typed API, so that an application developed
-against local disk runs against a cloud provider without a code change.
+against local disk runs against a cloud provider by changing where the storage is constructed, and
+nothing else.
 
 ## Language
 
@@ -22,7 +23,8 @@ _Avoid_: driver, connector, client
 
 **Storage**:
 One adapter bound to one bucket, and the object an application holds. Another bucket is another
-storage.
+storage. Which provider it faces is named where it is constructed, in code, and from named options
+rather than from one string that carries several of them.
 _Avoid_: disk, client, connection
 
 **Wire protocol**:

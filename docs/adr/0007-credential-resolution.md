@@ -34,6 +34,24 @@ because Deno throws `NotCapable` without `--allow-env` instead of answering `und
 reads the three names one at a time and never enumerates, since `Object.keys(process.env)`
 requires the unscoped permission in Deno.
 
+A credential never travels inside a configuration string, which is why v0.1 has no connection URL.
+`@tweedegolf/storage-abstraction` takes one, `protocol://username:password@host:port/path?region=x`,
+and the form fights both the secret and the type system. An AWS secret access key
+is base64 and routinely holds a `/`, so `new URL("s3://AKIA:abc+def/ghi@bucket")` throws `Invalid
+URL`; a secret holding a literal `%` parses and then makes `decodeURIComponent` throw `URI
+malformed`, because `URL` hands the password back percent-encoded; and a secret that really
+contains `%2F` has to be written `%252F`. Beyond the encoding, a string is a snapshot where this
+decision wants a function: a rotated credential never reaches a URL that was read once at startup.
+An error that quotes the string it could not parse writes the secret into the log. What such a URL
+buys is one environment variable carrying the whole configuration, and what it can carry without
+the secret is bucket, region and endpoint, which three named options carry just as well.
+
+The scheme of such a URL also has to name the provider, which is the registry ADR 0004 closed the
+core against: `@tweedegolf/storage-abstraction` resolves `s3://`, `r2://` and nine more through a
+hardcoded table and a `require` at runtime, invisible to a bundler and to TypeScript. A storage
+names its provider where it is constructed, and the application above it stays portable because the
+call sites do not change, not because a string can be swapped.
+
 ## Consequences
 
 - The core interface stays closed as ADR-0004 states, and `Resolvable<T>` is a generic type in
@@ -57,6 +75,27 @@ requires the unscoped permission in Deno.
 - A presigned URL expires with the credential that signed it. The requested duration is an upper
   bound rather than a promise, and the TSDoc on `presign` says so; with a `sessionToken` in play
   that bound is the token's lifetime, whatever the caller asked for.
+- No package in this repository takes a configuration string: `adapter-fs` gets no `fs://` and
+  `adapter-memory` no `memory://` either. The rule is written about construction rather than about
+  secrets, so it holds where nothing secret is involved, and it binds these five packages alone. A
+  third-party adapter may do as it likes, because ADR 0006 leaves construction to the conformance
+  target and the suite asserts nothing about it.
+- A constructor that takes a URL can be added later without taking anything from a caller, so
+  unlike the way back in ADR 0003 this decision names no trigger that would bring one. What an
+  addition like that means inside 0.x belongs to the release policy.
+- `fromEnv` stays the one thing stowage reads from the environment, and it reads the credential
+  alone. A bucket that falls back to `S3_BUCKET` where the option is missing, as Bun's S3 client
+  resolves it, is the silent path this decision refused for the credential: a misspelled variable
+  then writes into a different bucket instead of throwing. The private harness of ADR 0012 does
+  read endpoint and bucket from the environment, which is this repository's test code rather than
+  a published way to construct a storage.
+- An unknown key in the resolved credential is `InvalidCredentials` naming the key, found in the
+  same pass as the empty required fields rather than as the `InvalidOption` of ADR 0005. Without
+  that validation, a resolver that answered `sessionTokn` would have its unknown key ignored,
+  signing would proceed without a session token, and the provider would reject the request one
+  round trip later.
+- `docs/spec/v0.1.md` carries the connection URL among its non-goals, and the `adapter-s3` README
+  shows how a caller who holds one splits it into the four options.
 - Both conformance factories construct from outside the adapter, as the conformance suite
   requires. A storage with a wrong secret is a static object; an expired credential cannot be
   invented, because S3 does not answer `ExpiredToken` for a token it has never issued. ADR 0012
