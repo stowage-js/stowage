@@ -124,5 +124,5 @@ reason.
 - A failed `CreateMultipartUpload` that was repeated can leave an upload the abort path never
   learns about, and only a lifecycle rule removes it.
 - The backoff defaults — 100 milliseconds and five seconds — are not part of what a caller can rely
-  on. Whether changing them counts as breaking belongs to the release policy; the three-attempt
-  ceiling is part of this decision.
+  on, and ADR 0017 moves them in a minor release and never in a patch; the three-attempt ceiling
+  is part of this decision.

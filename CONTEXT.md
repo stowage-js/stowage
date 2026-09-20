@@ -108,7 +108,8 @@ _Avoid_: iterator, result, page
 The operations every adapter supports alike: `put`, `get`, `stat`, `exists`, `list`, `delete`,
 `deleteAll`, `copy` and `move`. An application that stays inside the parity core changes its
 adapter without changing its code. Where two promised providers answer differently, the parity core
-promises what both of them hold.
+promises what both of them hold. Promising a further provider does not take a promise away: what
+that provider cannot hold becomes a capability its adapter does not declare.
 _Avoid_: basic operations, common API, lowest common denominator
 
 **Capability**:

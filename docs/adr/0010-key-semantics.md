@@ -89,4 +89,5 @@ already changed.
   case.
 - Loosening the rule later is not a breaking change and tightening it is, because a key that used
   to be written starts throwing. The v0.1 rule therefore refuses everything the parity core cannot
-  carry today, rather than starting permissive.
+  carry today, rather than starting permissive, and ADR 0017 prices the tightening at a minor
+  release below 1.0 and a major above it.
