@@ -8,7 +8,7 @@ conformance case and forbidden the patch to add one; the rest of the surface fol
 Treating an addition as a patch would deliver it to every caret range in existence, and 0.x is
 where the surface still moves.
 
-What a caller may rely on is what `docs/spec/v0.1.md` states, not what TypeScript happens to
+What a caller may rely on is what `docs/spec.md` states, not what TypeScript happens to
 export. The numbers ADR 0013 and ADR 0016 declare unreliable — 100 milliseconds and five seconds
 of backoff, 8 MiB parts, four parts in flight — move in a minor release and never in a patch.
 Unreliable is not unannounced: a patch that raised the part size to 64 MiB would exhaust the memory
@@ -82,5 +82,6 @@ the first time a month fills up is worse than no promise.
   adapters outside this repository are the group the suite exists for.
 - Tightening the key rule of ADR 0010 costs a minor release below 1.0 and a major above it.
   Loosening it costs neither.
-- `docs/spec/v0.1.md` states the rule without the reasoning, so a caller learns what a version
-  number means without reading this.
+- `docs/spec.md` states the rule without the reasoning, so a caller learns what a version
+  number means without reading this. It is the only text of this project the contract covers: ADR
+  0018 keeps the READMEs outside it, where a correction costs no changeset.

@@ -94,7 +94,7 @@ call sites do not change, not because a string can be swapped.
   that validation, a resolver that answered `sessionTokn` would have its unknown key ignored,
   signing would proceed without a session token, and the provider would reject the request one
   round trip later.
-- `docs/spec/v0.1.md` carries the connection URL among its non-goals, and the `adapter-s3` README
+- `docs/spec.md` carries the connection URL among its non-goals, and the `adapter-s3` README
   shows how a caller who holds one splits it into the four options.
 - Both conformance factories construct from outside the adapter, as the conformance suite
   requires. A storage with a wrong secret is a static object; an expired credential cannot be
