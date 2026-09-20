@@ -28,7 +28,7 @@ positions the payload hashing decision still has to weigh.
 - The adapter retries failures that are safe to repeat, with capped exponential backoff and
   jitter. Retrying is on by default and can be switched off. It is transport behavior rather
   than semantics, so `adapter-fs` retrying nothing keeps the parity core intact. Which failures
-  belong in that group is decided with the error hierarchy.
+  belong in that group is ADR 0013.
 - Listing responses go through an XML parser that covers the subset S3 sends — elements, text,
   named and numeric entities — and rejects CDATA and DTDs. The spike's 52-line scanner returns
   a wrong value instead of an error when a document surprises it, keys are user controlled and

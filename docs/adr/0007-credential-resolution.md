@@ -48,8 +48,8 @@ requires the unscoped permission in Deno.
   whose cache is stale would otherwise answer the same expired credential to every retry.
   Static credentials and `fromEnv` ignore it.
 - `Expired` is retried once, with `forceRefresh` in front of the second attempt and no backoff.
-  It is the entry in the retry table that a delay does not help, and the error semantics left
-  that table open.
+  It is the entry in the retry table that a delay does not help. ADR 0013 holds the rest of that
+  table and keeps this repeat on a budget of its own, outside the one `retry: false` switches.
 - Before signing, the adapter checks that both required fields are non-empty strings and throws
   `InvalidCredentials` naming the empty one. An empty `accessKeyId` produces a well-formed
   signature that S3 rejects anyway, so this is the same error code one round trip earlier.

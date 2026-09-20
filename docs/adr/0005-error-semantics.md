@@ -38,8 +38,8 @@ the status decides for the unambiguous ones — `404` is `NotFound`, `403` is `A
 `@tweedegolf/storage-abstraction` flattens every failure to `err.message` and drops the code, the
 status and the request id, which are the three fields that make an S3 failure traceable at all. The
 error carries `code`, `operation`, `key`, `bucket`, `provider`, `status`, `providerCode`,
-`requestId`, `retryable` and `cause`, and `cause` always holds whatever was thrown underneath, such
-as a `TypeError` from `fetch` or an `ENOENT` from Node.
+`requestId`, `retryable`, `attempts` and `cause`, and `cause` always holds whatever was thrown
+underneath, such as a `TypeError` from `fetch` or an `ENOENT` from Node.
 
 What the parity core promises about absence is limited by `HEAD`, which carries no body. `get` reads
 `NoSuchKey` from the error document and `stat` sees a bare `404`, so both report `NotFound` and v0.1
@@ -91,5 +91,6 @@ a conformance suite that can only match on a message is the most fragile suite t
   lifecycle rule for incomplete uploads on the bucket.
 - `retryable` states that the condition is transient, not that stowage will try again. An error can
   arrive with `retryable` set and its retries already spent, and a failure in a stream that cannot
-  be replayed arrives without having been retried at all. Which codes are transient, and with what
-  backoff, is decided separately.
+  be replayed arrives without having been retried at all. `attempts` counts the requests that went
+  out, so those two cases are told apart. Which codes are transient, and with what backoff, is ADR
+  0013.
