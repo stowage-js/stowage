@@ -60,6 +60,8 @@ requires the unscoped permission in Deno.
 - Both conformance factories construct from outside the adapter, as the conformance suite
   requires. A storage with a wrong secret is a static object; an expired credential cannot be
   invented, because S3 does not answer `ExpiredToken` for a token it has never issued. ADR 0012
-  therefore has the scheduled run request an STS token of the shortest duration AWS grants and
-  run the `Expired` case once it has expired. Against R2 the case reports itself skipped, so
-  `Expired` is a code v0.1 has observed against S3 alone.
+  therefore has the scheduled run request an STS token of the shortest duration AWS grants, record
+  the expiration returned by STS, and wait past it plus a fixed safety margin before supplying the
+  token to the `Expired` case. The case does not infer expiration from how long the rest of the
+  suite took. Against R2 it reports itself skipped, so `Expired` is a code v0.1 has observed against
+  S3 alone.

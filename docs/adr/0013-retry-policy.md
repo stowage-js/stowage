@@ -42,7 +42,10 @@ adapter therefore does not read one. Honoring a header no promised provider send
 that no test could cover, since the endpoints of ADR 0012 cannot produce it either.
 
 The caller gets one knob, `retry?: false | { maxAttempts?: number }`, on `S3AdapterOptions`.
-Retrying is transport behavior rather than semantics (ADR 0003), so it sits on the concrete
+`maxAttempts` accepts only the integers from one through three; omitting it selects three. The
+adapter rejects zero, negative, fractional and greater values when it is constructed rather than
+clamping them, so callers can reduce the budget but cannot raise the three-attempt ceiling.
+Retrying is transport behavior rather than semantics (ADR 0003), so the option sits on the concrete
 adapter type where ADR 0004 puts provider options, and not in the core interface. `@stowage/core`
 exports the loop and the table of transient conditions so that there is one definition of both;
 `adapter-fs` and `adapter-memory` do not call it. There is no `baseDelay`, no `maxDelay`, no
@@ -92,18 +95,20 @@ What the conformance suite can say about any of this is what the core API shows,
 fast tier, `get` on an absent key and a storage from `createStorageWithBadCredentials()` both have
 to report `retryable: false` and `attempts: 1`, which is the evidence that a condition that will
 not pass is not repeated. In the slow tier, a storage from `createStorageWithExpiredCredentials()`
-has to report `Expired` with `attempts: 2`: ADR 0012 makes that credential a static 900 second STS
-token, so a resolver that answers the same thing to `forceRefresh` produces exactly two requests,
-and the rule of ADR 0007 becomes visible through the public API. That case stays out against R2,
-where ADR 0012 already skips it. The curve, the group itself, the two exceptions and the stream
-rule are none of them reachable from the API — no endpoint of ADR 0012 returns a `503` on request
-— so they become tests of this repository against a stubbed `fetch`, which is where ADR 0006 put
-flat memory and the broken body stream for the same reason.
+has to report `Expired` with `attempts: 2`: ADR 0012 waits past the expiration returned for a static
+900-second STS token plus a safety margin before supplying it, so a resolver that answers the same
+thing to `forceRefresh` produces exactly two requests, and the rule of ADR 0007 becomes visible
+through the public API. That case stays out against R2, where ADR 0012 already skips it. The curve,
+the group itself, the two exceptions and the stream rule are none of them reachable from the API —
+no endpoint of ADR 0012 returns a `503` on request — so they become tests of this repository against
+a stubbed `fetch`, which is where ADR 0006 put flat memory and the broken body stream for the same
+reason.
 
 ## Consequences
 
-- One request costs at most six HTTP requests: three attempts, doubled by the separate `Expired`
-  repeat.
+- One request universally costs at most six HTTP requests: `maxAttempts` cannot exceed three, and
+  each attempt can be doubled by the separate `Expired` repeat. Six is the ceiling, not merely the
+  default cost.
 - `retry: false` still sends two requests when a credential has expired. The ADR says so because
   the combination looks like a leak otherwise.
 - A caller who streams a body of known length into `put` gets no retry on it, while the same bytes
@@ -116,5 +121,6 @@ flat memory and the broken body stream for the same reason.
 - `attempts` is a new field on `StorageError`, and ADR 0005 lists it with the rest.
 - A failed `CreateMultipartUpload` that was repeated can leave an upload the abort path never
   learns about, and only a lifecycle rule removes it.
-- The defaults — three attempts, 100 milliseconds, five seconds — are not part of what a caller
-  can rely on. Whether changing them counts as breaking belongs to the release policy.
+- The backoff defaults — 100 milliseconds and five seconds — are not part of what a caller can rely
+  on. Whether changing them counts as breaking belongs to the release policy; the three-attempt
+  ceiling is part of this decision.

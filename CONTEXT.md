@@ -115,7 +115,8 @@ _Avoid_: temporary error, intermittent failure, flake
 
 **Attempt**:
 One request an adapter sends for a single step of an operation. A step that meets a transient
-failure costs several attempts, and the error that reaches the caller says how many went out.
+failure may cost several attempts only when the retry policy permits another request, and the error
+that reaches the caller says how many attempts went out.
 _Avoid_: try, retry, call
 
 **Runtime**:

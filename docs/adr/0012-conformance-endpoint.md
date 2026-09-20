@@ -89,11 +89,13 @@ this repository happens to test against and nothing about the API a third-party 
   operations. AWS has no perpetual free tier for an account created after 2025-07-15, and the suite
   costs cents per month at $0.005 per thousand `PUT` requests.
 - ADR 0007 asks this decision for a short-lived STS token, because an expired credential cannot be
-  invented. `conformance-full.yml` requests one at the start of the run with the 900-second minimum
-  AWS allows, and runs the `Expired` case at the end, by which point the token has expired on its
-  own. `createStorageWithExpiredCredentials` is supplied for AWS alone; against R2 the case reports
-  itself skipped with its reason, and `Expired` stays a code that v0.1 has observed against S3 and
-  not against R2.
+  invented. A dedicated setup step in `conformance-full.yml` requests one with the 900-second
+  minimum AWS allows, records the expiration returned by STS, and waits until that time plus a fixed
+  safety margin has passed before `createStorageWithExpiredCredentials` can supply it. The
+  `Expired` case therefore always starts with an already-expired credential instead of relying on
+  the duration of the rest of the suite. The factory is supplied for AWS alone; against R2 the case
+  reports itself skipped with its reason, and `Expired` stays a code that v0.1 has observed against
+  S3 and not against R2.
 - Since wrangler 4.115.0, released 2026-07-28, `local_dev.experimental_s3_credentials` serves a
   local R2 bucket over a SigV4-authenticated S3 API. A second emulator is not worth two start paths
   and two digests while the field carries its `experimental` prefix, and while what the parity core
