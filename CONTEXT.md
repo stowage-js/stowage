@@ -46,12 +46,27 @@ flight.
 _Avoid_: chunk, block, segment
 
 **Key**:
-The full name an object is stored under. Keys are flat, and the API has no directories.
+The full name an object is stored under, written as Unicode characters and measured in UTF-8
+bytes. Keys are flat, and the API has no directories. What counts as a legal key depends on
+whether stowage creates it or only names one that is already there.
 _Avoid_: path, filename, id
 
+**Writable key**:
+A key stowage creates: what `put`, the destination of `copy` and `move` and a presigned `PUT`
+accept. It is the narrowest key space every adapter can hold, so a key written against one
+adapter can be written against all of them. An adapter may refuse beyond it.
+_Avoid_: valid key, safe key, allowed key
+
+**Addressable key**:
+A key stowage acts on without creating it: what `get`, `stat`, `exists`, `delete`, the source of
+`copy` and `move`, and a presigned `GET` accept. It rules out only what would break the request or
+leave the storage, so objects that other tools put in the bucket stay reachable.
+_Avoid_: readable key, existing key
+
 **Prefix**:
-The leading part of a key. Listing by prefix with a delimiter yields the keys below it and the
-next level of pseudo-directories.
+The leading part of a key, which may be empty and may end anywhere in a key rather than on a
+segment boundary. Listing by prefix with a delimiter yields the keys below it and the next level
+of pseudo-directories.
 _Avoid_: folder, directory, namespace
 
 **Cursor**:
