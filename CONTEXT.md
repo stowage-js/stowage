@@ -10,6 +10,12 @@ The vendor or service that stores the bytes: Amazon S3, Cloudflare R2, Azure Blo
 file system.
 _Avoid_: cloud, backend, service
 
+**Promised provider**:
+A provider v0.1 keeps its promises against: AWS S3 and Cloudflare R2. Another endpoint speaking the
+same wire protocol can be configured and is not promised. An adapter is not told which promised
+provider it faces.
+_Avoid_: supported provider, tested provider, official provider
+
 **Adapter**:
 An implementation of the storage API for one provider.
 _Avoid_: driver, connector, client
@@ -48,7 +54,9 @@ _Avoid_: chunk, block, segment
 **Key**:
 The full name an object is stored under, written as Unicode characters and measured in UTF-8
 bytes. Keys are flat, and the API has no directories. What counts as a legal key depends on
-whether stowage creates it or only names one that is already there.
+whether stowage creates it or only names one that is already there. Two keys that are equivalent
+under Unicode without being equal byte for byte may name one object or two, depending on the
+provider.
 _Avoid_: path, filename, id
 
 **Writable key**:
@@ -77,13 +85,15 @@ _Avoid_: token, continuation token, page marker
 **Listing**:
 What `list` returns. Iterated it yields every object and walks the pages itself; asked for a page
 it performs one call and hands back that page with its cursor. A delimiter shapes a page, not the
-iteration: the pseudo-directories it produces reach the caller through a page alone.
+iteration: the pseudo-directories it produces reach the caller through a page alone. Every object
+below the prefix appears once across the pages, in no promised order.
 _Avoid_: iterator, result, page
 
 **Parity core**:
 The operations every adapter supports alike: `put`, `get`, `stat`, `exists`, `list`, `delete`,
 `deleteAll`, `copy` and `move`. An application that stays inside the parity core changes its
-adapter without changing its code.
+adapter without changing its code. Where two promised providers answer differently, the parity core
+promises what both of them hold.
 _Avoid_: basic operations, common API, lowest common denominator
 
 **Capability**:
@@ -168,5 +178,6 @@ _Avoid_: mock, fake, local S3
 **Divergence**:
 A named difference between what an emulator does and what the provider it stands in for does. It is
 recorded against the conformance case it shows up in, and the same case run against the provider is
-what settles it.
+what settles it. A difference between two promised providers is not a divergence: nothing settles
+it, and the spec carries it.
 _Avoid_: known issue, quirk, accepted failure
