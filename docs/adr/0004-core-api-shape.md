@@ -58,9 +58,10 @@ per adapter, and R2 speaking S3's wire protocol makes that key a question of its
 - Bucket management is not parity core and is not in v0.1. If it arrives it arrives as a
   separate client per provider, because a bound storage has no place to put it and a file system
   has no bucket to create.
-- How an adapter declares what it supports is still open. The closed core already keeps an
-  operation the parity core lacks off the portable type, which leaves the runtime declaration to
-  cover differences inside the core, such as user metadata and range reads.
+- A storage declares what it supports at runtime, on the portable type, which ADR 0015 records.
+  The closed core already keeps an operation the parity core lacks off the portable type, which
+  leaves that declaration to cover differences inside the core, such as user metadata and range
+  reads.
 - The stub the decision came from is on the branch `spike/core-api`, commit `cfc771c`: four
   shapes, the five reference flows written against each, and the type errors each shape does and
   does not produce.

@@ -5,10 +5,11 @@ claim that every adapter passes it — community adapters included — holds onl
 this repository can run it. A private workspace package would contain the same code and none of
 the commitment.
 
-It exports an array of cases rather than a runner. A case is `{ name, requires, cost, run }`, and
-a harness maps each one onto the test function of its runtime: `describeConformance(target, { describe, test })`
-covers Vitest, `bun:test` and `Deno.test`, whose signatures agree, without the package depending
-on any of the three. `workerd` has no test function to give it, so there a worker calls
+It exports an array of cases rather than a runner. A case carries `name`, `requires` and `cost`
+beside the `run` and `runWithout` of ADR 0015, and a harness maps each one onto the test function
+of its runtime: `describeConformance(target, { describe, test })` covers Vitest, `bun:test` and
+`Deno.test`, whose signatures agree, without the package depending on any of the three. `workerd`
+has no test function to give it, so there a worker calls
 `runAll(target)` and serializes its result, which makes `ConformanceResult` published API rather
 than an internal shape:
 
@@ -26,12 +27,19 @@ export interface SerializedConformanceError {
   readonly code?: StorageErrorCode;
 }
 
+export type ConformanceMode = "declared" | "without";
+
 export type ConformanceResult =
-  | { readonly case: ConformanceCaseMetadata; readonly status: "passed" }
+  | {
+      readonly case: ConformanceCaseMetadata;
+      readonly status: "passed";
+      readonly mode: ConformanceMode;
+    }
   | { readonly case: ConformanceCaseMetadata; readonly status: "skipped"; readonly reason: string }
   | {
       readonly case: ConformanceCaseMetadata;
       readonly status: "failed";
+      readonly mode: ConformanceMode;
       readonly error: SerializedConformanceError;
     };
 ```
@@ -45,12 +53,12 @@ thrown value. The alternative was a single
 `runConformance()` reporting a tree of its own, which produces one test under every framework,
 and one red test is what someone debugging a third-party adapter learns nothing from.
 
-An adapter supplies a `ConformanceTarget`: `name`, `capabilities`, `createStorage()`, and
-optionally `cleanup()`, `createStorageWithBadCredentials()` and
-`createStorageWithExpiredCredentials()`. Bucket management is not in v0.1 (ADR 0004), so the suite
-cannot give a run a bucket of its own. A run generates one `keyPrefix` instead, every case builds
-its keys below it, and `cleanup` defaults to `deleteAll(keyPrefix)`, so two runs against one
-bucket leave each other alone — which is what a shared CI bucket amounts to.
+An adapter supplies a `ConformanceTarget`: `name`, `createStorage()`, and optionally `cleanup()`,
+`createStorageWithBadCredentials()` and `createStorageWithExpiredCredentials()`. Bucket management
+is not in v0.1 (ADR 0004), so the suite cannot give a run a bucket of its own. A run generates one
+`keyPrefix` instead, every case builds its keys below it, and `cleanup` defaults to
+`deleteAll(keyPrefix)`, so two runs against one bucket leave each other alone — which is what a
+shared CI bucket amounts to.
 
 The suite asserts what the core API can observe, and nothing beyond it. Flow 1 requires that a
 failed upload leaves no multipart upload behind, and the parity core has no operation that can
@@ -62,14 +70,15 @@ behind all three: the suite checks a promise, it does not prescribe a constructi
 inspection entry point on `ConformanceTarget` would reverse that, and every third-party adapter
 would owe evidence for a promise its provider may not even make.
 
-A case names the capability it requires. Where the adapter does not declare it, the suite inverts
-the case: the call must fail with `Unsupported`. A declaration nobody checks is an assertion, and
-inverting checks it from both sides — whoever declares `userMetadata` has to deliver it, and
-whoever does not has to refuse it. This resolves the declaration left open by ADR 0004:
-`@stowage/core` publishes both the closed runtime list and its derived name type:
+A case names the capability it requires and states itself what holds without it. A declaration
+nobody checks is an assertion, and running the case either way checks it from both sides — whoever
+declares `userMetadata` has to deliver it, and whoever does not has to refuse it. This resolves the
+declaration left open by ADR 0004: `@stowage/core` publishes both the closed runtime list and its
+derived name type:
 
 ```ts
 export const capabilityNames = [
+  "keyBytesPreserved",
   "presignedUrls",
   "rangeReads",
   "userMetadata",
@@ -78,15 +87,13 @@ export const capabilityNames = [
 export type CapabilityName = (typeof capabilityNames)[number];
 ```
 
-`ConformanceTarget.capabilities` has the published shape `readonly CapabilityName[]`. An adapter
-lists each capability it implements once. For selection and inversion, membership in that array
-is the declaration: a case whose `requires` names are all present runs with its ordinary
-expectations; if any required name is absent, the suite runs the case in inversion mode and the
-capability call must fail with `Unsupported`. `presignedUrls` is the one exception, recorded in
-ADR 0011: its methods live on the concrete adapter type, so an adapter that does not declare it
-has no call to fail, and the inverted case checks that the method is absent instead. Keeping the
-names closed beside `StorageErrorCode` serves the reason ADR 0005 gives for that union: a suite
-that can only match on a message is the most fragile suite there is.
+A storage carries its own declaration as `readonly CapabilityName[]`, listing each capability it
+implements once, and ADR 0015 records why that is the only place it lives. The suite reads it once
+per run, before the first case: a case whose `requires` names are all declared runs through `run`,
+and one missing a name runs through `runWithout`, which for most of them asserts that the call
+fails with `Unsupported`. Keeping the names closed beside `StorageErrorCode` serves the reason
+ADR 0005 gives for that union: a suite that can only match on a message is the most fragile suite
+there is.
 
 `NotFound`, `InvalidKey`, `InvalidOption` and `Unsupported` are owed by every adapter, since any
 adapter can be handed an absent or invalid key. `AccessDenied`, `InvalidCredentials` and `Expired`
@@ -99,8 +106,9 @@ every adapter this repository did not write.
 ## Consequences
 
 - Cases are grouped by operation across the parity core, plus listing and pagination, range reads,
-  streams and the error semantics. Above them sit five cases carrying the names of the reference
-  flows, without which the runtime matrix promises cells that nothing corresponds to. The cases
+  streams, the error semantics and the declaration itself, which one case reads for published
+  names and duplicates. Above them sit five cases carrying the names of the reference flows,
+  without which the runtime matrix promises cells that nothing corresponds to. The cases
   themselves are enumerated in the spec, not here.
 - A new case fails a third-party adapter that was green yesterday, so new cases land in minor
   releases only. A patch release of the suite may repair a case that was wrong and may not add
@@ -124,6 +132,6 @@ every adapter this repository did not write.
   be changed.
 - There is no registry of adapters that pass, no badge and no way to mark a case as an accepted
   failure. Whoever passes says so in their own README. A declared deviation is a capability left
-  undeclared, which the inverted case already covers. Where the endpoint a harness runs against
-  answers differently from S3 itself, ADR 0012 keeps that divergence in the harness, outside this
-  package.
+  undeclared, which the case's `runWithout` already covers. Where the endpoint a harness runs
+  against answers differently from S3 itself, ADR 0012 keeps that divergence in the harness,
+  outside this package.

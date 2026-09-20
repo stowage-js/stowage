@@ -41,7 +41,9 @@ is passed through word for word:
 `@tweedegolf/storage-abstraction` flattens every failure to `err.message` and drops the code, the
 status and the request id, which are the three fields that make an S3 failure traceable at all. The
 error carries `code`, `operation`, `key`, `bucket`, `provider`, `status`, `providerCode`,
-`requestId`, `retryable`, `attempts` and `cause`, and `cause` always holds whatever was thrown
+`requestId`, `retryable`, `attempts`, `capability` and `cause`. `capability` names the capability
+of ADR 0015 the adapter does not have and is set for `Unsupported` alone, so a conformance case can
+tell the refusal it asked for from another one. `cause` always holds whatever was thrown
 underneath, such as a `TypeError` from `fetch` or an `ENOENT` from Node.
 
 What the parity core promises about absence is limited by `HEAD`, which carries no body. `get` reads

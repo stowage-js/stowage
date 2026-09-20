@@ -97,8 +97,10 @@ promises what both of them hold.
 _Avoid_: basic operations, common API, lowest common denominator
 
 **Capability**:
-Something an adapter offers beyond the parity core and declares, such as presigned URLs or
-range reads. An adapter that lacks a capability says so rather than failing at call time.
+A named point out of a closed set where adapters are allowed to differ, such as presigned URLs or
+range reads, which every storage declares for itself. Where a storage does not declare one, it
+refuses the call it belongs to rather than answering it differently in silence, or it keeps the
+weaker promise the parity core makes at that point.
 _Avoid_: feature, feature flag, extension
 
 **Presigned URL**:
@@ -156,12 +158,12 @@ _Avoid_: compliance tests, adapter test kit, acceptance tests
 
 **Conformance case**:
 One assertion of the conformance suite, named and runnable on its own. It states the capability
-it needs and how expensive it is to run.
+it needs, what holds against a storage that does not declare it, and how expensive it is to run.
 _Avoid_: test, check, scenario
 
 **Conformance target**:
-What an adapter supplies so the conformance suite can run against it: how to construct a storage,
-what the adapter declares, and how to clean up afterwards.
+What an adapter supplies so the conformance suite can run against it: how to construct a storage
+and how to clean up afterwards. What that storage supports the suite reads from the storage.
 _Avoid_: fixture, subject, adapter under test
 
 **Harness**:

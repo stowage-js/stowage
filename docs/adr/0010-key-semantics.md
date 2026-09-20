@@ -78,7 +78,9 @@ already changed.
 - The Unicode form of a key survives a round trip except where the provider normalizes it:
   `adapter-fs` returns NFD for a key written in NFC on a file system that stores names that way,
   and `adapter-s3` against R2 holds one object for two forms S3 keeps apart. Each adapter states
-  that in its README, and ADR 0014 keeps v0.1 from promising which of the two happens.
+  that in its README, and ADR 0014 keeps v0.1 from promising which of the two happens. An adapter
+  that does keep the bytes says so through `keyBytesPreserved`, the capability ADR 0015 adds for
+  it, and neither of these two declares it.
 - `adapter-fs` checks on every access that the resolved real path lies under its root, and reports
   `NotFound` when it does not. The key rule cannot see this: a symlink inside the root pointing at
   `/etc` turns an ordinary key into a way out. `NotFound` is the honest answer — the key is valid
