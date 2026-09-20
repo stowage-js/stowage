@@ -31,12 +31,13 @@ cannot forge it, and `Content-Type` is a header the page may set. The limit is t
 unknown length carries no `Content-Length` at all, so a stream cannot be uploaded through a
 presigned `PUT`.
 
-Presigning is the one capability that adds a method rather than changing a behavior, and that is
-what makes it the exception to the inversion rule in ADR 0006. The rule there is written against
-`userMetadata`: an adapter that does not declare a capability must fail the call with `Unsupported`.
-The closed core of ADR 0004 keeps `presignGet` and `presignPut` off `Storage` entirely, so on
-`adapter-fs` and `adapter-memory` there is no call to fail. The inverted case checks that the method
-is absent, which is the same assertion at the level the type system already makes it.
+Presigning is the one capability that adds a method rather than changing a behavior, which is why
+its conformance case cannot assert what most of them assert without the capability: that the call
+fails with `Unsupported`. The closed core of ADR 0004 keeps `presignGet` and `presignPut` off
+`Storage` entirely, so on `adapter-fs` and `adapter-memory` there is no call to fail. The case
+checks that the method is absent instead, which is the same assertion at the level the type system
+already makes it, and `presignedUrls` stays in the runtime declaration of ADR 0015 so that there is
+something to check it against.
 
 ## Consequences
 
