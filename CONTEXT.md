@@ -107,6 +107,18 @@ The string a provider uses for the same failure, such as `NoSuchKey`. It travels
 beside the error code, and a caller never matches on it.
 _Avoid_: error code, status code, reason
 
+**Transient failure**:
+A failure whose cause may be gone a moment later, such as a provider under load or a connection
+that broke on the way. Every error states whether its condition is transient, which says something
+about the condition and not about whether stowage sent the request a second time.
+_Avoid_: temporary error, intermittent failure, flake
+
+**Attempt**:
+One request an adapter sends for a single step of an operation. A step that meets a transient
+failure may cost several attempts only when the retry policy permits another request, and the error
+that reaches the caller says how many attempts went out.
+_Avoid_: try, retry, call
+
 **Runtime**:
 The JavaScript engine and standard library the code runs on: Node, Bun, Deno, workerd.
 _Avoid_: environment, platform, target

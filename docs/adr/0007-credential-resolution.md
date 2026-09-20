@@ -48,8 +48,8 @@ requires the unscoped permission in Deno.
   whose cache is stale would otherwise answer the same expired credential to every retry.
   Static credentials and `fromEnv` ignore it.
 - `Expired` is retried once, with `forceRefresh` in front of the second attempt and no backoff.
-  It is the entry in the retry table that a delay does not help, and the error semantics left
-  that table open.
+  It is the entry in the retry table that a delay does not help. ADR 0013 holds the rest of that
+  table and keeps this repeat on a budget of its own, outside the one `retry: false` switches.
 - Before signing, the adapter checks that both required fields are non-empty strings and throws
   `InvalidCredentials` naming the empty one. An empty `accessKeyId` produces a well-formed
   signature that S3 rejects anyway, so this is the same error code one round trip earlier.
@@ -60,6 +60,8 @@ requires the unscoped permission in Deno.
 - Both conformance factories construct from outside the adapter, as the conformance suite
   requires. A storage with a wrong secret is a static object; an expired credential cannot be
   invented, because S3 does not answer `ExpiredToken` for a token it has never issued. ADR 0012
-  therefore has the scheduled run request an STS token of the shortest duration AWS grants and
-  run the `Expired` case once it has expired. Against R2 the case reports itself skipped, so
-  `Expired` is a code v0.1 has observed against S3 alone.
+  therefore has the scheduled run request an STS token of the shortest duration AWS grants, record
+  the expiration returned by STS, and wait past it plus a fixed safety margin before supplying the
+  token to the `Expired` case. The case does not infer expiration from how long the rest of the
+  suite took. Against R2 it reports itself skipped, so `Expired` is a code v0.1 has observed against
+  S3 alone.
