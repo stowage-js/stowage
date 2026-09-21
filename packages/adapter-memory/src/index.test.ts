@@ -1,7 +1,7 @@
 import { isStorageError, type StorageError, type StoredObject } from "@stowage/core";
 import { expect, test } from "vitest";
 
-import { memoryStorage } from "./index.ts";
+import { type MemoryStorage, memoryStorage } from "./index.ts";
 
 /** SHA-256 of the five bytes of `hello`, which is what `etag` promises. */
 const helloDigest = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
@@ -321,4 +321,88 @@ test.each([
   }).not.toThrow();
 
   expect(await rejection(promise)).toHaveProperty("name", "AbortError");
+});
+
+test.each([
+  ["the empty string", ""],
+  ["a leading slash", "/greeting"],
+  ["a trailing slash", "greeting/"],
+  ["an empty segment", "greetings//formal"],
+  ["a dot-dot segment", "greetings/../formal"],
+  ["a backslash", "greetings\\formal"],
+  ["a control character", "greeting\u0000"],
+  ["1025 bytes", "a".repeat(1025)],
+])("refuses to put under a key holding %s", async (_name, key) => {
+  const error = await storageErrorOf(memoryStorage().put(key, "hello"));
+
+  expect(error.code).toBe("InvalidKey");
+  expect(error.operation).toBe("put");
+  expect(error.key).toBe(key);
+  expect(error.attempts).toBe(0);
+});
+
+test.each([
+  ["the empty string", ""],
+  ["a leading slash", "/greeting"],
+  ["an empty segment", "greetings//formal"],
+  ["a dot segment", "./greeting"],
+  ["a dot-dot segment", "greetings/../formal"],
+  ["nothing but a dot segment", "."],
+  ["a control character", "greeting\u0000"],
+])("refuses to address a key holding %s", async (_name, key) => {
+  const error = await storageErrorOf(memoryStorage().get(key));
+
+  expect(error.code).toBe("InvalidKey");
+  expect(error.operation).toBe("get");
+  expect(error.key).toBe(key);
+  expect(error.attempts).toBe(0);
+});
+
+test.each([
+  ["get", (storage: MemoryStorage, key: string) => storage.get(key)],
+  ["stat", (storage: MemoryStorage, key: string) => storage.stat(key)],
+  ["exists", (storage: MemoryStorage, key: string) => storage.exists(key)],
+])("applies the addressable rule to %s", async (operation, call) => {
+  const storage = memoryStorage();
+
+  const error = await storageErrorOf(call(storage, "greetings//formal"));
+
+  expect(error.code).toBe("InvalidKey");
+  expect(error.operation).toBe(operation);
+});
+
+test.each([
+  ["a trailing slash", "greeting/"],
+  ["a backslash", "greetings\\formal"],
+  ["1025 bytes", "a".repeat(1025)],
+])("addresses a key holding %s that it refuses to write", async (_name, key) => {
+  const storage = memoryStorage();
+
+  expect(await storage.exists(key)).toBe(false);
+  expect((await storageErrorOf(storage.get(key))).code).toBe("NotFound");
+  expect((await storageErrorOf(storage.stat(key))).code).toBe("NotFound");
+  expect((await storageErrorOf(storage.put(key, "hello"))).code).toBe("InvalidKey");
+});
+
+test("stores a key as it was given rather than in a normalized form", async () => {
+  const storage = memoryStorage();
+  const composed = "Grüße/日本語/ключ.txt";
+  const decomposed = composed.normalize("NFD");
+
+  const stat = await storage.put(composed, "hello");
+  await storage.put(decomposed, "servus");
+
+  expect(stat.key).toBe(composed);
+  expect(await (await storage.get(composed)).text()).toBe("hello");
+  expect(await (await storage.get(decomposed)).text()).toBe("servus");
+});
+
+test("stores nothing and reads no body where the key of a put is invalid", async () => {
+  const storage = memoryStorage();
+  const body = streamOf("hello");
+
+  await storageErrorOf(storage.put("greeting/", body));
+
+  expect(body.locked).toBe(false);
+  expect(await storage.exists("greeting/")).toBe(false);
 });
