@@ -8,4 +8,7 @@ packages:
 hoist: false
 strictPeerDependencies: true
 
+# Minutes: a day, which `renovate.json` repeats so that Renovate does not propose
+# what an install then refuses.
+minimumReleaseAge: 1440
 minimumReleaseAgeStrict: true
