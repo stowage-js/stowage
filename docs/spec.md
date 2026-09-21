@@ -219,10 +219,12 @@ export interface ListOptions extends OperationOptions {
   names the key and never its value.
 - `contentType` absent: `adapter-memory` and `adapter-s3` store `application/octet-stream`;
   `adapter-fs` derives the type from the key (section 6).
-- `userMetadata` is stored where the storage declares `userMetadata`. Keys are ASCII and compared
-  case-insensitively; values may hold any Unicode. Keys and values together hold at most 2 KB
-  measured as the encoded header bytes, and more is `InvalidRequest`. Where the capability is not
-  declared, a `userMetadata` with at least one entry is `Unsupported`; `undefined` and `{}` pass.
+- `userMetadata` is stored where the storage declares `userMetadata`. Keys are non-empty ASCII HTTP
+  tokens and compared case-insensitively; a key containing another character, including a space,
+  control, colon, slash, question mark or bracket, is `InvalidRequest` before signing. Values may
+  hold any Unicode and are RFC 2047-encoded. Keys and values together hold at most 2 KB measured as
+  the encoded header bytes, and more is `InvalidRequest`. Where the capability is not declared, a
+  `userMetadata` with at least one entry is `Unsupported`; `undefined` and `{}` pass.
 - `range` is honored where the storage declares `rangeReads` and is `Unsupported` elsewhere. `start`
   and `end` are non-negative integers with `start <= end`; anything else is `InvalidOption`. A
   `start` at or beyond the object's size is `InvalidRequest`. An `end` beyond the size is clipped.
@@ -641,7 +643,7 @@ configured and is not promised.
 | Object size ceiling                      | The provider's, answered with `EntityTooLarge`                                                                        |
 | `Content-Type`                           | Always sent by `put`, `application/octet-stream` where none was given                                                 |
 | `CompleteMultipartUpload`                | Judged by its body, which may carry an error under `200`                                                              |
-| Writes per key                           | R2 answers `429` above one write per second and key; the retry of section 7.5 covers a single collision              |
+| Writes per key                           | R2 answers `429` above one write per second and key; the retry of section 7.5 may recover a single collision, but does not guarantee it |
 | Incomplete multipart uploads             | Removed by a lifecycle rule on AWS, after seven days by default on R2; stowage removes none                           |
 | Presigned URL host                       | The endpoint that signed it; on R2 the `r2.cloudflarestorage.com` endpoint and not a custom domain                    |
 | Response overrides on `presignGet`       | Documented by AWS; provisional on R2 until the first scheduled run (section 12)                                       |
@@ -659,8 +661,9 @@ configured and is not promised.
 - `fromEnv` is a resolver, passed as `credentials: fromEnv`. It reads `AWS_ACCESS_KEY_ID`,
   `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN` through `process.env` one name at a time, on
   `workerd` under `nodejs_compat` and on Deno under `--allow-env`; a missing `process` or a refused
-  read leaves the value empty, and the empty value is `InvalidCredentials` naming the three
-  variables. It reads nothing else; `bucket`, `region` and `endpoint` come from the options alone.
+  read leaves the value empty. An empty `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY` is
+  `InvalidCredentials` naming that variable; a missing or empty `AWS_SESSION_TOKEN` is absent. It
+  reads nothing else; `bucket`, `region` and `endpoint` come from the options alone.
 - No package takes a connection URL. A caller holding one splits it into the four options; the
   `adapter-s3` README shows how.
 - A presigned URL stops working when the credential that signed it expires, whatever `expiresIn`
@@ -685,7 +688,8 @@ configured and is not promised.
   none removes from it; `RequestTimeTooSkewed` arrives as `403` and is not repeated.
 - The budget is per HTTP request: three attempts by default, `maxAttempts` at most, with a random
   delay between zero and `min(5 s, 100 ms × 2^n)` before attempt `n + 1`. `retry: false` sends one
-  attempt. `Retry-After` is not read.
+  attempt. `Retry-After` is not read. For R2's same-key write window, the provider-blind policy may
+  recover a collision but does not guarantee it.
 - There is no total time budget and no timeout per attempt. The caller's `AbortSignal` is both, and
   it interrupts the wait between attempts.
 - `CompleteMultipartUpload` is never repeated after a transport failure that received no response.
@@ -774,6 +778,8 @@ export interface S3PresignPutOptions {
 
 - `expiresIn` is seconds, 1 to 604800; outside that it is `InvalidOption`. The credential that
   signs may cut the lifetime shorter.
+- `contentLength` is a finite, non-negative integer. A negative, fractional, `NaN` or infinite
+  value is `InvalidOption` naming `contentLength` before signing.
 - `presignGet` signs `GetObject` on an addressable key. The four response overrides are sent as
   query parameters and are answered as the corresponding response headers.
 - `presignPut` signs `PutObject` on a writable key with `Content-Type` and `Content-Length` bound
@@ -876,9 +882,9 @@ export type ConformanceResult =
   Vitest, `bun:test` or `Deno.test`. `runAll(target)` runs every case and returns the results, for
   `workerd` and any runtime without a test framework. Both run the `fast` cases by default and both
   tiers with `includeSlow: true`.
-- A run generates one `keyPrefix` and every case builds its keys below it. `cleanup(keyPrefix)`
-  runs once at the end and defaults to `deleteAll(keyPrefix)` on a fresh storage. Two runs against
-  one bucket do not interfere.
+- A run generates one `keyPrefix` and every final key begins with it. Its boundary key is exactly
+  1024 UTF-8 bytes total. `cleanup(keyPrefix)` runs once at the end and defaults to
+  `deleteAll(keyPrefix)` on a fresh storage. Two runs against one bucket do not interfere.
 - The declaration is read from the storage once per run, before the first case. Every storage the
   target creates in one run declares the same; two configurations are two targets.
 - A case whose `requires` are all declared runs `run`; a case missing one runs `runWithout`. The
