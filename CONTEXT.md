@@ -52,6 +52,12 @@ two it is decides how the upload is sent and whether it can be sent again after 
 would pass.
 _Avoid_: content, payload, data
 
+**User metadata**:
+Named string values a caller stores with an object and reads back with its description. The
+provider keeps them beside the bytes and never looks at them. Whether a storage can hold them is a
+capability; where it cannot, a write carrying them is refused and a read answers with none.
+_Avoid_: metadata, tags, attributes, headers
+
 **Part**:
 One piece of an upload, sent as a request of its own and assembled by the provider into a single
 object. Its size is the memory cost of one in-flight part, because an adapter holds a part whole
