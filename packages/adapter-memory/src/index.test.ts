@@ -2,6 +2,7 @@ import {
   capabilityNames,
   isStorageError,
   type ObjectListing,
+  type PutOptions,
   type StorageError,
   type StoredObject,
 } from "@stowage/core";
@@ -665,6 +666,23 @@ test("stores a key as it was given rather than in a normalized form", async () =
   // `keyBytesPreserved`: both keys come back as they were written, rather than in one
   // Unicode-equivalent form (spec 4.9).
   expect(await iterate(storage.list())).toEqual([composed, decomposed].toSorted());
+});
+
+test.each<[string, string, PutOptions]>([
+  ["the key", "greeting/", {}],
+  ["an option key", "greeting", withUnknownOption({})],
+  ["a metadata key", "greeting", { userMetadata: { "written by": "stowage" } }],
+])("cancels a stream body where %s makes it refuse the put", async (_name, key, options) => {
+  let canceled = false;
+  const body = new ReadableStream<Uint8Array>({
+    cancel() {
+      canceled = true;
+    },
+  });
+
+  await storageErrorOf(memoryStorage().put(key, body, options));
+
+  expect(canceled).toBe(true);
 });
 
 test("stores nothing and reads no body where the key of a put is invalid", async () => {

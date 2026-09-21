@@ -14,7 +14,7 @@ import type {
   StoredObject,
 } from "@stowage/core";
 
-import { readBody } from "./bytes.ts";
+import { cancelBody, readBody } from "./bytes.ts";
 import { etagOf } from "./etag.ts";
 import { keyError, requireKey } from "./key.ts";
 import { createListing } from "./listing.ts";
@@ -64,10 +64,7 @@ class InMemoryStorage implements MemoryStorage {
   readonly #objects = new Map<string, MemoryObject>();
 
   async put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat> {
-    requireKey(key, "writable", "put");
-    requireKnownOptions(options, putOptionKeys, "put");
-
-    const userMetadata = readUserMetadata(options?.userMetadata, key);
+    const userMetadata = await this.#accept(key, body, options);
     const bytes = await readBody(body, options?.signal);
     const object: MemoryObject = {
       key,
@@ -81,6 +78,28 @@ class InMemoryStorage implements MemoryStorage {
     this.#objects.set(key, object);
 
     return describe(object);
+  }
+
+  /**
+   * What `put` checks in front of the body, answering with the metadata to hold. Spec 4.2
+   * leaves a stream at its end or canceled once `put` settled, so a refusal here cancels
+   * the body it is not going to read.
+   */
+  async #accept(
+    key: string,
+    body: PutBody,
+    options?: PutOptions,
+  ): Promise<Readonly<Record<string, string>>> {
+    try {
+      requireKey(key, "writable", "put");
+      requireKnownOptions(options, putOptionKeys, "put");
+
+      return readUserMetadata(options?.userMetadata, key);
+    } catch (refusal) {
+      await cancelBody(body, refusal);
+
+      throw refusal;
+    }
   }
 
   async get(key: string, options?: GetOptions): Promise<StoredObject> {
