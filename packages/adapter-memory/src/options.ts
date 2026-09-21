@@ -1,13 +1,27 @@
+import type { StorageError } from "@stowage/core";
+
 import { memoryError } from "./storage-error.ts";
 
-export const operationOptionKeys = ["signal"] as const;
-export const putOptionKeys = ["signal", "contentType", "userMetadata"] as const;
-export const getOptionKeys = ["signal", "range"] as const;
-export const listOptionKeys = ["signal", "prefix", "delimiter", "pageSize", "cursor"] as const;
+// `isolatedDeclarations` refuses a spread in an exported array, so the lists carry an
+// annotation rather than the tuple type `as const` would infer.
+export const operationOptionKeys: readonly string[] = ["signal"];
+export const putOptionKeys: readonly string[] = [
+  ...operationOptionKeys,
+  "contentType",
+  "userMetadata",
+];
+export const getOptionKeys: readonly string[] = [...operationOptionKeys, "range"];
+export const listOptionKeys: readonly string[] = [
+  ...operationOptionKeys,
+  "prefix",
+  "delimiter",
+  "pageSize",
+  "cursor",
+];
 
 /**
- * Refuses an option key the spec does not list, naming the key and never its value
- * (spec 4.3). TypeScript catches one at the call site; this catches the rest.
+ * Refuses an option key the spec does not list (spec 4.3). TypeScript catches one at the
+ * call site; this catches the rest.
  */
 export function requireKnownOptions(
   options: object | undefined,
@@ -19,11 +33,16 @@ export function requireKnownOptions(
   for (const key of Object.keys(options)) {
     if (known.includes(key)) continue;
 
-    throw memoryError({
-      code: "InvalidOption",
-      message: `The option \`${key}\` is not one this storage takes`,
-      operation,
-      attempts: 0,
-    });
+    throw optionError(key, "is not one this storage takes", operation);
   }
+}
+
+// The message names the option and never the value it refused (spec 4.3).
+export function optionError(option: string, expectation: string, operation: string): StorageError {
+  return memoryError({
+    code: "InvalidOption",
+    message: `The option \`${option}\` ${expectation}`,
+    operation,
+    attempts: 0,
+  });
 }

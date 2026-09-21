@@ -1,5 +1,6 @@
 import type { ByteRange } from "@stowage/core";
 
+import { optionError } from "./options.ts";
 import { memoryError } from "./storage-error.ts";
 
 /** Refuses bounds the spec does not allow, before the key is looked up (spec 4.3). */
@@ -9,12 +10,11 @@ export function requireRange(range: ByteRange | undefined): void {
   const { start, end } = range;
 
   if (!isOffset(start) || (end !== undefined && (!isOffset(end) || end < start))) {
-    throw memoryError({
-      code: "InvalidOption",
-      message: "The option `range` takes two whole numbers from zero up, `start` at most `end`",
-      operation: "get",
-      attempts: 0,
-    });
+    throw optionError(
+      "range",
+      "takes two whole numbers from zero up, `start` at most `end`",
+      "get",
+    );
   }
 }
 
@@ -27,7 +27,8 @@ export function sliceRange(
   if (range === undefined) return bytes;
 
   // A provider answers `416` for a range that starts past the object, so the refusal
-  // belongs to the request rather than to the option (spec 4.3).
+  // belongs to the request rather than to the option (spec 4.3), and it costs the lookup
+  // that found the object, as a `NotFound` costs the one that did not.
   if (range.start >= bytes.byteLength) {
     throw memoryError({
       code: "InvalidRequest",

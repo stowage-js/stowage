@@ -1,15 +1,8 @@
-import type {
-  ListOptions,
-  ListPage,
-  ObjectEntry,
-  ObjectListing,
-  StorageError,
-} from "@stowage/core";
+import type { ListOptions, ListPage, ObjectEntry, ObjectListing } from "@stowage/core";
 
 import { decodeCursor, encodeCursor } from "./cursor.ts";
 import { requireKey } from "./key.ts";
-import { listOptionKeys, requireKnownOptions } from "./options.ts";
-import { memoryError } from "./storage-error.ts";
+import { listOptionKeys, optionError, requireKnownOptions } from "./options.ts";
 
 const defaultPageSize = 1000;
 const maxPageSize = 1000;
@@ -78,15 +71,17 @@ function read(options: ListOptions | undefined): ListRequest {
   const pageSize = options?.pageSize ?? defaultPageSize;
 
   if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > maxPageSize) {
-    throw optionError("pageSize", `takes a whole number from 1 to ${maxPageSize}`);
+    throw optionError("pageSize", `takes a whole number from 1 to ${maxPageSize}`, "list");
   }
 
-  if (options?.delimiter === "") throw optionError("delimiter", "takes at least one character");
+  if (options?.delimiter === "") {
+    throw optionError("delimiter", "takes at least one character", "list");
+  }
 
   const after = options?.cursor === undefined ? undefined : decodeCursor(options.cursor);
 
   if (options?.cursor !== undefined && after === undefined) {
-    throw optionError("cursor", "takes a cursor this storage handed out");
+    throw optionError("cursor", "takes a cursor this storage handed out", "list");
   }
 
   return { prefix, delimiter: options?.delimiter, pageSize, after };
@@ -130,14 +125,4 @@ function pseudoDirectoryOf(key: string, { prefix, delimiter }: ListRequest): str
   const end = key.indexOf(delimiter, prefix.length);
 
   return end === -1 ? undefined : key.slice(0, end + delimiter.length);
-}
-
-// The message names the option and never the value it refused (spec 4.3).
-function optionError(option: string, expectation: string): StorageError {
-  return memoryError({
-    code: "InvalidOption",
-    message: `The option \`${option}\` ${expectation}`,
-    operation: "list",
-    attempts: 0,
-  });
 }
