@@ -1,3 +1,5 @@
+import type { StorageError } from "@stowage/core";
+
 import { memoryError } from "./storage-error.ts";
 
 /** Spec 4.3 bounds the set at 2 KB of the header bytes it costs once it is encoded. */
@@ -7,7 +9,7 @@ const headerByteLimit = 2048;
 const httpToken = /^[!#$%&'*+.^_`|~\dA-Za-z-]+$/;
 
 /** What travels in a header field as it stands, so it costs one byte per character. */
-const bareValue = /^[\x20-\x7e]*$/;
+const printableAscii = /^[\x20-\x7e]*$/;
 
 /** `=?UTF-8?B?` and the `?=` that closes it. */
 const encodedWordOverhead = 12;
@@ -27,7 +29,7 @@ export function readUserMetadata(
 
   for (const [name, value] of Object.entries(userMetadata ?? {})) {
     if (!httpToken.test(name)) {
-      throw refusal(`The metadata key ${JSON.stringify(name)} is no ASCII HTTP token`, key);
+      throw refusal(`The user metadata key ${JSON.stringify(name)} is no ASCII HTTP token`, key);
     }
 
     const folded = name.toLowerCase();
@@ -35,7 +37,7 @@ export function readUserMetadata(
     // Folding two keys into one would drop a value the caller handed over, and a write
     // that succeeds while losing what it carried is the failure a caller never sees.
     if (folded in held) {
-      throw refusal(`The metadata key ${JSON.stringify(folded)} is given more than once`, key);
+      throw refusal(`The user metadata key ${JSON.stringify(folded)} is given more than once`, key);
     }
 
     held[folded] = value;
@@ -44,7 +46,7 @@ export function readUserMetadata(
 
   if (headerBytes > headerByteLimit) {
     throw refusal(
-      `The metadata is ${headerBytes} encoded header bytes, above the limit of ${headerByteLimit}`,
+      `The user metadata is ${headerBytes} encoded header bytes, above the limit of ${headerByteLimit}`,
       key,
     );
   }
@@ -55,11 +57,11 @@ export function readUserMetadata(
 // A value above ASCII reaches the provider as an RFC 2047 encoded word, so it costs the
 // base64 of its UTF-8 bytes rather than those bytes (spec 4.3).
 function encodedValueBytes(value: string): number {
-  if (bareValue.test(value)) return value.length;
+  if (printableAscii.test(value)) return value.length;
 
   return encodedWordOverhead + 4 * Math.ceil(utf8.encode(value).length / 3);
 }
 
-function refusal(message: string, key: string): Error {
+function refusal(message: string, key: string): StorageError {
   return memoryError({ code: "InvalidRequest", message, operation: "put", key, attempts: 0 });
 }
