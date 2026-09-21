@@ -45,6 +45,11 @@ per adapter, and R2 speaking S3's wire protocol makes that key a question of its
   for every call the core describes.
 - `get` produces the object's description from the same response as its body. S3 sends it in the
   `GET` headers; `adapter-fs` stats the handle it already opened.
+- `put` takes a `Uint8Array`, a string or a `ReadableStream<Uint8Array>`, and reports no progress.
+  Both follow from the closed interface: a body type is one every adapter has to accept, and a
+  progress option would be one every adapter has to honour for a number the caller can count in a
+  `TransformStream` of its own. ADR 0016 gives the reasons and keeps the multipart upload it needs
+  them for inside the adapter.
 - A delimiter shapes a page rather than the iteration. Iterating yields objects alone, which with
   a delimiter is the objects at that level; the pseudo-directories below the prefix reach the
   caller through `page()`.

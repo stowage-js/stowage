@@ -98,9 +98,11 @@ a conformance suite that can only match on a message is the most fragile suite t
 - A compound operation throws the error of the step that failed and names the whole operation in
   `operation`. `move` leaves the destination in place when the delete fails, because deleting it
   could destroy an object the copy overwrote, and repeating the `move` from that state is safe.
-- A multipart upload aborts itself on failure. If the abort fails too, the parts stay and the
-  provider charges for them, and v0.1 says so rather than working around it: the remedy is a
-  lifecycle rule for incomplete uploads on the bucket.
+- A multipart upload aborts itself on failure and on the caller's abort, which is the one request
+  that cannot carry the signal that just fired. The exception is a `CompleteMultipartUpload` left
+  without an answer, where a commit may still be travelling and ADR 0016 sends no abort. If an
+  abort fails too, the parts stay and the provider charges for them, and v0.1 says so rather than
+  working around it: the remedy is a lifecycle rule for incomplete uploads on the bucket.
 - `retryable` states that the condition is transient, not that stowage will try again. An error can
   arrive with `retryable` set and its retries already spent, and a failure in a stream that cannot
   be replayed arrives without having been retried at all. `attempts` counts the requests that went
