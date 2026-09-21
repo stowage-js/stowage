@@ -17,6 +17,7 @@ export interface ObjectEntry {
 
 export interface ObjectStat extends ObjectEntry {
   readonly contentType: string;
+  readonly userMetadata: Readonly<Record<string, string>>;
 }
 
 export interface StoredObject {

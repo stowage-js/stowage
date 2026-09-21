@@ -115,7 +115,7 @@ test("parses the body as JSON", async () => {
   expect(await stored.json()).toEqual({ greeting: "hello" });
 });
 
-test("reports a body that is no JSON as the runtime does", async () => {
+test("reports a body that is not JSON as the runtime does", async () => {
   const storage = memoryStorage();
   await storage.put("document", "not json");
 
@@ -172,12 +172,13 @@ test("answers `false` for an absent key", async () => {
   expect(await memoryStorage().exists("absent")).toBe(false);
 });
 
-test("stores an unnamed content type as a sequence of bytes", async () => {
+test("gives an object put without a content type the default one", async () => {
   const storage = memoryStorage();
 
   const stat = await storage.put("greeting", "hello");
 
   expect(stat.contentType).toBe("application/octet-stream");
+  expect(stat.userMetadata).toEqual({});
 });
 
 test("replaces the bytes and the content type under a key that is taken", async () => {
@@ -237,6 +238,44 @@ test("stores nothing under a signal that has already fired", async () => {
 
   expect(error).toHaveProperty("name", "AbortError");
   expect(isStorageError(error)).toBe(false);
+  expect(await storage.exists("greeting")).toBe(false);
+});
+
+test("cancels a stream body it refuses to read", async () => {
+  let canceled = false;
+  const body = new ReadableStream<Uint8Array>({
+    cancel() {
+      canceled = true;
+    },
+  });
+
+  const error = await rejection(
+    memoryStorage().put("greeting", body, { signal: AbortSignal.abort() }),
+  );
+
+  expect(error).toHaveProperty("name", "AbortError");
+  expect(canceled).toBe(true);
+});
+
+test("cancels a stream body the signal interrupts", async () => {
+  const storage = memoryStorage();
+  const aborter = new AbortController();
+  let canceled = false;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode("hel"));
+    },
+    cancel() {
+      canceled = true;
+    },
+  });
+
+  const put = storage.put("greeting", body, { signal: aborter.signal });
+  aborter.abort();
+  const error = await rejection(put);
+
+  expect(error).toHaveProperty("name", "AbortError");
+  expect(canceled).toBe(true);
   expect(await storage.exists("greeting")).toBe(false);
 });
 

@@ -7,8 +7,9 @@ import type {
   StoredObject,
 } from "@stowage/core";
 
-import { readBody, sha256Hex } from "./bytes.ts";
-import { memoryError, memoryName } from "./storage-error.ts";
+import { readBody } from "./bytes.ts";
+import { etagOf } from "./etag.ts";
+import { memoryError } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
 
 export interface MemoryStorage extends Storage {
@@ -21,7 +22,8 @@ export function memoryStorage(): MemoryStorage {
 
 const defaultContentType = "application/octet-stream";
 
-interface StoredEntry {
+interface MemoryObject {
+  readonly key: string;
   readonly bytes: Uint8Array<ArrayBuffer>;
   readonly contentType: string;
   readonly etag: string;
@@ -29,39 +31,38 @@ interface StoredEntry {
 }
 
 class InMemoryStorage implements MemoryStorage {
-  readonly provider: "memory" = memoryName;
-  readonly bucket: string = memoryName;
+  readonly provider = "memory" as const;
+  readonly bucket: string = "memory";
 
-  readonly #objects = new Map<string, StoredEntry>();
+  readonly #objects = new Map<string, MemoryObject>();
 
   async put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat> {
-    options?.signal?.throwIfAborted();
-
     const bytes = await readBody(body, options?.signal);
-    const entry: StoredEntry = {
+    const object: MemoryObject = {
+      key,
       bytes,
       contentType: options?.contentType ?? defaultContentType,
-      etag: await sha256Hex(bytes),
+      etag: await etagOf(bytes),
       lastModified: new Date(),
     };
 
-    this.#objects.set(key, entry);
+    this.#objects.set(key, object);
 
-    return describe(key, entry);
+    return describe(object);
   }
 
   async get(key: string, options?: OperationOptions): Promise<StoredObject> {
     options?.signal?.throwIfAborted();
 
-    const entry = this.#require(key, "get");
+    const object = this.#require(key, "get");
 
-    return createStoredObject(describe(key, entry), entry.bytes);
+    return createStoredObject(describe(object), object.bytes);
   }
 
   async stat(key: string, options?: OperationOptions): Promise<ObjectStat> {
     options?.signal?.throwIfAborted();
 
-    return describe(key, this.#require(key, "stat"));
+    return describe(this.#require(key, "stat"));
   }
 
   async exists(key: string, options?: OperationOptions): Promise<boolean> {
@@ -70,10 +71,10 @@ class InMemoryStorage implements MemoryStorage {
     return this.#objects.has(key);
   }
 
-  #require(key: string, operation: string): StoredEntry {
-    const entry = this.#objects.get(key);
+  #require(key: string, operation: string): MemoryObject {
+    const object = this.#objects.get(key);
 
-    if (entry === undefined) {
+    if (object === undefined) {
       throw memoryError({
         code: "NotFound",
         message: `No object under the key ${JSON.stringify(key)}`,
@@ -83,16 +84,17 @@ class InMemoryStorage implements MemoryStorage {
       });
     }
 
-    return entry;
+    return object;
   }
 }
 
-function describe(key: string, entry: StoredEntry): ObjectStat {
+function describe(object: MemoryObject): ObjectStat {
   return {
-    key,
-    size: entry.bytes.byteLength,
-    lastModified: new Date(entry.lastModified),
-    etag: entry.etag,
-    contentType: entry.contentType,
+    key: object.key,
+    size: object.bytes.byteLength,
+    lastModified: new Date(object.lastModified),
+    etag: object.etag,
+    contentType: object.contentType,
+    userMetadata: {},
   };
 }

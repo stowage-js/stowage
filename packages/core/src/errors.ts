@@ -47,7 +47,7 @@ export class StorageError extends Error {
   readonly capability?: CapabilityName;
 
   constructor(fields: StorageErrorFields) {
-    super(fields.message, { cause: fields.cause });
+    super(fields.message);
 
     if (fields.code === "Unsupported" && fields.capability === undefined) {
       throw new TypeError("An `Unsupported` storage error names the capability it needs");
@@ -65,6 +65,8 @@ export class StorageError extends Error {
     this.providerCode = fields.providerCode;
     this.requestId = fields.requestId;
     this.capability = fields.capability;
+
+    if (fields.cause !== undefined) this.cause = fields.cause;
 
     Object.defineProperty(this, storageErrorBrand, { value: true });
   }

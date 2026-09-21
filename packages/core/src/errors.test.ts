@@ -55,7 +55,7 @@ test("leaves out what it was not told", () => {
   expect(error.providerCode).toBeUndefined();
   expect(error.requestId).toBeUndefined();
   expect(error.capability).toBeUndefined();
-  expect(error.cause).toBeUndefined();
+  expect("cause" in error).toBe(false);
 });
 
 test("reports a condition as permanent unless it was told otherwise", () => {

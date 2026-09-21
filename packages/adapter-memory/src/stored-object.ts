@@ -54,7 +54,6 @@ export function createStoredObject(stat: ObjectStat, bytes: Uint8Array<ArrayBuff
       return decoder.decode(take());
     },
 
-    // The caller names the type it expects, as `JSON.parse` lets it.
     async json<T = unknown>(): Promise<T> {
       return JSON.parse(decoder.decode(take()));
     },
