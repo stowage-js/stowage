@@ -9,6 +9,7 @@ export interface OperationOptions {
 
 export interface PutOptions extends OperationOptions {
   contentType?: string;
+  userMetadata?: Record<string, string>;
 }
 
 /** Both ends inclusive; `end` absent means to the end of the object. */

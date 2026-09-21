@@ -316,6 +316,126 @@ test("replaces the bytes and the content type under a key that is taken", async 
   expect(stored.stat.contentType).toBe("text/markdown");
 });
 
+test("carries user metadata through put, stat and get", async () => {
+  const storage = memoryStorage();
+
+  const written = await storage.put("greeting", "hello", {
+    userMetadata: { "Written-By": "stowage", locale: "de-AT" },
+  });
+
+  // A metadata key is a header field name, so it is held folded to lower case and two
+  // keys differing in case alone are one key (spec 4.3).
+  expect(written.userMetadata).toEqual({ "written-by": "stowage", locale: "de-AT" });
+  expect((await storage.stat("greeting")).userMetadata).toEqual(written.userMetadata);
+  expect((await storage.get("greeting")).stat.userMetadata).toEqual(written.userMetadata);
+});
+
+test("holds a metadata value of any Unicode", async () => {
+  const storage = memoryStorage();
+
+  const written = await storage.put("greeting", "hello", {
+    userMetadata: { greeting: "grüße 日本語" },
+  });
+
+  expect(written.userMetadata["greeting"]).toBe("grüße 日本語");
+});
+
+test("replaces the metadata under a key that is taken", async () => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello", { userMetadata: { locale: "de-AT" } });
+
+  await storage.put("greeting", "servus", { userMetadata: {} });
+
+  expect((await storage.stat("greeting")).userMetadata).toEqual({});
+});
+
+test("copies the metadata it was handed", async () => {
+  const storage = memoryStorage();
+  const userMetadata = { locale: "de-AT" };
+
+  await storage.put("greeting", "hello", { userMetadata });
+  userMetadata.locale = "de-DE";
+
+  expect((await storage.stat("greeting")).userMetadata).toEqual({ locale: "de-AT" });
+});
+
+test.each(["copy", "move"] as const)(
+  "carries the metadata of the source through %s",
+  async (operation) => {
+    const storage = memoryStorage();
+    await storage.put("greeting", "hello", { userMetadata: { locale: "de-AT" } });
+
+    const destination = await storage[operation]("greeting", "servus");
+
+    expect(destination.userMetadata).toEqual({ locale: "de-AT" });
+  },
+);
+
+test.each([
+  ["a space", "written by"],
+  ["a colon", "written:by"],
+  ["a slash", "written/by"],
+  ["a question mark", "written?by"],
+  ["a bracket", "written[by]"],
+  ["a control character", "writtenby"],
+  ["a character above ASCII", "grüße"],
+  ["nothing", ""],
+])("refuses a metadata key holding %s", async (_name, key) => {
+  const storage = memoryStorage();
+
+  const error = await storageErrorOf(
+    storage.put("greeting", "hello", { userMetadata: { [key]: "stowage" } }),
+  );
+
+  expect(error.code).toBe("InvalidRequest");
+  expect(error.attempts).toBe(0);
+  expect(error.message).not.toContain("stowage");
+  expect(await storage.exists("greeting")).toBe(false);
+});
+
+test("refuses two metadata keys that differ in case alone", async () => {
+  const storage = memoryStorage();
+
+  const error = await storageErrorOf(
+    storage.put("greeting", "hello", { userMetadata: { Locale: "de-AT", locale: "de-DE" } }),
+  );
+
+  expect(error.code).toBe("InvalidRequest");
+  expect(error.attempts).toBe(0);
+});
+
+test("takes a metadata set of two kilobytes of encoded header bytes", async () => {
+  const storage = memoryStorage();
+
+  const written = await storage.put("greeting", "hello", {
+    userMetadata: { note: "a".repeat(2044) },
+  });
+
+  expect(written.userMetadata["note"]).toHaveLength(2044);
+});
+
+test("refuses a metadata set above two kilobytes of encoded header bytes", async () => {
+  const storage = memoryStorage();
+
+  const error = await storageErrorOf(
+    storage.put("greeting", "hello", { userMetadata: { note: "a".repeat(2045) } }),
+  );
+
+  expect(error.code).toBe("InvalidRequest");
+  expect(error.attempts).toBe(0);
+  expect(await storage.exists("greeting")).toBe(false);
+});
+
+test("counts a metadata value above ASCII as the bytes its encoding costs", async () => {
+  const storage = memoryStorage();
+  // 1600 UTF-8 bytes, which fit under the limit until RFC 2047 encodes them to 2136.
+  const userMetadata = { note: "ü".repeat(800) };
+
+  const error = await storageErrorOf(storage.put("greeting", "hello", { userMetadata }));
+
+  expect(error.code).toBe("InvalidRequest");
+});
+
 test("copies the bytes it was handed", async () => {
   const storage = memoryStorage();
   const body = new Uint8Array([1, 2, 3]);

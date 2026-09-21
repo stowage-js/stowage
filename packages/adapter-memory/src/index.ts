@@ -21,6 +21,7 @@ import { createListing } from "./listing.ts";
 import { requireRange, sliceRange } from "./range.ts";
 import { memoryError } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
+import { readUserMetadata } from "./user-metadata.ts";
 
 export interface MemoryStorage extends Storage {
   readonly provider: "memory";
@@ -44,6 +45,7 @@ interface MemoryObject {
   readonly key: string;
   readonly bytes: Uint8Array<ArrayBuffer>;
   readonly contentType: string;
+  readonly userMetadata: Readonly<Record<string, string>>;
   readonly etag: string;
   readonly lastModified: Date;
 }
@@ -58,11 +60,13 @@ class InMemoryStorage implements MemoryStorage {
   async put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat> {
     requireKey(key, "writable", "put");
 
+    const userMetadata = readUserMetadata(options?.userMetadata, key);
     const bytes = await readBody(body, options?.signal);
     const object: MemoryObject = {
       key,
       bytes,
       contentType: options?.contentType ?? defaultContentType,
+      userMetadata,
       etag: await etagOf(bytes),
       lastModified: new Date(),
     };
@@ -192,7 +196,7 @@ class InMemoryStorage implements MemoryStorage {
 }
 
 function describe(object: MemoryObject): ObjectStat {
-  return { ...entryOf(object), contentType: object.contentType, userMetadata: {} };
+  return { ...entryOf(object), contentType: object.contentType, userMetadata: object.userMetadata };
 }
 
 // What a listing yields carries neither the content type nor the user metadata, because
