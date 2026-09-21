@@ -14,6 +14,9 @@ importers:
       '@changesets/cli':
         specifier: 3.0.3
         version: 3.0.3
+      '@types/node':
+        specifier: 26.6.2
+        version: 26.6.2
       oxfmt:
         specifier: 0.70.0
         version: 0.70.0
@@ -1676,7 +1679,6 @@ snapshots:
   '@types/node@26.6.2':
     dependencies:
       undici-types: 8.9.0
-    optional: true
 
   '@typescript/typescript-aix-ppc64@7.0.2':
     optional: true
@@ -2154,8 +2156,7 @@ snapshots:
       '@quansync/fs': 1.1.0
       quansync: 1.0.0
 
-  undici-types@8.9.0:
-    optional: true
+  undici-types@8.9.0: {}
 
   validate-npm-package-name@5.0.1: {}
 
