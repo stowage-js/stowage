@@ -11,6 +11,16 @@ export interface PutOptions extends OperationOptions {
   contentType?: string;
 }
 
+/** Both ends inclusive; `end` absent means to the end of the object. */
+export interface ByteRange {
+  start: number;
+  end?: number;
+}
+
+export interface GetOptions extends OperationOptions {
+  range?: ByteRange;
+}
+
 export interface ListOptions extends OperationOptions {
   prefix?: string;
   delimiter?: string;
@@ -60,7 +70,7 @@ export interface Storage {
   readonly capabilities: readonly CapabilityName[];
 
   put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat>;
-  get(key: string, options?: OperationOptions): Promise<StoredObject>;
+  get(key: string, options?: GetOptions): Promise<StoredObject>;
   stat(key: string, options?: OperationOptions): Promise<ObjectStat>;
   exists(key: string, options?: OperationOptions): Promise<boolean>;
   list(options?: ListOptions): ObjectListing;

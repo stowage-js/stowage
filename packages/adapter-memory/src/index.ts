@@ -1,6 +1,7 @@
 import type {
   CapabilityName,
   DeleteReport,
+  GetOptions,
   ListOptions,
   ObjectEntry,
   ObjectListing,
@@ -17,6 +18,7 @@ import { readBody } from "./bytes.ts";
 import { etagOf } from "./etag.ts";
 import { keyError, requireKey } from "./key.ts";
 import { createListing } from "./listing.ts";
+import { requireRange, sliceRange } from "./range.ts";
 import { memoryError } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
 
@@ -70,14 +72,15 @@ class InMemoryStorage implements MemoryStorage {
     return describe(object);
   }
 
-  async get(key: string, options?: OperationOptions): Promise<StoredObject> {
+  async get(key: string, options?: GetOptions): Promise<StoredObject> {
     requireKey(key, "addressable", "get");
+    requireRange(options?.range);
 
     options?.signal?.throwIfAborted();
 
     const object = this.#require(key, "get");
 
-    return createStoredObject(describe(object), object.bytes);
+    return createStoredObject(describe(object), sliceRange(object.bytes, options?.range, key));
   }
 
   async stat(key: string, options?: OperationOptions): Promise<ObjectStat> {

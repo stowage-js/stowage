@@ -211,6 +211,68 @@ test.each([
   expect(error.code).toBe("InvalidRequest");
 });
 
+test("reads the range it was given, both ends inclusive", async () => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello");
+
+  const stored = await storage.get("greeting", { range: { start: 1, end: 3 } });
+
+  expect(await stored.text()).toBe("ell");
+  // The description stays the whole object's, which is what a caller pages through a
+  // large object against (spec 4.4).
+  expect(stored.stat.size).toBe(5);
+  expect(stored.stat.etag).toBe(helloDigest);
+});
+
+test("reads to the end of the object where the range names no end", async () => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello");
+
+  expect(await (await storage.get("greeting", { range: { start: 3 } })).text()).toBe("lo");
+});
+
+test("clips a range that ends beyond the object", async () => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello");
+
+  expect(await (await storage.get("greeting", { range: { start: 3, end: 99 } })).text()).toBe("lo");
+});
+
+test("refuses a range starting at the size of the object", async () => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello");
+
+  const error = await storageErrorOf(storage.get("greeting", { range: { start: 5 } }));
+
+  expect(error.code).toBe("InvalidRequest");
+  expect(error.key).toBe("greeting");
+  expect(error.operation).toBe("get");
+});
+
+test.each([
+  ["a start above the end", { start: 3, end: 1 }],
+  ["a negative start", { start: -1 }],
+  ["a fractional start", { start: 1.5 }],
+  ["a negative end", { start: 0, end: -1 }],
+  ["a fractional end", { start: 0, end: 1.5 }],
+])("refuses a range with %s", async (_name, range) => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello");
+
+  const error = await storageErrorOf(storage.get("greeting", { range }));
+
+  expect(error.code).toBe("InvalidOption");
+  expect(error.message).toContain("range");
+  expect(error.attempts).toBe(0);
+});
+
+test("refuses the bounds of a range before it looks the key up", async () => {
+  const error = await storageErrorOf(memoryStorage().get("absent", { range: { start: -4096 } }));
+
+  expect(error.code).toBe("InvalidOption");
+  expect(error.message).not.toContain("4096");
+});
+
 test("answers for a key that is there", async () => {
   const storage = memoryStorage();
   await storage.put("greeting", "hello");
