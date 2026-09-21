@@ -32,6 +32,9 @@
     "access": "public",
     "provenance": true
   },
+  "dependencies": {
+    "@stowage/core": "workspace:^"
+  },
   "engines": {
     "node": ">=24"
   }

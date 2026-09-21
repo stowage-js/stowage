@@ -1,6 +1,16 @@
-/**
- * The entry point exists before the API does, so that the build, the release and the
- * tarball of every package are proven on something that carries no promise yet. The
- * surface `docs/spec.md` describes replaces this export.
- */
-export const packageName = "@stowage/core";
+export { type CapabilityName, capabilityNames } from "./capabilities.ts";
+export {
+  isStorageError,
+  StorageError,
+  type StorageErrorCode,
+  type StorageErrorFields,
+} from "./errors.ts";
+export type {
+  ObjectEntry,
+  ObjectStat,
+  OperationOptions,
+  PutBody,
+  PutOptions,
+  Storage,
+  StoredObject,
+} from "./storage.ts";
