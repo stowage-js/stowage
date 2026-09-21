@@ -1,0 +1,14 @@
+packages:
+  - packages/*
+  - harness/*
+
+# ADR 0008: the nested tree is what keeps the zero-dependency promise checkable.
+# Under a flat tree a package can import a hoisted development dependency and the
+# build still passes.
+hoist: false
+strictPeerDependencies: true
+
+# Minutes: a day, which `renovate.json` repeats so that Renovate does not propose
+# what an install then refuses.
+minimumReleaseAge: 1440
+minimumReleaseAgeStrict: true

@@ -1,0 +1,38 @@
+{
+  "name": "@stowage/conformance",
+  "version": "0.0.0",
+  "description": "The cases every stowage adapter has to pass, as plain cases a test framework maps onto its own runner.",
+  "keywords": [
+    "adapter",
+    "conformance",
+    "object-storage",
+    "storage",
+    "stowage",
+    "testing"
+  ],
+  "homepage": "https://github.com/stowage-js/stowage/tree/main/packages/conformance#readme",
+  "bugs": "https://github.com/stowage-js/stowage/issues",
+  "license": "MIT",
+  "author": "Alexander Kaufmann",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stowage-js/stowage.git",
+    "directory": "packages/conformance"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

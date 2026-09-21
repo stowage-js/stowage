@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    // The repository's own checks run on Node; `tsconfig.base.json` leaves the
+    // packages without them, so nothing in a published source reaches a Node global.
+    "types": ["node"]
+  },
+  "include": ["packages/*/src/**/*.ts", "test/**/*.ts", "tsdown.config.ts", "vitest.config.ts"]
+}

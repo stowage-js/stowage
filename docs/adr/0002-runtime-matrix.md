@@ -14,12 +14,12 @@ for flow 1: the matrix promises less than the runtime can do, never more.
 
 |                                            | Node                 | Bun                  | Deno                 | `workerd`      |
 | ------------------------------------------ | -------------------- | -------------------- | -------------------- | -------------- |
-| 1 large upload from a server                | yes                  | yes                  | yes                  | no             |
-| 2 browser upload through a presigned `PUT`  | yes                  | yes                  | yes                  | yes            |
-| 3 file browser listing one prefix           | yes                  | yes                  | yes                  | yes            |
-| 4 streaming download from an edge runtime   | yes                  | yes                  | yes                  | yes            |
-| 5 move a prefix from the file system to S3  | yes                  | yes                  | yes                  | no             |
-| adapters covered in CI                      | `memory`, `fs`, `s3` | `memory`, `fs`, `s3` | `memory`, `fs`, `s3` | `memory`, `s3` |
+| 1 large upload from a server               | yes                  | yes                  | yes                  | no             |
+| 2 browser upload through a presigned `PUT` | yes                  | yes                  | yes                  | yes            |
+| 3 file browser listing one prefix          | yes                  | yes                  | yes                  | yes            |
+| 4 streaming download from an edge runtime  | yes                  | yes                  | yes                  | yes            |
+| 5 move a prefix from the file system to S3 | yes                  | yes                  | yes                  | no             |
+| adapters covered in CI                     | `memory`, `fs`, `s3` | `memory`, `fs`, `s3` | `memory`, `fs`, `s3` | `memory`, `s3` |
 
 ## Consequences
 

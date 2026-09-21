@@ -1,0 +1,38 @@
+{
+  "name": "@stowage/adapter-memory",
+  "version": "0.0.0",
+  "description": "stowage adapter holding a storage in process memory, and the implementation a third-party adapter is read against.",
+  "keywords": [
+    "adapter",
+    "memory",
+    "object-storage",
+    "storage",
+    "stowage",
+    "testing"
+  ],
+  "homepage": "https://github.com/stowage-js/stowage/tree/main/packages/adapter-memory#readme",
+  "bugs": "https://github.com/stowage-js/stowage/issues",
+  "license": "MIT",
+  "author": "Alexander Kaufmann",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stowage-js/stowage.git",
+    "directory": "packages/adapter-memory"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

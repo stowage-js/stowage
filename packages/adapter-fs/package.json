@@ -1,0 +1,38 @@
+{
+  "name": "@stowage/adapter-fs",
+  "version": "0.0.0",
+  "description": "stowage adapter rooting a storage in one directory of the local file system.",
+  "keywords": [
+    "adapter",
+    "filesystem",
+    "fs",
+    "object-storage",
+    "storage",
+    "stowage"
+  ],
+  "homepage": "https://github.com/stowage-js/stowage/tree/main/packages/adapter-fs#readme",
+  "bugs": "https://github.com/stowage-js/stowage/issues",
+  "license": "MIT",
+  "author": "Alexander Kaufmann",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stowage-js/stowage.git",
+    "directory": "packages/adapter-fs"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
