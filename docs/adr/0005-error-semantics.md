@@ -76,6 +76,13 @@ a conformance suite that can only match on a message is the most fragile suite t
   new code is a minor release.
 - `stat` on a missing key cannot say whether the bucket exists, and `get` on the same key can. The
   conformance suite asserts the code, which both operations can keep, and not the detail below it.
+- A failure stowage raises before the first request — an invalid key, an unknown option, an empty
+  credential field — carries `attempts: 0`. That is what lets the conformance suite assert that no
+  request went out without an inspection entry point on the adapter.
+- `RequestTimeTooSkewed` is `InvalidRequest`, not `Expired`, although a wrong clock is as much the
+  caller's own bug as an expired token: ADR 0007 answers `Expired` with a repeat under `forceRefresh`,
+  and a request signed against the same clock fails the same way, which is why ADR 0013 keeps the
+  code out of the retry group as well.
 - `exists` cannot answer `false` for a key it is not allowed to see. Under credentials narrow
   enough that S3 answers `403` for absent keys, it throws rather than reporting absence.
 - A delete report identifies every per-key failure; subtracting `failed.length` from `requested`

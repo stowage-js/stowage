@@ -102,6 +102,12 @@ would pass because its calls all fail correctly.
 - `adapter-fs` fails `put` with `userMetadata`, so the reference flow that moves a prefix from
   `fs` to S3 reads no metadata to carry and the flow in the other direction loses it at the
   boundary rather than in the object.
+- The content type on `adapter-fs` is a promise kept weakly without a capability name. The
+  adapter derives the type from the key's extension on every read and stores nothing, because a
+  sidecar file was ruled out with user metadata, so `stat` may answer a type other than the one
+  `put` was given. `keyBytesPreserved` is the shape for it, and the name waits until a second
+  adapter shows the same limit; the spec states it under the adapter and the conformance case for
+  the content type uses a key whose extension agrees with it.
 - The core exports no guard the adapters call. An adapter knows without asking what it does not
   support, and a function wrapping `capabilities.includes()` would move nothing; what the core
   owns is the error, so the code, the message and the `capability` field are the same everywhere.

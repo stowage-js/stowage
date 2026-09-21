@@ -133,6 +133,11 @@ every adapter this repository did not write.
 - `adapter-memory` is not the reference implementation; the spec is. Cases are written against the
   behavior S3 shows, not against what is convenient in memory, because S3 is the side that cannot
   be changed.
+- `AccessDenied` needs a third optional factory, `createStorageWithDeniedCredentials()`: a
+  credential the provider accepts that may read the bucket and not write to it. A wrong secret and
+  an expired token both fail authentication, so neither of the other two factories can produce a
+  `403` that means the caller may not do this, and ADR 0005 counts a code the suite cannot exercise
+  as a claim the implementation does not keep.
 - There is no registry of adapters that pass, no badge and no way to mark a case as an accepted
   failure. Whoever passes says so in their own README. A declared deviation is a capability left
   undeclared, which the case's `runWithout` already covers. Where the endpoint a harness runs
