@@ -9,6 +9,7 @@ import type {
 
 import { readBody } from "./bytes.ts";
 import { etagOf } from "./etag.ts";
+import { requireKey } from "./key.ts";
 import { memoryError } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
 
@@ -37,6 +38,8 @@ class InMemoryStorage implements MemoryStorage {
   readonly #objects = new Map<string, MemoryObject>();
 
   async put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat> {
+    requireKey(key, "writable", "put");
+
     const bytes = await readBody(body, options?.signal);
     const object: MemoryObject = {
       key,
@@ -52,6 +55,8 @@ class InMemoryStorage implements MemoryStorage {
   }
 
   async get(key: string, options?: OperationOptions): Promise<StoredObject> {
+    requireKey(key, "addressable", "get");
+
     options?.signal?.throwIfAborted();
 
     const object = this.#require(key, "get");
@@ -60,12 +65,16 @@ class InMemoryStorage implements MemoryStorage {
   }
 
   async stat(key: string, options?: OperationOptions): Promise<ObjectStat> {
+    requireKey(key, "addressable", "stat");
+
     options?.signal?.throwIfAborted();
 
     return describe(this.#require(key, "stat"));
   }
 
   async exists(key: string, options?: OperationOptions): Promise<boolean> {
+    requireKey(key, "addressable", "exists");
+
     options?.signal?.throwIfAborted();
 
     return this.#objects.has(key);
