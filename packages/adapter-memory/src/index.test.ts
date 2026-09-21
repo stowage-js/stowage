@@ -87,6 +87,24 @@ test("reads a stream to its end", async () => {
   expect(await (await storage.get("greeting")).text()).toBe("hello");
 });
 
+test("copies chunks from a stream", async () => {
+  const storage = memoryStorage();
+  const chunk = new Uint8Array([1, 2, 3]);
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(chunk);
+      setTimeout(() => {
+        chunk[0] = 9;
+        controller.close();
+      });
+    },
+  });
+
+  await storage.put("bytes", body);
+
+  expect(await (await storage.get("bytes")).bytes()).toEqual(new Uint8Array([1, 2, 3]));
+});
+
 test("leaves the stream it read at its end", async () => {
   const storage = memoryStorage();
   const body = streamOf("hello");

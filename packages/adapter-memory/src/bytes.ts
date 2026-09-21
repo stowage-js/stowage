@@ -29,7 +29,7 @@ async function readStream(
   await stream.pipeTo(
     new WritableStream({
       write(chunk) {
-        chunks.push(chunk);
+        chunks.push(chunk.slice());
       },
     }),
     { signal },
