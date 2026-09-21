@@ -94,7 +94,7 @@ test("declares a published name at most once", () => {
   expect(capabilities.filter((name) => !capabilityNames.includes(name))).toEqual([]);
 });
 
-test("fixes the declaration when the storage is constructed", () => {
+test("hands out a frozen declaration", () => {
   const { capabilities } = memoryStorage();
 
   expect(Object.isFrozen(capabilities)).toBe(true);
