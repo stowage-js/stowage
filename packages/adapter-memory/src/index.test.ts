@@ -1,4 +1,5 @@
 import {
+  capabilityNames,
   isStorageError,
   type ObjectListing,
   type StorageError,
@@ -68,6 +69,27 @@ test("names the provider and the bucket it is bound to", () => {
 
   expect(storage.provider).toBe("memory");
   expect(storage.bucket).toBe("memory");
+});
+
+test("declares the capabilities it implements", () => {
+  expect(memoryStorage().capabilities.toSorted()).toEqual([
+    "keyBytesPreserved",
+    "rangeReads",
+    "userMetadata",
+  ]);
+});
+
+test("declares a published name at most once", () => {
+  const { capabilities } = memoryStorage();
+
+  expect(new Set(capabilities).size).toBe(capabilities.length);
+  expect(capabilities.filter((name) => !capabilityNames.includes(name))).toEqual([]);
+});
+
+test("fixes the declaration when the storage is constructed", () => {
+  const { capabilities } = memoryStorage();
+
+  expect(Object.isFrozen(capabilities)).toBe(true);
 });
 
 test("shares nothing with a second storage", async () => {
@@ -429,6 +451,9 @@ test("stores a key as it was given rather than in a normalized form", async () =
   expect(stat.key).toBe(composed);
   expect(await (await storage.get(composed)).text()).toBe("hello");
   expect(await (await storage.get(decomposed)).text()).toBe("servus");
+  // `keyBytesPreserved`: both keys come back as they were written, rather than in one
+  // Unicode-equivalent form (spec 4.9).
+  expect(await iterate(storage.list())).toEqual([composed, decomposed].toSorted());
 });
 
 test("stores nothing and reads no body where the key of a put is invalid", async () => {

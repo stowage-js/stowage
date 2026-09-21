@@ -1,3 +1,4 @@
+import type { CapabilityName } from "./capabilities.ts";
 import type { StorageError } from "./errors.ts";
 
 export type PutBody = Uint8Array | string | ReadableStream<Uint8Array>;
@@ -55,6 +56,8 @@ export interface DeleteReport {
 export interface Storage {
   readonly provider: string;
   readonly bucket: string;
+  /** Every capability the storage implements, each once, fixed when it was constructed. */
+  readonly capabilities: readonly CapabilityName[];
 
   put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat>;
   get(key: string, options?: OperationOptions): Promise<StoredObject>;

@@ -1,4 +1,5 @@
 import type {
+  CapabilityName,
   DeleteReport,
   ListOptions,
   ObjectEntry,
@@ -29,6 +30,14 @@ export function memoryStorage(): MemoryStorage {
 
 const defaultContentType = "application/octet-stream";
 
+// One frozen array behind every storage: the declaration is fixed once the storage is
+// constructed, and a caller reaching past the `readonly` type reaches all of them.
+const memoryCapabilities: readonly CapabilityName[] = Object.freeze([
+  "keyBytesPreserved",
+  "rangeReads",
+  "userMetadata",
+] as const);
+
 interface MemoryObject {
   readonly key: string;
   readonly bytes: Uint8Array<ArrayBuffer>;
@@ -40,6 +49,7 @@ interface MemoryObject {
 class InMemoryStorage implements MemoryStorage {
   readonly provider = "memory" as const;
   readonly bucket: string = "memory";
+  readonly capabilities: readonly CapabilityName[] = memoryCapabilities;
 
   readonly #objects = new Map<string, MemoryObject>();
 
