@@ -104,6 +104,13 @@ iteration: the pseudo-directories it produces reach the caller through a page al
 below the prefix appears once across the pages, in no promised order.
 _Avoid_: iterator, result, page
 
+**Spec**:
+`docs/spec.md`, which states what stowage promises across every published package. A caller may
+rely on what it says and on nothing else a package happens to export. It describes the version that
+is current rather than the one it was written for, so a reader follows the link their package
+carries and reaches the wording that belongs to it.
+_Avoid_: documentation, reference, contract
+
 **Parity core**:
 The operations every adapter supports alike: `put`, `get`, `stat`, `exists`, `list`, `delete`,
 `deleteAll`, `copy` and `move`. An application that stays inside the parity core changes its
