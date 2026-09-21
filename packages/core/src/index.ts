@@ -8,7 +8,10 @@ export {
 export { invalidKeyReason, type KeyRule } from "./keys.ts";
 export type {
   DeleteReport,
+  ListOptions,
+  ListPage,
   ObjectEntry,
+  ObjectListing,
   ObjectStat,
   OperationOptions,
   PutBody,

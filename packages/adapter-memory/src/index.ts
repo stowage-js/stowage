@@ -1,5 +1,8 @@
 import type {
   DeleteReport,
+  ListOptions,
+  ObjectEntry,
+  ObjectListing,
   ObjectStat,
   OperationOptions,
   PutBody,
@@ -12,6 +15,7 @@ import type {
 import { readBody } from "./bytes.ts";
 import { etagOf } from "./etag.ts";
 import { keyError, requireKey } from "./key.ts";
+import { createListing } from "./listing.ts";
 import { memoryError } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
 
@@ -82,6 +86,10 @@ class InMemoryStorage implements MemoryStorage {
     return this.#objects.has(key);
   }
 
+  list(options?: ListOptions): ObjectListing {
+    return createListing(() => this.#entries(), options);
+  }
+
   async delete(...keys: readonly string[]): Promise<DeleteReport> {
     const failed: StorageError[] = [];
 
@@ -145,6 +153,14 @@ class InMemoryStorage implements MemoryStorage {
     return describe(object);
   }
 
+  // A listing pages through one order, so the snapshot it reads is sorted by key. The
+  // order itself is not promised, and no reader may rely on it.
+  #entries(): readonly ObjectEntry[] {
+    return Array.from(this.#objects.values(), entryOf).toSorted((one, other) =>
+      one.key < other.key ? -1 : one.key > other.key ? 1 : 0,
+    );
+  }
+
   #require(key: string, operation: string): MemoryObject {
     const object = this.#objects.get(key);
 
@@ -163,12 +179,16 @@ class InMemoryStorage implements MemoryStorage {
 }
 
 function describe(object: MemoryObject): ObjectStat {
+  return { ...entryOf(object), contentType: object.contentType, userMetadata: {} };
+}
+
+// What a listing yields carries neither the content type nor the user metadata, because
+// a listing response of a provider carries neither (spec 4.4).
+function entryOf(object: MemoryObject): ObjectEntry {
   return {
     key: object.key,
     size: object.bytes.byteLength,
     lastModified: new Date(object.lastModified),
     etag: object.etag,
-    contentType: object.contentType,
-    userMetadata: {},
   };
 }

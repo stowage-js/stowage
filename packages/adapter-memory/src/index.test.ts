@@ -1,4 +1,9 @@
-import { isStorageError, type StorageError, type StoredObject } from "@stowage/core";
+import {
+  isStorageError,
+  type ObjectListing,
+  type StorageError,
+  type StoredObject,
+} from "@stowage/core";
 import { expect, test } from "vitest";
 
 import { type MemoryStorage, memoryStorage } from "./index.ts";
@@ -39,6 +44,23 @@ const storedDocument = async (): Promise<StoredObject> => {
   await storage.put("document", "{}");
 
   return await storage.get("document");
+};
+
+const storageWith = async (...keys: readonly string[]): Promise<MemoryStorage> => {
+  const storage = memoryStorage();
+
+  await Promise.all(keys.map((key) => storage.put(key, key)));
+
+  return storage;
+};
+
+/** Order is not promised, so every assertion over a whole listing sorts first. */
+const iterate = async (listing: ObjectListing): Promise<string[]> => {
+  const keys: string[] = [];
+
+  for await (const entry of listing) keys.push(entry.key);
+
+  return keys.toSorted();
 };
 
 test("names the provider and the bucket it is bound to", () => {
@@ -606,4 +628,186 @@ test("moves the object and resolves with the description of the destination", as
   expect(moved.contentType).toBe("text/plain");
   expect(await (await storage.get("greetings/formal")).text()).toBe("hello");
   expect(await storage.exists("greeting")).toBe(false);
+});
+
+test("performs nothing until the listing is read", async () => {
+  const storage = memoryStorage();
+  const listing = storage.list({ pageSize: 0 });
+
+  await storage.put("written-after-the-listing", "hello");
+
+  expect((await storage.list().page()).objects).toHaveLength(1);
+  expect((await storageErrorOf(listing.page())).code).toBe("InvalidOption");
+});
+
+test("yields every object below the prefix once", async () => {
+  const keys = Array.from({ length: 25 }, (_, index) => `deep/${index}`);
+  const storage = await storageWith(...keys, "beside");
+
+  expect(await iterate(storage.list({ prefix: "deep/", pageSize: 2 }))).toEqual(keys.toSorted());
+});
+
+test("yields an entry without a content type and without user metadata", async () => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello", { contentType: "text/plain" });
+
+  const [entry] = (await storage.list().page()).objects;
+
+  expect(entry).toEqual({
+    key: "greeting",
+    size: 5,
+    lastModified: expect.any(Date),
+    etag: helloDigest,
+  });
+});
+
+test("hands out a page and the cursor that continues from it", async () => {
+  const storage = await storageWith("n/1", "n/2", "n/3", "n/4", "n/5");
+  const sizes: number[] = [];
+  const keys: string[] = [];
+  let cursor: string | undefined;
+
+  do {
+    // oxlint-disable-next-line no-await-in-loop -- one page names the cursor of the next
+    const page = await storage.list({ pageSize: 2, cursor }).page();
+
+    sizes.push(page.objects.length);
+    keys.push(...page.objects.map((entry) => entry.key));
+    cursor = page.cursor;
+  } while (cursor !== undefined);
+
+  expect(sizes).toEqual([2, 2, 1]);
+  expect(keys.toSorted()).toEqual(["n/1", "n/2", "n/3", "n/4", "n/5"]);
+});
+
+test("continues an iteration from a cursor", async () => {
+  const storage = await storageWith("n/1", "n/2", "n/3");
+  const { objects, cursor } = await storage.list({ pageSize: 1 }).page();
+  const rest = await iterate(storage.list({ cursor }));
+
+  expect(rest).toHaveLength(2);
+  expect([...objects.map((entry) => entry.key), ...rest].toSorted()).toEqual(["n/1", "n/2", "n/3"]);
+});
+
+test("reports an empty prefix as a listing over the whole storage", async () => {
+  const storage = await storageWith("one", "two/three");
+
+  expect(await iterate(storage.list({ prefix: "" }))).toEqual(["one", "two/three"]);
+});
+
+test("takes a prefix ending in the middle of a segment", async () => {
+  const storage = await storageWith("report-2025", "report-2026", "reply");
+
+  expect(await iterate(storage.list({ prefix: "report-" }))).toEqual([
+    "report-2025",
+    "report-2026",
+  ]);
+});
+
+test("reports an empty prefix holding nothing as a complete listing", async () => {
+  const page = await memoryStorage().list({ prefix: "nothing/" }).page();
+
+  expect(page).toEqual({ objects: [], prefixes: [], cursor: undefined });
+});
+
+test("splits a delimiter's level from the pseudo-directories below it", async () => {
+  const storage = await storageWith("a/1", "a/2", "b/deep/1", "top");
+  const page = await storage.list({ delimiter: "/" }).page();
+
+  expect(page.objects.map((entry) => entry.key)).toEqual(["top"]);
+  expect(page.prefixes.toSorted()).toEqual(["a/", "b/"]);
+  expect(page.cursor).toBeUndefined();
+});
+
+test("yields the objects at the delimiter's level alone", async () => {
+  const storage = await storageWith("a/1", "a/2", "top");
+
+  expect(await iterate(storage.list({ delimiter: "/" }))).toEqual(["top"]);
+});
+
+test("counts a pseudo-directory against the page size", async () => {
+  const storage = await storageWith("a/1", "b/1", "c/1", "top");
+  const first = await storage.list({ delimiter: "/", pageSize: 2 }).page();
+  const second = await storage.list({ delimiter: "/", pageSize: 2, cursor: first.cursor }).page();
+
+  expect(first.objects).toEqual([]);
+  expect(first.prefixes).toHaveLength(2);
+  expect([...first.prefixes, ...second.prefixes].toSorted()).toEqual(["a/", "b/", "c/"]);
+  expect([...first.objects, ...second.objects].map((entry) => entry.key)).toEqual(["top"]);
+});
+
+test.each([0, 1001, 1.5])("refuses the page size %d", async (pageSize) => {
+  const error = await storageErrorOf(memoryStorage().list({ pageSize }).page());
+
+  expect(error.code).toBe("InvalidOption");
+  expect(error.message).toContain("pageSize");
+  expect(error.attempts).toBe(0);
+});
+
+test("refuses an empty delimiter", async () => {
+  const error = await storageErrorOf(memoryStorage().list({ delimiter: "" }).page());
+
+  expect(error.code).toBe("InvalidOption");
+  expect(error.message).toContain("delimiter");
+});
+
+test.each(["not a cursor", btoa("hello")])("refuses the cursor %j", async (cursor) => {
+  const error = await storageErrorOf(memoryStorage().list({ cursor }).page());
+
+  expect(error.code).toBe("InvalidOption");
+  expect(error.message).toContain("cursor");
+});
+
+test("keeps the value of a refused option out of the message", async () => {
+  const error = await storageErrorOf(memoryStorage().list({ pageSize: 4096 }).page());
+
+  expect(error.message).not.toContain("4096");
+});
+
+test("refuses a prefix that is no prefix", async () => {
+  const error = await storageErrorOf(memoryStorage().list({ prefix: "/leading" }).page());
+
+  expect(error.code).toBe("InvalidKey");
+  expect(error.operation).toBe("list");
+});
+
+test("refuses to iterate under an aborted signal", async () => {
+  const listing = memoryStorage().list({ signal: AbortSignal.abort() });
+  const error = await rejection(iterate(listing));
+
+  expect(error).toHaveProperty("name", "AbortError");
+  expect(isStorageError(error)).toBe(false);
+});
+
+test("continues from a cursor without the storage that handed it out", async () => {
+  const keys = ["n/1", "n/2", "n/3"];
+  const { objects, cursor } = await (await storageWith(...keys)).list({ pageSize: 1 }).page();
+
+  // A cursor carries its position itself, which is what lets another process continue a
+  // listing (spec 4.6); a second storage stands in for that process here.
+  const rest = await iterate((await storageWith(...keys)).list({ cursor }));
+
+  expect(rest).toHaveLength(2);
+  expect([...objects.map((entry) => entry.key), ...rest].toSorted()).toEqual(keys);
+});
+
+test("carries a key holding a lone surrogate through a cursor", async () => {
+  // Spec 4.8 rules out the control characters alone, so a lone surrogate is a key the
+  // storage holds and a cursor has to name.
+  const keys = ["lone/\uD800", "lone/\uDFFF", "pair/\u{1F600}"];
+  const storage = await storageWith(...keys);
+  const { objects, cursor } = await storage.list({ pageSize: 1 }).page();
+  const rest = await iterate(storage.list({ cursor }));
+
+  expect([...objects.map((entry) => entry.key), ...rest].toSorted()).toEqual(keys.toSorted());
+});
+
+test("holds a page to one thousand objects by default", async () => {
+  const keys = Array.from({ length: 1001 }, (_, index) => `many/${String(index).padStart(4, "0")}`);
+  const storage = await storageWith(...keys);
+  const page = await storage.list().page();
+  const rest = await iterate(storage.list({ cursor: page.cursor }));
+
+  expect(page.objects).toHaveLength(1000);
+  expect([...page.objects.map((entry) => entry.key), ...rest].toSorted()).toEqual(keys);
 });
