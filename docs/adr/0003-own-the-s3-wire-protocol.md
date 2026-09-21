@@ -43,7 +43,7 @@ positions the payload hashing decision still has to weigh.
   must have no userinfo, no query and no fragment, and anything else is `InvalidOption` naming the
   option rather than quoting its value. Without that check an endpoint carrying a credential
   reaches `fetch`, which refuses it with `TypeError: Request cannot be constructed from a URL
-  that includes credentials` — the Fetch standard requires that on every runtime — so the caller
+that includes credentials` — the Fetch standard requires that on every runtime — so the caller
   meets something that is not a `StorageError` at the first request. It is also the side door
   that ADR 0007's rule about credentials in configuration strings would otherwise leave open.
 - The signer stays a module inside `@stowage/adapter-s3`. Publishing it separately would add a

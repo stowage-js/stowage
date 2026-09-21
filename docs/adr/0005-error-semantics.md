@@ -16,9 +16,16 @@ absent, while the operation is in the stack trace anyway and travels on the erro
 
 ```ts
 type StorageErrorCode =
-  | "NotFound" | "AccessDenied" | "InvalidCredentials" | "Expired"
-  | "InvalidRequest" | "NetworkError" | "ProviderError"
-  | "InvalidKey" | "InvalidOption" | "Unsupported";
+  | "NotFound"
+  | "AccessDenied"
+  | "InvalidCredentials"
+  | "Expired"
+  | "InvalidRequest"
+  | "NetworkError"
+  | "ProviderError"
+  | "InvalidKey"
+  | "InvalidOption"
+  | "Unsupported";
 ```
 
 A code is portable in the sense that one condition carries one name in every adapter, not in the
@@ -113,5 +120,4 @@ a conformance suite that can only match on a message is the most fragile suite t
 - `retryable` states that the condition is transient, not that stowage will try again. An error can
   arrive with `retryable` set and its retries already spent, and a failure in a stream that cannot
   be replayed arrives without having been retried at all. `attempts` counts the requests that went
-  out, so those two cases are told apart. Which codes are transient, and with what backoff, is ADR
-  0013.
+  out, so those two cases are told apart. Which codes are transient, and with what backoff, is ADR 0013.

@@ -10,13 +10,13 @@ reasoning. Where a section names an ADR, that ADR holds the alternatives that we
 
 ## 1. Packages
 
-| Package                   | Contents                                                        | Runtimes                     |
-| ------------------------- | --------------------------------------------------------------- | ---------------------------- |
-| `@stowage/core`           | The types of the parity core, `StorageError`, adapter utilities | Node, Bun, Deno, `workerd`   |
-| `@stowage/adapter-memory` | A storage held in process memory                                | Node, Bun, Deno, `workerd`   |
-| `@stowage/adapter-fs`     | A storage rooted in one directory of the local file system      | Node, Bun, Deno              |
-| `@stowage/adapter-s3`     | A storage in one bucket of AWS S3 or Cloudflare R2              | Node, Bun, Deno, `workerd`   |
-| `@stowage/conformance`    | The cases every adapter has to pass                             | Node, Bun, Deno, `workerd`   |
+| Package                   | Contents                                                        | Runtimes                   |
+| ------------------------- | --------------------------------------------------------------- | -------------------------- |
+| `@stowage/core`           | The types of the parity core, `StorageError`, adapter utilities | Node, Bun, Deno, `workerd` |
+| `@stowage/adapter-memory` | A storage held in process memory                                | Node, Bun, Deno, `workerd` |
+| `@stowage/adapter-fs`     | A storage rooted in one directory of the local file system      | Node, Bun, Deno            |
+| `@stowage/adapter-s3`     | A storage in one bucket of AWS S3 or Cloudflare R2              | Node, Bun, Deno, `workerd` |
+| `@stowage/conformance`    | The cases every adapter has to pass                             | Node, Bun, Deno, `workerd` |
 
 - The five packages carry one version number and are released together (ADR 0008).
 - Every package is published as ESM only. No package has a runtime dependency outside `@stowage/*`
@@ -331,11 +331,11 @@ Every key is a string of Unicode characters measured in UTF-8 bytes. The core va
 before an adapter sends a request and never rewrites it. Which rule applies depends on whether
 stowage creates the key or only names one (ADR 0010).
 
-| Rule          | Applies to                                                                                | Requirements                                                                                                                                                                                             |
-| ------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `writable`    | `put`, the `to` of `copy` and `move`, `presignPut`                                        | 1 to 1024 bytes; no `.` or `..` as a segment; no leading `/`; no empty segment (`//`); no trailing `/`; no backslash; no character in `U+0000` to `U+001F` and no `U+007F`                              |
-| `addressable` | `get`, `stat`, `exists`, `delete`, the `from` of `copy` and `move`, `presignGet`          | At least 1 byte; no `.` or `..` as a segment; no leading `/`; no empty segment; no control character. A trailing `/`, a backslash and a length above 1024 bytes are allowed                              |
-| `prefix`      | `list`, `deleteAll`                                                                       | The `addressable` rule, except that it may be empty, may end in `/`, and may end in the middle of a segment                                                                                              |
+| Rule          | Applies to                                                                       | Requirements                                                                                                                                                                |
+| ------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `writable`    | `put`, the `to` of `copy` and `move`, `presignPut`                               | 1 to 1024 bytes; no `.` or `..` as a segment; no leading `/`; no empty segment (`//`); no trailing `/`; no backslash; no character in `U+0000` to `U+001F` and no `U+007F`  |
+| `addressable` | `get`, `stat`, `exists`, `delete`, the `from` of `copy` and `move`, `presignGet` | At least 1 byte; no `.` or `..` as a segment; no leading `/`; no empty segment; no control character. A trailing `/`, a backslash and a length above 1024 bytes are allowed |
+| `prefix`      | `list`, `deleteAll`                                                              | The `addressable` rule, except that it may be empty, may end in `/`, and may end in the middle of a segment                                                                 |
 
 - There is no allowlist. `#`, `%`, `?`, `+`, a space, `'` and every character above ASCII are legal.
   An adapter encodes a key itself and never builds a request path through the `URL` constructor.
@@ -362,12 +362,12 @@ export const capabilityNames = [
 export type CapabilityName = (typeof capabilityNames)[number];
 ```
 
-| Capability          | Where declared                                                         | Where not declared                                                                        |
-| ------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `keyBytesPreserved` | A key comes back byte for byte as written                              | A key comes back Unicode-equivalent                                                       |
-| `presignedUrls`     | The concrete type carries `presignGet` and `presignPut`                | Neither method exists on the type                                                         |
-| `rangeReads`        | `get` honors `range`                                                   | `get` with `range` is `Unsupported`                                                       |
-| `userMetadata`      | `put` stores `userMetadata`; `stat` and `get` return it; `copy` keeps it | `put` with a non-empty `userMetadata` is `Unsupported`; reads return `{}`                 |
+| Capability          | Where declared                                                           | Where not declared                                                        |
+| ------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| `keyBytesPreserved` | A key comes back byte for byte as written                                | A key comes back Unicode-equivalent                                       |
+| `presignedUrls`     | The concrete type carries `presignGet` and `presignPut`                  | Neither method exists on the type                                         |
+| `rangeReads`        | `get` honors `range`                                                     | `get` with `range` is `Unsupported`                                       |
+| `userMetadata`      | `put` stores `userMetadata`; `stat` and `get` return it; `copy` keeps it | `put` with a non-empty `userMetadata` is `Unsupported`; reads return `{}` |
 
 - v0.1 declares: `adapter-s3` `presignedUrls`, `rangeReads`, `userMetadata`; `adapter-fs`
   `rangeReads`; `adapter-memory` `keyBytesPreserved`, `rangeReads`, `userMetadata`.
@@ -413,18 +413,18 @@ Every failure stowage reports is a `StorageError`. There are no subclasses; call
 `code`. `isStorageError` tests a brand under `Symbol.for("stowage.error")` and holds across two
 copies of `@stowage/core` in one dependency tree, where `instanceof` does not (ADR 0005).
 
-| Code                 | Meaning                                                                                                      |
-| -------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `NotFound`           | No object under the key, or no bucket. `stat` cannot tell the two apart, so v0.1 names one code for both     |
-| `AccessDenied`       | The credential is valid and may not do this                                                                  |
-| `InvalidCredentials` | The provider does not accept the credential, or a required credential field is empty or unknown              |
-| `Expired`            | The credential or session token has expired                                                                  |
+| Code                 | Meaning                                                                                                                                                                                               |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NotFound`           | No object under the key, or no bucket. `stat` cannot tell the two apart, so v0.1 names one code for both                                                                                              |
+| `AccessDenied`       | The credential is valid and may not do this                                                                                                                                                           |
+| `InvalidCredentials` | The provider does not accept the credential, or a required credential field is empty or unknown                                                                                                       |
+| `Expired`            | The credential or session token has expired                                                                                                                                                           |
 | `InvalidRequest`     | The provider or stowage refused the request for what it asked: metadata over the limit, an unsatisfiable range, a copy onto itself, a second read of a body, a request timestamp the provider refused |
-| `NetworkError`       | The request received no response: DNS, connection, TLS, a broken connection                                  |
-| `ProviderError`      | The provider answered with a failure stowage has no other name for; `providerCode` carries its string        |
-| `InvalidKey`         | The key violates the rule of section 4.8, or a rule the adapter adds to it                                   |
-| `InvalidOption`      | An option or configuration value stowage refused: an unknown key, a value out of range, a cursor it did not produce |
-| `Unsupported`        | The call needs a capability the storage does not declare; `capability` names it                              |
+| `NetworkError`       | The request received no response: DNS, connection, TLS, a broken connection                                                                                                                           |
+| `ProviderError`      | The provider answered with a failure stowage has no other name for; `providerCode` carries its string                                                                                                 |
+| `InvalidKey`         | The key violates the rule of section 4.8, or a rule the adapter adds to it                                                                                                                            |
+| `InvalidOption`      | An option or configuration value stowage refused: an unknown key, a value out of range, a cursor it did not produce                                                                                   |
+| `Unsupported`        | The call needs a capability the storage does not declare; `capability` names it                                                                                                                       |
 
 - `operation` names the operation the caller invoked, also for a failure inside a compound
   operation such as `move`. `key` is set where the failure concerns one key. `bucket` and
@@ -461,17 +461,17 @@ the destination stays in place and repeating the `move` is safe.
 
 ### 4.11 Operations
 
-| Operation   | Key rule                     | Does                                                                                                                                                                            | Rejects with                                                                     |
-| ----------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `put`       | `writable`                   | Stores the body under the key, replacing any object there. Resolves once the object is readable under the key                                                                   | `InvalidKey`, `InvalidOption`, `InvalidRequest`, `Unsupported`, provider failures |
-| `get`       | `addressable`                | Returns the object's description and a body readable once                                                                                                                       | `NotFound`, `Unsupported` (range), `InvalidRequest` (range)                      |
-| `stat`      | `addressable`                | Returns the object's description without its body                                                                                                                               | `NotFound`                                                                       |
-| `exists`    | `addressable`                | `true` where `stat` would succeed, `false` where it would reject with `NotFound`                                                                                                | Every other failure `stat` would reject with                                     |
-| `list`      | `prefix`                     | Section 4.6                                                                                                                                                                     | `InvalidOption` (`pageSize`, `cursor`, `delimiter`)                              |
-| `delete`    | `addressable` per key        | Deletes the keys, batching as the provider requires, in no promised order. Zero keys resolves with `requested: 0`                                                                | A failure of the request as a whole                                              |
-| `deleteAll` | `prefix`                     | Lists every object below the prefix and deletes it, paging and batching on its own. Objects written during the call may or may not be deleted                                     | A failure of the request as a whole                                              |
-| `copy`      | `from` `addressable`, `to` `writable` | Creates `to` with the bytes, content type and user metadata of `from`, replacing any object at `to`. `from` stays. `from === to` is `InvalidRequest`                    | `NotFound`, `InvalidKey`, `InvalidRequest`                                       |
-| `move`      | `from` `addressable`, `to` `writable` | `copy` then `delete` of `from`. Resolves with the description of `to`                                                                                                  | The failure of the step that failed                                              |
+| Operation   | Key rule                              | Does                                                                                                                                                 | Rejects with                                                                      |
+| ----------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `put`       | `writable`                            | Stores the body under the key, replacing any object there. Resolves once the object is readable under the key                                        | `InvalidKey`, `InvalidOption`, `InvalidRequest`, `Unsupported`, provider failures |
+| `get`       | `addressable`                         | Returns the object's description and a body readable once                                                                                            | `NotFound`, `Unsupported` (range), `InvalidRequest` (range)                       |
+| `stat`      | `addressable`                         | Returns the object's description without its body                                                                                                    | `NotFound`                                                                        |
+| `exists`    | `addressable`                         | `true` where `stat` would succeed, `false` where it would reject with `NotFound`                                                                     | Every other failure `stat` would reject with                                      |
+| `list`      | `prefix`                              | Section 4.6                                                                                                                                          | `InvalidOption` (`pageSize`, `cursor`, `delimiter`)                               |
+| `delete`    | `addressable` per key                 | Deletes the keys, batching as the provider requires, in no promised order. Zero keys resolves with `requested: 0`                                    | A failure of the request as a whole                                               |
+| `deleteAll` | `prefix`                              | Lists every object below the prefix and deletes it, paging and batching on its own. Objects written during the call may or may not be deleted        | A failure of the request as a whole                                               |
+| `copy`      | `from` `addressable`, `to` `writable` | Creates `to` with the bytes, content type and user metadata of `from`, replacing any object at `to`. `from` stays. `from === to` is `InvalidRequest` | `NotFound`, `InvalidKey`, `InvalidRequest`                                        |
+| `move`      | `from` `addressable`, `to` `writable` | `copy` then `delete` of `from`. Resolves with the description of `to`                                                                                | The failure of the step that failed                                               |
 
 - `delimiter` is one or more characters; an empty string is `InvalidOption`.
 - Nothing in the API is atomic across keys, and no operation is conditional. Two writers to one
@@ -634,19 +634,19 @@ Where the two answer differently the adapter is written to the stricter side, an
 promises what both hold (ADR 0014). Another endpoint that speaks the S3 wire protocol can be
 configured and is not promised.
 
-| Point                                    | Promised                                                                                                              |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Listing order                            | None. A page holds at most 1000 keys                                                                                  |
-| Unicode-equivalent keys                  | May name one object (R2 normalizes to NFC) or two (S3 keeps both). `keyBytesPreserved` is not declared               |
-| `userMetadata`                           | 2 KB of encoded header bytes; ASCII keys                                                                              |
-| Single `PUT`                             | Up to 5 GB                                                                                                            |
-| Object size ceiling                      | The provider's, answered with `EntityTooLarge`                                                                        |
-| `Content-Type`                           | Always sent by `put`, `application/octet-stream` where none was given                                                 |
-| `CompleteMultipartUpload`                | Judged by its body, which may carry an error under `200`                                                              |
-| Writes per key                           | R2 answers `429` above one write per second and key; the retry of section 7.5 may recover a single collision, but does not guarantee it |
-| Incomplete multipart uploads             | Removed by a lifecycle rule on AWS, after seven days by default on R2; stowage removes none                           |
-| Presigned URL host                       | The endpoint that signed it; on R2 the `r2.cloudflarestorage.com` endpoint and not a custom domain                    |
-| Response overrides on `presignGet`       | Documented by AWS; provisional on R2 until the first scheduled run (section 12)                                       |
+| Point                              | Promised                                                                                                                                |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Listing order                      | None. A page holds at most 1000 keys                                                                                                    |
+| Unicode-equivalent keys            | May name one object (R2 normalizes to NFC) or two (S3 keeps both). `keyBytesPreserved` is not declared                                  |
+| `userMetadata`                     | 2 KB of encoded header bytes; ASCII keys                                                                                                |
+| Single `PUT`                       | Up to 5 GB                                                                                                                              |
+| Object size ceiling                | The provider's, answered with `EntityTooLarge`                                                                                          |
+| `Content-Type`                     | Always sent by `put`, `application/octet-stream` where none was given                                                                   |
+| `CompleteMultipartUpload`          | Judged by its body, which may carry an error under `200`                                                                                |
+| Writes per key                     | R2 answers `429` above one write per second and key; the retry of section 7.5 may recover a single collision, but does not guarantee it |
+| Incomplete multipart uploads       | Removed by a lifecycle rule on AWS, after seven days by default on R2; stowage removes none                                             |
+| Presigned URL host                 | The endpoint that signed it; on R2 the `r2.cloudflarestorage.com` endpoint and not a custom domain                                      |
+| Response overrides on `presignGet` | Documented by AWS; provisional on R2 until the first scheduled run (section 12)                                                         |
 
 ### 7.3 Credentials
 
@@ -743,16 +743,16 @@ provider until a lifecycle rule removes them.
 A recognized provider code decides the error code alone; an unrecognized one falls to the status
 mapping of section 4.10. One table holds both vendors' strings.
 
-| Provider code                                                                                          | Error code           | Note                                          |
-| ------------------------------------------------------------------------------------------------------ | -------------------- | --------------------------------------------- |
-| `NoSuchKey`, `NoSuchBucket`                                                                            | `NotFound`           |                                               |
-| `AccessDenied`                                                                                         | `AccessDenied`       |                                               |
-| `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `Unauthorized`                                          | `InvalidCredentials` | `Unauthorized` at `401` is R2's               |
-| `ExpiredToken`, `ExpiredRequest`                                                                       | `Expired`            | `ExpiredRequest` is R2's; provisional         |
-| `RequestTimeTooSkewed`, `InvalidRange`, `InvalidArgument`, `MetadataTooLarge`, `EntityTooLarge`, `EntityTooSmall`, `InvalidPart`, `InvalidPartOrder`, `BadDigest`, `MalformedXML`, `InvalidDigest` | `InvalidRequest` | `InvalidArgument` answered to `ListObjectsV2` is `InvalidOption` naming `cursor` |
-| `InvalidObjectName`, `KeyTooLongError`                                                                 | `InvalidKey`         | Reached only for a key the core accepted      |
-| `PermanentRedirect`                                                                                    | `InvalidOption`      | Names `region` and the region from the header |
-| `NoSuchUpload`, `SlowDown`, `TooManyRequests`, `ServiceUnavailable`, `InternalError`, `RequestTimeout` | `ProviderError`      | The last five are transient by status         |
+| Provider code                                                                                                                                                                                      | Error code           | Note                                                                             |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- | -------------------------------------------------------------------------------- |
+| `NoSuchKey`, `NoSuchBucket`                                                                                                                                                                        | `NotFound`           |                                                                                  |
+| `AccessDenied`                                                                                                                                                                                     | `AccessDenied`       |                                                                                  |
+| `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `Unauthorized`                                                                                                                                      | `InvalidCredentials` | `Unauthorized` at `401` is R2's                                                  |
+| `ExpiredToken`, `ExpiredRequest`                                                                                                                                                                   | `Expired`            | `ExpiredRequest` is R2's; provisional                                            |
+| `RequestTimeTooSkewed`, `InvalidRange`, `InvalidArgument`, `MetadataTooLarge`, `EntityTooLarge`, `EntityTooSmall`, `InvalidPart`, `InvalidPartOrder`, `BadDigest`, `MalformedXML`, `InvalidDigest` | `InvalidRequest`     | `InvalidArgument` answered to `ListObjectsV2` is `InvalidOption` naming `cursor` |
+| `InvalidObjectName`, `KeyTooLongError`                                                                                                                                                             | `InvalidKey`         | Reached only for a key the core accepted                                         |
+| `PermanentRedirect`                                                                                                                                                                                | `InvalidOption`      | Names `region` and the region from the header                                    |
+| `NoSuchUpload`, `SlowDown`, `TooManyRequests`, `ServiceUnavailable`, `InternalError`, `RequestTimeout`                                                                                             | `ProviderError`      | The last five are transient by status                                            |
 
 `status`, `providerCode`, `requestId` (from `x-amz-request-id`) and the provider's message are set
 on every error that carries a response. `HEAD` carries no body, so `stat` and `exists` report the
@@ -840,7 +840,10 @@ export interface ConformanceFramework extends ConformanceRunOptions {
   test(name: string, body: () => Promise<void>): void;
 }
 
-export function describeConformance(target: ConformanceTarget, framework: ConformanceFramework): void;
+export function describeConformance(
+  target: ConformanceTarget,
+  framework: ConformanceFramework,
+): void;
 export function runAll(
   target: ConformanceTarget,
   options?: ConformanceRunOptions,
@@ -866,7 +869,11 @@ export interface SerializedConformanceError {
 export type ConformanceMode = "declared" | "without";
 
 export type ConformanceResult =
-  | { readonly case: ConformanceCaseMetadata; readonly status: "passed"; readonly mode: ConformanceMode }
+  | {
+      readonly case: ConformanceCaseMetadata;
+      readonly status: "passed";
+      readonly mode: ConformanceMode;
+    }
   | { readonly case: ConformanceCaseMetadata; readonly status: "skipped"; readonly reason: string }
   | {
       readonly case: ConformanceCaseMetadata;
@@ -929,130 +936,130 @@ A case marked with a factory is skipped where the target does not supply it.
 
 **Declaration**
 
-| Case                        | Requires | Cost   | Asserts                                                                        |
-| --------------------------- | -------- | ------ | ------------------------------------------------------------------------------ |
-| `declaration/valid-names`   |          | `fast` | `capabilities` holds only names out of `capabilityNames`, each once            |
-| `declaration/identity`      |          | `fast` | `provider` and `bucket` are non-empty strings                                  |
+| Case                      | Requires | Cost   | Asserts                                                             |
+| ------------------------- | -------- | ------ | ------------------------------------------------------------------- |
+| `declaration/valid-names` |          | `fast` | `capabilities` holds only names out of `capabilityNames`, each once |
+| `declaration/identity`    |          | `fast` | `provider` and `bucket` are non-empty strings                       |
 
 **`put`**
 
-| Case                              | Requires       | Cost   | Asserts                                                                                                                                             |
-| --------------------------------- | -------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `put/bytes-round-trip`            |                | `fast` | A `Uint8Array` reads back byte for byte through `bytes()`; the returned `ObjectStat` and a later `stat` agree on `key`, `size` and `contentType`     |
-| `put/string-round-trip`           |                | `fast` | A string with characters above ASCII reads back equal through `text()`; `size` is its UTF-8 length                                                 |
-| `put/stream-round-trip`           |                | `fast` | A 1 MiB stream reads back byte for byte                                                                                                             |
-| `put/multipart-round-trip`        |                | `fast` | A 17 MiB stream of a generated pattern reads back byte for byte; `stat` reports the size                                                            |
-| `put/empty-body`                  |                | `fast` | An empty `Uint8Array` and a stream that yields nothing both produce an object of size 0 that reads back empty                                       |
-| `put/overwrites`                  |                | `fast` | A second `put` under the same key replaces bytes and content type                                                                                   |
-| `put/content-type-stored`         |                | `fast` | `contentType: "text/plain"` on a key ending in `.txt` is reported by `stat` and `get`                                                               |
-| `put/content-type-default`        |                | `fast` | Without `contentType`, a key without an extension reports `application/octet-stream`                                                                |
-| `put/accepted-keys`               |                | `fast` | Each key of the accepted list (section 8.7) round-trips and is listed under its prefix                                                              |
-| `put/refused-keys`                |                | `fast` | Each key of the refused writable list rejects with `InvalidKey`, `attempts: 0`, and `exists` afterwards is `false` where the key is addressable      |
-| `put/unknown-option`              |                | `fast` | An unknown option key rejects with `InvalidOption` whose message names the key; nothing was written                                                 |
-| `put/aborted-signal`              |                | `fast` | A signal already aborted rejects with `AbortError`; nothing was written                                                                             |
-| `put/abort-during-upload`         |                | `fast` | Aborting during a 17 MiB stream rejects with `err.name === "AbortError"` and not a `StorageError`                                                   |
-| `put/stream-consumed`             |                | `fast` | After `put`, the source stream is closed or canceled; reading it yields `done`                                                                      |
-| `put/user-metadata`               | `userMetadata` | `fast` | Two entries round-trip through `stat` and `get`, keys compared case-insensitively. Without: a non-empty object is `Unsupported` naming `userMetadata`; `{}` passes and reads back `{}` |
-| `put/user-metadata-limits`        | `userMetadata` | `fast` | A key with a character above ASCII and a set over 2 KB each reject with `InvalidRequest`, `attempts: 0`. Without: both are `Unsupported`             |
+| Case                       | Requires       | Cost   | Asserts                                                                                                                                                                                |
+| -------------------------- | -------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `put/bytes-round-trip`     |                | `fast` | A `Uint8Array` reads back byte for byte through `bytes()`; the returned `ObjectStat` and a later `stat` agree on `key`, `size` and `contentType`                                       |
+| `put/string-round-trip`    |                | `fast` | A string with characters above ASCII reads back equal through `text()`; `size` is its UTF-8 length                                                                                     |
+| `put/stream-round-trip`    |                | `fast` | A 1 MiB stream reads back byte for byte                                                                                                                                                |
+| `put/multipart-round-trip` |                | `fast` | A 17 MiB stream of a generated pattern reads back byte for byte; `stat` reports the size                                                                                               |
+| `put/empty-body`           |                | `fast` | An empty `Uint8Array` and a stream that yields nothing both produce an object of size 0 that reads back empty                                                                          |
+| `put/overwrites`           |                | `fast` | A second `put` under the same key replaces bytes and content type                                                                                                                      |
+| `put/content-type-stored`  |                | `fast` | `contentType: "text/plain"` on a key ending in `.txt` is reported by `stat` and `get`                                                                                                  |
+| `put/content-type-default` |                | `fast` | Without `contentType`, a key without an extension reports `application/octet-stream`                                                                                                   |
+| `put/accepted-keys`        |                | `fast` | Each key of the accepted list (section 8.7) round-trips and is listed under its prefix                                                                                                 |
+| `put/refused-keys`         |                | `fast` | Each key of the refused writable list rejects with `InvalidKey`, `attempts: 0`, and `exists` afterwards is `false` where the key is addressable                                        |
+| `put/unknown-option`       |                | `fast` | An unknown option key rejects with `InvalidOption` whose message names the key; nothing was written                                                                                    |
+| `put/aborted-signal`       |                | `fast` | A signal already aborted rejects with `AbortError`; nothing was written                                                                                                                |
+| `put/abort-during-upload`  |                | `fast` | Aborting during a 17 MiB stream rejects with `err.name === "AbortError"` and not a `StorageError`                                                                                      |
+| `put/stream-consumed`      |                | `fast` | After `put`, the source stream is closed or canceled; reading it yields `done`                                                                                                         |
+| `put/user-metadata`        | `userMetadata` | `fast` | Two entries round-trip through `stat` and `get`, keys compared case-insensitively. Without: a non-empty object is `Unsupported` naming `userMetadata`; `{}` passes and reads back `{}` |
+| `put/user-metadata-limits` | `userMetadata` | `fast` | A key with a character above ASCII and a set over 2 KB each reject with `InvalidRequest`, `attempts: 0`. Without: both are `Unsupported`                                               |
 
 **`get`**
 
-| Case                        | Requires     | Cost   | Asserts                                                                                                                                  |
-| --------------------------- | ------------ | ------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `get/missing-key`           |              | `fast` | Rejects with `NotFound`, `key` set, `operation: "get"`, `retryable: false`, `attempts: 1`                                                |
-| `get/stream`                |              | `fast` | `stream()` yields the bytes; canceling it does not reject                                                                                |
-| `get/text-and-json`         |              | `fast` | `text()` decodes UTF-8; `json()` parses; a body that is not JSON rejects `json()` with `SyntaxError` and not a `StorageError`             |
-| `get/body-read-once`        |              | `fast` | A second reader after `bytes()` rejects with `InvalidRequest`                                                                            |
-| `get/stat-from-response`    |              | `fast` | `stat` on the stored object equals `stat()` in `key`, `size`, `contentType`, `etag`                                                      |
-| `get/addressable-keys`      |              | `fast` | A key ending in `/` and a key holding a backslash reject with `NotFound`, not `InvalidKey`                                               |
-| `get/aborted-signal`        |              | `fast` | A signal already aborted rejects with `AbortError`                                                                                        |
-| `get/range`                 | `rangeReads` | `fast` | `{ start, end }` returns those bytes inclusive; `{ start }` returns to the end; `stat.size` is the whole object. Without: `Unsupported`   |
-| `get/range-unsatisfiable`   | `rangeReads` | `fast` | `start` at the size rejects with `InvalidRequest`; `start > end` with `InvalidOption`. Without: `Unsupported`                            |
-| `get/range-clipped`         | `rangeReads` | `fast` | `end` beyond the size returns to the end. Without: `Unsupported`                                                                          |
+| Case                      | Requires     | Cost   | Asserts                                                                                                                                 |
+| ------------------------- | ------------ | ------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `get/missing-key`         |              | `fast` | Rejects with `NotFound`, `key` set, `operation: "get"`, `retryable: false`, `attempts: 1`                                               |
+| `get/stream`              |              | `fast` | `stream()` yields the bytes; canceling it does not reject                                                                               |
+| `get/text-and-json`       |              | `fast` | `text()` decodes UTF-8; `json()` parses; a body that is not JSON rejects `json()` with `SyntaxError` and not a `StorageError`           |
+| `get/body-read-once`      |              | `fast` | A second reader after `bytes()` rejects with `InvalidRequest`                                                                           |
+| `get/stat-from-response`  |              | `fast` | `stat` on the stored object equals `stat()` in `key`, `size`, `contentType`, `etag`                                                     |
+| `get/addressable-keys`    |              | `fast` | A key ending in `/` and a key holding a backslash reject with `NotFound`, not `InvalidKey`                                              |
+| `get/aborted-signal`      |              | `fast` | A signal already aborted rejects with `AbortError`                                                                                      |
+| `get/range`               | `rangeReads` | `fast` | `{ start, end }` returns those bytes inclusive; `{ start }` returns to the end; `stat.size` is the whole object. Without: `Unsupported` |
+| `get/range-unsatisfiable` | `rangeReads` | `fast` | `start` at the size rejects with `InvalidRequest`; `start > end` with `InvalidOption`. Without: `Unsupported`                           |
+| `get/range-clipped`       | `rangeReads` | `fast` | `end` beyond the size returns to the end. Without: `Unsupported`                                                                        |
 
 **`stat` and `exists`**
 
-| Case                     | Requires | Cost   | Asserts                                                                                                            |
-| ------------------------ | -------- | ------ | ------------------------------------------------------------------------------------------------------------------ |
-| `stat/describes-object`  |          | `fast` | `key`, `size`, `contentType` as written; `lastModified` a `Date` within a minute of now; `userMetadata` an object   |
-| `stat/missing-key`       |          | `fast` | Rejects with `NotFound`, `operation: "stat"`                                                                        |
-| `exists/answers`         |          | `fast` | `true` for a stored key, `false` for an absent one and for an absent key ending in `/`                              |
-| `exists/invalid-key`     |          | `fast` | A key with a `..` segment rejects with `InvalidKey` rather than answering `false`                                   |
+| Case                    | Requires | Cost   | Asserts                                                                                                           |
+| ----------------------- | -------- | ------ | ----------------------------------------------------------------------------------------------------------------- |
+| `stat/describes-object` |          | `fast` | `key`, `size`, `contentType` as written; `lastModified` a `Date` within a minute of now; `userMetadata` an object |
+| `stat/missing-key`      |          | `fast` | Rejects with `NotFound`, `operation: "stat"`                                                                      |
+| `exists/answers`        |          | `fast` | `true` for a stored key, `false` for an absent one and for an absent key ending in `/`                            |
+| `exists/invalid-key`    |          | `fast` | A key with a `..` segment rejects with `InvalidKey` rather than answering `false`                                 |
 
 **`list`**
 
-| Case                       | Requires            | Cost   | Asserts                                                                                                                                                             |
-| -------------------------- | ------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `list/nothing`             |                     | `fast` | A prefix holding nothing yields no entry, and `page()` returns empty `objects`, empty `prefixes`, no `cursor`                                                       |
-| `list/every-object-once`   |                     | `fast` | 25 objects under a prefix are each yielded once; membership, not order                                                                                              |
-| `list/entry-shape`         |                     | `fast` | Every entry has `key`, a numeric `size` equal to what was written and a `Date` `lastModified`                                                                       |
-| `list/pages-and-cursor`    |                     | `fast` | `pageSize: 2` over 5 objects: pages of 2, 2, 1; each page but the last carries a `cursor`; a new `list` with that cursor continues; the union is all 5             |
-| `list/delimiter`           |                     | `fast` | With `/`: `objects` holds the keys at that level, `prefixes` the pseudo-directories once each ending in `/`; iteration yields the objects at that level only          |
-| `list/prefix-mid-segment`  |                     | `fast` | A prefix ending inside a segment matches the keys that start with it and no others                                                                                 |
-| `list/lazy`                |                     | `fast` | `list()` without iteration or `page()` performs no request; a later `page()` on a `pageSize` of 0 rejects with `InvalidOption`                                     |
-| `list/page-size-bounds`    |                     | `fast` | `pageSize` of 0 and of 1001 reject with `InvalidOption` naming `pageSize`                                                                                           |
-| `list/invalid-cursor`      |                     | `fast` | A cursor the storage did not produce rejects with `InvalidOption` naming `cursor`                                                                                   |
-| `list/invalid-delimiter`   |                     | `fast` | An empty delimiter rejects with `InvalidOption`                                                                                                                     |
-| `list/past-one-thousand`   |                     | `slow` | 1001 objects: iteration yields all; a `page()` at the default size holds at most 1000 and carries a `cursor`                                                       |
-| `list/key-bytes`           | `keyBytesPreserved` | `fast` | A key in NFC and the same key in NFD are two objects and both come back byte for byte. Without: each comes back Unicode-equivalent to what was written              |
+| Case                      | Requires            | Cost   | Asserts                                                                                                                                                      |
+| ------------------------- | ------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `list/nothing`            |                     | `fast` | A prefix holding nothing yields no entry, and `page()` returns empty `objects`, empty `prefixes`, no `cursor`                                                |
+| `list/every-object-once`  |                     | `fast` | 25 objects under a prefix are each yielded once; membership, not order                                                                                       |
+| `list/entry-shape`        |                     | `fast` | Every entry has `key`, a numeric `size` equal to what was written and a `Date` `lastModified`                                                                |
+| `list/pages-and-cursor`   |                     | `fast` | `pageSize: 2` over 5 objects: pages of 2, 2, 1; each page but the last carries a `cursor`; a new `list` with that cursor continues; the union is all 5       |
+| `list/delimiter`          |                     | `fast` | With `/`: `objects` holds the keys at that level, `prefixes` the pseudo-directories once each ending in `/`; iteration yields the objects at that level only |
+| `list/prefix-mid-segment` |                     | `fast` | A prefix ending inside a segment matches the keys that start with it and no others                                                                           |
+| `list/lazy`               |                     | `fast` | `list()` without iteration or `page()` performs no request; a later `page()` on a `pageSize` of 0 rejects with `InvalidOption`                               |
+| `list/page-size-bounds`   |                     | `fast` | `pageSize` of 0 and of 1001 reject with `InvalidOption` naming `pageSize`                                                                                    |
+| `list/invalid-cursor`     |                     | `fast` | A cursor the storage did not produce rejects with `InvalidOption` naming `cursor`                                                                            |
+| `list/invalid-delimiter`  |                     | `fast` | An empty delimiter rejects with `InvalidOption`                                                                                                              |
+| `list/past-one-thousand`  |                     | `slow` | 1001 objects: iteration yields all; a `page()` at the default size holds at most 1000 and carries a `cursor`                                                 |
+| `list/key-bytes`          | `keyBytesPreserved` | `fast` | A key in NFC and the same key in NFD are two objects and both come back byte for byte. Without: each comes back Unicode-equivalent to what was written       |
 
 **`delete` and `deleteAll`**
 
-| Case                              | Requires | Cost   | Asserts                                                                                                                  |
-| --------------------------------- | -------- | ------ | ------------------------------------------------------------------------------------------------------------------------ |
-| `delete/single`                   |          | `fast` | One key: `requested: 1`, `failed` empty, `exists` is `false` afterwards                                                  |
-| `delete/many`                     |          | `fast` | 30 keys in one call: `requested: 30`, all gone                                                                           |
-| `delete/absent-key-succeeds`      |          | `fast` | An absent key: `requested: 1`, `failed` empty                                                                            |
-| `delete/nothing`                  |          | `fast` | No key: `requested: 0`, `failed` empty                                                                                   |
-| `delete/invalid-key-reported`     |          | `fast` | One key with a `..` segment among two valid ones: `failed` holds one `InvalidKey` with that `key`, the two are deleted    |
-| `delete/past-one-thousand`        |          | `slow` | 1001 keys in one call are all deleted                                                                                    |
-| `deleteAll/below-prefix`          |          | `fast` | Deletes the objects below the prefix and none beside it; `requested` equals their count                                  |
-| `deleteAll/nothing`               |          | `fast` | A prefix holding nothing: `requested: 0`                                                                                 |
-| `deleteAll/past-one-thousand`     |          | `slow` | 1001 objects below a prefix are all deleted in one call                                                                  |
+| Case                          | Requires | Cost   | Asserts                                                                                                                |
+| ----------------------------- | -------- | ------ | ---------------------------------------------------------------------------------------------------------------------- |
+| `delete/single`               |          | `fast` | One key: `requested: 1`, `failed` empty, `exists` is `false` afterwards                                                |
+| `delete/many`                 |          | `fast` | 30 keys in one call: `requested: 30`, all gone                                                                         |
+| `delete/absent-key-succeeds`  |          | `fast` | An absent key: `requested: 1`, `failed` empty                                                                          |
+| `delete/nothing`              |          | `fast` | No key: `requested: 0`, `failed` empty                                                                                 |
+| `delete/invalid-key-reported` |          | `fast` | One key with a `..` segment among two valid ones: `failed` holds one `InvalidKey` with that `key`, the two are deleted |
+| `delete/past-one-thousand`    |          | `slow` | 1001 keys in one call are all deleted                                                                                  |
+| `deleteAll/below-prefix`      |          | `fast` | Deletes the objects below the prefix and none beside it; `requested` equals their count                                |
+| `deleteAll/nothing`           |          | `fast` | A prefix holding nothing: `requested: 0`                                                                               |
+| `deleteAll/past-one-thousand` |          | `slow` | 1001 objects below a prefix are all deleted in one call                                                                |
 
 **`copy` and `move`**
 
-| Case                           | Requires       | Cost   | Asserts                                                                                                                              |
-| ------------------------------ | -------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `copy/round-trip`              |                | `fast` | Destination has the bytes and content type; source is unchanged; the returned `ObjectStat` names the destination                     |
-| `copy/overwrites`              |                | `fast` | A destination that exists is replaced                                                                                                |
-| `copy/missing-source`          |                | `fast` | Rejects with `NotFound`; no destination is created                                                                                   |
-| `copy/onto-itself`             |                | `fast` | `from === to` rejects with `InvalidRequest`, `attempts: 0`; the object is unchanged                                                  |
-| `copy/invalid-keys`            |                | `fast` | A destination ending in `/` and a source with a `..` segment each reject with `InvalidKey` before anything changes                   |
-| `copy/user-metadata`           | `userMetadata` | `fast` | The destination carries the source's metadata. Without: the copy succeeds and the destination reads `{}`                             |
-| `move/round-trip`              |                | `fast` | Destination has the bytes and content type; source is gone; the result names the destination                                        |
-| `move/missing-source`          |                | `fast` | Rejects with `NotFound`, `operation: "move"`; no destination is created                                                              |
+| Case                  | Requires       | Cost   | Asserts                                                                                                            |
+| --------------------- | -------------- | ------ | ------------------------------------------------------------------------------------------------------------------ |
+| `copy/round-trip`     |                | `fast` | Destination has the bytes and content type; source is unchanged; the returned `ObjectStat` names the destination   |
+| `copy/overwrites`     |                | `fast` | A destination that exists is replaced                                                                              |
+| `copy/missing-source` |                | `fast` | Rejects with `NotFound`; no destination is created                                                                 |
+| `copy/onto-itself`    |                | `fast` | `from === to` rejects with `InvalidRequest`, `attempts: 0`; the object is unchanged                                |
+| `copy/invalid-keys`   |                | `fast` | A destination ending in `/` and a source with a `..` segment each reject with `InvalidKey` before anything changes |
+| `copy/user-metadata`  | `userMetadata` | `fast` | The destination carries the source's metadata. Without: the copy succeeds and the destination reads `{}`           |
+| `move/round-trip`     |                | `fast` | Destination has the bytes and content type; source is gone; the result names the destination                       |
+| `move/missing-source` |                | `fast` | Rejects with `NotFound`, `operation: "move"`; no destination is created                                            |
 
 **Errors**
 
-| Case                            | Requires | Cost   | Asserts                                                                                                                                                                     |
-| ------------------------------- | -------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `errors/shape`                  |          | `fast` | Every error the run provokes passes `isStorageError`, has a `code` out of the union, `operation`, `bucket` and `provider` matching the storage, a boolean `retryable` and an integer `attempts` |
-| `errors/not-a-storage-error`    |          | `fast` | `AbortError` and `SyntaxError` from the cases above fail `isStorageError`                                                                                                    |
-| `errors/bad-credentials`        |          | `fast` | Factory `createStorageWithBadCredentials`: `get` rejects with `InvalidCredentials`, `retryable: false`, `attempts: 1`; `exists` rejects rather than answering `false`; `list` rejects |
-| `errors/denied-credentials`     |          | `fast` | Factory `createStorageWithDeniedCredentials`: `put` rejects with `AccessDenied`, `retryable: false`, `attempts: 1`                                                          |
-| `errors/expired-credentials`    |          | `slow` | Factory `createStorageWithExpiredCredentials`: `get` rejects with `Expired` and `attempts: 2`                                                                               |
+| Case                         | Requires | Cost   | Asserts                                                                                                                                                                                         |
+| ---------------------------- | -------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `errors/shape`               |          | `fast` | Every error the run provokes passes `isStorageError`, has a `code` out of the union, `operation`, `bucket` and `provider` matching the storage, a boolean `retryable` and an integer `attempts` |
+| `errors/not-a-storage-error` |          | `fast` | `AbortError` and `SyntaxError` from the cases above fail `isStorageError`                                                                                                                       |
+| `errors/bad-credentials`     |          | `fast` | Factory `createStorageWithBadCredentials`: `get` rejects with `InvalidCredentials`, `retryable: false`, `attempts: 1`; `exists` rejects rather than answering `false`; `list` rejects           |
+| `errors/denied-credentials`  |          | `fast` | Factory `createStorageWithDeniedCredentials`: `put` rejects with `AccessDenied`, `retryable: false`, `attempts: 1`                                                                              |
+| `errors/expired-credentials` |          | `slow` | Factory `createStorageWithExpiredCredentials`: `get` rejects with `Expired` and `attempts: 2`                                                                                                   |
 
 **Presigned URLs**
 
-| Case                             | Requires        | Cost   | Asserts                                                                                                                                                                 |
-| -------------------------------- | --------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `presign/get`                    | `presignedUrls` | `fast` | `fetch` on the URL answers `200`, the bytes and the content type. Without: `"presignGet" in storage` and `"presignPut" in storage` are both `false`                     |
-| `presign/put`                    | `presignedUrls` | `fast` | `fetch` with `PUT`, the signed type and a body of the signed length answers `2xx`; `stat` reports the type and size. Without: as above                                   |
-| `presign/expires-in-bounds`      | `presignedUrls` | `fast` | `expiresIn` of 0 and of 604801 reject with `InvalidOption`; no request is made. Without: as above                                                                       |
-| `presign/put-rejects-type`       | `presignedUrls` | `slow` | A body with another content type answers `403`. Without: as above                                                                                                       |
-| `presign/put-rejects-length`     | `presignedUrls` | `slow` | A body of another length answers `4xx`. Without: as above                                                                                                               |
-| `presign/expired-url`            | `presignedUrls` | `slow` | A URL signed with `expiresIn: 1`, called after two seconds, answers `403`. Without: as above                                                                             |
+| Case                         | Requires        | Cost   | Asserts                                                                                                                                             |
+| ---------------------------- | --------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `presign/get`                | `presignedUrls` | `fast` | `fetch` on the URL answers `200`, the bytes and the content type. Without: `"presignGet" in storage` and `"presignPut" in storage` are both `false` |
+| `presign/put`                | `presignedUrls` | `fast` | `fetch` with `PUT`, the signed type and a body of the signed length answers `2xx`; `stat` reports the type and size. Without: as above              |
+| `presign/expires-in-bounds`  | `presignedUrls` | `fast` | `expiresIn` of 0 and of 604801 reject with `InvalidOption`; no request is made. Without: as above                                                   |
+| `presign/put-rejects-type`   | `presignedUrls` | `slow` | A body with another content type answers `403`. Without: as above                                                                                   |
+| `presign/put-rejects-length` | `presignedUrls` | `slow` | A body of another length answers `4xx`. Without: as above                                                                                           |
+| `presign/expired-url`        | `presignedUrls` | `slow` | A URL signed with `expiresIn: 1`, called after two seconds, answers `403`. Without: as above                                                        |
 
 ### 8.6 Reference flow cases
 
-| Case                          | Requires        | Cost   | Asserts                                                                                                                                                                                                  |
-| ----------------------------- | --------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `flow/1-large-upload`         |                 | `fast` | A 17 MiB stream with a content type is stored and reads back byte for byte; an abort during a second upload of the same size rejects with `AbortError` and leaves the key absent                        |
-| `flow/2-presigned-put`        | `presignedUrls` | `fast` | Sign for a reported length and type, upload with `fetch`, `stat` reports both. Without: the methods are absent                                                                                            |
-| `flow/3-file-browser`         |                 | `fast` | A tree of 7 objects in 3 pseudo-directories: one `page()` with `/` and `pageSize: 5` returns the level's objects and the 3 prefixes; a new listing with the cursor completes the level                     |
-| `flow/4-streaming-download`   | `rangeReads`    | `fast` | `get` with a range streamed into a `Response` yields the range's bytes and the content type. Without: `get` without a range streams the whole object, and a range is `Unsupported`                       |
-| `flow/5-prefix-move`          |                 | `fast` | Every object below one prefix is streamed from `get` into `put` below another prefix with its content type; `deleteAll` on the source reports their count; the target lists them all                     |
+| Case                        | Requires        | Cost   | Asserts                                                                                                                                                                                |
+| --------------------------- | --------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `flow/1-large-upload`       |                 | `fast` | A 17 MiB stream with a content type is stored and reads back byte for byte; an abort during a second upload of the same size rejects with `AbortError` and leaves the key absent       |
+| `flow/2-presigned-put`      | `presignedUrls` | `fast` | Sign for a reported length and type, upload with `fetch`, `stat` reports both. Without: the methods are absent                                                                         |
+| `flow/3-file-browser`       |                 | `fast` | A tree of 7 objects in 3 pseudo-directories: one `page()` with `/` and `pageSize: 5` returns the level's objects and the 3 prefixes; a new listing with the cursor completes the level |
+| `flow/4-streaming-download` | `rangeReads`    | `fast` | `get` with a range streamed into a `Response` yields the range's bytes and the content type. Without: `get` without a range streams the whole object, and a range is `Unsupported`     |
+| `flow/5-prefix-move`        |                 | `fast` | Every object below one prefix is streamed from `get` into `put` below another prefix with its content type; `deleteAll` on the source reports their count; the target lists them all   |
 
 ### 8.7 Key lists
 
