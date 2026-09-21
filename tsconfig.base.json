@@ -2,7 +2,10 @@
   "$schema": "https://json.schemastore.org/tsconfig",
   "compilerOptions": {
     "target": "es2024",
-    "lib": ["ES2024"],
+    // ADR 0003: the packages run on web standards alone. `WebWorker` is the lib that
+    // carries them — `fetch`, the streams, `crypto`, `AbortSignal` — without the
+    // browser globals `DOM` would add beside them.
+    "lib": ["ES2024", "WebWorker", "WebWorker.AsyncIterable"],
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "types": [],
