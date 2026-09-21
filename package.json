@@ -15,8 +15,8 @@
     "@arethetypeswrong/core": "0.18.5",
     "@changesets/cli": "3.0.3",
     "@types/node": "26.6.2",
-    "oxfmt": "0.70.0",
-    "oxlint": "1.85.0",
+    "oxfmt": "0.68.0",
+    "oxlint": "1.83.0",
     "oxlint-tsgolint": "7.0.2002",
     "publint": "0.3.24",
     "tsdown": "0.23.0",
@@ -26,5 +26,5 @@
   "engines": {
     "node": ">=24"
   },
-  "packageManager": "pnpm@10.34.5"
+  "packageManager": "pnpm@12.5.1"
 }
