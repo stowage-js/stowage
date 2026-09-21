@@ -67,6 +67,13 @@ per adapter, and R2 speaking S3's wire protocol makes that key a question of its
   The closed core already keeps an operation the parity core lacks off the portable type, which
   leaves that declaration to cover differences inside the core, such as user metadata and range
   reads.
+- A listing yields a narrower description than `get` and `stat` return: key, size, last-modified
+  time and ETag, without content type or user metadata. `ListObjectsV2` carries neither, and
+  filling them in would cost one `HEAD` per key. Reference flow 5 therefore takes the content type
+  from the stored object it reads, not from the listing entry.
+- `delete` is the one operation without an `AbortSignal`. Its variadic parameter leaves no room for
+  an options object, and it sends at most one request per 1000 keys, so the budget ADR 0013 leaves
+  to the caller's signal costs little here.
 - The stub the decision came from is on the branch `spike/core-api`, commit `cfc771c`: four
   shapes, the five reference flows written against each, and the type errors each shape does and
   does not produce.

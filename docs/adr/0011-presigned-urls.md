@@ -69,6 +69,10 @@ something to check it against.
   override: `responseContentType` equals the returned `Content-Type`, `responseContentDisposition`
   equals `Content-Disposition`, `responseCacheControl` equals `Cache-Control`, and
   `responseExpires` equals `Expires`.
+- The four override assertions are a test of `adapter-s3` in this repository's `slow` tier rather
+  than a case of `@stowage/conformance`. The options exist on `S3Storage` alone, and a suite case
+  runs against `Storage`, where passing them would be the `InvalidOption` of ADR 0005 on any other
+  adapter that declares `presignedUrls`.
 - The provider answers the browser, so the adapter never sees the rejection and the error codes of
   ADR 0005 do not reach it. `@stowage/core` exports no function that turns a foreign `Response` into
   a `StorageError`: it would be a second public way into the error mapping, for a request the

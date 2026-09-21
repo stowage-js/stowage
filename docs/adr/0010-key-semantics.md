@@ -59,7 +59,9 @@ already changed.
   file name.
 - An addressable key drops from that rule the trailing `/`, the backslash and the length limit.
   `list` therefore returns pseudo-directory markers and keys from other tools, and `get`, `delete`
-  and the source of a copy accept them.
+  and the source of a copy accept them. The provider may still refuse what it cannot hold: S3
+  answers a key above 1024 bytes with `KeyTooLongError`, which `adapter-s3` reports as `InvalidKey`,
+  so the dropped length limit matters on a file system alone.
 - A prefix follows the addressable key's rule, and on top of it may be empty, may end on `/`, and
   may end in the middle of a segment. With a prefix longer than 1024 bytes, `list` still exposes
   matching addressable keys created by other tools through both its page and iteration forms.
