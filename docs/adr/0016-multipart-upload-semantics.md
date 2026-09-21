@@ -26,11 +26,13 @@ The parts in flight are `multipart?: { partSize?: number; concurrency?: number }
 defaults are 8 MiB and four; `partSize` takes 5 MiB to 5 GiB, which is the range both providers
 document for a part, and `concurrency` takes one to sixteen. Anything else is `InvalidOption` at
 construction rather than clamped, as ADR 0013 refuses a `maxAttempts` outside its range. The memory
-an upload holds is the product of the two, 32 MiB by default, for an object of any size.
+held for multipart part buffers is the product of the two, 32 MiB by default, for an object of any
+size. The single-`PUT` path is outside that bound: a `Uint8Array` or string may retain the complete
+request body in memory, as ADR 0009 notes.
 
-That statement needs no case distinction because the declared length went with it. ADR 0009 raised
-the part size up front where the total length was known, so that 10,000 parts cover the object.
-Once the body type decides the shape, a declared length has one use left and it appears above
+The multipart-buffer statement does not vary with a stream's declared length. ADR 0009 raised the
+part size up front where the total length was known, so that 10,000 parts cover the object. Once the
+body type decides the shape, a declared length has one use left and it appears above
 78 GiB, where it multiplies by the parts in flight: a terabyte announced means 110 MiB parts, four
 of them in memory at once. `put` therefore takes no length, the raise is gone, and a stream above
 roughly 78 GiB fails at the 10,000-part limit with an error naming the configured part size — which
@@ -55,27 +57,25 @@ states what parts left behind cost.
 ADR 0005's rule that a failed multipart upload aborts itself. ADR 0013 does not repeat that request
 because the commit may have happened, and for the same reason the adapter does not abort: a commit
 may still be travelling. The caller gets `NetworkError` with `retryable: true` and `attempts: 1`,
-and `stat` on the key is what settles which of the two happened. There is no field for it and no
-code of its own, because one ambiguous case does not justify a shape every caller has to read.
+and `stat` can settle which happened only for a key confirmed absent before the upload, with no
+competing writer: finding the key then proves that a commit created it. If an object may already
+have occupied the key, `stat` cannot distinguish that object from the completed upload, so the
+outcome remains ambiguous. There is no field for it and no code of its own, because one ambiguous
+case does not justify a shape every caller has to read.
 
-Above the size a single request can copy, `copy` falls back rather than refusing. `CopyObject` goes
-out first, and only the provider's refusal of a source that is too large brings a `HEAD` on the
-source and a multipart upload of `UploadPartCopy` requests, whose ranges are all one size — at
-least 5 MiB, and large enough that 10,000 of them cover the object, which is what R2's rule that
-every part but the last has the same size requires here too. AWS documents the 5 GB ceiling on
-`CopyObject` and points at `UploadPartCopy` above it; R2 supports `UploadPartCopy` with
-`x-amz-copy-source-range` and documents no ceiling of its own, so where R2 accepts the copy the
-fallback never runs. Reacting to the answer rather than to a number known per provider is what
-keeps the adapter blind (ADR 0014), and it spares the common copy the `HEAD` that a size check
-would cost on every call. These parts carry no bytes on this side, so `concurrency` governs the
-requests and not the memory. `move` inherits all of it, and ADR 0005's rule stands: the destination
-stays where the delete fails.
+`CopyObject` goes out first, and only the provider's refusal of a source that is too large reaches
+the possible ranged `UploadPartCopy` fallback. Each range would have to name the same immutable
+source version; otherwise replacement during the operation could assemble one destination from
+different source objects. `x-amz-copy-source-if-match` is not a source pin for this purpose and is
+not used for `UploadPartCopy`. Because v0.1 excludes versioning, it cannot name a pinned source
+version and rejects the fallback without creating a multipart upload. A future fallback may proceed
+only when it can pin every part to one source version or read from a stable snapshot. Reacting to
+the provider's refusal rather than to a number known per provider still keeps the adapter blind
+(ADR 0014) and spares the common copy a preliminary `HEAD`. `move` inherits the refusal.
 
-The price of the fallback is that nothing in CI provokes it. A source above 5 GB has to be uploaded
-before it can be copied, in every scheduled run, so the fallback becomes a test of this repository
-against a stubbed `fetch` — where ADR 0006 and ADR 0013 already put flat memory, the broken body
-stream and the backoff curve — and the promise joins the points ADR 0012 and ADR 0014 leave to the
-first run against a real endpoint.
+The provider-refusal path is covered against a stubbed `fetch`, where ADR 0006 and ADR 0013 already
+put flat memory, the broken body stream and the backoff curve. Nothing in CI needs a source above
+5 GB merely to verify that v0.1 refuses an unpinned multipart-copy fallback.
 
 Nothing of any of this reaches the core API. There is no progress callback: the core interface is
 closed (ADR 0004), an option on `put` would be parity core and every adapter would owe it, and none
@@ -99,9 +99,10 @@ point: the case checks the promise, not the construction, which is the rule ADR 
 
 - `put` accepts `Uint8Array`, a string and `ReadableStream<Uint8Array>`. A caller holding a `Blob`
   or a `File` passes `blob.stream()`, and the README shows it.
-- An upload holds `partSize × concurrency` bytes, 32 MiB by default, whatever the object weighs.
-  There is no option whose effect appears only above 78 GiB, and no upload whose memory depends on
-  what the caller announced.
+- Multipart part buffers hold `partSize × concurrency` bytes, 32 MiB by default, whatever the
+  object weighs. A single `PUT` from a `Uint8Array` or string may retain the complete request body
+  instead. There is no option whose effect appears only above 78 GiB, and no multipart upload whose
+  memory depends on what the caller announced.
 - A stream above roughly 78 GiB needs a larger `partSize`, and the error says so. The 10,000-part
   limit is the provider's on both sides.
 - Every request `adapter-s3` sends carries a body it can send again, so ADR 0013's rule that a
@@ -114,9 +115,9 @@ point: the case checks the promise, not the construction, which is the rule ADR 
   anyway, and nothing here takes a cell away.
 - A multipart upload aborts itself on failure and on the caller's abort, with one exception:
   `CompleteMultipartUpload` that received no answer. ADR 0005 carries the exception.
-- `copy` above the single-request ceiling works through `UploadPartCopy` and is the one promise in
-  v0.1 that no run in CI checks. A stubbed `fetch` covers the fallback, and the first run against a
-  real endpoint settles the promise.
+- `copy` first tries `CopyObject`. If the provider refuses because the source is too large, v0.1
+  rejects the operation rather than issue `UploadPartCopy` requests against an unpinned source.
+  Version pinning and versioning remain outside v0.1.
 - v0.1 offers nothing for an upload a dead process left behind. On AWS the remedy is the lifecycle
   rule ADR 0005 already names, on R2 the seven-day default ADR 0014 records. A cleanup operation is
   worth building once someone runs a bucket where no lifecycle rule can be set: it fits no adapter

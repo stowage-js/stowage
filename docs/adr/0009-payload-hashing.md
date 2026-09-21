@@ -48,8 +48,9 @@ question of what happens where the strategy is missing does not arise.
   conceivable one.
 - The type of the body separates a single `PUT` from a multipart upload, which ADR 0016 records.
   Bytes the adapter holds go as one `PUT` up to 5 GB, the limit AWS documents, since splitting them
-  costs round trips and saves nothing. A stream becomes multipart once it fills one part, because
-  buffering further spends memory nobody asked for.
+  costs round trips and saves nothing. A stream that ends at or below `partSize`, including one that
+  fills exactly one part, goes as a single `PUT`. It becomes multipart only once reading past that
+  boundary proves that the stream needs more than one part.
 - Presigned URLs sign `UNSIGNED-PAYLOAD`. SigV4 specifies that for a query-signed request and the
   signer never sees the body, so this is a property of presigning rather than a second strategy. A
   presigned `PUT` carries no integrity check unless the caller signs a checksum header into it, and

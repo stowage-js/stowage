@@ -21,7 +21,7 @@ lexicographical order by UTF-8 byte, R2 documents that for its Workers binding a
 S3 endpoint, and it documents no ceiling for `max-keys` either. Unicode-equivalent keys may be one
 object or two, because R2 normalizes a key to NFC before storing it, so `Héllo` written as NFC and
 as NFD is one object there and two on S3. User metadata carries 2 KB, which is AWS's limit against
-R2's 8192 bytes. And a body of known length goes as one `PUT` up to 5 GB, which is AWS's limit
+R2's 8192 bytes. And a body the adapter holds goes as one `PUT` up to 5 GB, which is AWS's limit
 against R2's 5 GiB. The object ceiling is the one limit the adapter does not restate at all: AWS's
 own pages carry 48.8 TiB and 50 TB, R2 carries 5 TiB footnoted as 4.995 TiB, and `EntityTooLarge`
 answers with the same code and status on both.
@@ -74,15 +74,18 @@ header: `responseContentType` equals `Content-Type`, `responseContentDisposition
   reason: R2 strips it on the way out and counts it in `x-amz-missing-meta`, so writing it would
   lose it silently. Metadata values may hold any Unicode, which both providers carry RFC 2047
   encoded.
-- A body of bytes goes as one `PUT` up to 5 GB and as a multipart upload above it, the type of the
-  body having decided the shape (ADR 0016). ADR 0009 carried both providers' numbers for that
-  threshold and for the object ceiling; one number stands here, and the ceiling is the provider's
-  answer rather than the adapter's check.
+- A `Uint8Array` or string stays on the single-`PUT` path. To upload a body above the 5 GB
+  single-`PUT` limit through multipart, the caller must instead provide a
+  `ReadableStream<Uint8Array>`; the adapter does not convert held bytes into a stream implicitly.
+  As ADR 0016 specifies, that stream becomes multipart only after it exceeds one part. ADR 0009
+  carried both providers' numbers for the limit and for the object ceiling; the ceiling is the
+  provider's answer rather than the adapter's check.
 - `copy` above the size a single request carries reaches its fallback through the provider's
   refusal rather than through a ceiling the adapter knows, which is how it stays blind where AWS
-  documents 5 GB and R2 documents nothing. R2 supports `UploadPartCopy` with
-  `x-amz-copy-source-range`, so the fallback works on both, and where R2 accepts the copy outright
-  it never runs.
+  documents 5 GB and R2 documents nothing. Ranged `UploadPartCopy` would require every request to
+  name one pinned source version so that concurrent replacement cannot mix versions. v0.1 excludes
+  versioning, so the adapter refuses the fallback instead of relying on
+  `x-amz-copy-source-if-match`; where R2 accepts `CopyObject` outright, no fallback is needed.
 - `401` is `InvalidCredentials` in the status mapping of ADR 0005, because a `401` says the
   request was not authenticated at all. The three-way split of `403` that ADR 0005 argues for is
   observed on AWS through `InvalidAccessKeyId`, `ExpiredToken` and `AccessDenied`. R2 documents

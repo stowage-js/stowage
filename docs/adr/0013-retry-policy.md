@@ -24,10 +24,10 @@ signed (ADR 0009), so it goes out again from that buffer. A body the caller supp
 does not: once `fetch` has read it there is nothing left to send, and `fetch` offers no way to
 learn whether a byte was read before the failure. A request carrying a stream is therefore never
 repeated, not even when it failed while connecting. That rule costs a caller nothing at `put`,
-because ADR 0016 sends a streamed body as buffered parts rather than as one request: the bytes a
-caller streams travel in a body the adapter can send again, and the alternative that was weighed
-there — every upload through multipart, three requests for the smallest one — was not needed to
-get it.
+because ADR 0016 buffers a stream that remains within one part and sends it as a replayable single
+`PUT`. A larger stream becomes multipart only after it exceeds one part; each of its buffered parts
+is a replayable request with its own retry budget. The alternative weighed there — every upload
+through multipart, three requests for the smallest one — was not needed to get replayable uploads.
 
 The budget belongs to the HTTP request rather than to the operation, and it is three attempts, the
 original and two repeats. Per operation, an upload of two hundred parts would spend everything on
