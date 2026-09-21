@@ -35,8 +35,8 @@ for flow 1: the matrix promises less than the runtime can do, never more.
   README, and through `engines` for the Node floor alone, which Bun and Deno ignore.
 - Nothing detects the runtime at import time. Four runtimes are promised; the rest is neither
   blocked nor supported.
-- Dropping a runtime, or a Node line that reaches end of life, is not a breaking change in 0.x.
-  It leads the changelog entry.
+- Dropping a runtime, or a Node line that reaches end of life, is not a breaking change. It leads
+  the changelog entry, and ADR 0017 keeps it outside the contract after 1.0 as well.
 - An adapter never hands `fetch` a body stream of unknown length. Below undici 8.6.0 such a
   body is retained whole and grows without a ceiling — 512 MB measured for a 512 MB body on
   Node 24.21.0 — and every Node 24 release bundles undici 7. Multipart upload makes the part

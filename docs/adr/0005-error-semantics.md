@@ -71,9 +71,9 @@ a conformance suite that can only match on a message is the most fragile suite t
 
 ## Consequences
 
-- Adding a code is a breaking change for a caller who switches exhaustively over
-  `StorageErrorCode`. What that means inside 0.x is part of the release policy and is not settled
-  here.
+- Adding a code breaks a caller who switches exhaustively over `StorageErrorCode`. ADR 0017 leaves
+  that switch outside the contract — a published code keeps its meaning, the list may grow — so a
+  new code is a minor release.
 - `stat` on a missing key cannot say whether the bucket exists, and `get` on the same key can. The
   conformance suite asserts the code, which both operations can keep, and not the detail below it.
 - `exists` cannot answer `false` for a key it is not allowed to see. Under credentials narrow

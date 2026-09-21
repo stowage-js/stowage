@@ -123,6 +123,6 @@ point: the case checks the promise, not the construction, which is the rule ADR 
   worth building once someone runs a bucket where no lifecycle rule can be set: it fits no adapter
   but one, so it would arrive as a capability or on the concrete type.
 - The defaults, 8 MiB and four parts, are not something a caller can rely on, as the backoff numbers
-  of ADR 0013 are not. What that means inside 0.x belongs to the release policy.
+  of ADR 0013 are not, so ADR 0017 moves them in a minor release and never in a patch.
 - Adding a body type later takes nothing from a caller. `Blob` is the candidate, and what it waits
   for is a measurement of what `fetch` does with a file-backed one on each of the four runtimes.

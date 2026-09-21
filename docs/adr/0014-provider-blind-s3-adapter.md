@@ -138,6 +138,10 @@ header: `responseContentType` equals `Content-Type`, `responseContentDisposition
 - Storage classes, ACLs, tagging, object lock, versioning and server-managed encryption stay out
   beside the checksums ADR 0009 already ruled out. `x-amz-storage-class` is the only one of them
   R2 accepts, with two values against AWS's fifteen.
+- A provider promised later does not narrow the parity core. What it cannot hold becomes a
+  capability its adapter does not declare, the shape ADR 0015 built for `keyBytesPreserved`, so the
+  rule above holds between the two providers named here and never against the callers of a third.
+  ADR 0017 states what the narrowing costs where a difference refuses that shape.
 - The Cloudflare pages behind the differences above were read on 2026-09-20: S3 API compatibility,
   the error code table, presigned URLs, platform limits, object upload and Unicode
   interoperability. Each carries its own last-updated date, the oldest of them 2026-04-21.

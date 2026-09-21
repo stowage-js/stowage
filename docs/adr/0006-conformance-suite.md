@@ -112,7 +112,8 @@ every adapter this repository did not write.
   themselves are enumerated in the spec, not here.
 - A new case fails a third-party adapter that was green yesterday, so new cases land in minor
   releases only. A patch release of the suite may repair a case that was wrong and may not add
-  one. Inside 0.x this means a conformance case does not force a major.
+  one. ADR 0017 covers `ConformanceTarget` the same way, where a new required factory breaks a
+  third-party adapter and an optional one does not.
 - A case carries `cost: "fast" | "slow"`. `describeConformance(target, { describe, test })` and
   `runAll(target)` run fast cases by default; this remains the per-commit invocation. Scheduled
   and release CI must pass `includeSlow: true` —

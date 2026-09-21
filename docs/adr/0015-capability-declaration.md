@@ -93,9 +93,9 @@ would pass because its calls all fail correctly.
 - An application can ask any storage what it supports, and for `presignedUrls` the answer does not
   give it a method. Reaching the presign methods means naming the concrete adapter type, which
   ADR 0004 already makes the visible act at the call site.
-- `capabilityNames` is closed like `StorageErrorCode`, so a fifth name is a breaking change for a
-  caller that switches over it exhaustively. What that means inside 0.x belongs to the release
-  policy, which is not settled here.
+- `capabilityNames` is closed like `StorageErrorCode`, so a fifth name breaks a caller that
+  switches over it exhaustively. ADR 0017 leaves that switch outside the contract and adds the name
+  in a minor release.
 - A third-party adapter with a feature stowage has no name for declares nothing and puts the
   feature on its own concrete type. The suite has nothing to run against it, which is the same
   position ADR 0006 takes for a deviation.

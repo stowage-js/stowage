@@ -81,8 +81,8 @@ call sites do not change, not because a string can be swapped.
   third-party adapter may do as it likes, because ADR 0006 leaves construction to the conformance
   target and the suite asserts nothing about it.
 - A constructor that takes a URL can be added later without taking anything from a caller, so
-  unlike the way back in ADR 0003 this decision names no trigger that would bring one. What an
-  addition like that means inside 0.x belongs to the release policy.
+  unlike the way back in ADR 0003 this decision names no trigger that would bring one. ADR 0017
+  makes an addition like that a minor release.
 - `fromEnv` stays the one thing stowage reads from the environment, and it reads the credential
   alone. A bucket that falls back to `S3_BUCKET` where the option is missing, as Bun's S3 client
   resolves it, is the silent path this decision refused for the credential: a misspelled variable
