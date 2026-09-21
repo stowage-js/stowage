@@ -1,0 +1,40 @@
+{
+  "name": "@stowage/adapter-s3",
+  "version": "0.0.0",
+  "description": "stowage adapter for one bucket of AWS S3 or Cloudflare R2, speaking the S3 wire protocol without an SDK.",
+  "keywords": [
+    "adapter",
+    "aws",
+    "cloudflare",
+    "object-storage",
+    "r2",
+    "s3",
+    "storage",
+    "stowage"
+  ],
+  "homepage": "https://github.com/stowage-js/stowage/tree/main/packages/adapter-s3#readme",
+  "bugs": "https://github.com/stowage-js/stowage/issues",
+  "license": "MIT",
+  "author": "Alexander Kaufmann",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stowage-js/stowage.git",
+    "directory": "packages/adapter-s3"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
