@@ -301,6 +301,15 @@ test.each([
   ["get", async (signal: AbortSignal) => await memoryStorage().get("greeting", { signal })],
   ["stat", async (signal: AbortSignal) => await memoryStorage().stat("greeting", { signal })],
   ["exists", async (signal: AbortSignal) => await memoryStorage().exists("greeting", { signal })],
+  ["deleteAll", async (signal: AbortSignal) => await memoryStorage().deleteAll("", { signal })],
+  [
+    "copy",
+    async (signal: AbortSignal) => await memoryStorage().copy("greeting", "formal", { signal }),
+  ],
+  [
+    "move",
+    async (signal: AbortSignal) => await memoryStorage().move("greeting", "formal", { signal }),
+  ],
 ])("reports a signal that has already fired to %s", async (_name, call) => {
   const error = await rejection(call(AbortSignal.abort()));
 
@@ -313,6 +322,9 @@ test.each([
   ["get", (signal: AbortSignal) => memoryStorage().get("greeting", { signal })],
   ["stat", (signal: AbortSignal) => memoryStorage().stat("greeting", { signal })],
   ["exists", (signal: AbortSignal) => memoryStorage().exists("greeting", { signal })],
+  ["deleteAll", (signal: AbortSignal) => memoryStorage().deleteAll("", { signal })],
+  ["copy", (signal: AbortSignal) => memoryStorage().copy("greeting", "formal", { signal })],
+  ["move", (signal: AbortSignal) => memoryStorage().move("greeting", "formal", { signal })],
 ])("rejects rather than throwing where %s fails", async (_name, call) => {
   let promise: Promise<unknown> = Promise.resolve();
 
@@ -405,4 +417,193 @@ test("stores nothing and reads no body where the key of a put is invalid", async
 
   expect(body.locked).toBe(false);
   expect(await storage.exists("greeting/")).toBe(false);
+});
+
+test("removes the keys it was given", async () => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello");
+  await storage.put("greetings/formal", "servus");
+
+  const report = await storage.delete("greeting", "greetings/formal");
+
+  expect(report).toEqual({ requested: 2, failed: [] });
+  expect(await storage.exists("greeting")).toBe(false);
+  expect(await storage.exists("greetings/formal")).toBe(false);
+});
+
+test("succeeds in deleting a key that is not there", async () => {
+  expect(await memoryStorage().delete("absent")).toEqual({ requested: 1, failed: [] });
+});
+
+test("resolves with an empty report where it is given no key", async () => {
+  expect(await memoryStorage().delete()).toEqual({ requested: 0, failed: [] });
+});
+
+test("reports an invalid key in the report and deletes the other keys", async () => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello");
+
+  const report = await storage.delete("greetings//formal", "greeting");
+
+  expect(report.requested).toBe(2);
+  expect(report.failed).toHaveLength(1);
+  expect(isStorageError(report.failed[0])).toBe(true);
+  expect(report.failed[0]?.code).toBe("InvalidKey");
+  expect(report.failed[0]?.retryable).toBe(false);
+  expect(report.failed[0]?.key).toBe("greetings//formal");
+  expect(report.failed[0]?.operation).toBe("delete");
+  expect(report.failed[0]?.attempts).toBe(0);
+  expect(await storage.exists("greeting")).toBe(false);
+});
+
+test("deletes every object below a prefix and none beside it", async () => {
+  const storage = memoryStorage();
+  await storage.put("greetings/formal", "servus");
+  await storage.put("greetings/casual", "hi");
+  await storage.put("greeting", "hello");
+
+  const report = await storage.deleteAll("greetings/");
+
+  expect(report).toEqual({ requested: 2, failed: [] });
+  expect(await storage.exists("greeting")).toBe(true);
+  expect(await storage.exists("greetings/formal")).toBe(false);
+});
+
+test("deletes below a prefix that ends in the middle of a segment", async () => {
+  const storage = memoryStorage();
+  await storage.put("greetings/formal", "servus");
+  await storage.put("greeting", "hello");
+
+  await storage.deleteAll("greetin");
+
+  expect(await storage.exists("greeting")).toBe(false);
+  expect(await storage.exists("greetings/formal")).toBe(false);
+});
+
+test("empties the storage under the empty prefix", async () => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello");
+  await storage.put("greetings/formal", "servus");
+
+  expect(await storage.deleteAll("")).toEqual({ requested: 2, failed: [] });
+  expect(await storage.exists("greeting")).toBe(false);
+});
+
+test("applies the prefix rule to deleteAll", async () => {
+  const error = await storageErrorOf(memoryStorage().deleteAll("greetings//formal"));
+
+  expect(error.code).toBe("InvalidKey");
+  expect(error.operation).toBe("deleteAll");
+  expect(error.attempts).toBe(0);
+});
+
+test("copies the bytes and the description of the source to the destination", async () => {
+  const storage = memoryStorage();
+  const source = await storage.put("greeting", "hello", { contentType: "text/plain" });
+
+  const copied = await storage.copy("greeting", "greetings/formal");
+
+  expect(copied.key).toBe("greetings/formal");
+  expect(copied.contentType).toBe("text/plain");
+  expect(copied.etag).toBe(source.etag);
+  expect(copied.size).toBe(source.size);
+  expect(copied.userMetadata).toEqual(source.userMetadata);
+  expect(copied).toEqual(await storage.stat("greetings/formal"));
+  expect(await (await storage.get("greetings/formal")).text()).toBe("hello");
+  expect(await (await storage.get("greeting")).text()).toBe("hello");
+});
+
+test("replaces the object at the destination of a copy", async () => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello", { contentType: "text/plain" });
+  await storage.put("greetings/formal", "servus", { contentType: "text/markdown" });
+
+  await storage.copy("greeting", "greetings/formal");
+  const stored = await storage.get("greetings/formal");
+
+  expect(await stored.text()).toBe("hello");
+  expect(stored.stat.contentType).toBe("text/plain");
+});
+
+test.each(["copy", "move"] as const)("refuses %s onto the key it reads", async (operation) => {
+  const storage = memoryStorage();
+  const written = await storage.put("greeting", "hello");
+
+  const error = await storageErrorOf(storage[operation]("greeting", "greeting"));
+
+  expect(error.code).toBe("InvalidRequest");
+  expect(error.operation).toBe(operation);
+  expect(error.attempts).toBe(0);
+  expect(await storage.stat("greeting")).toEqual(written);
+});
+
+test.each(["copy", "move"] as const)(
+  "reports a missing source of %s as not found",
+  async (operation) => {
+    const storage = memoryStorage();
+
+    const error = await storageErrorOf(storage[operation]("absent", "greeting"));
+
+    expect(error.code).toBe("NotFound");
+    expect(error.key).toBe("absent");
+    expect(error.operation).toBe(operation);
+    expect(error.attempts).toBe(1);
+    expect(await storage.exists("greeting")).toBe(false);
+  },
+);
+
+test.each(["copy", "move"] as const)(
+  "applies the addressable rule to the source of %s",
+  async (operation) => {
+    const storage = memoryStorage();
+
+    const error = await storageErrorOf(storage[operation]("greetings//formal", "greeting"));
+
+    expect(error.code).toBe("InvalidKey");
+    expect(error.key).toBe("greetings//formal");
+    expect(error.operation).toBe(operation);
+    expect(error.attempts).toBe(0);
+    expect(await storage.exists("greeting")).toBe(false);
+  },
+);
+
+test.each(["copy", "move"] as const)(
+  "checks the destination of %s before it touches the source",
+  async (operation) => {
+    const storage = memoryStorage();
+    await storage.put("greeting", "hello");
+
+    const error = await storageErrorOf(storage[operation]("greeting", "greetings/formal/"));
+
+    expect(error.code).toBe("InvalidKey");
+    expect(error.key).toBe("greetings/formal/");
+    expect(error.operation).toBe(operation);
+    expect(error.attempts).toBe(0);
+    expect(await storage.exists("greetings/formal/")).toBe(false);
+    expect(await (await storage.get("greeting")).text()).toBe("hello");
+  },
+);
+
+test("replaces the object at the destination of a move", async () => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello", { contentType: "text/plain" });
+  await storage.put("greetings/formal", "servus", { contentType: "text/markdown" });
+
+  const moved = await storage.move("greeting", "greetings/formal");
+
+  expect(moved.contentType).toBe("text/plain");
+  expect(await (await storage.get("greetings/formal")).text()).toBe("hello");
+  expect(await storage.exists("greeting")).toBe(false);
+});
+
+test("moves the object and resolves with the description of the destination", async () => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello", { contentType: "text/plain" });
+
+  const moved = await storage.move("greeting", "greetings/formal");
+
+  expect(moved).toEqual(await storage.stat("greetings/formal"));
+  expect(moved.contentType).toBe("text/plain");
+  expect(await (await storage.get("greetings/formal")).text()).toBe("hello");
+  expect(await storage.exists("greeting")).toBe(false);
 });

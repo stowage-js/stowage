@@ -1,3 +1,5 @@
+import type { StorageError } from "./errors.ts";
+
 export type PutBody = Uint8Array | string | ReadableStream<Uint8Array>;
 
 export interface OperationOptions {
@@ -28,6 +30,11 @@ export interface StoredObject {
   json<T = unknown>(): Promise<T>;
 }
 
+export interface DeleteReport {
+  readonly requested: number;
+  readonly failed: readonly StorageError[];
+}
+
 export interface Storage {
   readonly provider: string;
   readonly bucket: string;
@@ -36,4 +43,8 @@ export interface Storage {
   get(key: string, options?: OperationOptions): Promise<StoredObject>;
   stat(key: string, options?: OperationOptions): Promise<ObjectStat>;
   exists(key: string, options?: OperationOptions): Promise<boolean>;
+  delete(...keys: readonly string[]): Promise<DeleteReport>;
+  deleteAll(prefix: string, options?: OperationOptions): Promise<DeleteReport>;
+  copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat>;
+  move(from: string, to: string, options?: OperationOptions): Promise<ObjectStat>;
 }
