@@ -8,6 +8,7 @@ import type {
 
 import { decodeCursor, encodeCursor } from "./cursor.ts";
 import { requireKey } from "./key.ts";
+import { listOptionKeys, requireKnownOptions } from "./options.ts";
 import { memoryError } from "./storage-error.ts";
 
 const defaultPageSize = 1000;
@@ -68,6 +69,8 @@ export function createListing(
 }
 
 function read(options: ListOptions | undefined): ListRequest {
+  requireKnownOptions(options, listOptionKeys, "list");
+
   const prefix = options?.prefix ?? "";
 
   requireKey(prefix, "prefix", "list");

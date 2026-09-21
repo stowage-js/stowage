@@ -55,6 +55,13 @@ const storageWith = async (...keys: readonly string[]): Promise<MemoryStorage> =
   return storage;
 };
 
+/**
+ * An option key the spec does not list. TypeScript refuses one at the call site, so it
+ * reaches a call from plain JavaScript alone.
+ */
+const withUnknownOption = <T extends object>(options: T): T =>
+  Object.assign({}, options, { retries: 3 });
+
 /** Order is not promised, so every assertion over a whole listing sorts first. */
 const iterate = async (listing: ObjectListing): Promise<string[]> => {
   const keys: string[] = [];
@@ -434,6 +441,28 @@ test("counts a metadata value above ASCII as the bytes its encoding costs", asyn
   const error = await storageErrorOf(storage.put("greeting", "hello", { userMetadata }));
 
   expect(error.code).toBe("InvalidRequest");
+});
+
+test.each([
+  ["put", (storage: MemoryStorage) => storage.put("greeting", "hello", withUnknownOption({}))],
+  ["get", (storage: MemoryStorage) => storage.get("greeting", withUnknownOption({}))],
+  ["stat", (storage: MemoryStorage) => storage.stat("greeting", withUnknownOption({}))],
+  ["exists", (storage: MemoryStorage) => storage.exists("greeting", withUnknownOption({}))],
+  ["deleteAll", (storage: MemoryStorage) => storage.deleteAll("", withUnknownOption({}))],
+  ["copy", (storage: MemoryStorage) => storage.copy("greeting", "servus", withUnknownOption({}))],
+  ["move", (storage: MemoryStorage) => storage.move("greeting", "servus", withUnknownOption({}))],
+  ["list", (storage: MemoryStorage) => storage.list(withUnknownOption({})).page()],
+])("refuses an option key %s does not list", async (operation, call) => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello");
+
+  const error = await storageErrorOf(call(storage));
+
+  expect(error.code).toBe("InvalidOption");
+  expect(error.operation).toBe(operation);
+  expect(error.attempts).toBe(0);
+  expect(error.message).toContain("retries");
+  expect(error.message).not.toContain("3");
 });
 
 test("copies the bytes it was handed", async () => {

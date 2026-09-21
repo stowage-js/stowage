@@ -18,6 +18,12 @@ import { readBody } from "./bytes.ts";
 import { etagOf } from "./etag.ts";
 import { keyError, requireKey } from "./key.ts";
 import { createListing } from "./listing.ts";
+import {
+  getOptionKeys,
+  operationOptionKeys,
+  putOptionKeys,
+  requireKnownOptions,
+} from "./options.ts";
 import { requireRange, sliceRange } from "./range.ts";
 import { memoryError } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
@@ -59,6 +65,7 @@ class InMemoryStorage implements MemoryStorage {
 
   async put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat> {
     requireKey(key, "writable", "put");
+    requireKnownOptions(options, putOptionKeys, "put");
 
     const userMetadata = readUserMetadata(options?.userMetadata, key);
     const bytes = await readBody(body, options?.signal);
@@ -78,6 +85,7 @@ class InMemoryStorage implements MemoryStorage {
 
   async get(key: string, options?: GetOptions): Promise<StoredObject> {
     requireKey(key, "addressable", "get");
+    requireKnownOptions(options, getOptionKeys, "get");
     requireRange(options?.range);
 
     options?.signal?.throwIfAborted();
@@ -89,6 +97,7 @@ class InMemoryStorage implements MemoryStorage {
 
   async stat(key: string, options?: OperationOptions): Promise<ObjectStat> {
     requireKey(key, "addressable", "stat");
+    requireKnownOptions(options, operationOptionKeys, "stat");
 
     options?.signal?.throwIfAborted();
 
@@ -97,6 +106,7 @@ class InMemoryStorage implements MemoryStorage {
 
   async exists(key: string, options?: OperationOptions): Promise<boolean> {
     requireKey(key, "addressable", "exists");
+    requireKnownOptions(options, operationOptionKeys, "exists");
 
     options?.signal?.throwIfAborted();
 
@@ -122,6 +132,7 @@ class InMemoryStorage implements MemoryStorage {
 
   async deleteAll(prefix: string, options?: OperationOptions): Promise<DeleteReport> {
     requireKey(prefix, "prefix", "deleteAll");
+    requireKnownOptions(options, operationOptionKeys, "deleteAll");
 
     options?.signal?.throwIfAborted();
 
@@ -147,6 +158,7 @@ class InMemoryStorage implements MemoryStorage {
   #copy(from: string, to: string, operation: string, options?: OperationOptions): ObjectStat {
     requireKey(from, "addressable", operation);
     requireKey(to, "writable", operation);
+    requireKnownOptions(options, operationOptionKeys, operation);
 
     options?.signal?.throwIfAborted();
 
