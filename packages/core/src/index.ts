@@ -5,6 +5,7 @@ export {
   type StorageErrorCode,
   type StorageErrorFields,
 } from "./errors.ts";
+export { invalidKeyReason, type KeyRule } from "./keys.ts";
 export type {
   ObjectEntry,
   ObjectStat,
