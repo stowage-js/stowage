@@ -42,4 +42,14 @@ jobs:
 
       - run: pnpm run format:check
 
+      # ADR 0012: the suite runs against the pinned endpoint per commit, so the run that
+      # starts it is the run that says what green means. `start.sh` prints the
+      # environment as `export NAME=value`, which `GITHUB_ENV` takes without the keyword.
+      - name: Start the S3 endpoint
+        run: ./harness/s3/start.sh | sed 's/^export //' >> "$GITHUB_ENV"
+
       - run: pnpm run test
+
+      - name: Stop the S3 endpoint
+        if: always()
+        run: ./harness/s3/stop.sh

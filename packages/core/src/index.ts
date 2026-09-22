@@ -1,4 +1,5 @@
 export { type CapabilityName, capabilityNames } from "./capabilities.ts";
+export type { Resolvable, ResolverOptions } from "./credentials.ts";
 export {
   isStorageError,
   StorageError,
@@ -6,6 +7,7 @@ export {
   type StorageErrorFields,
 } from "./errors.ts";
 export { invalidKeyReason, type KeyRule } from "./keys.ts";
+export { errorCodeForStatus, isTransientStatus } from "./status.ts";
 export type {
   ByteRange,
   DeleteReport,

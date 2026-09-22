@@ -1,0 +1,14 @@
+{
+  "name": "@stowage/harness-s3",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Private harness: the S3 endpoint the conformance suite runs against.",
+  "type": "module",
+  "scripts": {
+    "start": "./start.sh",
+    "stop": "./stop.sh"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
