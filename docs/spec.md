@@ -559,9 +559,10 @@ export function fsStorage(options: FsAdapterOptions): FsStorage;
 - A key maps to the path below the root with `/` as the separator. Every access resolves the real
   path and answers `NotFound` where it lies outside the root, so a symbolic link pointing out of the
   root behaves as an absent object.
-- Refuses a segment longer than 255 bytes with `InvalidKey`, and refuses a key whose path below
-  the root passes what the file system holds: macOS bounds one path at 1024 bytes with the root
-  counted in, so the 1024-byte key of section 8.7 is written on Linux and is `InvalidKey` there.
+- Refuses a segment longer than 255 bytes with `InvalidKey`. A key whose whole path passes what the
+  file system holds is `InvalidKey` as well, through the `ENAMETOOLONG` of the mapping below: macOS
+  bounds one path at 1024 bytes with the root counted in, so the 1024-byte key of section 8.7 is
+  written on Linux and refused there.
 - The content type is derived from the key's extension through a built-in table, and
   `application/octet-stream` where the extension is unknown or absent. The `contentType` handed to
   `put` is validated as a string and not stored, so `stat` may report a type that differs from the
@@ -569,6 +570,8 @@ export function fsStorage(options: FsAdapterOptions): FsStorage;
   weakly here; `keyBytesPreserved` is the model, and no capability name exists for it in v0.1.
 - `put` writes to a temporary file in the same directory and renames it into place, so a reader sees
   the old object or the new one and never a partial write. Intermediate directories are created.
+  That file carries a name of the adapter's own, which a listing passes over: a write in flight is
+  no object, and neither is a key of that shape.
   `delete`, `deleteAll` and `move` remove directories left empty, up to the root, so a listing with a
   delimiter shows no empty pseudo-directory.
 - `lastModified` is the file's modification time. `size` is the file's size. `etag` is not set.
@@ -1079,7 +1082,8 @@ lists for the rule named. A key is given as its characters; its length is measur
 
 Accepted means the core's check passes and the request goes out. A provider may still refuse an
 addressable key it cannot hold: S3 answers a key above 1024 bytes with `KeyTooLongError`, which
-`adapter-s3` reports as `InvalidKey`.
+`adapter-s3` reports as `InvalidKey`. `adapter-fs` refuses the key of 1024 bytes where the file
+system's path limit does not hold it below the root, which section 6 states.
 
 ## 9. Versions
 
