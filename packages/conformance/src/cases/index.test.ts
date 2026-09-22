@@ -72,6 +72,12 @@ const specified: readonly SpecifiedCase[] = [
   ["errors/bad-credentials", [], "fast"],
   ["errors/denied-credentials", [], "fast"],
   ["errors/expired-credentials", [], "slow"],
+  ["presign/get", ["presignedUrls"], "fast"],
+  ["presign/put", ["presignedUrls"], "fast"],
+  ["presign/expires-in-bounds", ["presignedUrls"], "fast"],
+  ["presign/put-rejects-type", ["presignedUrls"], "slow"],
+  ["presign/put-rejects-length", ["presignedUrls"], "slow"],
+  ["presign/expired-url", ["presignedUrls"], "slow"],
 ];
 
 test("the suite holds the cases of spec 8.5, each with the requirement and the cost of its row", () => {

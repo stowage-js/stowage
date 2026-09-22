@@ -125,6 +125,26 @@ test("`list/key-bytes` holds where the storage declares no `keyBytesPreserved`",
   await expect(runWithout("list/key-bytes", undeclaring())).resolves.toBe("without");
 });
 
+test.each([
+  "presign/get",
+  "presign/put",
+  "presign/expires-in-bounds",
+  "presign/put-rejects-type",
+  "presign/put-rejects-length",
+  "presign/expired-url",
+])("`%s` holds where the storage declares no `presignedUrls`", async (name) => {
+  await expect(runWithout(name, undeclaring())).resolves.toBe("without");
+});
+
+test("the `presign/get` half refuses a storage carrying a method it declared nothing for", async () => {
+  // ADR 0011: presigning is the one capability that adds a method rather than changing a
+  // behavior, so the half reads the two names off the storage and nothing else.
+  // The extra method is what the half reads, so the storage carries one beside `Storage`.
+  const signing = { ...undeclaring(), presignGet: async () => "https://example.invalid/signed" };
+
+  await expect(runWithout("presign/get", signing)).rejects.toThrow("carries `presignGet`");
+});
+
 test("the `get/range` half refuses a storage answering a range it declared nothing for", async () => {
   await expect(runWithout("get/range", undeclaring({ answersRanges: true }))).rejects.toThrow(
     "Expected `Unsupported` naming `rangeReads`",

@@ -6,6 +6,7 @@ import { errorCases } from "./errors.ts";
 import { existsCases } from "./exists.ts";
 import { getCases } from "./get.ts";
 import { listCases } from "./list.ts";
+import { presignCases } from "./presign.ts";
 import { putCases } from "./put.ts";
 import { statCases } from "./stat.ts";
 
@@ -19,6 +20,7 @@ export const conformanceCaseSources: readonly ConformanceCaseSource[] = [
   ...deleteCases,
   ...copyAndMoveCases,
   ...errorCases,
+  ...presignCases,
 ];
 
 /** The same cases as the package publishes them, without the factory of spec 8.3. */
