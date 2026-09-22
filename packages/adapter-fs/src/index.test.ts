@@ -1,7 +1,16 @@
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { platform } from "node:process";
 
 import { isStorageError, type ObjectListing, type StorageError } from "@stowage/core";
 import { afterEach, expect, test } from "vitest";
@@ -39,6 +48,18 @@ const streamOf = (...chunks: readonly string[]): ReadableStream<Uint8Array> =>
       controller.close();
     },
   });
+
+/** Whether one file below a root of its own answers to both Unicode forms of its name. */
+const foldsNormalForms = async (composed: string, decomposed: string): Promise<boolean> => {
+  const root = await temporaryRoot();
+
+  await writeFile(join(root, composed), "a probe");
+
+  return await stat(join(root, decomposed)).then(
+    () => true,
+    () => false,
+  );
+};
 
 const rejection = async (promise: Promise<unknown>): Promise<unknown> => {
   try {
@@ -778,7 +799,7 @@ test("moves the link at the key and leaves the object it points to", async () =>
   expect(await (await storage.get("object")).text()).toBe("a body");
 });
 
-test("rejects a copy against a root that is gone", async () => {
+test("rejects a copy or a move against a root that is gone", async () => {
   const storage = fsStorage({ root: join(await temporaryRoot(), "not-there") });
 
   expect(await codeOf(storage.copy("source", "destination"))).toBe("NotFound");
@@ -792,11 +813,13 @@ test("hands a key back as the file system holds it", async () => {
 
   await storage.put(composed, "a body");
 
-  // APFS keeps a name in the form it was written in and folds the forms when it looks one
-  // up, so the decomposed key names the object the composed one wrote; ext4 holds the
-  // bytes and tells the two apart. Spec 6 states what the file system does rather than
-  // repairing it, which is why the storage declares no `keyBytesPreserved`.
+  // The key comes back in the form it went in, because APFS keeps the form a name was
+  // written in and ext4 keeps the bytes.
   expect(await iterate(storage.list())).toEqual([composed]);
-  expect(await storage.exists(decomposed)).toBe(platform === "darwin");
+
+  // Whether the other form reaches the same object is the file system's own answer, and
+  // spec 6 has the storage pass it on rather than repair it: APFS folds the two forms and
+  // ext4 tells them apart, which is why no `keyBytesPreserved` is declared.
+  expect(await storage.exists(decomposed)).toBe(await foldsNormalForms(composed, decomposed));
   expect(storage.capabilities).not.toContain("keyBytesPreserved");
 });
