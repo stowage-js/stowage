@@ -20,6 +20,7 @@ export interface StubStorageFields {
   readonly put?: Storage["put"];
   readonly get?: Storage["get"];
   readonly stat?: Storage["stat"];
+  readonly exists?: Storage["exists"];
   readonly list?: Storage["list"];
   readonly copy?: Storage["copy"];
   readonly deleteAll?: (prefix: string) => Promise<DeleteReport>;
@@ -43,7 +44,7 @@ export function stubStorage(fields: StubStorageFields = {}): Storage {
     put: fields.put ?? unreachable<ObjectStat>("put"),
     get: fields.get ?? unreachable<StoredObject>("get"),
     stat: fields.stat ?? unreachable<ObjectStat>("stat"),
-    exists: unreachable<boolean>("exists"),
+    exists: fields.exists ?? unreachable<boolean>("exists"),
     list:
       fields.list ??
       ((): ObjectListing => {

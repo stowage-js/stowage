@@ -67,6 +67,11 @@ const specified: readonly SpecifiedCase[] = [
   ["copy/user-metadata", ["userMetadata"], "fast"],
   ["move/round-trip", [], "fast"],
   ["move/missing-source", [], "fast"],
+  ["errors/shape", [], "fast"],
+  ["errors/not-a-storage-error", [], "fast"],
+  ["errors/bad-credentials", [], "fast"],
+  ["errors/denied-credentials", [], "fast"],
+  ["errors/expired-credentials", [], "slow"],
 ];
 
 test("the suite holds the cases of spec 8.5, each with the requirement and the cost of its row", () => {
@@ -83,6 +88,18 @@ test("every case naming a capability carries the `runWithout` half of its row", 
   for (const source of conformanceCaseSources.filter((one) => one.requires.length > 0)) {
     expect(source).toHaveProperty("runWithout", expect.any(Function));
   }
+});
+
+test("the cases hanging on a credential factory of spec 8.3 name the one their row marks", () => {
+  const marked = conformanceCaseSources
+    .filter((source) => source.factory !== undefined)
+    .map((source) => [source.name, source.factory]);
+
+  expect(marked).toEqual([
+    ["errors/bad-credentials", "createStorageWithBadCredentials"],
+    ["errors/denied-credentials", "createStorageWithDeniedCredentials"],
+    ["errors/expired-credentials", "createStorageWithExpiredCredentials"],
+  ]);
 });
 
 test("no two cases share a name", () => {
