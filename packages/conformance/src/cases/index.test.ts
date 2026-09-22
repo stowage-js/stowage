@@ -24,6 +24,16 @@ const specified: readonly SpecifiedCase[] = [
   ["put/stream-consumed", [], "fast"],
   ["put/user-metadata", ["userMetadata"], "fast"],
   ["put/user-metadata-limits", ["userMetadata"], "fast"],
+  ["get/missing-key", [], "fast"],
+  ["get/stream", [], "fast"],
+  ["get/text-and-json", [], "fast"],
+  ["get/body-read-once", [], "fast"],
+  ["get/stat-from-response", [], "fast"],
+  ["get/addressable-keys", [], "fast"],
+  ["get/aborted-signal", [], "fast"],
+  ["get/range", ["rangeReads"], "fast"],
+  ["get/range-unsatisfiable", ["rangeReads"], "fast"],
+  ["get/range-clipped", ["rangeReads"], "fast"],
 ];
 
 test("the suite holds the cases of spec 8.5, each with the requirement and the cost of its row", () => {
