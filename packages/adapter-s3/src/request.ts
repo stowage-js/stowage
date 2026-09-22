@@ -1,14 +1,11 @@
-import {
-  errorCodeForStatus,
-  isStorageError,
-  isTransientStatus,
-  type StorageError,
-} from "@stowage/core";
+import { isStorageError, isTransientStatus, type StorageError, withRetry } from "@stowage/core";
 
 import { encodePath, encodeQuery, type HeaderField, type QueryParameter } from "./canonical.ts";
 import type { S3Configuration } from "./configuration.ts";
 import { resolveCredentials } from "./credentials.ts";
+import { readErrorDocument, type S3ErrorDocument } from "./error-document.ts";
 import { sha256Hex } from "./hash.ts";
+import { readProviderFailure } from "./provider-code.ts";
 import { signRequest } from "./sign.ts";
 import { inStorage, s3Error } from "./storage-error.ts";
 
@@ -28,59 +25,60 @@ const emptyBody: Uint8Array<ArrayBuffer> = new Uint8Array(0);
 
 const service = "s3";
 
-const baseDelay = 100;
-const maximumDelay = 5_000;
-
 /**
- * One S3 request, answered by the response the provider sent or rejected with the
- * failure it reported. Spec 7.4 computes the payload hash once and signs every attempt
- * again; the repeat of spec 7.5 wraps this and is what turns one attempt into three.
+ * One S3 request, answered by the response the provider sent or rejected with the failure
+ * it reported. Spec 7.4 computes the payload hash once and signs every attempt again; the
+ * loop of spec 7.5 lives in `@stowage/core`, as the one definition of the budget and the
+ * curve that a third-party adapter reads too.
  */
 export async function send(configuration: S3Configuration, request: S3Request): Promise<Response> {
   const payloadHash = await sha256Hex(request.body ?? emptyBody);
 
-  for (let attempts = 1; ; attempts += 1) {
-    let response: Response;
-
-    try {
-      // oxlint-disable-next-line no-await-in-loop -- the failure decides whether to repeat
-      response = await attempt(configuration, request, payloadHash, attempts);
-    } catch (failure) {
-      if (!isStorageError(failure) || !failure.retryable || attempts >= configuration.maxAttempts) {
-        throw failure;
-      }
-
-      // oxlint-disable-next-line no-await-in-loop -- the next request waits for this backoff
-      await backoff(attempts, request.signal);
-
-      continue;
-    }
-
-    if (response.ok) return response;
-
-    // oxlint-disable-next-line no-await-in-loop -- this response is handled before another is sent
-    const failure = await failureOf(configuration, request, response, attempts);
-
-    if (!failure.retryable || attempts >= configuration.maxAttempts) throw failure;
-
-    // oxlint-disable-next-line no-await-in-loop -- the next request waits for this backoff
-    await backoff(attempts, request.signal);
-  }
+  return await withRetry(
+    async () => await attemptWithRefresh(configuration, request, payloadHash),
+    {
+      maxAttempts: configuration.maxAttempts,
+      signal: request.signal,
+    },
+  );
 }
 
-async function attempt(
+/**
+ * One attempt, which spec 7.3 has cost a second request where the provider answered
+ * `Expired`: the credential is resolved again under `forceRefresh` and the request goes
+ * out without a delay, because no wait makes a credential fresher. `retry: false` does
+ * not switch that repeat off, so an attempt costs one request or two and an operation at
+ * most six (ADR 0013).
+ */
+async function attemptWithRefresh(
   configuration: S3Configuration,
   request: S3Request,
   payloadHash: string,
+): Promise<Response> {
+  try {
+    return await attemptOnce(configuration, request, payloadHash, false, 1);
+  } catch (failure) {
+    if (!isStorageError(failure) || failure.code !== "Expired") throw failure;
+
+    return await attemptOnce(configuration, request, payloadHash, true, 2);
+  }
+}
+
+/** One signed request, which is the attempt CONTEXT.md names and what a repeat repeats. */
+async function attemptOnce(
+  configuration: S3Configuration,
+  request: S3Request,
+  payloadHash: string,
+  forceRefresh: boolean,
   attempts: number,
 ): Promise<Response> {
   const path = pathOf(configuration, request.key);
   const query = request.query ?? [];
-  const credentials = await resolveCredentials(configuration.credentials, {
-    forceRefresh: false,
-  }).catch((failure: unknown) => {
-    throw inStorage(failure, configuration.bucket, request.operation, request.key);
-  });
+  const credentials = await resolveCredentials(configuration.credentials, { forceRefresh }).catch(
+    (failure: unknown) => {
+      throw inStorage(failure, configuration.bucket, request.operation, request.key);
+    },
+  );
   const signed = await signRequest({
     method: request.method,
     host: configuration.host,
@@ -97,9 +95,10 @@ async function attempt(
   const url = `${configuration.protocol}//${configuration.host}${encodePath(path)}${
     query.length === 0 ? "" : `?${encodeQuery(query)}`
   }`;
+  let response: Response;
 
   try {
-    return await fetch(url, {
+    response = await fetch(url, {
       method: request.method,
       headers: signed.headers.map(([name, value]) => [name, value]),
       body: request.body,
@@ -108,32 +107,10 @@ async function attempt(
   } catch (failure) {
     throw transportFailure(configuration, request, failure, attempts);
   }
-}
 
-/** Full-jitter exponential backoff from spec 7.5, interrupted by the caller's signal. */
-async function backoff(attempts: number, signal: AbortSignal | undefined): Promise<void> {
-  const milliseconds = Math.random() * Math.min(maximumDelay, baseDelay * 2 ** attempts);
+  if (response.ok) return response;
 
-  await new Promise<void>((resolve, reject) => {
-    if (signal === undefined) {
-      setTimeout(resolve, milliseconds);
-
-      return;
-    }
-
-    signal.throwIfAborted();
-
-    const timer = setTimeout(() => {
-      signal.removeEventListener("abort", aborted);
-      resolve();
-    }, milliseconds);
-    const aborted = (): void => {
-      clearTimeout(timer);
-      reject(signal.reason);
-    };
-
-    signal.addEventListener("abort", aborted, { once: true });
-  });
+  throw await failureOf(configuration, request, response, attempts);
 }
 
 /**
@@ -152,9 +129,10 @@ function pathOf(configuration: S3Configuration, key: string | undefined): string
 }
 
 /**
- * Spec 4.10 maps the status where no provider code is recognized. The table of spec 7.9
- * and the XML body it reads the code out of arrive with the retry policy; until then a
- * failure carries the status, the request id and the one attempt it cost.
+ * Spec 7.9: the provider's own code decides where the table recognizes one, the status of
+ * spec 4.10 decides where it does not, and the status alone decides whether the condition
+ * is transient. `status`, `providerCode`, `requestId` and the provider's message travel
+ * along, which is what makes a failure traceable at the provider.
  */
 async function failureOf(
   configuration: S3Configuration,
@@ -162,19 +140,47 @@ async function failureOf(
   response: Response,
   attempts: number,
 ): Promise<StorageError> {
-  // Nothing reads the body yet, and a body left unread holds the connection open.
-  await response.body?.cancel();
+  const document = await readFailure(request, response);
+  const failure = readProviderFailure({
+    status: response.status,
+    operation: request.operation,
+    method: request.method,
+    providerCode: document.code,
+    providerMessage: document.message,
+    bucketRegion: response.headers.get("x-amz-bucket-region") ?? undefined,
+  });
 
   return s3Error(configuration.bucket, {
-    code: errorCodeForStatus(response.status) ?? "ProviderError",
-    message: `The provider answered ${response.status} to \`${request.method}\``,
+    code: failure.code,
+    message: failure.message,
     operation: request.operation,
     key: request.key,
     attempts,
     status: response.status,
+    providerCode: document.code,
     requestId: response.headers.get("x-amz-request-id") ?? undefined,
     retryable: isTransientStatus(response.status),
   });
+}
+
+/**
+ * Spec 7.9: `HEAD` carries no body, so `stat` and `exists` report the status alone. Every
+ * other failed request is answered with the provider's error document, and reading it to
+ * the end is also what releases the connection the next attempt needs.
+ */
+async function readFailure(request: S3Request, response: Response): Promise<S3ErrorDocument> {
+  if (request.method === "HEAD") {
+    await response.body?.cancel();
+
+    return {};
+  }
+
+  try {
+    return readErrorDocument(await response.text());
+  } catch {
+    // A body that broke on the way says nothing the status has not said already.
+    return {};
+  }
 }
 
 // Spec 4.10: an aborted signal produces the runtime's `AbortError` and never a

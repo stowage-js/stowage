@@ -75,3 +75,36 @@ export class StorageError extends Error {
 export function isStorageError(value: unknown): value is StorageError {
   return typeof value === "object" && value !== null && storageErrorBrand in value;
 }
+
+/**
+ * The same failure counting the attempts a whole retry loop made rather than the one it
+ * was raised in. It lives beside the field list, because every field has to be named
+ * again here or it is dropped on the way through; the stack travels along, because it
+ * points at where the request failed and this is no other place it could have failed.
+ *
+ * Not published: spec 4.13 lists what an adapter calls, and `withRetry` is the one
+ * caller this has.
+ */
+export function withAttempts(failure: StorageError, attempts: number): StorageError {
+  if (failure.attempts === attempts) return failure;
+
+  const counted = new StorageError({
+    code: failure.code,
+    message: failure.message,
+    operation: failure.operation,
+    bucket: failure.bucket,
+    provider: failure.provider,
+    attempts,
+    key: failure.key,
+    status: failure.status,
+    providerCode: failure.providerCode,
+    requestId: failure.requestId,
+    retryable: failure.retryable,
+    capability: failure.capability,
+    cause: failure.cause,
+  });
+
+  counted.stack = failure.stack;
+
+  return counted;
+}

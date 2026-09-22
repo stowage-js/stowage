@@ -9,6 +9,16 @@
         }
       ],
       "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    },
+    {
+      "name": "stowage-readonly",
+      "credentials": [
+        {
+          "accessKey": "stowage-readonly",
+          "secretKey": "stowage-readonly-secret"
+        }
+      ],
+      "actions": ["Read", "List"]
     }
   ]
 }
