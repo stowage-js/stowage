@@ -1,4 +1,4 @@
-import { type FileHandle, open, rename, stat, unlink } from "node:fs/promises";
+import { copyFile, type FileHandle, open, rename, stat, unlink } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 
 import {
@@ -22,7 +22,12 @@ import { contentTypeOf } from "./content-type.ts";
 import { createListing } from "./listing.ts";
 import { asFailure } from "./errno.ts";
 import { requireKey } from "./key.ts";
-import { findObjectFile, removeObjectFile } from "./object-file.ts";
+import {
+  findObjectFile,
+  type ObjectFile,
+  removeObjectFile,
+  renameObjectFile,
+} from "./object-file.ts";
 import {
   adapterOptionKeys,
   getOptionKeys,
@@ -272,19 +277,83 @@ class FileSystemStorage implements FsStorage {
   }
 
   async copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
-    void from;
-    void to;
-    void options;
+    const transfer = await this.#transfer(from, to, "copy", options);
+    const source = await this.#requireFile(transfer.from);
+    const path = await prepareWrite(transfer.to);
 
-    throw notBuiltYet("copy");
+    // Spec 6 lands a write through a temporary file and a rename, so that a reader at the
+    // destination sees the object it held or the one that arrived and never half of it.
+    const temporary = temporaryPathIn(dirname(path));
+
+    try {
+      await copyFile(source.path, temporary);
+
+      // The bytes of the copy are what the destination holds, whatever another writer
+      // renamed over the source in the meantime.
+      const written = await stat(temporary);
+
+      await rename(temporary, path);
+
+      return describe(to, written.size, written.mtime);
+    } catch (thrown) {
+      await unlink(temporary).catch(() => {});
+
+      throw asFailure(thrown, { ...transfer.to, access: "write" });
+    }
   }
 
   async move(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
-    void from;
-    void to;
-    void options;
+    const transfer = await this.#transfer(from, to, "move", options);
+    const source = await this.#requireFile(transfer.from);
+    const path = await prepareWrite(transfer.to);
 
-    throw notBuiltYet("move");
+    await renameObjectFile(transfer.from, source, path);
+
+    // The rename carries the file as it stands, so the destination is described by what
+    // the source held: its bytes and the time they were last written.
+    return describe(to, source.stats.size, source.stats.mtime);
+  }
+
+  /** Both ends of a `copy` or a `move`, once every rule of spec 4.11 has passed. */
+  async #transfer(
+    from: string,
+    to: string,
+    operation: string,
+    options?: OperationOptions,
+  ): Promise<{ readonly from: FsAccessContext; readonly to: FsAccessContext }> {
+    requireKey(this.#root, from, "addressable", operation);
+    requireKey(this.#root, to, "writable", operation);
+    requireKnownOptions(this.#root, options, operationOptionKeys, operation);
+
+    options?.signal?.throwIfAborted();
+
+    if (from === to) {
+      throw fsError(this.#root, {
+        code: "InvalidRequest",
+        message: `The key ${JSON.stringify(from)} is both the source and the destination`,
+        operation,
+        key: from,
+        attempts: 0,
+      });
+    }
+
+    const realRoot = await resolveRoot(this.#root, operation, "write");
+
+    return {
+      from: { root: this.#root, realRoot, key: from, operation },
+      to: { root: this.#root, realRoot, key: to, operation },
+    };
+  }
+
+  /** The file the source key names, which `copy` and `move` owe a `NotFound` for. */
+  async #requireFile(context: FsAccessContext): Promise<ObjectFile> {
+    const file = await findObjectFile(context);
+
+    if (file !== undefined) return file;
+
+    // A key ending in a slash names no file, which the storage answers without asking,
+    // and every other one cost the lookup that found nothing (spec 4.10).
+    throw absent(context, context.key.endsWith("/") ? 0 : 1);
   }
 
   /** The file the key names, described as spec 4.4 has a read of one describe it. */
@@ -365,10 +434,4 @@ function readRoot(options: FsAdapterOptions): string {
 // metadata, so a description is the file's size and modification time and nothing else.
 function describe(key: string, size: number, lastModified: Date): ObjectStat {
   return { key, size, lastModified, contentType: contentTypeOf(key), userMetadata: noUserMetadata };
-}
-
-// No `StorageError`: an operation that is not built is none of the failures spec 4.10
-// names, and a caller branching on a code would be told a story about the storage.
-function notBuiltYet(operation: string): Error {
-  return new Error(`\`${operation}\` is not implemented in @stowage/adapter-fs yet`);
 }

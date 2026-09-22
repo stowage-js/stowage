@@ -1,5 +1,5 @@
 import type { Stats } from "node:fs";
-import { lstat, realpath, rmdir, stat, unlink } from "node:fs/promises";
+import { lstat, realpath, rename, rmdir, stat, unlink } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 
 import { fsErrorFrom, isAbsence } from "./errno.ts";
@@ -47,6 +47,24 @@ export async function removeObjectFile(context: FsAccessContext, file: ObjectFil
     // Another caller removing the same key between the lookup and this is the ordinary
     // race, and its winner leaves this one the answer it was after (spec 4.7).
     if (!isAbsence(thrown)) throw fsErrorFrom(thrown, { ...context, access: "write" });
+  }
+
+  await pruneEmptyDirectories(context.realRoot, dirname(file.path));
+}
+
+/**
+ * Moves the file to the path, which is the copy and the delete of spec 4.11 as one file
+ * system performs them, and removes what the source left empty behind it.
+ */
+export async function renameObjectFile(
+  context: FsAccessContext,
+  file: ObjectFile,
+  path: string,
+): Promise<void> {
+  try {
+    await rename(file.path, path);
+  } catch (thrown) {
+    throw fsErrorFrom(thrown, { ...context, access: "write" });
   }
 
   await pruneEmptyDirectories(context.realRoot, dirname(file.path));

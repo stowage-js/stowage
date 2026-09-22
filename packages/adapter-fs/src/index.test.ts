@@ -686,3 +686,100 @@ test("rejects a delete against a root that is gone", async () => {
   expect(await codeOf(storage.delete("object"))).toBe("NotFound");
   expect(await codeOf(storage.deleteAll("docs/"))).toBe("NotFound");
 });
+
+test("copies the bytes and derives the type from the destination key", async () => {
+  const storage = await storageWith("docs/one.txt");
+  const written = await storage.copy("docs/one.txt", "copies/one.json");
+
+  // Spec 6 derives the content type from the key, so a copy under another extension is
+  // described by the extension it arrived under and not by the one it came from.
+  expect(written).toMatchObject({
+    key: "copies/one.json",
+    size: 12,
+    contentType: "application/json",
+  });
+  expect(await (await storage.get("copies/one.json")).text()).toBe("docs/one.txt");
+  expect(await (await storage.get("docs/one.txt")).text()).toBe("docs/one.txt");
+});
+
+test("replaces the object a copy lands on", async () => {
+  const storage = await storageWith("one", "two");
+
+  await storage.copy("one", "two");
+
+  expect(await (await storage.get("two")).text()).toBe("one");
+});
+
+test("refuses a copy onto itself before it touches the file system", async () => {
+  const storage = await storageWith("object");
+  const error = await storageErrorOf(storage.copy("object", "object"));
+
+  expect(error.code).toBe("InvalidRequest");
+  expect(error.attempts).toBe(0);
+  expect(await (await storage.get("object")).text()).toBe("object");
+});
+
+test("rejects a copy whose source is not there and writes nothing", async () => {
+  const root = await temporaryRoot();
+  const storage = fsStorage({ root });
+  const error = await storageErrorOf(storage.copy("absent", "copies/one.txt"));
+
+  expect(error.code).toBe("NotFound");
+  expect(error.operation).toBe("copy");
+  // Nothing was created on the way to a body the storage was never going to hold.
+  expect(await readdir(root)).toEqual([]);
+});
+
+test("refuses the keys a copy does not take", async () => {
+  const storage = await storageWith("source");
+
+  expect(await codeOf(storage.copy("source", "destination/"))).toBe("InvalidKey");
+  expect(await codeOf(storage.copy("../source", "destination"))).toBe("InvalidKey");
+  expect(await codeOf(storage.copy("source", "destination", withUnknownOption({})))).toBe(
+    "InvalidOption",
+  );
+  expect(await iterate(storage.list())).toEqual(["source"]);
+});
+
+test("moves the object and removes what the move left empty", async () => {
+  const root = await temporaryRoot();
+  const storage = fsStorage({ root });
+
+  await storage.put("docs/2026/one.txt", "a body");
+
+  const written = await storage.move("docs/2026/one.txt", "archive/one.txt");
+
+  expect(written).toMatchObject({ key: "archive/one.txt", size: 6, contentType: "text/plain" });
+  expect(await (await storage.get("archive/one.txt")).text()).toBe("a body");
+  expect(await storage.exists("docs/2026/one.txt")).toBe(false);
+  expect(await readdir(root)).toEqual(["archive"]);
+});
+
+test("rejects a move whose source is not there", async () => {
+  const storage = await rootedStorage();
+  const error = await storageErrorOf(storage.move("absent", "destination"));
+
+  expect(error.code).toBe("NotFound");
+  expect(error.operation).toBe("move");
+  expect(await storage.exists("destination")).toBe(false);
+});
+
+test("moves the link at the key and leaves the object it points to", async () => {
+  const root = await temporaryRoot();
+  const storage = fsStorage({ root });
+
+  await storage.put("object", "a body");
+  await symlink(join(root, "object"), join(root, "link"));
+
+  await storage.move("link", "moved");
+
+  expect((await iterate(storage.list())).toSorted()).toEqual(["moved", "object"]);
+  expect(await (await storage.get("object")).text()).toBe("a body");
+});
+
+test("rejects a copy against a root that is gone", async () => {
+  const storage = fsStorage({ root: join(await temporaryRoot(), "not-there") });
+
+  expect(await codeOf(storage.copy("source", "destination"))).toBe("NotFound");
+  expect(await codeOf(storage.move("source", "destination"))).toBe("NotFound");
+});
