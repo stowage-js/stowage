@@ -32,13 +32,14 @@ export type ConformanceResult =
 export function serializeError(thrown: unknown): SerializedConformanceError {
   const serialized: { name: string; message: string; stack?: string; code?: StorageErrorCode } = {
     name: stringFieldOf(thrown, "name") ?? "Error",
-    message: stringFieldOf(thrown, "message") ?? String(thrown),
+    message: stringFieldOf(thrown, "message") ?? stringOf(thrown),
   };
 
   const stack = stringFieldOf(thrown, "stack");
+  const code = storageErrorCodeOf(thrown);
 
   if (stack !== undefined) serialized.stack = stack;
-  if (isStorageError(thrown)) serialized.code = thrown.code;
+  if (code !== undefined) serialized.code = code;
 
   return serialized;
 }
@@ -48,7 +49,27 @@ export function serializeError(thrown: unknown): SerializedConformanceError {
 function stringFieldOf(value: unknown, field: string): string | undefined {
   if (typeof value !== "object" || value === null) return undefined;
 
-  const held: unknown = Reflect.get(value, field);
+  try {
+    const held: unknown = Reflect.get(value, field);
 
-  return typeof held === "string" ? held : undefined;
+    return typeof held === "string" ? held : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function stringOf(value: unknown): string {
+  try {
+    return String(value);
+  } catch {
+    return "Unknown error";
+  }
+}
+
+function storageErrorCodeOf(value: unknown): StorageErrorCode | undefined {
+  try {
+    return isStorageError(value) ? value.code : undefined;
+  } catch {
+    return undefined;
+  }
 }

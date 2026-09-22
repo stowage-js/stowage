@@ -169,6 +169,34 @@ test("a failing case does not stop the ones behind it", async () => {
   expect(results.map((result) => result.status)).toEqual(["failed", "passed"]);
 });
 
+test("a thrown value that resists serialization is reported and cleanup still runs", async () => {
+  const thrown = new Proxy(
+    {},
+    {
+      get: () => {
+        throw new Error("get trap");
+      },
+    },
+  );
+  let cleaned = false;
+  const source: ConformanceCaseSource = {
+    ...passingCase("stub/fails"),
+    run: async () => {
+      throw thrown;
+    },
+  };
+
+  const results = await runCases(
+    [source],
+    stubTarget({ cleanup: async () => void (cleaned = true) }),
+  );
+
+  expect(results).toMatchObject([
+    { status: "failed", error: { name: "Error", message: "Unknown error" } },
+  ]);
+  expect(cleaned).toBe(true);
+});
+
 test("the declaration is read once per run, before the first case", async () => {
   const read: string[] = [];
   const source: ConformanceCaseSource = {
@@ -211,6 +239,25 @@ test("the default cleanup deletes below the prefix on a storage of its own", asy
   expect(storages).toBe(2);
   expect(deleted).toHaveLength(1);
   expect(deleted[0]).toMatch(/^stowage-conformance\//);
+});
+
+test("the default cleanup rejects when an object could not be deleted", async () => {
+  const failure = new StorageError({
+    code: "ProviderError",
+    message: "The object could not be deleted",
+    operation: "deleteAll",
+    bucket: "stub",
+    provider: "stub",
+    attempts: 1,
+  });
+  const run = stubTarget({
+    createStorage: () =>
+      stubStorage({
+        deleteAll: async () => ({ requested: 1, failed: [failure] }),
+      }),
+  });
+
+  await expect(runCases([passingCase("stub/passes")], run)).rejects.toBe(failure);
 });
 
 test("a target's own cleanup is called with the run's prefix instead", async () => {

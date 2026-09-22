@@ -47,8 +47,10 @@ export async function cleanUp(target: ConformanceTarget, keyPrefix: string): Pro
   if (target.cleanup !== undefined) return await target.cleanup(keyPrefix);
 
   const storage = await target.createStorage();
+  const report = await storage.deleteAll(keyPrefix);
+  const [failure] = report.failed;
 
-  await storage.deleteAll(keyPrefix);
+  if (failure !== undefined) throw failure;
 }
 
 /** The factory the case needs and the target left out, which spec 8.2 skips it for. */

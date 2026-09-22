@@ -44,3 +44,30 @@ test("an error-shaped value from another realm is read field by field", () => {
     stack: "at worker",
   });
 });
+
+test("a proxy whose fields cannot be read still becomes an error", () => {
+  const thrown = new Proxy(
+    {},
+    {
+      get: () => {
+        throw new Error("get trap");
+      },
+      has: () => true,
+    },
+  );
+
+  expect(serializeError(thrown)).toEqual({ name: "Error", message: "Unknown error" });
+});
+
+test("a proxy that cannot be inspected for the storage-error brand omits a code", () => {
+  const thrown = new Proxy(
+    { name: "RemoteError", message: "remote failure" },
+    {
+      has: () => {
+        throw new Error("has trap");
+      },
+    },
+  );
+
+  expect(serializeError(thrown)).toEqual({ name: "RemoteError", message: "remote failure" });
+});
