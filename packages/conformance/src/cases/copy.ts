@@ -81,12 +81,15 @@ export const copyAndMoveCases: readonly ConformanceCaseSource[] = [
     async run(ctx) {
       const prefix = prefixFor(ctx, "copy/invalid-keys");
       const source = await write(ctx, `${prefix}source.txt`, "the body that stays");
+      // Spec 4.8 refuses a destination ending in a slash as writable and allows it as
+      // addressable, so the case asks whether the refused copy created it after all.
+      const refusedDestination = `${prefix}destination/`;
       const to = `${prefix}destination.txt`;
 
       // Spec 4.8 has `copy` check both keys before it acts on either, so each refusal
       // leaves the source where it is and creates nothing under the valid key beside it.
       await expectStorageError(
-        () => ctx.storage.copy(source.key, `${prefix}destination/`),
+        () => ctx.storage.copy(source.key, refusedDestination),
         { code: "InvalidKey" },
         "a destination ending in a slash",
       );
@@ -97,6 +100,7 @@ export const copyAndMoveCases: readonly ConformanceCaseSource[] = [
       );
 
       await assertHolds(ctx, source.key, source.body, "The source a refused copy left");
+      await assertAbsent(ctx, refusedDestination, "a copy whose destination key was refused");
       await assertAbsent(ctx, to, "a copy whose source key was refused");
     },
   },

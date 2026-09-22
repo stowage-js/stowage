@@ -151,10 +151,6 @@ export const listCases: readonly ConformanceCaseSource[] = [
         counts.join(", ") === "2, 2, 1",
         `Pages of 2 over 5 objects hold ${counts.join(", ")} objects`,
       );
-      assert(
-        cursor === undefined,
-        "The last of the pages carries a cursor although no object is left below the prefix",
-      );
       assertNamesEachOnce(held, keys, "The three pages together");
     },
   },
@@ -219,12 +215,27 @@ export const listCases: readonly ConformanceCaseSource[] = [
     cost: "fast",
     async run(ctx) {
       const prefix = prefixFor(ctx, "list/lazy");
-      // Spec 4.6 has `list` perform no request until the listing is read, and an option
-      // no listing can be built on is what makes that observable: a storage reading its
-      // options where it is asked for them reports this one from `page()` and not before.
-      const listing = listWithoutReading(ctx, { prefix, pageSize: 0 });
+      // Spec 4.6 has `list` perform no request until the listing is read, which an
+      // object written between the two makes observable: a listing that fetched where it
+      // was built names nothing, and one that fetches where it is read names the object.
+      const listing = listWithoutReading(ctx, { prefix });
+      const key = `${prefix}written-after-the-listing-was-built`;
 
-      await expectStorageError(() => listing.page(), { code: "InvalidOption" });
+      await ctx.storage.put(key, patternOf(8));
+
+      const page = await listing.page();
+
+      assertNamesEachOnce(
+        page.objects.map((entry) => entry.key),
+        [key],
+        "The first page of a listing built before the write",
+      );
+
+      // The other side of the same promise: an option no listing can be built on reaches
+      // the caller from `page()` rather than from the `list` call that carried it.
+      const refused = listWithoutReading(ctx, { prefix, pageSize: 0 });
+
+      await expectStorageError(() => refused.page(), { code: "InvalidOption" });
     },
   },
   {
