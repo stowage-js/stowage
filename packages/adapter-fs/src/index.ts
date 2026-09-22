@@ -115,6 +115,7 @@ class FileSystemStorage implements FsStorage {
 
     try {
       await writeBody(handle, body, signal);
+      signal?.throwIfAborted();
 
       // The size comes off the handle rather than off the path: it describes the bytes
       // this call wrote, whatever another writer renamed over them in the meantime.

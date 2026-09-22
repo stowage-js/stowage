@@ -5,10 +5,14 @@ import { fsError } from "./storage-error.ts";
 /** What a file system takes as one name, which spec 6 has the adapter refuse beyond. */
 const segmentByteLimit = 255;
 
+/** The name a write in flight holds: a file of this adapter, and no object of anyone. */
+export const temporaryName: RegExp = /^\.stowage-[\da-f-]{36}\.tmp$/;
+
 const utf8 = new TextEncoder();
 
 export function requireKey(root: string, key: string, rule: KeyRule, operation: string): void {
-  const reason = invalidKeyReason(key, rule) ?? longSegmentReason(key);
+  const reason =
+    invalidKeyReason(key, rule) ?? temporaryNameReason(key, rule) ?? longSegmentReason(key);
 
   if (reason === undefined) return;
 
@@ -19,6 +23,14 @@ export function requireKey(root: string, key: string, rule: KeyRule, operation: 
     key,
     attempts: 0,
   });
+}
+
+function temporaryNameReason(key: string, rule: KeyRule): string | undefined {
+  if (rule !== "writable" || !temporaryName.test(key.slice(key.lastIndexOf("/") + 1))) {
+    return undefined;
+  }
+
+  return "uses the reserved .stowage temporary-file name";
 }
 
 // Spec 4.8 lets an adapter refuse more than the rule and report that as `InvalidKey`,

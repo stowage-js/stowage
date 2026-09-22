@@ -89,9 +89,9 @@ export async function resolveObject(context: FsAccessContext): Promise<string> {
 }
 
 /**
- * The path a write lands under, with the directories above it in place. The directory is
- * resolved after it was created, because a link leaving the root is a path this storage
- * does not write to either.
+ * The path a write lands under, with the directories above it in place. The nearest
+ * existing directory is resolved before anything is created, so a link leaving the root
+ * cannot cause this storage to create directories outside it.
  */
 export async function prepareWrite(context: FsAccessContext): Promise<string> {
   const path = pathOf(context.realRoot, context.key);
@@ -99,17 +99,7 @@ export async function prepareWrite(context: FsAccessContext): Promise<string> {
   // A writable key ends in no slash (spec 4.8), so the key names a file at this point.
   if (path === undefined) throw absent(context, 0);
 
-  await makeDirectory(dirname(path), context);
-
-  let directory: string;
-
-  try {
-    directory = await realpath(dirname(path));
-  } catch (thrown) {
-    throw fsErrorFrom(thrown, { ...context, access: "write" });
-  }
-
-  if (!within(context.realRoot, directory)) throw absent(context, 1);
+  const directory = await makeDirectory(dirname(path), context);
 
   const target = join(directory, basename(path));
 
@@ -131,24 +121,53 @@ async function resolvesWithin(context: FsAccessContext, path: string): Promise<b
   }
 }
 
-async function makeDirectory(directory: string, context: FsAccessContext): Promise<void> {
-  try {
-    await mkdir(directory, { recursive: true });
-  } catch (thrown) {
-    // A regular file on the way to the directory arrives as `ENOTDIR` where it lies
-    // above the last segment and as `EEXIST` where it is that segment itself. Spec 6
-    // leaves a write over a file with `InvalidRequest`, which the table carries for the
-    // first of the two alone.
-    if (errnoOf(thrown) !== "EEXIST") throw fsErrorFrom(thrown, { ...context, access: "write" });
+async function makeDirectory(directory: string, context: FsAccessContext): Promise<string> {
+  const missing: string[] = [];
+  let existing = directory;
 
-    throw fsError(context.root, {
-      code: "InvalidRequest",
-      message: `The key ${JSON.stringify(context.key)} lies below a path that is no directory`,
-      operation: context.operation,
-      key: context.key,
-      attempts: 1,
-      providerCode: "EEXIST",
-      cause: thrown,
-    });
+  // Find and validate the closest path that exists before a mkdir can touch anything.
+  for (;;) {
+    try {
+      // oxlint-disable-next-line no-await-in-loop -- each absence selects the next parent
+      existing = await realpath(existing);
+      break;
+    } catch (thrown) {
+      if (!isAbsence(thrown)) {
+        throw fsErrorFrom(thrown, { ...context, access: "write" });
+      }
+
+      missing.unshift(basename(existing));
+      existing = dirname(existing);
+    }
   }
+
+  if (!within(context.realRoot, existing)) throw absent(context, 1);
+
+  // A non-recursive mkdir does not follow a link at the segment it creates. Resolving
+  // each result also catches a segment another actor placed between the checks.
+  for (const segment of missing) {
+    const path = join(existing, segment);
+
+    try {
+      // oxlint-disable-next-line no-await-in-loop -- one path, created from the root down
+      await mkdir(path);
+    } catch (thrown) {
+      // EEXIST can mean another actor created this segment. Its real path is checked
+      // below; a regular file is reported when the next segment or temporary file is made.
+      if (errnoOf(thrown) !== "EEXIST") {
+        throw fsErrorFrom(thrown, { ...context, access: "write" });
+      }
+    }
+
+    try {
+      // oxlint-disable-next-line no-await-in-loop -- each segment guards the next mkdir
+      existing = await realpath(path);
+    } catch (thrown) {
+      throw fsErrorFrom(thrown, { ...context, access: "write" });
+    }
+
+    if (!within(context.realRoot, existing)) throw absent(context, 1);
+  }
+
+  return existing;
 }

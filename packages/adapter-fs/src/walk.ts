@@ -5,10 +5,8 @@ import { join } from "node:path";
 import type { ObjectEntry } from "@stowage/core";
 
 import { fsErrorFrom, isAbsence } from "./errno.ts";
+import { temporaryName } from "./key.ts";
 import { type FsRootContext, within } from "./paths.ts";
-
-/** The name a write in flight holds: a file of this adapter, and no object of anyone. */
-const temporaryName = /^\.stowage-[\da-f-]{36}\.tmp$/;
 
 /**
  * Every object below the prefix, sorted by key. A listing pages through one order, so
@@ -34,10 +32,15 @@ async function collect(
   directory: string,
   keyPrefix: string,
 ): Promise<void> {
+  let resolved: string;
   let held: readonly Dirent[];
 
   try {
-    held = await readdir(directory, { withFileTypes: true });
+    resolved = await realpath(directory);
+
+    if (!within(context.realRoot, resolved)) return;
+
+    held = await readdir(resolved, { withFileTypes: true });
   } catch (thrown) {
     // A level that is not there holds no object, which is what a prefix below nothing
     // amounts to. The root itself is resolved before the walk begins.
@@ -47,7 +50,7 @@ async function collect(
   }
 
   for (const entry of held) {
-    const path = join(directory, entry.name);
+    const path = join(resolved, entry.name);
     const key = `${keyPrefix}${entry.name}`;
 
     if (entry.isDirectory()) {
@@ -59,7 +62,7 @@ async function collect(
     if (temporaryName.test(entry.name)) continue;
 
     // oxlint-disable-next-line no-await-in-loop -- one tree, walked in order
-    const described = await describe(context, entry.isSymbolicLink() ? path : undefined, path);
+    const described = await describe(context, path);
 
     if (described !== undefined)
       entries.push({ key, size: described.size, lastModified: described.mtime });
@@ -71,15 +74,13 @@ async function collect(
  * the root, a link to a directory, a socket, and a file another writer removed between
  * the listing of the level and the reading of it.
  */
-async function describe(
-  context: FsRootContext,
-  link: string | undefined,
-  path: string,
-): Promise<Stats | undefined> {
+async function describe(context: FsRootContext, path: string): Promise<Stats | undefined> {
   try {
-    if (link !== undefined && !within(context.realRoot, await realpath(link))) return undefined;
+    const resolved = await realpath(path);
 
-    const described = await stat(path);
+    if (!within(context.realRoot, resolved)) return undefined;
+
+    const described = await stat(resolved);
 
     return described.isFile() ? described : undefined;
   } catch (thrown) {

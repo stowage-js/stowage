@@ -169,6 +169,16 @@ test("creates the directories a key names above the object", async () => {
   expect(await readFile(join(root, "docs", "2026", "report.txt"), "utf8")).toBe("a report");
 });
 
+test("creates nothing through a directory link leaving the root", async () => {
+  const root = await temporaryRoot();
+  const outside = await temporaryRoot();
+
+  await symlink(outside, join(root, "link"));
+
+  expect(await codeOf(fsStorage({ root }).put("link/missing/object", "a body"))).toBe("NotFound");
+  expect(await readdir(outside)).toEqual([]);
+});
+
 test("leaves nothing beside the object a write landed as", async () => {
   const root = await temporaryRoot();
 
@@ -420,6 +430,25 @@ test("writes nothing where the signal fires during the upload", async () => {
   expect(await readdir(root)).toEqual([]);
 });
 
+test("checks for abortion after the last body write", async () => {
+  const root = await temporaryRoot();
+  const storage = fsStorage({ root });
+  const controller = new AbortController();
+  const bytes = new (class extends Uint8Array {
+    override get byteLength(): number {
+      controller.abort();
+
+      return super.byteLength;
+    }
+  })([1, 2, 3]);
+
+  const thrown = await rejection(storage.put("object", bytes, { signal: controller.signal }));
+
+  expect(nameOf(thrown)).toBe("AbortError");
+  expect(await storage.exists("object")).toBe(false);
+  expect(await readdir(root)).toEqual([]);
+});
+
 test("leaves the stream it was handed at its end or canceled", async () => {
   const storage = await rootedStorage();
   const written = streamOf("a body");
@@ -522,6 +551,28 @@ test("passes over what is no object of the storage", async () => {
   await mkdir(join(root, "empty"));
 
   expect(await iterate(storage.list())).toEqual(["object"]);
+});
+
+test("does not walk an external directory through a prefix link", async () => {
+  const root = await temporaryRoot();
+  const outside = await temporaryRoot();
+  const storage = fsStorage({ root });
+
+  await writeFile(join(outside, "secret"), "not this storage's");
+  await symlink(outside, join(root, "link"));
+
+  expect(await iterate(storage.list({ prefix: "link/" }))).toEqual([]);
+});
+
+test("reserves temporary file names from writable keys", async () => {
+  const storage = await rootedStorage();
+  const reserved = `.stowage-${crypto.randomUUID()}.tmp`;
+  const ordinary = ".stowage-not-a-temporary-file.tmp";
+
+  expect(await codeOf(storage.put(reserved, "hidden"))).toBe("InvalidKey");
+  await storage.put(ordinary, "visible");
+
+  expect(await iterate(storage.list())).toEqual([ordinary]);
 });
 
 test("reports a root that is gone where the listing is read", async () => {
