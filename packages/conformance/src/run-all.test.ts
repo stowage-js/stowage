@@ -1,39 +1,28 @@
-import { StorageError } from "@stowage/core";
+import { invalidKeyReason, StorageError } from "@stowage/core";
 import { expect, test } from "vitest";
 
 import type { ConformanceCaseSource } from "./case.ts";
+import { conformanceCaseSources } from "./cases/index.ts";
 import { runAll, runCases } from "./run-all.ts";
 import { createKeyPrefix, selectedCases } from "./run.ts";
-import { stubStorage } from "./stub-storage.ts";
-import type { ConformanceContext, ConformanceTarget } from "./target.ts";
+import { passingCase, stubStorage, stubTarget } from "./stubs.ts";
+import type { ConformanceContext } from "./target.ts";
 
 const utf8 = new TextEncoder();
-
-const passing = (name: string): ConformanceCaseSource => ({
-  name,
-  requires: [],
-  cost: "fast",
-  run: async () => {},
-});
 
 const costs = (selected: readonly ConformanceCaseSource[]): readonly string[] => [
   ...new Set(selected.map((source) => source.cost)),
 ];
 
-const target = (fields: Partial<ConformanceTarget> = {}): ConformanceTarget => ({
-  name: "stub",
-  createStorage: () => stubStorage(),
-  ...fields,
-});
-
-test("a run puts every key below one prefix that leaves room for a key of 1024 bytes", () => {
+test("a run puts every key below one prefix short enough for the boundary key", () => {
   const keyPrefix = createKeyPrefix();
 
+  expect(invalidKeyReason(keyPrefix, "prefix")).toBeUndefined();
   expect(keyPrefix.endsWith("/")).toBe(true);
-  // The boundary key of spec 8.7 is 1024 UTF-8 bytes including the prefix, and every
-  // segment of it stays below the 255 bytes the same section names.
-  expect(1024 - utf8.encode(keyPrefix).length).toBeGreaterThan(255);
-  expect(createKeyPrefix()).not.toBe(keyPrefix);
+  // Spec 8.2 counts the prefix into the 1024 UTF-8 bytes of the boundary key, which spec
+  // 8.7 builds in segments of at most 255, so what the prefix leaves has to hold several
+  // whole segments.
+  expect(1024 - utf8.encode(keyPrefix).length).toBeGreaterThan(3 * 256);
 });
 
 test("two runs against one bucket do not share a prefix", () => {
@@ -43,11 +32,14 @@ test("two runs against one bucket do not share a prefix", () => {
 test("the `fast` tier runs by default and both tiers run with `includeSlow`", () => {
   expect(costs(selectedCases())).toEqual(["fast"]);
   expect(costs(selectedCases({ includeSlow: false }))).toEqual(["fast"]);
-  expect(selectedCases({ includeSlow: true })).toHaveLength(selectedCases().length);
+  expect(selectedCases({ includeSlow: true })).toEqual(conformanceCaseSources);
+  // Every case of the suite is `fast` today, so the two tiers hold the same cases and
+  // what tells them apart is the cost the filter reads rather than what it returns here.
+  expect(costs(conformanceCaseSources)).toEqual(["fast"]);
 });
 
 test("a case that returns is reported as passed, naming the half that ran", async () => {
-  const results = await runCases([passing("stub/passes")], target());
+  const results = await runCases([passingCase("stub/passes")], stubTarget());
 
   expect(results).toEqual([
     {
@@ -70,7 +62,7 @@ test("a case whose requirement is declared runs `run`", async () => {
 
   const results = await runCases(
     [source],
-    target({ createStorage: () => stubStorage({ capabilities: ["rangeReads"] }) }),
+    stubTarget({ createStorage: () => stubStorage({ capabilities: ["rangeReads"] }) }),
   );
 
   expect(ran).toEqual(["run"]);
@@ -87,7 +79,7 @@ test("a case missing a requirement runs `runWithout`", async () => {
     runWithout: async () => void ran.push("runWithout"),
   };
 
-  const results = await runCases([source], target());
+  const results = await runCases([source], stubTarget());
 
   expect(ran).toEqual(["runWithout"]);
   expect(results[0]).toMatchObject({
@@ -99,11 +91,11 @@ test("a case missing a requirement runs `runWithout`", async () => {
 
 test("a case needing a factory the target leaves out is skipped with the factory's name", async () => {
   const source: ConformanceCaseSource = {
-    ...passing("stub/denied"),
+    ...passingCase("stub/denied"),
     factory: "createStorageWithDeniedCredentials",
   };
 
-  expect(await runCases([source], target())).toEqual([
+  expect(await runCases([source], stubTarget())).toEqual([
     {
       case: { name: "stub/denied", requires: [], cost: "fast" },
       status: "skipped",
@@ -114,13 +106,13 @@ test("a case needing a factory the target leaves out is skipped with the factory
 
 test("a case needing a factory the target supplies runs", async () => {
   const source: ConformanceCaseSource = {
-    ...passing("stub/denied"),
+    ...passingCase("stub/denied"),
     factory: "createStorageWithDeniedCredentials",
   };
 
   const results = await runCases(
     [source],
-    target({ createStorageWithDeniedCredentials: () => stubStorage() }),
+    stubTarget({ createStorageWithDeniedCredentials: () => stubStorage() }),
   );
 
   expect(results[0]).toMatchObject({ status: "passed" });
@@ -128,13 +120,13 @@ test("a case needing a factory the target supplies runs", async () => {
 
 test("a thrown value reaches the result as its name and its message", async () => {
   const source: ConformanceCaseSource = {
-    ...passing("stub/fails"),
+    ...passingCase("stub/fails"),
     run: async () => {
       throw new RangeError("out of bounds");
     },
   };
 
-  const [result] = await runCases([source], target());
+  const [result] = await runCases([source], stubTarget());
 
   expect(result).toMatchObject({ status: "failed", mode: "declared" });
   expect(result).toHaveProperty("error.name", "RangeError");
@@ -144,7 +136,7 @@ test("a thrown value reaches the result as its name and its message", async () =
 
 test("a thrown `StorageError` reaches the result with its code and without its cause", async () => {
   const source: ConformanceCaseSource = {
-    ...passing("stub/fails"),
+    ...passingCase("stub/fails"),
     run: async () => {
       throw new StorageError({
         code: "NotFound",
@@ -158,7 +150,7 @@ test("a thrown `StorageError` reaches the result with its code and without its c
     },
   };
 
-  const [result] = await runCases([source], target());
+  const [result] = await runCases([source], stubTarget());
 
   expect(result).toHaveProperty("error.code", "NotFound");
   expect(result).not.toHaveProperty("error.cause");
@@ -166,13 +158,13 @@ test("a thrown `StorageError` reaches the result with its code and without its c
 
 test("a failing case does not stop the ones behind it", async () => {
   const failing: ConformanceCaseSource = {
-    ...passing("stub/fails"),
+    ...passingCase("stub/fails"),
     run: async () => {
       throw new Error("no");
     },
   };
 
-  const results = await runCases([failing, passing("stub/passes")], target());
+  const results = await runCases([failing, passingCase("stub/passes")], stubTarget());
 
   expect(results.map((result) => result.status)).toEqual(["failed", "passed"]);
 });
@@ -180,7 +172,7 @@ test("a failing case does not stop the ones behind it", async () => {
 test("the declaration is read once per run, before the first case", async () => {
   const read: string[] = [];
   const source: ConformanceCaseSource = {
-    ...passing("stub/reads"),
+    ...passingCase("stub/reads"),
     run: async () => void read.push("case"),
   };
 
@@ -200,7 +192,7 @@ test("the declaration is read once per run, before the first case", async () => 
 test("the default cleanup deletes below the prefix on a storage of its own", async () => {
   const deleted: string[] = [];
   let storages = 0;
-  const run = target({
+  const run = stubTarget({
     createStorage: () => {
       storages += 1;
 
@@ -214,7 +206,7 @@ test("the default cleanup deletes below the prefix on a storage of its own", asy
     },
   });
 
-  await runCases([passing("stub/passes")], run);
+  await runCases([passingCase("stub/passes")], run);
 
   expect(storages).toBe(2);
   expect(deleted).toHaveLength(1);
@@ -225,18 +217,18 @@ test("a target's own cleanup is called with the run's prefix instead", async () 
   const cleaned: string[] = [];
   let ranPrefix: string | undefined;
   const source: ConformanceCaseSource = {
-    ...passing("stub/reads"),
+    ...passingCase("stub/reads"),
     run: async (ctx: ConformanceContext) => void (ranPrefix = ctx.keyPrefix),
   };
 
-  await runCases([source], target({ cleanup: async (prefix) => void cleaned.push(prefix) }));
+  await runCases([source], stubTarget({ cleanup: async (prefix) => void cleaned.push(prefix) }));
 
   expect(cleaned).toEqual([ranPrefix]);
 });
 
 test("`runAll` runs the suite's own cases against a target", async () => {
   const results = await runAll(
-    target({ createStorage: () => stubStorage({ provider: "memory", bucket: "memory" }) }),
+    stubTarget({ createStorage: () => stubStorage({ provider: "memory", bucket: "memory" }) }),
   );
 
   expect(results.map((result) => result.case.name)).toEqual(

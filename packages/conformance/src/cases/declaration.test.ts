@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 
 import type { ConformanceCaseSource } from "../case.ts";
 import { startRun } from "../run.ts";
-import { stubStorage } from "../stub-storage.ts";
+import { stubStorage, stubTarget } from "../stubs.ts";
 import { conformanceCaseSources } from "./index.ts";
 
 const caseNamed = (name: string): ConformanceCaseSource => {
@@ -15,22 +15,10 @@ const caseNamed = (name: string): ConformanceCaseSource => {
 };
 
 const against = async (storage: Storage, name: string): Promise<void> => {
-  const context = await startRun({ name: "stub", createStorage: () => storage }, "conformance/");
+  const context = await startRun(stubTarget({ createStorage: () => storage }), "conformance/");
 
   await caseNamed(name).run(context);
 };
-
-test("the suite holds the two declaration cases as `fast` cases needing nothing", () => {
-  expect(conformanceCaseSources.map((source) => source.name)).toEqual([
-    "declaration/valid-names",
-    "declaration/identity",
-  ]);
-
-  for (const source of conformanceCaseSources) {
-    expect(source.requires).toEqual([]);
-    expect(source.cost).toBe("fast");
-  }
-});
 
 test("`declaration/valid-names` passes a storage declaring every published name", async () => {
   await expect(
