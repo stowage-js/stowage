@@ -11,7 +11,7 @@ import { describeCases } from "../packages/conformance/src/describe.ts";
 import type { ConformanceTarget } from "../packages/conformance/src/target.ts";
 
 /** The operations `adapter-fs` carries. The rest of the tier follows the ones it owes. */
-const covered = ["put/", "get/", "stat/", "exists/"];
+const covered = ["put/", "get/", "stat/", "exists/", "list/"];
 
 /**
  * What one path may measure, the root counted in. macOS bounds it at 1024 bytes, and the
@@ -31,8 +31,9 @@ const runnable = (name: string): boolean => {
 
 const roots: string[] = [];
 
-// ADR 0006: `adapter-fs` is read against the suite like any other adapter, through the
-// same entry point a third-party harness calls.
+// ADR 0006: `adapter-fs` is read against the suite like any other adapter. It reaches
+// past `describeConformance` for the cases alone, because the adapter carries part of the
+// parity core so far and the whole tier is what `describeConformance` runs.
 const target: ConformanceTarget = {
   name: "@stowage/adapter-fs",
 
