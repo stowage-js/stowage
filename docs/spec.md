@@ -577,9 +577,11 @@ export function fsStorage(options: FsAdapterOptions): FsStorage;
 - `lastModified` is the file's modification time. `size` is the file's size. `etag` is not set.
 - A key that names a directory, and a key whose parent path is a regular file, are `NotFound` on
   read and `InvalidRequest` on write.
-- The Unicode form of a key survives a round trip except where the file system normalizes names:
-  APFS returns NFD for a key written in NFC. Case-insensitive file systems collide keys that differ
-  in case alone; nothing repairs that.
+- The Unicode form of a key survives a round trip: APFS holds a name in the form it was written
+  in, where HFS+ returned NFD for a name written in NFC. It folds the forms when it looks a name
+  up, though, so the decomposed key names the object the composed one wrote, and case-insensitive
+  file systems collide keys that differ in case alone. Nothing repairs either, and
+  `keyBytesPreserved` is not declared.
 - Runs on Node, Bun and Deno, on Linux and macOS. Windows is not named and not promised.
 - `errno` mapping: `ENOENT` is `NotFound`; `EISDIR` and `ENOTDIR` are `NotFound` on read and
   `InvalidRequest` on write; `EACCES` and `EPERM` are `AccessDenied`; `ENAMETOOLONG` is `InvalidKey`;

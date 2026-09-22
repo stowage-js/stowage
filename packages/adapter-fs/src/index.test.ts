@@ -1,6 +1,7 @@
 import { chmod, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { platform } from "node:process";
 
 import { isStorageError, type ObjectListing, type StorageError } from "@stowage/core";
 import { afterEach, expect, test } from "vitest";
@@ -782,4 +783,20 @@ test("rejects a copy against a root that is gone", async () => {
 
   expect(await codeOf(storage.copy("source", "destination"))).toBe("NotFound");
   expect(await codeOf(storage.move("source", "destination"))).toBe("NotFound");
+});
+
+test("hands a key back as the file system holds it", async () => {
+  const storage = await rootedStorage();
+  const composed = `caf${String.fromCodePoint(0xe9)}.txt`;
+  const decomposed = `cafe${String.fromCodePoint(0x301)}.txt`;
+
+  await storage.put(composed, "a body");
+
+  // APFS keeps a name in the form it was written in and folds the forms when it looks one
+  // up, so the decomposed key names the object the composed one wrote; ext4 holds the
+  // bytes and tells the two apart. Spec 6 states what the file system does rather than
+  // repairing it, which is why the storage declares no `keyBytesPreserved`.
+  expect(await iterate(storage.list())).toEqual([composed]);
+  expect(await storage.exists(decomposed)).toBe(platform === "darwin");
+  expect(storage.capabilities).not.toContain("keyBytesPreserved");
 });
