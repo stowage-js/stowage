@@ -273,7 +273,10 @@ test("a target's own cleanup is called with the run's prefix instead", async () 
   expect(cleaned).toEqual([ranPrefix]);
 });
 
-test("`runAll` runs the suite's own cases against a target", async () => {
+test("`runAll` runs the suite's own cases and reports one result per case", async () => {
+  // Against a storage with no operations most of them fail, which is the point of the
+  // assertion below and not its subject: what the cases assert is read against a real
+  // adapter in `test/conformance-memory.test.ts`.
   const results = await runAll(
     stubTarget({ createStorage: () => stubStorage({ provider: "memory", bucket: "memory" }) }),
   );
@@ -281,5 +284,7 @@ test("`runAll` runs the suite's own cases against a target", async () => {
   expect(results.map((result) => result.case.name)).toEqual(
     selectedCases().map((source) => source.name),
   );
-  expect(results.every((result) => result.status === "passed")).toBe(true);
+  expect(
+    results.filter((result) => result.status === "passed").map((result) => result.case.name),
+  ).toContain("declaration/identity");
 });

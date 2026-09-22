@@ -1,18 +1,8 @@
 import { capabilityNames, type Storage } from "@stowage/core";
 import { expect, test } from "vitest";
 
-import type { ConformanceCaseSource } from "../case.ts";
 import { startRun } from "../run.ts";
-import { stubStorage, stubTarget } from "../stubs.ts";
-import { conformanceCaseSources } from "./index.ts";
-
-const caseNamed = (name: string): ConformanceCaseSource => {
-  const source = conformanceCaseSources.find((one) => one.name === name);
-
-  if (source === undefined) throw new Error(`The suite holds no case named ${name}`);
-
-  return source;
-};
+import { caseNamed, stubStorage, stubTarget } from "../stubs.ts";
 
 const against = async (storage: Storage, name: string): Promise<void> => {
   const context = await startRun(stubTarget({ createStorage: () => storage }), "conformance/");

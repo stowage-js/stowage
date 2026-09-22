@@ -2,15 +2,57 @@ import { expect, test } from "vitest";
 
 import { conformanceCases, conformanceCaseSources } from "./index.ts";
 
-test("the suite holds the declaration cases of spec 8.5, each `fast` and needing nothing", () => {
-  expect(conformanceCaseSources.map((source) => source.name)).toEqual([
-    "declaration/valid-names",
-    "declaration/identity",
+type SpecifiedCase = readonly [name: string, requires: readonly string[], cost: string];
+
+/** The rows of spec 8.5 the suite holds, in the order the spec lists them. */
+const specified: readonly SpecifiedCase[] = [
+  ["declaration/valid-names", [], "fast"],
+  ["declaration/identity", [], "fast"],
+  ["put/bytes-round-trip", [], "fast"],
+  ["put/string-round-trip", [], "fast"],
+  ["put/stream-round-trip", [], "fast"],
+  ["put/multipart-round-trip", [], "fast"],
+  ["put/empty-body", [], "fast"],
+  ["put/overwrites", [], "fast"],
+  ["put/content-type-stored", [], "fast"],
+  ["put/content-type-default", [], "fast"],
+  ["put/accepted-keys", [], "fast"],
+  ["put/refused-keys", [], "fast"],
+  ["put/unknown-option", [], "fast"],
+  ["put/aborted-signal", [], "fast"],
+  ["put/abort-during-upload", [], "fast"],
+  ["put/stream-consumed", [], "fast"],
+  ["put/user-metadata", ["userMetadata"], "fast"],
+  ["put/user-metadata-limits", ["userMetadata"], "fast"],
+  ["get/missing-key", [], "fast"],
+  ["get/stream", [], "fast"],
+  ["get/text-and-json", [], "fast"],
+  ["get/body-read-once", [], "fast"],
+  ["get/stat-from-response", [], "fast"],
+  ["get/addressable-keys", [], "fast"],
+  ["get/aborted-signal", [], "fast"],
+  ["get/range", ["rangeReads"], "fast"],
+  ["get/range-unsatisfiable", ["rangeReads"], "fast"],
+  ["get/range-clipped", ["rangeReads"], "fast"],
+  ["stat/describes-object", [], "fast"],
+  ["stat/missing-key", [], "fast"],
+  ["exists/answers", [], "fast"],
+  ["exists/invalid-key", [], "fast"],
+];
+
+test("the suite holds the cases of spec 8.5, each with the requirement and the cost of its row", () => {
+  const held = conformanceCaseSources.map((source): SpecifiedCase => [
+    source.name,
+    source.requires,
+    source.cost,
   ]);
 
-  for (const source of conformanceCaseSources) {
-    expect(source.requires).toEqual([]);
-    expect(source.cost).toBe("fast");
+  expect(held).toEqual(specified);
+});
+
+test("every case naming a capability carries the `runWithout` half of its row", () => {
+  for (const source of conformanceCaseSources.filter((one) => one.requires.length > 0)) {
+    expect(source).toHaveProperty("runWithout", expect.any(Function));
   }
 });
 

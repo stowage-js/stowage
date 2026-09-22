@@ -8,6 +8,7 @@ import type {
 } from "@stowage/core";
 
 import type { ConformanceCaseSource } from "./case.ts";
+import { conformanceCaseSources } from "./cases/index.ts";
 import type { ConformanceTarget } from "./target.ts";
 
 export interface StubStorageFields {
@@ -15,6 +16,9 @@ export interface StubStorageFields {
   readonly bucket?: string;
   /** Plain strings, so that a test can declare what no adapter written in TypeScript can. */
   readonly capabilities?: readonly string[];
+  readonly put?: Storage["put"];
+  readonly get?: Storage["get"];
+  readonly stat?: Storage["stat"];
   readonly deleteAll?: (prefix: string) => Promise<DeleteReport>;
 }
 
@@ -33,9 +37,9 @@ export function stubStorage(fields: StubStorageFields = {}): Storage {
     // oxlint-disable-next-line no-unsafe-type-assertion -- what `capabilities` above is for
     capabilities: (fields.capabilities ?? []) as readonly CapabilityName[],
 
-    put: unreachable<ObjectStat>("put"),
-    get: unreachable<StoredObject>("get"),
-    stat: unreachable<ObjectStat>("stat"),
+    put: fields.put ?? unreachable<ObjectStat>("put"),
+    get: fields.get ?? unreachable<StoredObject>("get"),
+    stat: fields.stat ?? unreachable<ObjectStat>("stat"),
     exists: unreachable<boolean>("exists"),
     list: (): ObjectListing => {
       throw new Error("The stub storage has no `list`");
@@ -55,6 +59,14 @@ function unreachable<T>(operation: string): () => Promise<T> {
 
 export function stubTarget(fields: Partial<ConformanceTarget> = {}): ConformanceTarget {
   return { name: "stub", createStorage: () => stubStorage(), ...fields };
+}
+
+export function caseNamed(name: string): ConformanceCaseSource {
+  const source = conformanceCaseSources.find((one) => one.name === name);
+
+  if (source === undefined) throw new Error(`The suite holds no case named ${name}`);
+
+  return source;
 }
 
 /** A case that asserts nothing, for tests that are about the run and not about a case. */
