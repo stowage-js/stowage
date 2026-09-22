@@ -10,12 +10,18 @@ import {
 } from "../assertions.ts";
 import type { ConformanceCaseSource } from "../case.ts";
 import type { ConformanceContext } from "../target.ts";
-import { collect, mebibyte, multipartSize, patternOf, streamOf } from "./bytes.ts";
+import {
+  collect,
+  kibibyte,
+  mebibyte,
+  multipartSize,
+  patternOf,
+  streamAbortedMidway,
+  streamOf,
+} from "./bytes.ts";
 import { acceptedKeys, keyFor, prefixFor, type RefusedKey, refusedWritableKeys } from "./keys.ts";
 
 const utf8 = new TextEncoder();
-
-const kibibyte = 1024;
 
 /** Spec 4.3 takes an ASCII HTTP token as a user metadata key, which this is not. */
 const metadataKeyAboveAscii: Record<string, string> = { grüße: "hallo" };
@@ -285,12 +291,12 @@ export const putCases: readonly ConformanceCaseSource[] = [
       const key = keyFor(ctx, "put/abort-during-upload");
       const bytes = patternOf(multipartSize);
       const controller = new AbortController();
-      const body = streamOf(bytes, mebibyte, (sent) => {
-        if (sent >= multipartSize / 2) controller.abort();
-      });
 
       await expectRuntimeError(
-        () => ctx.storage.put(key, body, { signal: controller.signal }),
+        () =>
+          ctx.storage.put(key, streamAbortedMidway(bytes, mebibyte, controller), {
+            signal: controller.signal,
+          }),
         "AbortError",
       );
     },

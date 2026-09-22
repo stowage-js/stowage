@@ -65,6 +65,19 @@ export function assertSameDescription(
   }
 }
 
+/**
+ * A header of the answer a case read, which is how spec 8.5 and 8.6 have the two cases
+ * that leave the API — a signed URL and the `Response` of flow 4 — read a content type.
+ */
+export function assertHeader(response: Response, name: string, expected: string): void {
+  const held = response.headers.get(name);
+
+  assert(
+    held === expected,
+    `The answer reports \`${name}: ${JSON.stringify(held)}\` and not ${JSON.stringify(expected)}`,
+  );
+}
+
 export interface StorageErrorExpectation {
   readonly code: StorageErrorCode;
   readonly operation?: string;

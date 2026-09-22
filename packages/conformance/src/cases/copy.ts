@@ -4,11 +4,9 @@ import { assert, assertSameBytes, expectStorageError } from "../assertions.ts";
 import type { ConformanceCaseSource } from "../case.ts";
 import type { ConformanceContext } from "../target.ts";
 import { prefixFor } from "./keys.ts";
+import { textContentType } from "./objects.ts";
 
 const utf8 = new TextEncoder();
-
-/** Spec 6 has `adapter-fs` derive the content type from the key, so the two agree here. */
-const contentType = "text/plain";
 
 interface WrittenObject {
   readonly key: string;
@@ -115,7 +113,7 @@ export const copyAndMoveCases: readonly ConformanceCaseSource[] = [
       const to = `${prefix}destination.txt`;
 
       await ctx.storage.put(from, "the body to copy", {
-        contentType,
+        contentType: textContentType,
         userMetadata: { "Written-By": "stowage" },
       });
       await ctx.storage.copy(from, to);
@@ -137,7 +135,7 @@ export const copyAndMoveCases: readonly ConformanceCaseSource[] = [
 
       // Spec 4.9 has a storage declaring no `userMetadata` read back none, so there is
       // nothing for the copy to carry and the copy itself is one like any other.
-      await ctx.storage.put(from, "the body to copy", { contentType });
+      await ctx.storage.put(from, "the body to copy", { contentType: textContentType });
       await ctx.storage.copy(from, to);
 
       const described = await ctx.storage.stat(to);
@@ -181,7 +179,7 @@ export const copyAndMoveCases: readonly ConformanceCaseSource[] = [
 ];
 
 async function write(ctx: ConformanceContext, key: string, text: string): Promise<WrittenObject> {
-  await ctx.storage.put(key, text, { contentType });
+  await ctx.storage.put(key, text, { contentType: textContentType });
 
   return { key, body: utf8.encode(text) };
 }
@@ -204,8 +202,8 @@ async function assertHolds(
   const stored = await ctx.storage.get(key);
 
   assert(
-    stored.stat.contentType === contentType,
-    `${what} reports the content type ${JSON.stringify(stored.stat.contentType)} and not ${JSON.stringify(contentType)}`,
+    stored.stat.contentType === textContentType,
+    `${what} reports the content type ${JSON.stringify(stored.stat.contentType)} and not ${JSON.stringify(textContentType)}`,
   );
   assertSameBytes(await stored.bytes(), body, `The body under ${JSON.stringify(key)}`);
 }

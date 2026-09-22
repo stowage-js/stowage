@@ -32,7 +32,7 @@ const recorder = (options: { includeSlow?: boolean } = {}): Recorder => {
 };
 
 /** One storage for every factory of spec 8.3, so that a target supplies all of them. */
-const storage = (): Storage => stubStorage({ provider: "memory", bucket: "memory" });
+const createStorage = (): Storage => stubStorage({ provider: "memory", bucket: "memory" });
 
 const runEach = async (recorded: Recorder): Promise<void> => {
   // oxlint-disable-next-line no-await-in-loop -- a framework runs them one after another
@@ -134,10 +134,10 @@ test("`describeConformance` maps the suite's own `fast` cases onto the framework
   // under its own name.
   describeConformance(
     stubTarget({
-      createStorage: storage,
-      createStorageWithBadCredentials: storage,
-      createStorageWithDeniedCredentials: storage,
-      createStorageWithExpiredCredentials: storage,
+      createStorage,
+      createStorageWithBadCredentials: createStorage,
+      createStorageWithDeniedCredentials: createStorage,
+      createStorageWithExpiredCredentials: createStorage,
     }),
     recorded.framework,
   );

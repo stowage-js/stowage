@@ -32,7 +32,7 @@ interface ProvokedFailure {
   readonly what: string;
   /** The operation spec 4.10 has the error name, which is the one the caller invoked. */
   readonly operation: string;
-  call(): Promise<unknown>;
+  provoke(): Promise<unknown>;
 }
 
 export const errorCases: readonly ConformanceCaseSource[] = [
@@ -48,7 +48,10 @@ export const errorCases: readonly ConformanceCaseSource[] = [
 
       for (const failure of provokedFailures(ctx, prefix, key)) {
         // oxlint-disable-next-line no-await-in-loop -- one storage, so the calls go in turn
-        const thrown = await expectAnyStorageError(async () => await failure.call(), failure.what);
+        const thrown = await expectAnyStorageError(
+          async () => await failure.provoke(),
+          failure.what,
+        );
 
         assertShape(thrown, ctx.storage, failure);
       }
@@ -151,27 +154,27 @@ function provokedFailures(
     {
       what: "`get` on a missing key",
       operation: "get",
-      call: async () => await ctx.storage.get(`${prefix}absent`),
+      provoke: async () => await ctx.storage.get(`${prefix}absent`),
     },
     {
       what: "`stat` on a missing key",
       operation: "stat",
-      call: async () => await ctx.storage.stat(`${prefix}absent`),
+      provoke: async () => await ctx.storage.stat(`${prefix}absent`),
     },
     {
       what: "`put` under a key holding a `..` segment",
       operation: "put",
-      call: async () => await ctx.storage.put(`${prefix}../object`, patternOf(16)),
+      provoke: async () => await ctx.storage.put(`${prefix}../object`, patternOf(16)),
     },
     {
       what: "`list` with a `pageSize` of 0",
       operation: "list",
-      call: async () => await ctx.storage.list({ prefix, pageSize: 0 }).page(),
+      provoke: async () => await ctx.storage.list({ prefix, pageSize: 0 }).page(),
     },
     {
       what: "`copy` onto itself",
       operation: "copy",
-      call: async () => await ctx.storage.copy(key, key),
+      provoke: async () => await ctx.storage.copy(key, key),
     },
   ];
 }

@@ -1,4 +1,4 @@
-const kibibyte = 1024;
+export const kibibyte: number = 1024;
 
 /** The bytes a body is measured in, where a case names a size spec 8.5 or 8.6 states. */
 export const mebibyte: number = 1024 * kibibyte;
@@ -59,4 +59,18 @@ export async function collect(stream: ReadableStream<Uint8Array>): Promise<Uint8
   }
 
   return bytes;
+}
+
+/**
+ * The stream of `put/abort-during-upload` and of flow 1: it fires the signal once half of
+ * the body went out, which is where an upload is interrupted rather than refused.
+ */
+export function streamAbortedMidway(
+  bytes: Uint8Array,
+  chunkSize: number,
+  controller: AbortController,
+): ReadableStream<Uint8Array> {
+  return streamOf(bytes, chunkSize, (sent) => {
+    if (sent >= bytes.byteLength / 2) controller.abort();
+  });
 }

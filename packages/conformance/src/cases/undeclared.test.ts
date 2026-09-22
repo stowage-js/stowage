@@ -160,7 +160,6 @@ test.each([
 test("the `presign/get` half refuses a storage carrying a method it declared nothing for", async () => {
   // ADR 0011: presigning is the one capability that adds a method rather than changing a
   // behavior, so the half reads the two names off the storage and nothing else.
-  // The extra method is what the half reads, so the storage carries one beside `Storage`.
   const signing = { ...undeclaring(), presignGet: async () => "https://example.invalid/signed" };
 
   await expect(runWithout("presign/get", signing)).rejects.toThrow("carries `presignGet`");
