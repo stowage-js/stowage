@@ -120,9 +120,11 @@ test("the cleanup test deletes below the run's prefix", async () => {
   expect(cleaned[0]).toMatch(/^stowage-conformance\/.+\/$/);
 });
 
-test("`describeConformance` maps the suite's own cases and runs the `fast` tier", async () => {
+test("`describeConformance` maps the suite's own `fast` cases onto the framework", () => {
   const recorded = recorder();
 
+  // The bodies stay unrun here: the cases need a storage to write to, and reading them
+  // against a real adapter is what `test/conformance-memory.test.ts` does.
   describeConformance(
     stubTarget({ createStorage: () => stubStorage({ provider: "memory", bucket: "memory" }) }),
     recorded.framework,
@@ -132,6 +134,4 @@ test("`describeConformance` maps the suite's own cases and runs the `fast` tier"
     ...selectedCases().map((source) => source.name),
     "cleanup",
   ]);
-
-  await runEach(recorded);
 });
