@@ -582,3 +582,28 @@ test("the session token travels as a signed header", async () => {
   expect(sent[0]?.headers.get("x-amz-security-token")).toBe("the-token");
   expect(sent[0]?.headers.get("authorization")).toContain("x-amz-security-token");
 });
+
+// Spec 4.6: the listing sends nothing until it is read, so the refusal is the reader's.
+test("`list` refuses a `pageSize` outside its range before any request", async () => {
+  const sent = stubFetch(accepted);
+  const failure = await rejection(
+    async () => await s3Storage(options()).list({ pageSize: 0 }).page(),
+  );
+
+  expect(failure.code).toBe("InvalidOption");
+  expect(failure.message).toContain("pageSize");
+  expect(failure.operation).toBe("list");
+  expect(sent).toHaveLength(0);
+});
+
+test("`copy` of a key onto itself is `InvalidRequest` before any request", async () => {
+  const sent = stubFetch(accepted);
+  const failure = await rejection(
+    async () => await s3Storage(options()).copy("object.txt", "object.txt"),
+  );
+
+  expect(failure.code).toBe("InvalidRequest");
+  expect(failure.operation).toBe("copy");
+  expect(failure.attempts).toBe(0);
+  expect(sent).toHaveLength(0);
+});

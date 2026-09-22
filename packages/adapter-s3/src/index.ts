@@ -4,6 +4,8 @@ import {
   type GetOptions,
   isStorageError,
   type ListOptions,
+  type ListPage,
+  type ObjectEntry,
   type ObjectListing,
   type ObjectStat,
   type OperationOptions,
@@ -16,6 +18,7 @@ import {
 import { readConfiguration, type S3AdapterOptions, type S3Configuration } from "./configuration.ts";
 import { defaultContentType, describeResponse, describeWrite } from "./description.ts";
 import { requireKey } from "./key.ts";
+import { readListOptions } from "./listing.ts";
 import {
   getOptionKeys,
   operationOptionKeys,
@@ -123,10 +126,29 @@ class SimpleStorageServiceStorage implements S3Storage {
     }
   }
 
+  /**
+   * Spec 4.6: a listing sends no request until it is read, so an option it refuses
+   * reaches the caller from `page()` and from the iteration and not from `list`. The
+   * request itself and the parser that reads its answer arrive with the listing.
+   */
   list(options?: ListOptions): ObjectListing {
-    void options;
+    const readOptions = (): void => {
+      readListOptions(this.bucket, options);
+    };
 
-    throw notBuiltYet("list");
+    return {
+      async page(): Promise<ListPage> {
+        readOptions();
+
+        throw notBuiltYet("list");
+      },
+
+      [Symbol.asyncIterator](): AsyncIterator<ObjectEntry> {
+        readOptions();
+
+        throw notBuiltYet("list");
+      },
+    };
   }
 
   // The rest of the parity core of spec 4.11 is the step that reads a listing and the
@@ -145,9 +167,10 @@ class SimpleStorageServiceStorage implements S3Storage {
   }
 
   async copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
-    void from;
-    void to;
-    void options;
+    requireKey(this.bucket, from, "addressable", "copy");
+    requireKey(this.bucket, to, "writable", "copy");
+    requireKnownOptions(this.bucket, options, operationOptionKeys, "copy");
+    this.#requireDistinct(from, to);
 
     throw notBuiltYet("copy");
   }
@@ -171,6 +194,19 @@ class SimpleStorageServiceStorage implements S3Storage {
       operation,
       key,
       signal: options?.signal,
+    });
+  }
+
+  /** Spec 7.8: a copy of a key onto itself stores nothing and never leaves the process. */
+  #requireDistinct(from: string, to: string): void {
+    if (from !== to) return;
+
+    throw s3Error(this.bucket, {
+      code: "InvalidRequest",
+      message: "A copy names one key as its source and another as its destination",
+      operation: "copy",
+      key: from,
+      attempts: 0,
     });
   }
 
