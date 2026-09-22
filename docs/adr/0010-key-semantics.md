@@ -29,8 +29,9 @@ A key is a string of Unicode characters whose length is measured in UTF-8 bytes,
 which is how S3 measures it. Counting characters instead would place the limit differently
 depending on the script a key is written in. Nothing normalizes the Unicode form, which follows
 from the first paragraph and costs something concrete on both sides of the parity core: a file
-system that stores names in NFD, as APFS does, returns a key in a different form from the one it
-was given, and R2, which normalizes to NFC before storing, holds one object where S3 holds two.
+system that stores names in NFD, as HFS+ did, returns a key in a different form from the one it
+was given, APFS keeps the form but folds the two when it looks a name up, and R2, which normalizes
+to NFC before storing, holds one object where S3 holds two.
 
 There is no allowlist of characters. `#`, `%`, `?`, `+`, a space and any character above ASCII
 are all legal in a key, so an adapter has to encode a key itself, segment by segment, and may
