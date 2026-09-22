@@ -581,3 +581,108 @@ test("reports a root that is gone where the listing is read", async () => {
   expect(await codeOf(storage.list().page())).toBe("NotFound");
   expect(await codeOf(iterate(storage.list()))).toBe("NotFound");
 });
+
+test("deletes the keys it was handed and reports what it covered", async () => {
+  const storage = await storageWith("one", "docs/two.txt");
+  const report = await storage.delete("one", "docs/two.txt", "never-written");
+
+  // Spec 4.7 counts the keys the call covered, and deleting is idempotent, so the key
+  // that was never there is one the storage took like the two it removed.
+  expect(report).toEqual({ requested: 3, failed: [] });
+  expect(await iterate(storage.list())).toEqual([]);
+});
+
+test("reports an invalid key beside the keys it deleted", async () => {
+  const storage = await storageWith("one", "two");
+  const report = await storage.delete("one", "../elsewhere", "two");
+
+  expect(report.requested).toBe(3);
+  expect(report.failed.map((failure) => [failure.code, failure.key])).toEqual([
+    ["InvalidKey", "../elsewhere"],
+  ]);
+  expect(await iterate(storage.list())).toEqual([]);
+});
+
+test("covers no key at all", async () => {
+  expect(await (await rootedStorage()).delete()).toEqual({ requested: 0, failed: [] });
+});
+
+test("removes the directories a delete leaves empty", async () => {
+  const root = await temporaryRoot();
+  const storage = fsStorage({ root });
+
+  await storage.put("docs/2026/one.txt", "a body");
+  await storage.put("docs/two.txt", "another body");
+  await storage.delete("docs/2026/one.txt");
+
+  expect(await readdir(join(root, "docs"))).toEqual(["two.txt"]);
+
+  await storage.delete("docs/two.txt");
+
+  expect(await readdir(root)).toEqual([]);
+});
+
+test("removes the link at the key and not the object it points to", async () => {
+  const root = await temporaryRoot();
+  const storage = fsStorage({ root });
+
+  await storage.put("object", "a body");
+  await symlink(join(root, "object"), join(root, "link"));
+
+  expect(await storage.delete("link")).toEqual({ requested: 1, failed: [] });
+  expect(await iterate(storage.list())).toEqual(["object"]);
+});
+
+test("leaves what is no object of this storage where it is", async () => {
+  const root = await temporaryRoot();
+  const outside = join(await temporaryRoot(), "secret");
+  const storage = fsStorage({ root });
+
+  await writeFile(outside, "not this storage's");
+  await symlink(outside, join(root, "link"));
+  await storage.put("docs/one.txt", "a body");
+
+  // A directory and a link leaving the root are no objects a listing names, so a delete
+  // of them removes nothing and reports nothing either (spec 4.7).
+  expect(await storage.delete("docs", "link")).toEqual({ requested: 2, failed: [] });
+  expect(await readFile(outside, "utf8")).toBe("not this storage's");
+  expect(await iterate(storage.list())).toEqual(["docs/one.txt"]);
+  expect((await readdir(root)).toSorted()).toEqual(["docs", "link"]);
+});
+
+test("deletes every object below the prefix and none beside it", async () => {
+  const storage = await storageWith("docs/one.txt", "docs/2026/two.txt", "docs-beside", "other");
+
+  expect(await storage.deleteAll("docs/")).toEqual({ requested: 2, failed: [] });
+  expect(await iterate(storage.list())).toEqual(["docs-beside", "other"]);
+});
+
+test("removes the directories a deleteAll leaves empty", async () => {
+  const root = await temporaryRoot();
+  const storage = fsStorage({ root });
+
+  await storage.put("docs/2026/one.txt", "a body");
+
+  expect(await storage.deleteAll("docs/")).toEqual({ requested: 1, failed: [] });
+  expect(await readdir(root)).toEqual([]);
+});
+
+test("covers nothing below a prefix that holds no object", async () => {
+  const storage = await storageWith("other");
+
+  expect(await storage.deleteAll("docs/")).toEqual({ requested: 0, failed: [] });
+});
+
+test("refuses what a deleteAll does not take", async () => {
+  const storage = await rootedStorage();
+
+  expect(await codeOf(storage.deleteAll("../elsewhere"))).toBe("InvalidKey");
+  expect(await codeOf(storage.deleteAll("docs/", withUnknownOption({})))).toBe("InvalidOption");
+});
+
+test("rejects a delete against a root that is gone", async () => {
+  const storage = fsStorage({ root: join(await temporaryRoot(), "not-there") });
+
+  expect(await codeOf(storage.delete("object"))).toBe("NotFound");
+  expect(await codeOf(storage.deleteAll("docs/"))).toBe("NotFound");
+});

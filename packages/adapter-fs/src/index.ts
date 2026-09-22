@@ -13,6 +13,7 @@ import {
   type PutBody,
   type PutOptions,
   type Storage,
+  type StorageError,
   type StoredObject,
 } from "@stowage/core";
 
@@ -21,6 +22,7 @@ import { contentTypeOf } from "./content-type.ts";
 import { createListing } from "./listing.ts";
 import { asFailure } from "./errno.ts";
 import { requireKey } from "./key.ts";
+import { findObjectFile, removeObjectFile } from "./object-file.ts";
 import {
   adapterOptionKeys,
   getOptionKeys,
@@ -200,19 +202,73 @@ class FileSystemStorage implements FsStorage {
     );
   }
 
-  // What the parity core of spec 4.11 still owes is the step that removes an object
-  // together with the directories it leaves empty, up to the root (spec 6).
   async delete(...keys: readonly string[]): Promise<DeleteReport> {
-    void keys;
+    // Spec 4.7 rejects the call for what fails the request as a whole and fills the
+    // report for what fails one key. A root that is gone is the first of the two: it is
+    // no reason any single key could not be deleted.
+    const realRoot = await resolveRoot(this.#root, "delete", "write");
+    const failed: StorageError[] = [];
 
-    throw notBuiltYet("delete");
+    for (const key of keys) {
+      // oxlint-disable-next-line no-await-in-loop -- one tree, one key after another
+      const failure = await this.#remove(realRoot, key, "delete");
+
+      if (failure !== undefined) failed.push(failure);
+    }
+
+    return { requested: keys.length, failed };
   }
 
   async deleteAll(prefix: string, options?: OperationOptions): Promise<DeleteReport> {
-    void prefix;
-    void options;
+    requireKey(this.#root, prefix, "prefix", "deleteAll");
+    requireKnownOptions(this.#root, options, operationOptionKeys, "deleteAll");
 
-    throw notBuiltYet("deleteAll");
+    options?.signal?.throwIfAborted();
+
+    const realRoot = await resolveRoot(this.#root, "deleteAll", "write");
+    // Spec 4.11 has `deleteAll` page on its own, and the walk of the tree below the
+    // prefix is what a file system pages through: it names the objects the call covers,
+    // and one written after it is one spec 4.11 leaves either way.
+    const context = { root: this.#root, realRoot, operation: "deleteAll" };
+    const entries = await walkObjects(context, prefix);
+    const failed: StorageError[] = [];
+
+    for (const entry of entries) {
+      options?.signal?.throwIfAborted();
+
+      // oxlint-disable-next-line no-await-in-loop -- one tree, one object after another
+      const failure = await this.#remove(realRoot, entry.key, "deleteAll");
+
+      if (failure !== undefined) failed.push(failure);
+    }
+
+    return { requested: entries.length, failed };
+  }
+
+  /** Removes what the key names, and answers with the failure the report carries for it. */
+  async #remove(
+    realRoot: string,
+    key: string,
+    operation: string,
+  ): Promise<StorageError | undefined> {
+    try {
+      requireKey(this.#root, key, "addressable", operation);
+
+      const context = { root: this.#root, realRoot, key, operation };
+      const file = await findObjectFile(context);
+
+      // Spec 4.7: deleting is idempotent, so a key that names nothing this storage holds
+      // is one the provider took rather than one it could not delete.
+      if (file !== undefined) await removeObjectFile(context, file);
+
+      return undefined;
+    } catch (thrown) {
+      // Spec 4.7 carries a per-key failure in the report, so that the keys beside it in
+      // the same call are deleted rather than held up by it.
+      if (isStorageError(thrown)) return thrown;
+
+      throw thrown;
+    }
   }
 
   async copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
