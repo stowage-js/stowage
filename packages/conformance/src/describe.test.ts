@@ -1,5 +1,7 @@
 import { expect, test } from "vitest";
 
+import type { Storage } from "@stowage/core";
+
 import type { ConformanceCaseSource } from "./case.ts";
 import { type ConformanceFramework, describeCases, describeConformance } from "./describe.ts";
 import { selectedCases } from "./run.ts";
@@ -28,6 +30,9 @@ const recorder = (options: { includeSlow?: boolean } = {}): Recorder => {
     },
   };
 };
+
+/** One storage for every factory of spec 8.3, so that a target supplies all of them. */
+const createStorage = (): Storage => stubStorage({ provider: "memory", bucket: "memory" });
 
 const runEach = async (recorded: Recorder): Promise<void> => {
   // oxlint-disable-next-line no-await-in-loop -- a framework runs them one after another
@@ -124,9 +129,16 @@ test("`describeConformance` maps the suite's own `fast` cases onto the framework
   const recorded = recorder();
 
   // The bodies stay unrun here: the cases need a storage to write to, and reading them
-  // against a real adapter is what `test/conformance-memory.test.ts` does.
+  // against a real adapter is what `test/conformance-memory.test.ts` does. The target
+  // supplies every factory of spec 8.3, so that no case is skipped and each one arrives
+  // under its own name.
   describeConformance(
-    stubTarget({ createStorage: () => stubStorage({ provider: "memory", bucket: "memory" }) }),
+    stubTarget({
+      createStorage,
+      createStorageWithBadCredentials: createStorage,
+      createStorageWithDeniedCredentials: createStorage,
+      createStorageWithExpiredCredentials: createStorage,
+    }),
     recorded.framework,
   );
 

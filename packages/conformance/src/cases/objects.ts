@@ -4,6 +4,13 @@ import { assert } from "../assertions.ts";
 import type { ConformanceContext } from "../target.ts";
 
 /**
+ * What a case writes where it reads the content type back, under a key ending in `.txt`:
+ * spec 6 has `adapter-fs` derive the type from the key rather than store the one it was
+ * given, so the two have to agree.
+ */
+export const textContentType: string = "text/plain";
+
+/**
  * How many writes a case keeps in flight. The cases past one thousand objects write more
  * than a provider answers at once: a thousand requests in flight come back as throttling
  * rather than as the objects the case is about.

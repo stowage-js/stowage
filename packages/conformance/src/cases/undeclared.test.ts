@@ -30,18 +30,19 @@ const storedKey = (key: string): string => key.normalize();
  */
 const undeclaring = (behavior: UndeclaredBehavior = {}): Storage => {
   const held = new Map<string, Readonly<Record<string, string>>>();
+  const bodies = new Map<string, StoredBody>();
 
   const describe = (key: string): ObjectStat => ({
     key,
-    size: 0,
+    size: bodies.get(key)?.bytes.byteLength ?? 0,
     lastModified: new Date(),
-    contentType: "application/octet-stream",
+    contentType: bodies.get(key)?.contentType ?? "application/octet-stream",
     userMetadata:
       behavior.readsUserMetadata === true ? { "written-by": "stowage" } : (held.get(key) ?? {}),
   });
 
   return stubStorage({
-    put: async (key, _body, options) => {
+    put: async (key, body, options) => {
       const userMetadata = options?.userMetadata ?? {};
 
       if (Object.keys(userMetadata).length > 0 && behavior.storesUserMetadata !== true) {
@@ -49,6 +50,11 @@ const undeclaring = (behavior: UndeclaredBehavior = {}): Storage => {
       }
 
       held.set(storedKey(key), userMetadata);
+      bodies.set(storedKey(key), {
+        // Every half that writes one hands over the bytes it will read back.
+        bytes: body instanceof Uint8Array ? body : new Uint8Array(0),
+        contentType: options?.contentType ?? "application/octet-stream",
+      });
 
       return describe(storedKey(key));
     },
@@ -57,7 +63,7 @@ const undeclaring = (behavior: UndeclaredBehavior = {}): Storage => {
         throw unsupported("rangeReads", "get");
       }
 
-      return bodilessObject(describe(storedKey(key)));
+      return storedObject(describe(storedKey(key)), bodies.get(storedKey(key))?.bytes);
     },
     stat: async (key) => describe(storedKey(key)),
     list: (options) =>
@@ -85,15 +91,27 @@ const unsupported = (capability: CapabilityName, operation: string): StorageErro
     capability,
   });
 
+interface StoredBody {
+  readonly bytes: Uint8Array;
+  readonly contentType: string;
+}
+
 const unread = (): never => {
-  throw new Error("The stored object of this stub has no body");
+  throw new Error("The stored object of this stub reads as bytes and as a stream alone");
 };
 
-// No `runWithout` half reads a body: each one asserts the refusal or the description.
-const bodilessObject = (stat: ObjectStat): StoredObject => ({
+// The half of `flow/4-streaming-download` reads the whole object out of `get`, and no
+// half reads one as text or as JSON.
+const storedObject = (stat: ObjectStat, bytes: Uint8Array = new Uint8Array(0)): StoredObject => ({
   stat,
-  stream: unread,
-  bytes: unread,
+  stream: () =>
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(bytes);
+        controller.close();
+      },
+    }),
+  bytes: async () => bytes,
   text: unread,
   json: unread,
 });
@@ -107,12 +125,14 @@ const runWithout = async (name: string, storage: Storage): Promise<string> => {
   return half.mode;
 };
 
-test.each(["get/range", "get/range-unsatisfiable", "get/range-clipped"])(
-  "`%s` holds where the storage declares no `rangeReads`",
-  async (name) => {
-    await expect(runWithout(name, undeclaring())).resolves.toBe("without");
-  },
-);
+test.each([
+  "get/range",
+  "get/range-unsatisfiable",
+  "get/range-clipped",
+  "flow/4-streaming-download",
+])("`%s` holds where the storage declares no `rangeReads`", async (name) => {
+  await expect(runWithout(name, undeclaring())).resolves.toBe("without");
+});
 
 test.each(["put/user-metadata", "put/user-metadata-limits", "copy/user-metadata"])(
   "`%s` holds where the storage declares no `userMetadata`",
@@ -123,6 +143,26 @@ test.each(["put/user-metadata", "put/user-metadata-limits", "copy/user-metadata"
 
 test("`list/key-bytes` holds where the storage declares no `keyBytesPreserved`", async () => {
   await expect(runWithout("list/key-bytes", undeclaring())).resolves.toBe("without");
+});
+
+test.each([
+  "presign/get",
+  "presign/put",
+  "presign/expires-in-bounds",
+  "presign/put-rejects-type",
+  "presign/put-rejects-length",
+  "presign/expired-url",
+  "flow/2-presigned-put",
+])("`%s` holds where the storage declares no `presignedUrls`", async (name) => {
+  await expect(runWithout(name, undeclaring())).resolves.toBe("without");
+});
+
+test("the `presign/get` half refuses a storage carrying a method it declared nothing for", async () => {
+  // ADR 0011: presigning is the one capability that adds a method rather than changing a
+  // behavior, so the half reads the two names off the storage and nothing else.
+  const signing = { ...undeclaring(), presignGet: async () => "https://example.invalid/signed" };
+
+  await expect(runWithout("presign/get", signing)).rejects.toThrow("carries `presignGet`");
 });
 
 test("the `get/range` half refuses a storage answering a range it declared nothing for", async () => {

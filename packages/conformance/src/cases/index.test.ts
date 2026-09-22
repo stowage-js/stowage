@@ -4,7 +4,7 @@ import { conformanceCases, conformanceCaseSources } from "./index.ts";
 
 type SpecifiedCase = readonly [name: string, requires: readonly string[], cost: string];
 
-/** The rows of spec 8.5 the suite holds, in the order the spec lists them. */
+/** The rows of spec 8.5 and 8.6 the suite holds, in the order the specs list them. */
 const specified: readonly SpecifiedCase[] = [
   ["declaration/valid-names", [], "fast"],
   ["declaration/identity", [], "fast"],
@@ -67,6 +67,22 @@ const specified: readonly SpecifiedCase[] = [
   ["copy/user-metadata", ["userMetadata"], "fast"],
   ["move/round-trip", [], "fast"],
   ["move/missing-source", [], "fast"],
+  ["errors/shape", [], "fast"],
+  ["errors/not-a-storage-error", [], "fast"],
+  ["errors/bad-credentials", [], "fast"],
+  ["errors/denied-credentials", [], "fast"],
+  ["errors/expired-credentials", [], "slow"],
+  ["presign/get", ["presignedUrls"], "fast"],
+  ["presign/put", ["presignedUrls"], "fast"],
+  ["presign/expires-in-bounds", ["presignedUrls"], "fast"],
+  ["presign/put-rejects-type", ["presignedUrls"], "slow"],
+  ["presign/put-rejects-length", ["presignedUrls"], "slow"],
+  ["presign/expired-url", ["presignedUrls"], "slow"],
+  ["flow/1-large-upload", [], "fast"],
+  ["flow/2-presigned-put", ["presignedUrls"], "fast"],
+  ["flow/3-file-browser", [], "fast"],
+  ["flow/4-streaming-download", ["rangeReads"], "fast"],
+  ["flow/5-prefix-move", [], "fast"],
 ];
 
 test("the suite holds the cases of spec 8.5, each with the requirement and the cost of its row", () => {
@@ -83,6 +99,18 @@ test("every case naming a capability carries the `runWithout` half of its row", 
   for (const source of conformanceCaseSources.filter((one) => one.requires.length > 0)) {
     expect(source).toHaveProperty("runWithout", expect.any(Function));
   }
+});
+
+test("the cases hanging on a credential factory of spec 8.3 name the one their row marks", () => {
+  const marked = conformanceCaseSources
+    .filter((source) => source.factory !== undefined)
+    .map((source) => [source.name, source.factory]);
+
+  expect(marked).toEqual([
+    ["errors/bad-credentials", "createStorageWithBadCredentials"],
+    ["errors/denied-credentials", "createStorageWithDeniedCredentials"],
+    ["errors/expired-credentials", "createStorageWithExpiredCredentials"],
+  ]);
 });
 
 test("no two cases share a name", () => {

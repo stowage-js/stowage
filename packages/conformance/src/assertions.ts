@@ -65,6 +65,19 @@ export function assertSameDescription(
   }
 }
 
+/**
+ * A header of the answer a case read, which is how spec 8.5 and 8.6 have the two cases
+ * that leave the API — a signed URL and the `Response` of flow 4 — read a content type.
+ */
+export function assertHeader(response: Response, name: string, expected: string): void {
+  const held = response.headers.get(name);
+
+  assert(
+    held === expected,
+    `The answer reports \`${name}: ${JSON.stringify(held)}\` and not ${JSON.stringify(expected)}`,
+  );
+}
+
 export interface StorageErrorExpectation {
   readonly code: StorageErrorCode;
   readonly operation?: string;
@@ -85,13 +98,7 @@ export async function expectStorageError(
 ): Promise<StorageError> {
   const subject = what === undefined ? "" : ` for ${what}`;
   const expectation = `Expected a \`StorageError\` with \`code: "${expected.code}"\`${subject}`;
-  const thrown = await rejectionOf(call, expectation);
-
-  if (!isStorageError(thrown)) {
-    const { name, message } = serializeError(thrown);
-
-    throw new Error(`${expectation}, and the call threw ${name}: ${message}`);
-  }
+  const thrown = storageErrorOf(await rejectionOf(call, expectation), expectation);
 
   for (const [field, value] of Object.entries(expected)) {
     const held: unknown = Reflect.get(thrown, field);
@@ -103,6 +110,20 @@ export async function expectStorageError(
   }
 
   return thrown;
+}
+
+/**
+ * The `StorageError` a call rejected with, whatever its code, for a row that states the
+ * failure and not the code behind it, and for `errors/shape`, which reads every field
+ * spec 4.10 has an error carry off whichever error it provoked.
+ */
+export async function expectAnyStorageError(
+  call: () => Promise<unknown>,
+  what: string,
+): Promise<StorageError> {
+  const expectation = `Expected a \`StorageError\` for ${what}`;
+
+  return storageErrorOf(await rejectionOf(call, expectation), expectation);
 }
 
 /**
@@ -138,19 +159,21 @@ export async function expectUnsupported(
   capability: CapabilityName,
 ): Promise<void> {
   const expectation = `Expected \`Unsupported\` naming \`${capability}\``;
-  const thrown = await rejectionOf(call, expectation);
-
-  if (!isStorageError(thrown)) {
-    const { name, message } = serializeError(thrown);
-
-    throw new Error(`${expectation}, and the call threw ${name}: ${message}`);
-  }
+  const thrown = storageErrorOf(await rejectionOf(call, expectation), expectation);
 
   if (thrown.code !== "Unsupported" || thrown.capability !== capability) {
     throw new Error(
       `${expectation}, and the call rejected with \`${thrown.code}\` naming \`${thrown.capability}\``,
     );
   }
+}
+
+function storageErrorOf(thrown: unknown, expectation: string): StorageError {
+  if (isStorageError(thrown)) return thrown;
+
+  const { name, message } = serializeError(thrown);
+
+  throw new Error(`${expectation}, and the call threw ${name}: ${message}`);
 }
 
 async function rejectionOf(call: () => Promise<unknown>, expectation: string): Promise<unknown> {
