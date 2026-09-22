@@ -34,6 +34,10 @@ const specified: readonly SpecifiedCase[] = [
   ["get/range", ["rangeReads"], "fast"],
   ["get/range-unsatisfiable", ["rangeReads"], "fast"],
   ["get/range-clipped", ["rangeReads"], "fast"],
+  ["stat/describes-object", [], "fast"],
+  ["stat/missing-key", [], "fast"],
+  ["exists/answers", [], "fast"],
+  ["exists/invalid-key", [], "fast"],
 ];
 
 test("the suite holds the cases of spec 8.5, each with the requirement and the cost of its row", () => {
