@@ -31,6 +31,18 @@ export function assertSameBytes(actual: Uint8Array, expected: Uint8Array, what: 
   }
 }
 
+/**
+ * A time the provider reported, as spec 4.4 and 4.6 have an object description and a
+ * listing entry carry it. A target may be written in JavaScript, where the declared type
+ * of a field promises nothing about what the storage hands over.
+ */
+export function assertDate(value: Date, what: string): asserts value is Date {
+  assert(
+    value instanceof Date && Number.isFinite(value.getTime()),
+    `${what} is ${JSON.stringify(value)}, which is no \`Date\``,
+  );
+}
+
 /** What two reads of one object are held against each other on, `===` telling them apart. */
 export type ComparedStatField = "key" | "size" | "contentType" | "etag";
 

@@ -1,4 +1,4 @@
-import { assert, expectStorageError } from "../assertions.ts";
+import { assert, assertDate, expectStorageError } from "../assertions.ts";
 import type { ConformanceCaseSource } from "../case.ts";
 import { keyFor } from "./keys.ts";
 
@@ -57,14 +57,10 @@ export const statCases: readonly ConformanceCaseSource[] = [
 // Spec 4.4 has `lastModified` carry the time the provider reported when it accepted the
 // object, which the clock reading it here is a minute either side of at the most.
 function assertWrittenJustNow(lastModified: Date): void {
-  const time = lastModified instanceof Date ? lastModified.getTime() : Number.NaN;
+  assertDate(lastModified, "The last modification `stat` reports");
 
   assert(
-    Number.isFinite(time),
-    `\`stat\` reports the last modification as ${JSON.stringify(lastModified)}, which is no \`Date\``,
-  );
-  assert(
-    Math.abs(Date.now() - time) <= clockTolerance,
+    Math.abs(Date.now() - lastModified.getTime()) <= clockTolerance,
     `\`stat\` reports the last modification as ${lastModified.toISOString()}, which is no moment ago`,
   );
 }

@@ -8,7 +8,7 @@ import {
 import { expect, test } from "vitest";
 
 import { createKeyPrefix, selectHalf, startRun } from "../run.ts";
-import { caseNamed, stubStorage, stubTarget } from "../stubs.ts";
+import { caseNamed, stubListing, stubStorage, stubTarget } from "../stubs.ts";
 
 interface UndeclaredBehavior {
   /** Answers a range although it declares no `rangeReads`, which the half has to catch. */
@@ -22,6 +22,10 @@ interface UndeclaredBehavior {
  * No adapter of this repository declares as little, so the `runWithout` halves would
  * otherwise be the one part of the suite nothing here runs.
  */
+// Spec 4.9: a storage declaring no `keyBytesPreserved` hands a key back Unicode-
+// equivalent to what was written, which this one does by folding it into one form.
+const stored = (key: string): string => key.normalize();
+
 const undeclaring = (behavior: UndeclaredBehavior = {}): Storage => {
   const held = new Map<string, Readonly<Record<string, string>>>();
 
@@ -41,18 +45,24 @@ const undeclaring = (behavior: UndeclaredBehavior = {}): Storage => {
         throw unsupported("userMetadata", "put");
       }
 
-      held.set(key, userMetadata);
+      held.set(stored(key), userMetadata);
 
-      return describe(key);
+      return describe(stored(key));
     },
     get: async (key, options) => {
       if (options?.range !== undefined && behavior.answersRanges !== true) {
         throw unsupported("rangeReads", "get");
       }
 
-      return bodilessObject(describe(key));
+      return bodilessObject(describe(stored(key)));
     },
-    stat: async (key) => describe(key),
+    stat: async (key) => describe(stored(key)),
+    list: (options) =>
+      stubListing(
+        [...held.keys()]
+          .filter((key) => key.startsWith(options?.prefix ?? ""))
+          .map((key) => describe(key)),
+      ),
   });
 };
 
@@ -102,6 +112,10 @@ test.each(["put/user-metadata", "put/user-metadata-limits"])(
     await expect(runWithout(name, undeclaring())).resolves.toBe("without");
   },
 );
+
+test("`list/key-bytes` holds where the storage declares no `keyBytesPreserved`", async () => {
+  await expect(runWithout("list/key-bytes", undeclaring())).resolves.toBe("without");
+});
 
 test("the `get/range` half refuses a storage answering a range it declared nothing for", async () => {
   await expect(runWithout("get/range", undeclaring({ answersRanges: true }))).rejects.toThrow(

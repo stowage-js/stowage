@@ -38,6 +38,18 @@ const specified: readonly SpecifiedCase[] = [
   ["stat/missing-key", [], "fast"],
   ["exists/answers", [], "fast"],
   ["exists/invalid-key", [], "fast"],
+  ["list/nothing", [], "fast"],
+  ["list/every-object-once", [], "fast"],
+  ["list/entry-shape", [], "fast"],
+  ["list/pages-and-cursor", [], "fast"],
+  ["list/delimiter", [], "fast"],
+  ["list/prefix-mid-segment", [], "fast"],
+  ["list/lazy", [], "fast"],
+  ["list/page-size-bounds", [], "fast"],
+  ["list/invalid-cursor", [], "fast"],
+  ["list/invalid-delimiter", [], "fast"],
+  ["list/past-one-thousand", [], "slow"],
+  ["list/key-bytes", ["keyBytesPreserved"], "fast"],
 ];
 
 test("the suite holds the cases of spec 8.5, each with the requirement and the cost of its row", () => {
