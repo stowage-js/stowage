@@ -1,3 +1,4 @@
+import type { Stats } from "node:fs";
 import { copyFile, type FileHandle, open, rename, stat, unlink } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 
@@ -115,25 +116,47 @@ class FileSystemStorage implements FsStorage {
     body: PutBody,
     signal?: AbortSignal,
   ): Promise<ObjectStat> {
-    // Spec 6: the bytes land in a file beside the object and are renamed into place, so
-    // a reader sees the object as it was or as it now is and never half of a write.
+    return await this.#land(context, path, async (temporary) => {
+      const handle = await this.#openTemporary(context, temporary);
+
+      try {
+        await writeBody(handle, body, signal);
+        signal?.throwIfAborted();
+
+        // The size comes off the handle rather than off the path: it describes the bytes
+        // this call wrote, whatever another writer renamed over them in the meantime.
+        const written = await handle.stat();
+
+        await handle.close();
+
+        return written;
+      } catch (thrown) {
+        await handle.close().catch(() => {});
+
+        throw thrown;
+      }
+    });
+  }
+
+  /**
+   * Spec 6: the bytes land in a file beside the object and are renamed into place, so a
+   * reader sees the object as it was or as it now is and never half of a write. A write
+   * that broke takes its file with it, so that no listing names what never became one.
+   */
+  async #land(
+    context: FsAccessContext,
+    path: string,
+    fill: (temporary: string) => Promise<Stats>,
+  ): Promise<ObjectStat> {
     const temporary = temporaryPathIn(dirname(path));
-    const handle = await this.#openTemporary(context, temporary);
 
     try {
-      await writeBody(handle, body, signal);
-      signal?.throwIfAborted();
+      const written = await fill(temporary);
 
-      // The size comes off the handle rather than off the path: it describes the bytes
-      // this call wrote, whatever another writer renamed over them in the meantime.
-      const written = await handle.stat();
-
-      await handle.close();
       await rename(temporary, path);
 
       return describe(context.key, written.size, written.mtime);
     } catch (thrown) {
-      await handle.close().catch(() => {});
       await unlink(temporary).catch(() => {});
 
       throw asFailure(thrown, { ...context, access: "write" });
@@ -211,12 +234,16 @@ class FileSystemStorage implements FsStorage {
     // Spec 4.7 rejects the call for what fails the request as a whole and fills the
     // report for what fails one key. A root that is gone is the first of the two: it is
     // no reason any single key could not be deleted.
-    const realRoot = await resolveRoot(this.#root, "delete", "write");
+    const context = {
+      root: this.#root,
+      realRoot: await resolveRoot(this.#root, "delete", "write"),
+      operation: "delete",
+    };
     const failed: StorageError[] = [];
 
     for (const key of keys) {
       // oxlint-disable-next-line no-await-in-loop -- one tree, one key after another
-      const failure = await this.#remove(realRoot, key, "delete");
+      const failure = await this.#remove({ ...context, key });
 
       if (failure !== undefined) failed.push(failure);
     }
@@ -230,19 +257,24 @@ class FileSystemStorage implements FsStorage {
 
     options?.signal?.throwIfAborted();
 
-    const realRoot = await resolveRoot(this.#root, "deleteAll", "write");
     // Spec 4.11 has `deleteAll` page on its own, and the walk of the tree below the
     // prefix is what a file system pages through: it names the objects the call covers,
     // and one written after it is one spec 4.11 leaves either way.
-    const context = { root: this.#root, realRoot, operation: "deleteAll" };
+    const context = {
+      root: this.#root,
+      realRoot: await resolveRoot(this.#root, "deleteAll", "write"),
+      operation: "deleteAll",
+    };
     const entries = await walkObjects(context, prefix);
     const failed: StorageError[] = [];
 
     for (const entry of entries) {
       options?.signal?.throwIfAborted();
 
+      // Every key goes through the same steps a `delete` of it would: the walk named it
+      // a while ago, and what it named may be gone or below a key no caller may address.
       // oxlint-disable-next-line no-await-in-loop -- one tree, one object after another
-      const failure = await this.#remove(realRoot, entry.key, "deleteAll");
+      const failure = await this.#remove({ ...context, key: entry.key });
 
       if (failure !== undefined) failed.push(failure);
     }
@@ -250,16 +282,10 @@ class FileSystemStorage implements FsStorage {
     return { requested: entries.length, failed };
   }
 
-  /** Removes what the key names, and answers with the failure the report carries for it. */
-  async #remove(
-    realRoot: string,
-    key: string,
-    operation: string,
-  ): Promise<StorageError | undefined> {
+  async #remove(context: FsAccessContext): Promise<StorageError | undefined> {
     try {
-      requireKey(this.#root, key, "addressable", operation);
+      requireKey(this.#root, context.key, "addressable", context.operation);
 
-      const context = { root: this.#root, realRoot, key, operation };
       const file = await findObjectFile(context);
 
       // Spec 4.7: deleting is idempotent, so a key that names nothing this storage holds
@@ -277,37 +303,38 @@ class FileSystemStorage implements FsStorage {
   }
 
   async copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
-    const transfer = await this.#transfer(from, to, "copy", options);
-    const source = await this.#requireFile(transfer.from);
-    const path = await prepareWrite(transfer.to);
+    const ends = await this.#endpoints(from, to, "copy", options);
+    const source = await this.#requireFile(ends.from);
+    const path = await prepareWrite(ends.to);
 
-    // Spec 6 lands a write through a temporary file and a rename, so that a reader at the
-    // destination sees the object it held or the one that arrived and never half of it.
-    const temporary = temporaryPathIn(dirname(path));
-
-    try {
-      await copyFile(source.path, temporary);
+    return await this.#land(ends.to, path, async (temporary) => {
+      await this.#read(ends.from, source.path, temporary);
 
       // The bytes of the copy are what the destination holds, whatever another writer
       // renamed over the source in the meantime.
-      const written = await stat(temporary);
+      return await stat(temporary);
+    });
+  }
 
-      await rename(temporary, path);
-
-      return describe(to, written.size, written.mtime);
+  /** Reads the source into the file the copy lands through, and names it in a failure. */
+  async #read(context: FsAccessContext, source: string, temporary: string): Promise<void> {
+    try {
+      await copyFile(source, temporary);
     } catch (thrown) {
-      await unlink(temporary).catch(() => {});
-
-      throw asFailure(thrown, { ...transfer.to, access: "write" });
+      // Spec 4.10 has a failure name the key it concerns, and what a read of the source
+      // refuses concerns the source rather than the destination it never reached.
+      throw asFailure(thrown, { ...context, access: "read" });
     }
   }
 
   async move(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
-    const transfer = await this.#transfer(from, to, "move", options);
-    const source = await this.#requireFile(transfer.from);
-    const path = await prepareWrite(transfer.to);
+    const ends = await this.#endpoints(from, to, "move", options);
+    const source = await this.#requireFile(ends.from);
+    const path = await prepareWrite(ends.to);
 
-    await renameObjectFile(transfer.from, source, path);
+    // The destination has been resolved and its directories created by now, so what a
+    // rename still refuses concerns the source it takes the file away from (spec 4.10).
+    await renameObjectFile(ends.from, source, path);
 
     // The rename carries the file as it stands, so the destination is described by what
     // the source held: its bytes and the time they were last written.
@@ -315,7 +342,7 @@ class FileSystemStorage implements FsStorage {
   }
 
   /** Both ends of a `copy` or a `move`, once every rule of spec 4.11 has passed. */
-  async #transfer(
+  async #endpoints(
     from: string,
     to: string,
     operation: string,
