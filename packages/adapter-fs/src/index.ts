@@ -91,6 +91,10 @@ class FileSystemStorage implements FsStorage {
     this.#requireContentType(options?.contentType);
     this.#requireNoUserMetadata(options?.userMetadata, key);
 
+    // Spec 4.3: a signal that already fired rejects in front of the write, before a
+    // directory has been created for a body that is not going to be stored.
+    options?.signal?.throwIfAborted();
+
     const context = await this.#context(key, "put", "write");
     const path = await prepareWrite(context);
 
@@ -241,7 +245,7 @@ class FileSystemStorage implements FsStorage {
 
       // A key naming a directory is an absent object on a read (spec 6). A file system
       // reports that through more than one `errno`, so what answers here is the file.
-      if (!described.isFile()) throw absent(context);
+      if (!described.isFile()) throw absent(context, 1);
 
       return {
         path,

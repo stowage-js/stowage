@@ -45,14 +45,18 @@ export function within(realRoot: string, path: string): boolean {
   return path === realRoot || path.startsWith(`${realRoot}${sep}`);
 }
 
-/** The key names nothing this storage holds, which is what a read of it answers. */
-export function absent(context: FsAccessContext): StorageError {
+/**
+ * The key names nothing this storage holds, which is what a read of it answers. The count
+ * is what it cost to find that out: one lookup, or none where the key names no file at
+ * all (spec 4.10).
+ */
+export function absent(context: FsAccessContext, attempts: number): StorageError {
   return fsError(context.root, {
     code: "NotFound",
     message: `No object under the key ${JSON.stringify(context.key)}`,
     operation: context.operation,
     key: context.key,
-    attempts: 1,
+    attempts,
   });
 }
 
@@ -64,7 +68,8 @@ export function absent(context: FsAccessContext): StorageError {
 export async function resolveObject(context: FsAccessContext): Promise<string> {
   const path = pathOf(context.realRoot, context.key);
 
-  if (path === undefined) throw absent(context);
+  // A key ending in a slash names no file, which the storage answers without asking.
+  if (path === undefined) throw absent(context, 0);
 
   let resolved: string;
 
@@ -74,7 +79,7 @@ export async function resolveObject(context: FsAccessContext): Promise<string> {
     throw fsErrorFrom(thrown, { ...context, access: "read" });
   }
 
-  if (!within(context.realRoot, resolved)) throw absent(context);
+  if (!within(context.realRoot, resolved)) throw absent(context, 1);
 
   return resolved;
 }
@@ -88,7 +93,7 @@ export async function prepareWrite(context: FsAccessContext): Promise<string> {
   const path = pathOf(context.realRoot, context.key);
 
   // A writable key ends in no slash (spec 4.8), so the key names a file at this point.
-  if (path === undefined) throw absent(context);
+  if (path === undefined) throw absent(context, 0);
 
   await makeDirectory(dirname(path), context);
 
@@ -100,13 +105,13 @@ export async function prepareWrite(context: FsAccessContext): Promise<string> {
     throw fsErrorFrom(thrown, { ...context, access: "write" });
   }
 
-  if (!within(context.realRoot, directory)) throw absent(context);
+  if (!within(context.realRoot, directory)) throw absent(context, 1);
 
   const target = join(directory, basename(path));
 
   // A link at the key leaves the root as much as one on the way to it, so the write is
   // refused rather than following it or replacing it (spec 6).
-  if (!(await resolvesWithin(context, target))) throw absent(context);
+  if (!(await resolvesWithin(context, target))) throw absent(context, 1);
 
   return target;
 }

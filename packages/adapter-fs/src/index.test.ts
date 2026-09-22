@@ -313,6 +313,15 @@ test("reports a directory it may not read as AccessDenied", async () => {
   expect(refused.providerCode).toBe("EACCES");
 });
 
+test("asks nothing about a key no file can carry", async () => {
+  const storage = await rootedStorage();
+  const refused = await storageErrorOf(storage.get("absent/"));
+
+  expect(refused.code).toBe("NotFound");
+  expect(refused.attempts).toBe(0);
+  expect(refused.providerCode).toBeUndefined();
+});
+
 test("answers what is there and what is not", async () => {
   const storage = await rootedStorage();
 
@@ -371,12 +380,13 @@ test("parses a body as JSON and leaves a failure to the runtime", async () => {
 });
 
 test("rejects with the runtime's AbortError for a signal that already fired", async () => {
-  const storage = await rootedStorage();
+  const root = await temporaryRoot();
+  const storage = fsStorage({ root });
 
   await storage.put("object", "a body");
 
   const aborted = await Promise.all([
-    rejection(storage.put("written", "a body", { signal: AbortSignal.abort() })),
+    rejection(storage.put("below/written", "a body", { signal: AbortSignal.abort() })),
     rejection(storage.get("object", { signal: AbortSignal.abort() })),
     rejection(storage.stat("object", { signal: AbortSignal.abort() })),
     rejection(storage.exists("object", { signal: AbortSignal.abort() })),
@@ -387,7 +397,9 @@ test("rejects with the runtime's AbortError for a signal that already fired", as
     expect(nameOf(thrown)).toBe("AbortError");
   }
 
-  expect(await storage.exists("written")).toBe(false);
+  expect(await storage.exists("below/written")).toBe(false);
+  // Nothing was created on the way to a body the storage was never going to hold.
+  expect(await readdir(root)).toEqual(["object"]);
 });
 
 test("writes nothing where the signal fires during the upload", async () => {
