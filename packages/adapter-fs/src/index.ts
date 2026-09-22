@@ -1,5 +1,5 @@
 import { type FileHandle, open, rename, stat, unlink } from "node:fs/promises";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, isAbsolute } from "node:path";
 
 import {
   type CapabilityName,
@@ -33,6 +33,7 @@ import { absent, type FsAccessContext, prepareWrite, resolveObject, resolveRoot 
 import { lastByteOf, requireRange } from "./range.ts";
 import { fsError } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
+import { temporaryPathIn } from "./temporary.ts";
 import { walkObjects } from "./walk.ts";
 
 export interface FsAdapterOptions {
@@ -108,9 +109,8 @@ class FileSystemStorage implements FsStorage {
     signal?: AbortSignal,
   ): Promise<ObjectStat> {
     // Spec 6: the bytes land in a file beside the object and are renamed into place, so
-    // a reader sees the object as it was or as it now is and never half of a write. The
-    // name is one no key maps to, so a run that broke leaves nothing a listing names.
-    const temporary = join(dirname(path), `.stowage-${crypto.randomUUID()}.tmp`);
+    // a reader sees the object as it was or as it now is and never half of a write.
+    const temporary = temporaryPathIn(dirname(path));
     const handle = await this.#openTemporary(context, temporary);
 
     try {

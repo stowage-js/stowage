@@ -1,12 +1,10 @@
 import { invalidKeyReason, type KeyRule } from "@stowage/core";
 
 import { fsError } from "./storage-error.ts";
+import { isTemporaryName } from "./temporary.ts";
 
 /** What a file system takes as one name, which spec 6 has the adapter refuse beyond. */
 const segmentByteLimit = 255;
-
-/** The name a write in flight holds: a file of this adapter, and no object of anyone. */
-export const temporaryName: RegExp = /^\.stowage-[\da-f-]{36}\.tmp$/;
 
 const utf8 = new TextEncoder();
 
@@ -26,7 +24,7 @@ export function requireKey(root: string, key: string, rule: KeyRule, operation: 
 }
 
 function temporaryNameReason(key: string, rule: KeyRule): string | undefined {
-  if (rule !== "writable" || !temporaryName.test(key.slice(key.lastIndexOf("/") + 1))) {
+  if (rule !== "writable" || !isTemporaryName(key.slice(key.lastIndexOf("/") + 1))) {
     return undefined;
   }
 

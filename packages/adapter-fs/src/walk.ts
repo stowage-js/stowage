@@ -5,8 +5,8 @@ import { join } from "node:path";
 import type { ObjectEntry } from "@stowage/core";
 
 import { fsErrorFrom, isAbsence } from "./errno.ts";
-import { temporaryName } from "./key.ts";
 import { type FsRootContext, within } from "./paths.ts";
+import { isTemporaryName } from "./temporary.ts";
 
 /**
  * Every object below the prefix, sorted by key. A listing pages through one order, so
@@ -59,7 +59,7 @@ async function collect(
       continue;
     }
 
-    if (temporaryName.test(entry.name)) continue;
+    if (isTemporaryName(entry.name)) continue;
 
     // oxlint-disable-next-line no-await-in-loop -- one tree, walked in order
     const described = await describe(context, path);
