@@ -6,12 +6,16 @@ import type { StorageError } from "@stowage/core";
 import { errnoOf, type FsAccess, fsErrorFrom, isAbsence } from "./errno.ts";
 import { fsError } from "./storage-error.ts";
 
-/** One key of one operation, against the root both are resolved below. */
-export interface FsAccessContext {
+/** One operation, against the root every path it reaches is resolved below. */
+export interface FsRootContext {
   readonly root: string;
   readonly realRoot: string;
-  readonly key: string;
   readonly operation: string;
+}
+
+/** The same, for the operations that name one key. */
+export interface FsAccessContext extends FsRootContext {
+  readonly key: string;
 }
 
 /**

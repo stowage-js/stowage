@@ -1,3 +1,7 @@
+// The shape of `adapter-memory`'s cursor under a tag of its own: spec 4.13 fixes what
+// `@stowage/core` publishes for an adapter to call, and an adapter depends on no other
+// adapter, so the two carry one implementation each.
+//
 // A cursor carries the position itself rather than naming an entry the storage kept, so
 // that it continues a listing in another process, where no walk of this run is left
 // (spec 4.6). The tag is what tells a cursor this adapter produced from any other string.

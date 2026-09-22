@@ -51,10 +51,10 @@ export function fsStorage(options: FsAdapterOptions): FsStorage {
 // constructed, and a caller reaching past the `readonly` type reaches all of them.
 const fsCapabilities: readonly CapabilityName[] = Object.freeze(["rangeReads"] as const);
 
-/** Where a file the key names lies, together with what a read of it reports. */
+/** Where the file the key names lies, together with what a read of it reports. */
 interface FoundObject {
   readonly path: string;
-  readonly described: ObjectStat;
+  readonly description: ObjectStat;
 }
 
 /** A storage that does not declare `userMetadata` reads back none of it (spec 4.9). */
@@ -123,13 +123,7 @@ class FileSystemStorage implements FsStorage {
       await handle.close();
       await rename(temporary, path);
 
-      return {
-        key: context.key,
-        size: written.size,
-        lastModified: written.mtime,
-        contentType: contentTypeOf(context.key),
-        userMetadata: noUserMetadata,
-      };
+      return describe(context.key, written.size, written.mtime);
     } catch (thrown) {
       await handle.close().catch(() => {});
       await unlink(temporary).catch(() => {});
@@ -148,10 +142,10 @@ class FileSystemStorage implements FsStorage {
     const context = await this.#context(key, "get", "read");
     const found = await this.#find(context);
 
-    return createStoredObject(context, found.described, {
+    return createStoredObject(context, found.description, {
       path: found.path,
       start: options?.range?.start ?? 0,
-      end: lastByteOf(this.#root, options?.range, found.described.size, key),
+      end: lastByteOf(this.#root, options?.range, found.description.size, key),
     });
   }
 
@@ -161,7 +155,7 @@ class FileSystemStorage implements FsStorage {
 
     options?.signal?.throwIfAborted();
 
-    return (await this.#find(await this.#context(key, "stat", "read"))).described;
+    return (await this.#find(await this.#context(key, "stat", "read"))).description;
   }
 
   async exists(key: string, options?: OperationOptions): Promise<boolean> {
@@ -247,25 +241,10 @@ class FileSystemStorage implements FsStorage {
       // reports that through more than one `errno`, so what answers here is the file.
       if (!described.isFile()) throw absent(context, 1);
 
-      return {
-        path,
-        described: this.#describe(context.key, described.size, described.mtime),
-      };
+      return { path, description: describe(context.key, described.size, described.mtime) };
     } catch (thrown) {
       throw asFailure(thrown, { ...context, access: "read" });
     }
-  }
-
-  // Spec 6 derives the content type from the key, sets no `etag` and holds no user
-  // metadata, so a description is the file's size and modification time and nothing else.
-  #describe(key: string, size: number, lastModified: Date): ObjectStat {
-    return {
-      key,
-      size,
-      lastModified,
-      contentType: contentTypeOf(key),
-      userMetadata: noUserMetadata,
-    };
   }
 
   async #context(
@@ -325,6 +304,14 @@ function readRoot(options: FsAdapterOptions): string {
   return root;
 }
 
+// Spec 6 derives the content type from the key, sets no `etag` and holds no user
+// metadata, so a description is the file's size and modification time and nothing else.
+function describe(key: string, size: number, lastModified: Date): ObjectStat {
+  return { key, size, lastModified, contentType: contentTypeOf(key), userMetadata: noUserMetadata };
+}
+
+// No `StorageError`: an operation that is not built is none of the failures spec 4.10
+// names, and a caller branching on a code would be told a story about the storage.
 function notBuiltYet(operation: string): Error {
   return new Error(`\`${operation}\` is not implemented in @stowage/adapter-fs yet`);
 }

@@ -5,14 +5,7 @@ import { join } from "node:path";
 import type { ObjectEntry } from "@stowage/core";
 
 import { fsErrorFrom, isAbsence } from "./errno.ts";
-import { within } from "./paths.ts";
-
-/** One walk of the tree below a root, which carries no key of its own. */
-export interface WalkContext {
-  readonly root: string;
-  readonly realRoot: string;
-  readonly operation: string;
-}
+import { type FsRootContext, within } from "./paths.ts";
 
 /** The name a write in flight holds: a file of this adapter, and no object of anyone. */
 const temporaryName = /^\.stowage-[\da-f-]{36}\.tmp$/;
@@ -22,7 +15,7 @@ const temporaryName = /^\.stowage-[\da-f-]{36}\.tmp$/;
  * the snapshot it reads is sorted; the order itself is not promised (spec 4.6).
  */
 export async function walkObjects(
-  context: WalkContext,
+  context: FsRootContext,
   prefix: string,
 ): Promise<readonly ObjectEntry[]> {
   const entries: ObjectEntry[] = [];
@@ -36,7 +29,7 @@ export async function walkObjects(
 }
 
 async function collect(
-  context: WalkContext,
+  context: FsRootContext,
   entries: ObjectEntry[],
   directory: string,
   keyPrefix: string,
@@ -50,11 +43,7 @@ async function collect(
     // amounts to. The root itself is resolved before the walk begins.
     if (isAbsence(thrown)) return;
 
-    throw fsErrorFrom(thrown, {
-      root: context.root,
-      operation: context.operation,
-      access: "read",
-    });
+    throw failure(context, thrown);
   }
 
   for (const entry of held) {
@@ -83,7 +72,7 @@ async function collect(
  * the listing of the level and the reading of it.
  */
 async function describe(
-  context: WalkContext,
+  context: FsRootContext,
   link: string | undefined,
   path: string,
 ): Promise<Stats | undefined> {
@@ -96,12 +85,18 @@ async function describe(
   } catch (thrown) {
     if (isAbsence(thrown)) return undefined;
 
-    throw fsErrorFrom(thrown, {
-      root: context.root,
-      operation: context.operation,
-      access: "read",
-    });
+    throw failure(context, thrown);
   }
+}
+
+// A walk names no key: what it reads is the tree, and a failure of it concerns the
+// listing rather than one object (spec 4.10).
+function failure(context: FsRootContext, thrown: unknown): unknown {
+  return fsErrorFrom(thrown, {
+    root: context.root,
+    operation: context.operation,
+    access: "read",
+  });
 }
 
 function byKey(one: ObjectEntry, other: ObjectEntry): number {
