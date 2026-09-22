@@ -5,6 +5,9 @@ const config: UserConfig = defineConfig({
   entry: "src/index.ts",
   format: "esm",
   platform: "neutral",
+  // A neutral platform resolves no built-in, and `adapter-fs` reads the file system
+  // through them: they leave the bundle as the import they arrived as.
+  deps: { neverBundle: [/^node:/] },
   target: "node24",
   clean: true,
   // ADR 0008: the declarations come out of oxc-transform, which is what

@@ -1,4 +1,9 @@
 {
   "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // This adapter reaches the file system through the `node:` built-ins, which Bun and
+    // Deno carry as well (ADR 0002). The base config leaves every package without them.
+    "types": ["node"]
+  },
   "include": ["src/**/*.ts"]
 }
