@@ -12,7 +12,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { isStorageError, type ObjectListing, type StorageError } from "@stowage/core";
+import {
+  isStorageError,
+  type ObjectListing,
+  type OperationOptions,
+  type StorageError,
+} from "@stowage/core";
 import { afterEach, expect, test } from "vitest";
 
 import { type FsStorage, fsStorage } from "./index.ts";
@@ -92,6 +97,24 @@ const withUnknownOption = <T extends object>(options: T): T =>
 /** A value of the wrong type under a listed key, which reaches a call the same way. */
 const withContentType = <T extends object>(options: T, contentType: unknown): T =>
   Object.assign({}, options, { contentType });
+
+/** A signal whose second abort check fires at the operation's final commit boundary. */
+const abortBeforeCommit = (): OperationOptions => {
+  const controller = new AbortController();
+  let checks = 0;
+
+  Object.defineProperty(controller.signal, "throwIfAborted", {
+    value() {
+      checks += 1;
+
+      if (checks === 2) controller.abort();
+
+      AbortSignal.prototype.throwIfAborted.call(controller.signal);
+    },
+  });
+
+  return { signal: controller.signal };
+};
 
 const storageWith = async (...keys: readonly string[]): Promise<FsStorage> => {
   const storage = await rootedStorage();
@@ -732,6 +755,15 @@ test("replaces the object a copy lands on", async () => {
   expect(await (await storage.get("two")).text()).toBe("one");
 });
 
+test("does not land a copy after its signal aborts", async () => {
+  const storage = await storageWith("source", "destination");
+  const thrown = await rejection(storage.copy("source", "destination", abortBeforeCommit()));
+
+  expect(nameOf(thrown)).toBe("AbortError");
+  expect(await (await storage.get("source")).text()).toBe("source");
+  expect(await (await storage.get("destination")).text()).toBe("destination");
+});
+
 test("refuses a copy onto itself before it touches the file system", async () => {
   const storage = await storageWith("object");
   const error = await storageErrorOf(storage.copy("object", "object"));
@@ -775,6 +807,15 @@ test("moves the object and removes what the move left empty", async () => {
   expect(await (await storage.get("archive/one.txt")).text()).toBe("a body");
   expect(await storage.exists("docs/2026/one.txt")).toBe(false);
   expect(await readdir(root)).toEqual(["archive"]);
+});
+
+test("does not move an object after its signal aborts", async () => {
+  const storage = await storageWith("source", "destination");
+  const thrown = await rejection(storage.move("source", "destination", abortBeforeCommit()));
+
+  expect(nameOf(thrown)).toBe("AbortError");
+  expect(await (await storage.get("source")).text()).toBe("source");
+  expect(await (await storage.get("destination")).text()).toBe("destination");
 });
 
 test("rejects a move whose source is not there", async () => {

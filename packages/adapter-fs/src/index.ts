@@ -26,6 +26,7 @@ import { requireKey } from "./key.ts";
 import {
   findObjectFile,
   type ObjectFile,
+  releaseObjectFile,
   removeObjectFile,
   renameObjectFile,
 } from "./object-file.ts";
@@ -116,26 +117,31 @@ class FileSystemStorage implements FsStorage {
     body: PutBody,
     signal?: AbortSignal,
   ): Promise<ObjectStat> {
-    return await this.#land(context, path, async (temporary) => {
-      const handle = await this.#openTemporary(context, temporary);
+    return await this.#land(
+      context,
+      path,
+      async (temporary) => {
+        const handle = await this.#openTemporary(context, temporary);
 
-      try {
-        await writeBody(handle, body, signal);
-        signal?.throwIfAborted();
+        try {
+          await writeBody(handle, body, signal);
+          signal?.throwIfAborted();
 
-        // The size comes off the handle rather than off the path: it describes the bytes
-        // this call wrote, whatever another writer renamed over them in the meantime.
-        const written = await handle.stat();
+          // The size comes off the handle rather than off the path: it describes the bytes
+          // this call wrote, whatever another writer renamed over them in the meantime.
+          const written = await handle.stat();
 
-        await handle.close();
+          await handle.close();
 
-        return written;
-      } catch (thrown) {
-        await handle.close().catch(() => {});
+          return written;
+        } catch (thrown) {
+          await handle.close().catch(() => {});
 
-        throw thrown;
-      }
-    });
+          throw thrown;
+        }
+      },
+      signal,
+    );
   }
 
   /**
@@ -147,12 +153,14 @@ class FileSystemStorage implements FsStorage {
     context: FsAccessContext,
     path: string,
     fill: (temporary: string) => Promise<Stats>,
+    signal?: AbortSignal,
   ): Promise<ObjectStat> {
     const temporary = temporaryPathIn(dirname(path));
 
     try {
       const written = await fill(temporary);
 
+      signal?.throwIfAborted();
       await rename(temporary, path);
 
       return describe(context.key, written.size, written.mtime);
@@ -305,15 +313,25 @@ class FileSystemStorage implements FsStorage {
   async copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
     const ends = await this.#endpoints(from, to, "copy", options);
     const source = await this.#requireFile(ends.from);
-    const path = await prepareWrite(ends.to);
 
-    return await this.#land(ends.to, path, async (temporary) => {
-      await this.#read(ends.from, source.path, temporary);
+    try {
+      const path = await prepareWrite(ends.to);
 
-      // The bytes of the copy are what the destination holds, whatever another writer
-      // renamed over the source in the meantime.
-      return await stat(temporary);
-    });
+      return await this.#land(
+        ends.to,
+        path,
+        async (temporary) => {
+          await this.#read(ends.from, source.path, temporary);
+
+          // The bytes of the copy are what the destination holds, whatever another writer
+          // renamed over the source in the meantime.
+          return await stat(temporary);
+        },
+        options?.signal,
+      );
+    } finally {
+      releaseObjectFile(source);
+    }
   }
 
   /** Reads the source into the file the copy lands through, and names it in a failure. */
@@ -330,15 +348,22 @@ class FileSystemStorage implements FsStorage {
   async move(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
     const ends = await this.#endpoints(from, to, "move", options);
     const source = await this.#requireFile(ends.from);
-    const path = await prepareWrite(ends.to);
 
-    // The destination has been resolved and its directories created by now, so what a
-    // rename still refuses concerns the source it takes the file away from (spec 4.10).
-    await renameObjectFile(ends.from, source, path);
+    try {
+      const path = await prepareWrite(ends.to);
 
-    // The rename carries the file as it stands, so the destination is described by what
-    // the source held: its bytes and the time they were last written.
-    return describe(to, source.stats.size, source.stats.mtime);
+      options?.signal?.throwIfAborted();
+
+      // The destination has been resolved and its directories created by now, so what a
+      // rename still refuses concerns the source it takes the file away from (spec 4.10).
+      await renameObjectFile(ends.from, source, path);
+
+      // The rename carries the file as it stands, so the destination is described by what
+      // the source held: its bytes and the time they were last written.
+      return describe(to, source.stats.size, source.stats.mtime);
+    } finally {
+      releaseObjectFile(source);
+    }
   }
 
   /** Both ends of a `copy` or a `move`, once every rule of spec 4.11 has passed. */
