@@ -25,7 +25,7 @@ export function decodeCursor(cursor: string): string | undefined {
 
   const position = decoded.slice(cursorTag.length);
 
-  return hexPosition.test(position) ? keyOf(position) : undefined;
+  return position.length > 0 && hexPosition.test(position) ? keyOf(position) : undefined;
 }
 
 // A key may hold a lone surrogate, which spec 4.8 allows and no text encoding of the

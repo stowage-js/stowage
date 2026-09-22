@@ -751,12 +751,15 @@ test("refuses an empty delimiter", async () => {
   expect(error.message).toContain("delimiter");
 });
 
-test.each(["not a cursor", btoa("hello")])("refuses the cursor %j", async (cursor) => {
-  const error = await storageErrorOf(memoryStorage().list({ cursor }).page());
+test.each(["not a cursor", btoa("hello"), btoa("stowage-memory-1:")])(
+  "refuses the cursor %j",
+  async (cursor) => {
+    const error = await storageErrorOf(memoryStorage().list({ cursor }).page());
 
-  expect(error.code).toBe("InvalidOption");
-  expect(error.message).toContain("cursor");
-});
+    expect(error.code).toBe("InvalidOption");
+    expect(error.message).toContain("cursor");
+  },
+);
 
 test("keeps the value of a refused option out of the message", async () => {
   const error = await storageErrorOf(memoryStorage().list({ pageSize: 4096 }).page());
