@@ -207,7 +207,11 @@ importers:
 
   packages/adapter-s3: {}
 
-  packages/conformance: {}
+  packages/conformance:
+    dependencies:
+      '@stowage/core':
+        specifier: workspace:^
+        version: link:../core
 
   packages/core: {}
 
