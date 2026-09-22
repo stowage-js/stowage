@@ -226,7 +226,10 @@ export const putCases: readonly ConformanceCaseSource[] = [
         refused.map(async (refusal) => {
           await expectStorageError(
             () => ctx.storage.put(refusal.key, bytes),
-            { code: "InvalidKey", attempts: 0 },
+            {
+              code: "InvalidKey",
+              ...(refusal.existsAnswers === "false-or-refusal" ? {} : { attempts: 0 }),
+            },
             refusal.label,
           );
 
