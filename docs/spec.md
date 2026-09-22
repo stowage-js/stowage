@@ -559,7 +559,9 @@ export function fsStorage(options: FsAdapterOptions): FsStorage;
 - A key maps to the path below the root with `/` as the separator. Every access resolves the real
   path and answers `NotFound` where it lies outside the root, so a symbolic link pointing out of the
   root behaves as an absent object.
-- Refuses a segment longer than 255 bytes with `InvalidKey`.
+- Refuses a segment longer than 255 bytes with `InvalidKey`, and refuses a key whose path below
+  the root passes what the file system holds: macOS bounds one path at 1024 bytes with the root
+  counted in, so the 1024-byte key of section 8.7 is written on Linux and is `InvalidKey` there.
 - The content type is derived from the key's extension through a built-in table, and
   `application/octet-stream` where the extension is unknown or absent. The `contentType` handed to
   `put` is validated as a string and not stored, so `stat` may report a type that differs from the
