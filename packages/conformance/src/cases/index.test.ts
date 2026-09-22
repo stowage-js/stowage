@@ -59,6 +59,14 @@ const specified: readonly SpecifiedCase[] = [
   ["deleteAll/below-prefix", [], "fast"],
   ["deleteAll/nothing", [], "fast"],
   ["deleteAll/past-one-thousand", [], "slow"],
+  ["copy/round-trip", [], "fast"],
+  ["copy/overwrites", [], "fast"],
+  ["copy/missing-source", [], "fast"],
+  ["copy/onto-itself", [], "fast"],
+  ["copy/invalid-keys", [], "fast"],
+  ["copy/user-metadata", ["userMetadata"], "fast"],
+  ["move/round-trip", [], "fast"],
+  ["move/missing-source", [], "fast"],
 ];
 
 test("the suite holds the cases of spec 8.5, each with the requirement and the cost of its row", () => {

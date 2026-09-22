@@ -1,4 +1,5 @@
 import type { ConformanceCase, ConformanceCaseSource } from "../case.ts";
+import { copyCases } from "./copy.ts";
 import { declarationCases } from "./declaration.ts";
 import { deleteCases } from "./delete.ts";
 import { existsCases } from "./exists.ts";
@@ -15,6 +16,7 @@ export const conformanceCaseSources: readonly ConformanceCaseSource[] = [
   ...existsCases,
   ...listCases,
   ...deleteCases,
+  ...copyCases,
 ];
 
 /** The same cases as the package publishes them, without the factory of spec 8.3. */

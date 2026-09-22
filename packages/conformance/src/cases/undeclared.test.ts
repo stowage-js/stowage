@@ -15,6 +15,8 @@ interface UndeclaredBehavior {
   readonly answersRanges?: boolean;
   /** Stores user metadata although it declares none, which the half has to catch. */
   readonly storesUserMetadata?: boolean;
+  /** Reads user metadata back although it declares none, which the half has to catch. */
+  readonly readsUserMetadata?: boolean;
 }
 
 /**
@@ -34,7 +36,8 @@ const undeclaring = (behavior: UndeclaredBehavior = {}): Storage => {
     size: 0,
     lastModified: new Date(),
     contentType: "application/octet-stream",
-    userMetadata: held.get(key) ?? {},
+    userMetadata:
+      behavior.readsUserMetadata === true ? { "written-by": "stowage" } : (held.get(key) ?? {}),
   });
 
   return stubStorage({
@@ -63,6 +66,11 @@ const undeclaring = (behavior: UndeclaredBehavior = {}): Storage => {
           .filter((key) => key.startsWith(options?.prefix ?? ""))
           .map((key) => describe(key)),
       ),
+    copy: async (from, to) => {
+      held.set(stored(to), held.get(stored(from)) ?? {});
+
+      return describe(stored(to));
+    },
   });
 };
 
@@ -106,7 +114,7 @@ test.each(["get/range", "get/range-unsatisfiable", "get/range-clipped"])(
   },
 );
 
-test.each(["put/user-metadata", "put/user-metadata-limits"])(
+test.each(["put/user-metadata", "put/user-metadata-limits", "copy/user-metadata"])(
   "`%s` holds where the storage declares no `userMetadata`",
   async (name) => {
     await expect(runWithout(name, undeclaring())).resolves.toBe("without");
@@ -127,4 +135,10 @@ test("the `put/user-metadata` half refuses a storage holding metadata it declare
   await expect(
     runWithout("put/user-metadata", undeclaring({ storesUserMetadata: true })),
   ).rejects.toThrow("Expected `Unsupported` naming `userMetadata`");
+});
+
+test("the `copy/user-metadata` half refuses a storage reading metadata it declared none for", async () => {
+  await expect(
+    runWithout("copy/user-metadata", undeclaring({ readsUserMetadata: true })),
+  ).rejects.toThrow("on a storage that holds none");
 });
