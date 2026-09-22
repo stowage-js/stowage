@@ -1,17 +1,18 @@
 import type { Storage } from "@stowage/core";
 
-import { assert, assertSameBytes, expectStorageError } from "../assertions.ts";
+import { assert, assertHeader, assertSameBytes, expectStorageError } from "../assertions.ts";
 import type { ConformanceCaseSource } from "../case.ts";
 import type { ConformanceContext } from "../target.ts";
 import { keyFor } from "./keys.ts";
+import { textContentType } from "./objects.ts";
 
 const utf8 = new TextEncoder();
 
-/** Spec 6 has `adapter-fs` derive the content type from the key, so the two agree here. */
-const contentType = "text/plain";
-
 /** Long enough for the case to call the URL, and far below the ceiling of spec 7.10. */
 export const presignLifetime: number = 300;
+
+/** Past the second `presign/expired-url` signs for, which is what spec 8.5 waits out. */
+const pastTheLifetime = 2000;
 
 /** The seconds spec 7.10 allows `expiresIn`, which the two refused values sit outside. */
 const refusedLifetimes: readonly number[] = [0, 604_801];
@@ -40,15 +41,14 @@ export const presignCases: readonly ConformanceCaseSource[] = [
       const key = keyFor(ctx, "presign/get", "object.txt");
       const body = "the body a signed `GET` hands out";
 
-      await ctx.storage.put(key, body, { contentType });
+      await ctx.storage.put(key, body, { contentType: textContentType });
 
-      const described = await ctx.storage.stat(key);
       const response = await fetch(
-        await signedUrl(ctx, "presignGet", key, { expiresIn: presignLifetime }),
+        await presignedUrl(ctx, "presignGet", key, { expiresIn: presignLifetime }),
       );
 
       assertStatus(response.status, 200, "`fetch` on a signed `GET`");
-      assertHeader(response, "content-type", described.contentType);
+      assertHeader(response, "content-type", textContentType);
       assertSameBytes(
         new Uint8Array(await response.arrayBuffer()),
         utf8.encode(body),
@@ -64,15 +64,15 @@ export const presignCases: readonly ConformanceCaseSource[] = [
     async run(ctx) {
       const key = keyFor(ctx, "presign/put", "object.txt");
       const body = utf8.encode("the body a signed `PUT` takes");
-      const url = await signedUrl(ctx, "presignPut", key, {
+      const url = await presignedUrl(ctx, "presignPut", key, {
         expiresIn: presignLifetime,
-        contentType,
+        contentType: textContentType,
         contentLength: body.byteLength,
       });
       const response = await fetch(url, {
         method: "PUT",
         body,
-        headers: { "content-type": contentType },
+        headers: { "content-type": textContentType },
       });
 
       assert(
@@ -84,7 +84,7 @@ export const presignCases: readonly ConformanceCaseSource[] = [
       const described = await ctx.storage.stat(key);
 
       assert(
-        described.contentType === contentType,
+        described.contentType === textContentType,
         `\`stat\` reports the content type ${JSON.stringify(described.contentType)} for what a signed \`PUT\` wrote`,
       );
       assert(
@@ -128,9 +128,9 @@ export const presignCases: readonly ConformanceCaseSource[] = [
     async run(ctx) {
       const key = keyFor(ctx, "presign/put-rejects-type", "object.txt");
       const body = utf8.encode("a body of another type than the signature binds");
-      const url = await signedUrl(ctx, "presignPut", key, {
+      const url = await presignedUrl(ctx, "presignPut", key, {
         expiresIn: presignLifetime,
-        contentType,
+        contentType: textContentType,
         contentLength: body.byteLength,
       });
       // Spec 7.10 binds the content type through a signed header, so the provider rebuilds
@@ -152,15 +152,15 @@ export const presignCases: readonly ConformanceCaseSource[] = [
     async run(ctx) {
       const key = keyFor(ctx, "presign/put-rejects-length", "object.txt");
       const body = utf8.encode("a body longer than the signature binds");
-      const url = await signedUrl(ctx, "presignPut", key, {
+      const url = await presignedUrl(ctx, "presignPut", key, {
         expiresIn: presignLifetime,
-        contentType,
+        contentType: textContentType,
         contentLength: body.byteLength - 1,
       });
       const response = await fetch(url, {
         method: "PUT",
         body,
-        headers: { "content-type": contentType },
+        headers: { "content-type": textContentType },
       });
       // The length is body framing rather than the signature, which is why the row states
       // the class of the answer and not the one status a signature mismatch produces.
@@ -182,11 +182,13 @@ export const presignCases: readonly ConformanceCaseSource[] = [
 
       // The object is there, so that the refusal is the lifetime running out and not the
       // key being absent.
-      await ctx.storage.put(key, "the body the URL stops handing out", { contentType });
+      await ctx.storage.put(key, "the body the URL stops handing out", {
+        contentType: textContentType,
+      });
 
-      const url = await signedUrl(ctx, "presignGet", key, { expiresIn: 1 });
+      const url = await presignedUrl(ctx, "presignGet", key, { expiresIn: 1 });
 
-      await delay(2000);
+      await delay(pastTheLifetime);
 
       assertStatus(await statusOf(await fetch(url)), 403, "a signed `GET` that has expired");
     },
@@ -209,7 +211,7 @@ export async function assertNeitherMethod(ctx: ConformanceContext): Promise<void
 }
 
 /** The URL the method handed back, which a target may report as anything at runtime. */
-export async function signedUrl(
+export async function presignedUrl(
   ctx: ConformanceContext,
   name: PresignName,
   key: string,
@@ -246,20 +248,11 @@ function presignerOf(
 function lifetimeOptions(name: PresignName, expiresIn: number): PresignOptions {
   if (name === "presignGet") return { expiresIn };
 
-  return { expiresIn, contentType, contentLength: 0 };
+  return { expiresIn, contentType: textContentType, contentLength: 0 };
 }
 
 function assertStatus(status: number, expected: number, what: string): void {
   assert(status === expected, `${what} was answered ${status} and not ${expected}`);
-}
-
-function assertHeader(response: Response, name: string, expected: string): void {
-  const held = response.headers.get(name);
-
-  assert(
-    held === expected,
-    `The answer reports \`${name}: ${JSON.stringify(held)}\` and not ${JSON.stringify(expected)}`,
-  );
 }
 
 /** The status, with the body read, so that the runtime is free to close the connection. */
