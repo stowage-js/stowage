@@ -11,6 +11,13 @@ export const putOptionKeys: readonly string[] = [
   "userMetadata",
 ];
 export const getOptionKeys: readonly string[] = [...operationOptionKeys, "range"];
+export const listOptionKeys: readonly string[] = [
+  ...operationOptionKeys,
+  "prefix",
+  "delimiter",
+  "pageSize",
+  "cursor",
+];
 export const adapterOptionKeys: readonly string[] = ["root"];
 
 /**

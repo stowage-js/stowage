@@ -18,6 +18,7 @@ import {
 
 import { cancelBody, writeBody } from "./body.ts";
 import { contentTypeOf } from "./content-type.ts";
+import { createListing } from "./listing.ts";
 import { asFailure } from "./errno.ts";
 import { requireKey } from "./key.ts";
 import {
@@ -32,6 +33,7 @@ import { absent, type FsAccessContext, prepareWrite, resolveObject, resolveRoot 
 import { lastByteOf, requireRange } from "./range.ts";
 import { fsError } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
+import { walkObjects } from "./walk.ts";
 
 export interface FsAdapterOptions {
   root: string;
@@ -182,13 +184,25 @@ class FileSystemStorage implements FsStorage {
   }
 
   list(options?: ListOptions): ObjectListing {
-    void options;
-
-    throw notBuiltYet("list");
+    // Spec 4.6 has a listing perform nothing until it is iterated or asked for a page,
+    // so the root is resolved inside the walk rather than here.
+    return createListing(
+      this.#root,
+      async (prefix) =>
+        await walkObjects(
+          {
+            root: this.#root,
+            realRoot: await resolveRoot(this.#root, "list", "read"),
+            operation: "list",
+          },
+          prefix,
+        ),
+      options,
+    );
   }
 
-  // The rest of the parity core of spec 4.11 is the step that removes an object together
-  // with the directories it leaves empty, up to the root (spec 6), and lands with it.
+  // What the parity core of spec 4.11 still owes is the step that removes an object
+  // together with the directories it leaves empty, up to the root (spec 6).
   async delete(...keys: readonly string[]): Promise<DeleteReport> {
     void keys;
 

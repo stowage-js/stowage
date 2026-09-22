@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { isStorageError, type StorageError } from "@stowage/core";
+import { isStorageError, type ObjectListing, type StorageError } from "@stowage/core";
 import { afterEach, expect, test } from "vitest";
 
 import { type FsStorage, fsStorage } from "./index.ts";
@@ -70,6 +70,22 @@ const withUnknownOption = <T extends object>(options: T): T =>
 /** A value of the wrong type under a listed key, which reaches a call the same way. */
 const withContentType = <T extends object>(options: T, contentType: unknown): T =>
   Object.assign({}, options, { contentType });
+
+const storageWith = async (...keys: readonly string[]): Promise<FsStorage> => {
+  const storage = await rootedStorage();
+
+  await Promise.all(keys.map(async (key) => void (await storage.put(key, key))));
+
+  return storage;
+};
+
+const iterate = async (listing: ObjectListing): Promise<string[]> => {
+  const keys: string[] = [];
+
+  for await (const entry of listing) keys.push(entry.key);
+
+  return keys;
+};
 
 /** The `name` of whatever was thrown, which is how a caller tells an `AbortError` apart. */
 const nameOf = (thrown: unknown): string | undefined => {
@@ -403,4 +419,102 @@ test("leaves the stream it was handed at its end or canceled", async () => {
   expect(written.locked).toBe(false);
   expect((await written.getReader().read()).done).toBe(true);
   expect((await refused.getReader().read()).done).toBe(true);
+});
+
+test("yields every object below the prefix once", async () => {
+  const storage = await storageWith("a", "docs/one.txt", "docs/2026/two.txt", "other");
+
+  expect(await iterate(storage.list({ prefix: "docs/" }))).toEqual([
+    "docs/2026/two.txt",
+    "docs/one.txt",
+  ]);
+  expect((await iterate(storage.list())).toSorted()).toEqual([
+    "a",
+    "docs/2026/two.txt",
+    "docs/one.txt",
+    "other",
+  ]);
+});
+
+test("describes every entry a listing yields", async () => {
+  const storage = await storageWith("docs/one.txt");
+  const [entry] = (await storage.list().page()).objects;
+
+  expect(entry?.key).toBe("docs/one.txt");
+  expect(entry?.size).toBe(12);
+  expect(entry?.etag).toBeUndefined();
+  expect(Math.abs(Date.now() - (entry?.lastModified.getTime() ?? 0))).toBeLessThan(60_000);
+});
+
+test("pages with a cursor a later call continues from", async () => {
+  const storage = await storageWith("1", "2", "3", "4", "5");
+  const first = await storage.list({ pageSize: 2 }).page();
+  const second = await storage.list({ pageSize: 2, cursor: first.cursor }).page();
+  const third = await storage.list({ pageSize: 2, cursor: second.cursor }).page();
+
+  expect([first, second, third].map((page) => page.objects.length)).toEqual([2, 2, 1]);
+  expect(third.cursor).toBeUndefined();
+  expect([first, second, third].flatMap((page) => page.objects.map((entry) => entry.key))).toEqual([
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+  ]);
+});
+
+test("names the level below the prefix a delimiter cuts", async () => {
+  const storage = await storageWith("docs/one.txt", "docs/2026/two.txt", "docs/2027/three.txt");
+  const page = await storage.list({ prefix: "docs/", delimiter: "/" }).page();
+
+  expect(page.objects.map((entry) => entry.key)).toEqual(["docs/one.txt"]);
+  expect(page.prefixes).toEqual(["docs/2026/", "docs/2027/"]);
+  expect(await iterate(storage.list({ prefix: "docs/", delimiter: "/" }))).toEqual([
+    "docs/one.txt",
+  ]);
+});
+
+test("matches a prefix that ends inside a segment", async () => {
+  const storage = await storageWith("docs/report-1", "docs/report-2", "docs/summary");
+
+  expect(await iterate(storage.list({ prefix: "docs/report" }))).toEqual([
+    "docs/report-1",
+    "docs/report-2",
+  ]);
+});
+
+test("refuses what a listing does not take, once it is read", async () => {
+  const storage = await rootedStorage();
+
+  // Spec 4.6: `list` performs nothing until the listing is iterated or asked for a page,
+  // so a refusal reaches the caller there and not at the call.
+  const refused = storage.list({ pageSize: 0 });
+
+  expect(await codeOf(refused.page())).toBe("InvalidOption");
+  expect(await codeOf(storage.list({ pageSize: 1001 }).page())).toBe("InvalidOption");
+  expect(await codeOf(storage.list({ delimiter: "" }).page())).toBe("InvalidOption");
+  expect(await codeOf(storage.list({ cursor: "not one of ours" }).page())).toBe("InvalidOption");
+  expect(await codeOf(storage.list(withUnknownOption({})).page())).toBe("InvalidOption");
+  expect(await codeOf(storage.list({ prefix: "../elsewhere" }).page())).toBe("InvalidKey");
+});
+
+test("passes over what is no object of the storage", async () => {
+  const root = await temporaryRoot();
+  const outside = join(await temporaryRoot(), "secret");
+  const storage = fsStorage({ root });
+
+  await storage.put("object", "a body");
+  await writeFile(join(root, `.stowage-${crypto.randomUUID()}.tmp`), "a write in flight");
+  await writeFile(outside, "not this storage's");
+  await symlink(outside, join(root, "link"));
+  await mkdir(join(root, "empty"));
+
+  expect(await iterate(storage.list())).toEqual(["object"]);
+});
+
+test("reports a root that is gone where the listing is read", async () => {
+  const storage = fsStorage({ root: join(await temporaryRoot(), "not-there") });
+
+  expect(await codeOf(storage.list().page())).toBe("NotFound");
+  expect(await codeOf(iterate(storage.list()))).toBe("NotFound");
 });
