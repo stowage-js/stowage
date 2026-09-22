@@ -1,8 +1,23 @@
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { isStorageError, type ObjectListing, type StorageError } from "@stowage/core";
+import {
+  isStorageError,
+  type ObjectListing,
+  type OperationOptions,
+  type StorageError,
+} from "@stowage/core";
 import { afterEach, expect, test } from "vitest";
 
 import { type FsStorage, fsStorage } from "./index.ts";
@@ -39,6 +54,18 @@ const streamOf = (...chunks: readonly string[]): ReadableStream<Uint8Array> =>
     },
   });
 
+/** Whether one file below a root of its own answers to both Unicode forms of its name. */
+const foldsNormalForms = async (composed: string, decomposed: string): Promise<boolean> => {
+  const root = await temporaryRoot();
+
+  await writeFile(join(root, composed), "a probe");
+
+  return await stat(join(root, decomposed)).then(
+    () => true,
+    () => false,
+  );
+};
+
 const rejection = async (promise: Promise<unknown>): Promise<unknown> => {
   try {
     await promise;
@@ -70,6 +97,24 @@ const withUnknownOption = <T extends object>(options: T): T =>
 /** A value of the wrong type under a listed key, which reaches a call the same way. */
 const withContentType = <T extends object>(options: T, contentType: unknown): T =>
   Object.assign({}, options, { contentType });
+
+/** A signal whose second abort check fires at the operation's final commit boundary. */
+const abortBeforeCommit = (): OperationOptions => {
+  const controller = new AbortController();
+  let checks = 0;
+
+  Object.defineProperty(controller.signal, "throwIfAborted", {
+    value() {
+      checks += 1;
+
+      if (checks === 2) controller.abort();
+
+      AbortSignal.prototype.throwIfAborted.call(controller.signal);
+    },
+  });
+
+  return { signal: controller.signal };
+};
 
 const storageWith = async (...keys: readonly string[]): Promise<FsStorage> => {
   const storage = await rootedStorage();
@@ -580,4 +625,242 @@ test("reports a root that is gone where the listing is read", async () => {
 
   expect(await codeOf(storage.list().page())).toBe("NotFound");
   expect(await codeOf(iterate(storage.list()))).toBe("NotFound");
+});
+
+test("deletes the keys it was handed and reports what it covered", async () => {
+  const storage = await storageWith("one", "docs/two.txt");
+  const report = await storage.delete("one", "docs/two.txt", "never-written");
+
+  // Spec 4.7 counts the keys the call covered, and deleting is idempotent, so the key
+  // that was never there is one the storage took like the two it removed.
+  expect(report).toEqual({ requested: 3, failed: [] });
+  expect(await iterate(storage.list())).toEqual([]);
+});
+
+test("reports an invalid key beside the keys it deleted", async () => {
+  const storage = await storageWith("one", "two");
+  const report = await storage.delete("one", "../elsewhere", "two");
+
+  expect(report.requested).toBe(3);
+  expect(report.failed.map((failure) => [failure.code, failure.key])).toEqual([
+    ["InvalidKey", "../elsewhere"],
+  ]);
+  expect(await iterate(storage.list())).toEqual([]);
+});
+
+test("covers no key at all", async () => {
+  expect(await (await rootedStorage()).delete()).toEqual({ requested: 0, failed: [] });
+});
+
+test("removes the directories a delete leaves empty", async () => {
+  const root = await temporaryRoot();
+  const storage = fsStorage({ root });
+
+  await storage.put("docs/2026/one.txt", "a body");
+  await storage.put("docs/two.txt", "another body");
+  await storage.delete("docs/2026/one.txt");
+
+  expect(await readdir(join(root, "docs"))).toEqual(["two.txt"]);
+
+  await storage.delete("docs/two.txt");
+
+  expect(await readdir(root)).toEqual([]);
+});
+
+test("removes the link at the key and not the object it points to", async () => {
+  const root = await temporaryRoot();
+  const storage = fsStorage({ root });
+
+  await storage.put("object", "a body");
+  await symlink(join(root, "object"), join(root, "link"));
+
+  expect(await storage.delete("link")).toEqual({ requested: 1, failed: [] });
+  expect(await iterate(storage.list())).toEqual(["object"]);
+});
+
+test("leaves what is no object of this storage where it is", async () => {
+  const root = await temporaryRoot();
+  const outside = join(await temporaryRoot(), "secret");
+  const storage = fsStorage({ root });
+
+  await writeFile(outside, "not this storage's");
+  await symlink(outside, join(root, "link"));
+  await storage.put("docs/one.txt", "a body");
+
+  // A directory and a link leaving the root are no objects a listing names, so a delete
+  // of them removes nothing and reports nothing either (spec 4.7).
+  expect(await storage.delete("docs", "link")).toEqual({ requested: 2, failed: [] });
+  expect(await readFile(outside, "utf8")).toBe("not this storage's");
+  expect(await iterate(storage.list())).toEqual(["docs/one.txt"]);
+  expect((await readdir(root)).toSorted()).toEqual(["docs", "link"]);
+});
+
+test("deletes every object below the prefix and none beside it", async () => {
+  const storage = await storageWith("docs/one.txt", "docs/2026/two.txt", "docs-beside", "other");
+
+  expect(await storage.deleteAll("docs/")).toEqual({ requested: 2, failed: [] });
+  expect(await iterate(storage.list())).toEqual(["docs-beside", "other"]);
+});
+
+test("removes the directories a deleteAll leaves empty", async () => {
+  const root = await temporaryRoot();
+  const storage = fsStorage({ root });
+
+  await storage.put("docs/2026/one.txt", "a body");
+
+  expect(await storage.deleteAll("docs/")).toEqual({ requested: 1, failed: [] });
+  expect(await readdir(root)).toEqual([]);
+});
+
+test("covers nothing below a prefix that holds no object", async () => {
+  const storage = await storageWith("other");
+
+  expect(await storage.deleteAll("docs/")).toEqual({ requested: 0, failed: [] });
+});
+
+test("refuses what a deleteAll does not take", async () => {
+  const storage = await rootedStorage();
+
+  expect(await codeOf(storage.deleteAll("../elsewhere"))).toBe("InvalidKey");
+  expect(await codeOf(storage.deleteAll("docs/", withUnknownOption({})))).toBe("InvalidOption");
+});
+
+test("rejects a delete against a root that is gone", async () => {
+  const storage = fsStorage({ root: join(await temporaryRoot(), "not-there") });
+
+  expect(await codeOf(storage.delete("object"))).toBe("NotFound");
+  expect(await codeOf(storage.deleteAll("docs/"))).toBe("NotFound");
+});
+
+test("copies the bytes and derives the type from the destination key", async () => {
+  const storage = await storageWith("docs/one.txt");
+  const written = await storage.copy("docs/one.txt", "copies/one.json");
+
+  // Spec 6 derives the content type from the key, so a copy under another extension is
+  // described by the extension it arrived under and not by the one it came from.
+  expect(written).toMatchObject({
+    key: "copies/one.json",
+    size: 12,
+    contentType: "application/json",
+  });
+  expect(await (await storage.get("copies/one.json")).text()).toBe("docs/one.txt");
+  expect(await (await storage.get("docs/one.txt")).text()).toBe("docs/one.txt");
+});
+
+test("replaces the object a copy lands on", async () => {
+  const storage = await storageWith("one", "two");
+
+  await storage.copy("one", "two");
+
+  expect(await (await storage.get("two")).text()).toBe("one");
+});
+
+test("does not land a copy after its signal aborts", async () => {
+  const storage = await storageWith("source", "destination");
+  const thrown = await rejection(storage.copy("source", "destination", abortBeforeCommit()));
+
+  expect(nameOf(thrown)).toBe("AbortError");
+  expect(await (await storage.get("source")).text()).toBe("source");
+  expect(await (await storage.get("destination")).text()).toBe("destination");
+});
+
+test("refuses a copy onto itself before it touches the file system", async () => {
+  const storage = await storageWith("object");
+  const error = await storageErrorOf(storage.copy("object", "object"));
+
+  expect(error.code).toBe("InvalidRequest");
+  expect(error.attempts).toBe(0);
+  expect(await (await storage.get("object")).text()).toBe("object");
+});
+
+test("rejects a copy whose source is not there and writes nothing", async () => {
+  const root = await temporaryRoot();
+  const storage = fsStorage({ root });
+  const error = await storageErrorOf(storage.copy("absent", "copies/one.txt"));
+
+  expect(error.code).toBe("NotFound");
+  expect(error.operation).toBe("copy");
+  // Nothing was created on the way to a body the storage was never going to hold.
+  expect(await readdir(root)).toEqual([]);
+});
+
+test("refuses the keys a copy does not take", async () => {
+  const storage = await storageWith("source");
+
+  expect(await codeOf(storage.copy("source", "destination/"))).toBe("InvalidKey");
+  expect(await codeOf(storage.copy("../source", "destination"))).toBe("InvalidKey");
+  expect(await codeOf(storage.copy("source", "destination", withUnknownOption({})))).toBe(
+    "InvalidOption",
+  );
+  expect(await iterate(storage.list())).toEqual(["source"]);
+});
+
+test("moves the object and removes what the move left empty", async () => {
+  const root = await temporaryRoot();
+  const storage = fsStorage({ root });
+
+  await storage.put("docs/2026/one.txt", "a body");
+
+  const written = await storage.move("docs/2026/one.txt", "archive/one.txt");
+
+  expect(written).toMatchObject({ key: "archive/one.txt", size: 6, contentType: "text/plain" });
+  expect(await (await storage.get("archive/one.txt")).text()).toBe("a body");
+  expect(await storage.exists("docs/2026/one.txt")).toBe(false);
+  expect(await readdir(root)).toEqual(["archive"]);
+});
+
+test("does not move an object after its signal aborts", async () => {
+  const storage = await storageWith("source", "destination");
+  const thrown = await rejection(storage.move("source", "destination", abortBeforeCommit()));
+
+  expect(nameOf(thrown)).toBe("AbortError");
+  expect(await (await storage.get("source")).text()).toBe("source");
+  expect(await (await storage.get("destination")).text()).toBe("destination");
+});
+
+test("rejects a move whose source is not there", async () => {
+  const storage = await rootedStorage();
+  const error = await storageErrorOf(storage.move("absent", "destination"));
+
+  expect(error.code).toBe("NotFound");
+  expect(error.operation).toBe("move");
+  expect(await storage.exists("destination")).toBe(false);
+});
+
+test("moves the link at the key and leaves the object it points to", async () => {
+  const root = await temporaryRoot();
+  const storage = fsStorage({ root });
+
+  await storage.put("object", "a body");
+  await symlink(join(root, "object"), join(root, "link"));
+
+  await storage.move("link", "moved");
+
+  expect((await iterate(storage.list())).toSorted()).toEqual(["moved", "object"]);
+  expect(await (await storage.get("object")).text()).toBe("a body");
+});
+
+test("rejects a copy or a move against a root that is gone", async () => {
+  const storage = fsStorage({ root: join(await temporaryRoot(), "not-there") });
+
+  expect(await codeOf(storage.copy("source", "destination"))).toBe("NotFound");
+  expect(await codeOf(storage.move("source", "destination"))).toBe("NotFound");
+});
+
+test("hands a key back as the file system holds it", async () => {
+  const storage = await rootedStorage();
+  const composed = `caf${String.fromCodePoint(0xe9)}.txt`;
+  const decomposed = `cafe${String.fromCodePoint(0x301)}.txt`;
+
+  await storage.put(composed, "a body");
+
+  // The key comes back in the form it went in, because APFS keeps the form a name was
+  // written in and ext4 keeps the bytes.
+  expect(await iterate(storage.list())).toEqual([composed]);
+
+  // Whether the other form reaches the same object is the file system's own answer, and
+  // spec 6 has the storage pass it on rather than repair it: APFS folds the two forms and
+  // ext4 tells them apart, which is why no `keyBytesPreserved` is declared.
+  expect(await storage.exists(decomposed)).toBe(await foldsNormalForms(composed, decomposed));
+  expect(storage.capabilities).not.toContain("keyBytesPreserved");
 });
