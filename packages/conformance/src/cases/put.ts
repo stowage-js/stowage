@@ -31,7 +31,9 @@ export const putCases: readonly ConformanceCaseSource[] = [
     requires: [],
     cost: "fast",
     async run(ctx) {
-      const key = keyFor(ctx, "put/bytes-round-trip");
+      // Spec 6 has `adapter-fs` derive the content type from the key rather than store
+      // the one it was given, so a case reading one back names a key it agrees with.
+      const key = keyFor(ctx, "put/bytes-round-trip", "object.json");
       const bytes = patternOf(kibibyte);
       const written = await ctx.storage.put(key, bytes, { contentType: "application/json" });
       const stored = await ctx.storage.get(key);
@@ -134,7 +136,7 @@ export const putCases: readonly ConformanceCaseSource[] = [
     requires: [],
     cost: "fast",
     async run(ctx) {
-      const key = keyFor(ctx, "put/overwrites");
+      const key = keyFor(ctx, "put/overwrites", "object.json");
       const second = patternOf(128);
 
       await ctx.storage.put(key, patternOf(64), { contentType: "text/plain" });
