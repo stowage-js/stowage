@@ -26,9 +26,12 @@ export function describeResponse(
 
 /**
  * What `put` wrote, described from what it sent: a `PutObject` answer carries the entity
- * tag and the time the provider accepted the object, and neither length nor type.
+ * tag and the time the provider accepted the object, and neither length nor type. Spec
+ * 4.4 has that time come from the provider, so an answer without one is reported rather
+ * than dated from this clock.
  */
 export function describeWrite(
+  bucket: string,
   key: string,
   size: number,
   contentType: string,
@@ -36,10 +39,12 @@ export function describeWrite(
 ): ObjectStat {
   const accepted = Date.parse(response.headers.get("date") ?? "");
 
+  if (Number.isNaN(accepted)) throw incomplete(bucket, key, "put", "no time it was accepted");
+
   return {
     key,
     size,
-    lastModified: Number.isNaN(accepted) ? new Date() : new Date(accepted),
+    lastModified: new Date(accepted),
     etag: etagOf(response),
     contentType,
     userMetadata: noUserMetadata,

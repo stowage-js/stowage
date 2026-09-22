@@ -13,7 +13,7 @@ import { configuredStorage } from "./environment.ts";
  * and the copy, the streamed upload, the presigned URLs, and the failure table the
  * error cases read.
  */
-const notBuiltYet: readonly string[] = [
+const casesNotBuiltYet: readonly string[] = [
   // The listing and everything that reads one.
   "put/accepted-keys",
   "list/",
@@ -36,7 +36,7 @@ const notBuiltYet: readonly string[] = [
 ];
 
 const covered = (source: ConformanceCaseSource): boolean =>
-  !notBuiltYet.some((unbuilt) => source.name.startsWith(unbuilt));
+  !casesNotBuiltYet.some((unbuilt) => source.name.startsWith(unbuilt));
 
 const configured = configuredStorage();
 
@@ -57,9 +57,9 @@ const target: ConformanceTarget = {
   async cleanup() {},
 };
 
-// ADR 0012 wants a tier that did not run to say so rather than to pass. Without an
-// endpoint every case reports itself skipped, which is what a harness has to report one
-// with; the cases themselves know nothing about which server answers.
+// ADR 0012 wants `pnpm test` to fail where no daemon is reachable rather than to pass
+// with the tier skipped. It does not yet: CI does not start `compose.yml`, so until it
+// does, an unconfigured run reports every case skipped and the tier is opt-in.
 describeCases(selectedCases().filter(covered), target, {
   describe,
   test: configured === undefined ? test.skip : test,

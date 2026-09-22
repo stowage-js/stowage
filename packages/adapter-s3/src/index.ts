@@ -81,7 +81,7 @@ class SimpleStorageServiceStorage implements S3Storage {
 
     await response.body?.cancel();
 
-    return describeWrite(key, bytes.byteLength, contentType, response);
+    return describeWrite(this.bucket, key, bytes.byteLength, contentType, response);
   }
 
   async get(key: string, options?: GetOptions): Promise<StoredObject> {

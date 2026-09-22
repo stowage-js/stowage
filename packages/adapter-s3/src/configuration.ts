@@ -1,7 +1,7 @@
 import type { Resolvable, StorageError } from "@stowage/core";
 
 import type { S3Credentials } from "./credentials.ts";
-import { s3Error } from "./storage-error.ts";
+import { optionError as refuseOption, requireKnownOptions } from "./options.ts";
 
 export interface S3AdapterOptions {
   bucket: string;
@@ -51,7 +51,11 @@ const maxAttemptsRange = { least: 1, most: 3 };
 const partSizeRange = { least: 5 * mebibyte, most: 5 * 1024 * mebibyte };
 const concurrencyRange = { least: 1, most: 16 };
 
-/** IPv4 loopback is the whole `127.0.0.0/8` block, IPv6 loopback the single `::1`. */
+/**
+ * IPv4 loopback is the whole `127.0.0.0/8` block and IPv6 loopback the single `::1`.
+ * `localhost` stands beside them because RFC 6761 binds the name to one of the two, which
+ * is what makes it an address spec 7.1 accepts rather than a host that might be anywhere.
+ */
 const loopbackHosts = /^(?:localhost|127(?:\.\d{1,3}){3}|\[::1\])$/u;
 
 /**
@@ -62,7 +66,7 @@ const loopbackHosts = /^(?:localhost|127(?:\.\d{1,3}){3}|\[::1\])$/u;
 export function readConfiguration(options: S3AdapterOptions): S3Configuration {
   const bucket = typeof options.bucket === "string" ? options.bucket : "";
 
-  requireKnownKeys(bucket, options, adapterOptionKeys);
+  requireKnownOptions(bucket, options, adapterOptionKeys, "s3Storage");
   requireFilled(bucket, options.bucket, "bucket");
   requireFilled(bucket, options.region, "region");
 
@@ -143,7 +147,8 @@ function readMaxAttempts(bucket: string, retry: S3AdapterOptions["retry"]): numb
   if (retry === false) return 1;
   if (retry === undefined) return defaultMaxAttempts;
 
-  requireKnownKeys(bucket, retry, retryOptionKeys);
+  requireGroup(bucket, retry, "retry");
+  requireKnownOptions(bucket, retry, retryOptionKeys, "s3Storage");
 
   return readInRange(
     bucket,
@@ -158,7 +163,10 @@ function readMultipart(
   bucket: string,
   multipart: S3AdapterOptions["multipart"],
 ): { partSize: number; concurrency: number } {
-  if (multipart !== undefined) requireKnownKeys(bucket, multipart, multipartOptionKeys);
+  if (multipart !== undefined) {
+    requireGroup(bucket, multipart, "multipart");
+    requireKnownOptions(bucket, multipart, multipartOptionKeys, "s3Storage");
+  }
 
   return {
     partSize: readInRange(bucket, multipart?.partSize, "partSize", partSizeRange, defaultPartSize),
@@ -200,26 +208,25 @@ function readFlag(bucket: string, value: boolean | undefined, option: string): b
   return value;
 }
 
+/**
+ * A group of options is an object. Without this, `Object.keys` reads `retry: true` as a
+ * group with no key and hands back the default, and `retry: null` throws a `TypeError`
+ * where spec 7.1 asks for `InvalidOption`.
+ */
+function requireGroup(bucket: string, group: unknown, option: string): void {
+  if (typeof group === "object" && group !== null) return;
+
+  throw optionError(bucket, option, "takes a group of options");
+}
+
 function requireFilled(bucket: string, value: string, option: string): void {
   if (typeof value === "string" && value !== "") return;
 
   throw optionError(bucket, option, "is empty");
 }
 
-function requireKnownKeys(bucket: string, group: object, known: readonly string[]): void {
-  for (const key of Object.keys(group)) {
-    if (known.includes(key)) continue;
-
-    throw optionError(bucket, key, "is not one this storage takes");
-  }
-}
-
-// The message names the option and never the value it refused (spec 4.3).
+// Every refusal here names the call that constructed the storage, which is where spec
+// 7.1 has the configuration read.
 function optionError(bucket: string, option: string, expectation: string): StorageError {
-  return s3Error(bucket, {
-    code: "InvalidOption",
-    message: `The option \`${option}\` ${expectation}`,
-    operation: "s3Storage",
-    attempts: 0,
-  });
+  return refuseOption(bucket, option, expectation, "s3Storage");
 }

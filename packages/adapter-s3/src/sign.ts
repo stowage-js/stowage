@@ -29,6 +29,11 @@ export interface SignableRequest {
 export interface SignedRequest {
   /** What to send. `host` is signed and left out: `fetch` sets it from the URL. */
   readonly headers: readonly HeaderField[];
+  /**
+   * The two strings the signature is built out of. Nothing sends them; the published
+   * test vectors state both, and a vector that fails on one of them says which of the
+   * five canonical parts went wrong rather than that 64 hex characters differ.
+   */
   readonly canonicalRequest: string;
   readonly stringToSign: string;
   readonly signature: string;

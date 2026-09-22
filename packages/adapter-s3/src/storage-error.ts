@@ -12,6 +12,9 @@ export function s3Error(
  * written outside the adapter and knows neither bucket nor operation, so the error it
  * throws arrives without them and is re-issued here rather than reaching a caller with
  * the placeholders it was built from (spec 4.10).
+ *
+ * Every field of `StorageErrorFields` is named below, so a field added to that type has
+ * to be added here too or it is dropped on the way through.
  */
 export function inStorage(
   failure: unknown,

@@ -48,8 +48,12 @@ function storedResponse(body: string, headers: Record<string, string> = {}): Res
   });
 }
 
+/** What a provider answers `PutObject` with: an entity tag and the time it accepted it. */
 function accepted(): Response {
-  return new Response(null, { status: 200, headers: { etag: '"written"' } });
+  return new Response(null, {
+    status: 200,
+    headers: { etag: '"written"', date: "Sun, 30 Aug 2015 12:36:00 GMT" },
+  });
 }
 
 const credentials = { accessKeyId: "AKIDEXAMPLE", secretAccessKey: "secret" };
@@ -180,8 +184,20 @@ test("`put` describes what it wrote", async () => {
     size: 5,
     contentType: "text/plain",
     etag: "written",
+    lastModified: new Date("2015-08-30T12:36:00Z"),
     userMetadata: {},
   });
+});
+
+// Spec 4.4 has the time come from the provider, which spec 4.6 keeps a description from
+// being handed back with a part invented for it.
+test("an answer without the time it accepted the object is a `ProviderError`", async () => {
+  stubFetch(() => new Response(null, { status: 200, headers: { etag: '"written"' } }));
+
+  const failure = await rejection(async () => await s3Storage(options()).put("object.txt", "body"));
+
+  expect(failure.code).toBe("ProviderError");
+  expect(failure.operation).toBe("put");
 });
 
 test("`put` stores `application/octet-stream` where no content type was given", async () => {
