@@ -1,4 +1,9 @@
-import { errorCodeForStatus, isTransientStatus, type StorageError } from "@stowage/core";
+import {
+  errorCodeForStatus,
+  isStorageError,
+  isTransientStatus,
+  type StorageError,
+} from "@stowage/core";
 
 import { encodePath, encodeQuery, type HeaderField, type QueryParameter } from "./canonical.ts";
 import type { S3Configuration } from "./configuration.ts";
@@ -23,6 +28,9 @@ const emptyBody: Uint8Array<ArrayBuffer> = new Uint8Array(0);
 
 const service = "s3";
 
+const baseDelay = 100;
+const maximumDelay = 5_000;
+
 /**
  * One S3 request, answered by the response the provider sent or rejected with the
  * failure it reported. Spec 7.4 computes the payload hash once and signs every attempt
@@ -30,17 +38,41 @@ const service = "s3";
  */
 export async function send(configuration: S3Configuration, request: S3Request): Promise<Response> {
   const payloadHash = await sha256Hex(request.body ?? emptyBody);
-  const response = await attempt(configuration, request, payloadHash);
 
-  if (!response.ok) throw await failureOf(configuration, request, response);
+  for (let attempts = 1; ; attempts += 1) {
+    let response: Response;
 
-  return response;
+    try {
+      // oxlint-disable-next-line no-await-in-loop -- the failure decides whether to repeat
+      response = await attempt(configuration, request, payloadHash, attempts);
+    } catch (failure) {
+      if (!isStorageError(failure) || !failure.retryable || attempts >= configuration.maxAttempts) {
+        throw failure;
+      }
+
+      // oxlint-disable-next-line no-await-in-loop -- the next request waits for this backoff
+      await backoff(attempts, request.signal);
+
+      continue;
+    }
+
+    if (response.ok) return response;
+
+    // oxlint-disable-next-line no-await-in-loop -- this response is handled before another is sent
+    const failure = await failureOf(configuration, request, response, attempts);
+
+    if (!failure.retryable || attempts >= configuration.maxAttempts) throw failure;
+
+    // oxlint-disable-next-line no-await-in-loop -- the next request waits for this backoff
+    await backoff(attempts, request.signal);
+  }
 }
 
 async function attempt(
   configuration: S3Configuration,
   request: S3Request,
   payloadHash: string,
+  attempts: number,
 ): Promise<Response> {
   const path = pathOf(configuration, request.key);
   const query = request.query ?? [];
@@ -74,8 +106,34 @@ async function attempt(
       signal: request.signal,
     });
   } catch (failure) {
-    throw transportFailure(configuration, request, failure);
+    throw transportFailure(configuration, request, failure, attempts);
   }
+}
+
+/** Full-jitter exponential backoff from spec 7.5, interrupted by the caller's signal. */
+async function backoff(attempts: number, signal: AbortSignal | undefined): Promise<void> {
+  const milliseconds = Math.random() * Math.min(maximumDelay, baseDelay * 2 ** attempts);
+
+  await new Promise<void>((resolve, reject) => {
+    if (signal === undefined) {
+      setTimeout(resolve, milliseconds);
+
+      return;
+    }
+
+    signal.throwIfAborted();
+
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", aborted);
+      resolve();
+    }, milliseconds);
+    const aborted = (): void => {
+      clearTimeout(timer);
+      reject(signal.reason);
+    };
+
+    signal.addEventListener("abort", aborted, { once: true });
+  });
 }
 
 /**
@@ -102,6 +160,7 @@ async function failureOf(
   configuration: S3Configuration,
   request: S3Request,
   response: Response,
+  attempts: number,
 ): Promise<StorageError> {
   // Nothing reads the body yet, and a body left unread holds the connection open.
   await response.body?.cancel();
@@ -111,7 +170,7 @@ async function failureOf(
     message: `The provider answered ${response.status} to \`${request.method}\``,
     operation: request.operation,
     key: request.key,
-    attempts: 1,
+    attempts,
     status: response.status,
     requestId: response.headers.get("x-amz-request-id") ?? undefined,
     retryable: isTransientStatus(response.status),
@@ -125,6 +184,7 @@ function transportFailure(
   configuration: S3Configuration,
   request: S3Request,
   failure: unknown,
+  attempts: number,
 ): unknown {
   if (failure instanceof Error && failure.name === "AbortError") return failure;
 
@@ -133,7 +193,7 @@ function transportFailure(
     message: `The request received no response: ${String(failure)}`,
     operation: request.operation,
     key: request.key,
-    attempts: 1,
+    attempts,
     retryable: true,
     cause: failure,
   });

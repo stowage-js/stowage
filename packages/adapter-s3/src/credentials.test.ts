@@ -72,6 +72,19 @@ test("a field outside the three is refused by name", async () => {
   expect(isStorageError(failure) && failure.message).toContain("expiration");
 });
 
+test.each([null, "credentials", 1])("a non-object resolved value is refused", async (resolved) => {
+  // oxlint-disable-next-line no-unsafe-type-assertion -- the point of the case
+  const failure = await resolveCredentials(resolved as unknown as S3Credentials, {
+    forceRefresh: false,
+  }).then(
+    () => undefined,
+    (reason: unknown) => reason,
+  );
+
+  expect(isStorageError(failure) && failure.code).toBe("InvalidCredentials");
+  expect(isStorageError(failure) && failure.attempts).toBe(0);
+});
+
 test("`fromEnv` reads the three variables and nothing else", () => {
   const read: string[] = [];
 

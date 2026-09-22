@@ -62,7 +62,13 @@ function etagOf(response: Response): string | undefined {
 }
 
 function sizeOf(bucket: string, key: string, operation: string, response: Response): number {
-  const length = Number(response.headers.get("content-length"));
+  const header = response.headers.get("content-length");
+
+  if (header === null || header.trim() === "") {
+    throw incomplete(bucket, key, operation, "no length");
+  }
+
+  const length = Number(header);
 
   if (!Number.isInteger(length) || length < 0) {
     throw incomplete(bucket, key, operation, "no length");

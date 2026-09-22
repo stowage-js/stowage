@@ -74,6 +74,10 @@ declare const process: { readonly env?: Readonly<Record<string, string | undefin
  * object is one of the three, checked before signing rather than a round trip later.
  */
 function validate(credentials: S3Credentials): S3Credentials {
+  if (typeof credentials !== "object" || credentials === null) {
+    throw refusal("The resolved credential is not an object");
+  }
+
   for (const field of Object.keys(credentials)) {
     if (!credentialFields.has(field)) {
       throw refusal(`The credential field \`${field}\` is not one of the three S3 takes`);

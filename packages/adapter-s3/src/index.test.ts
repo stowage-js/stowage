@@ -6,6 +6,7 @@ import { type S3AdapterOptions, s3Storage } from "./index.ts";
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 interface SentRequest {
@@ -222,6 +223,28 @@ test("`get` answers the description and the body of one response", async () => {
   expect(await stored.text()).toBe("a stored body");
 });
 
+test.each([
+  ["missing", undefined],
+  ["empty", ""],
+  ["whitespace-only", " \t "],
+])("a %s content length is an incomplete provider description", async (_case, length) => {
+  stubFetch(
+    () =>
+      new Response(null, {
+        status: 200,
+        headers: {
+          "last-modified": "Sun, 30 Aug 2015 12:36:00 GMT",
+          ...(length === undefined ? {} : { "content-length": length }),
+        },
+      }),
+  );
+
+  const failure = await rejection(async () => await s3Storage(options()).stat("object.txt"));
+
+  expect(failure.code).toBe("ProviderError");
+  expect(failure.message).toContain("no length");
+});
+
 test("a second read of a body is refused", async () => {
   stubFetch(() => storedResponse("a stored body"));
 
@@ -233,7 +256,9 @@ test("a second read of a body is refused", async () => {
 });
 
 test("a missing key is `NotFound` after the one attempt it cost", async () => {
-  stubFetch(() => new Response("", { status: 404, headers: { "x-amz-request-id": "abc" } }));
+  const sent = stubFetch(
+    () => new Response("", { status: 404, headers: { "x-amz-request-id": "abc" } }),
+  );
 
   const failure = await rejection(async () => await s3Storage(options()).get("absent.txt"));
 
@@ -244,6 +269,7 @@ test("a missing key is `NotFound` after the one attempt it cost", async () => {
   expect(failure.requestId).toBe("abc");
   expect(failure.retryable).toBe(false);
   expect(failure.attempts).toBe(1);
+  expect(sent).toHaveLength(1);
 });
 
 test("`exists` answers `false` for a missing key and rethrows every other failure", async () => {
@@ -258,8 +284,9 @@ test("`exists` answers `false` for a missing key and rethrows every other failur
   );
 });
 
-test("a request that received no response is a transient `NetworkError`", async () => {
-  stubFetch(() => {
+test("a request that repeatedly receives no response preserves the final attempt count", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+  const sent = stubFetch(() => {
     throw new TypeError("fetch failed");
   });
 
@@ -267,8 +294,81 @@ test("a request that received no response is a transient `NetworkError`", async 
 
   expect(failure.code).toBe("NetworkError");
   expect(failure.retryable).toBe(true);
-  expect(failure.attempts).toBe(1);
+  expect(failure.attempts).toBe(3);
   expect(failure.cause).toBeInstanceOf(TypeError);
+  expect(sent).toHaveLength(3);
+});
+
+test("`retry: false` limits a transport failure to one attempt", async () => {
+  const sent = stubFetch(() => {
+    throw new TypeError("fetch failed");
+  });
+
+  const failure = await rejection(
+    async () => await s3Storage(options({ retry: false })).get("object.txt"),
+  );
+
+  expect(failure.code).toBe("NetworkError");
+  expect(failure.attempts).toBe(1);
+  expect(sent).toHaveLength(1);
+});
+
+test("transient responses are canceled, re-signed and retried", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+  const canceled = vi.fn<() => void>();
+  const responses = [
+    new Response(new ReadableStream({ cancel: canceled }), { status: 503 }),
+    storedResponse("stored"),
+  ];
+  const sent = stubFetch(() => responses.shift() ?? storedResponse("stored"));
+  const held = [
+    { ...credentials, accessKeyId: "FIRST" },
+    { ...credentials, accessKeyId: "SECOND" },
+  ];
+  const resolve = vi.fn<() => typeof credentials>(() => held.shift() ?? credentials);
+
+  await s3Storage(options({ credentials: resolve })).get("object.txt");
+
+  expect(canceled).toHaveBeenCalledOnce();
+  expect(resolve).toHaveBeenCalledTimes(2);
+  expect(sent).toHaveLength(2);
+  expect(sent[0]?.headers.get("authorization")).toContain("Credential=FIRST/");
+  expect(sent[1]?.headers.get("authorization")).toContain("Credential=SECOND/");
+});
+
+test("a final transient response preserves its attempt count and cancels every response", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+  const canceled = vi.fn<() => void>();
+  const sent = stubFetch(
+    () => new Response(new ReadableStream({ cancel: canceled }), { status: 503 }),
+  );
+
+  const failure = await rejection(
+    async () => await s3Storage(options({ retry: { maxAttempts: 2 } })).get("object.txt"),
+  );
+
+  expect(failure.status).toBe(503);
+  expect(failure.retryable).toBe(true);
+  expect(failure.attempts).toBe(2);
+  expect(canceled).toHaveBeenCalledTimes(2);
+  expect(sent).toHaveLength(2);
+});
+
+test("an abort interrupts the wait before another attempt", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(0.5);
+  const controller = new AbortController();
+  const canceled = vi.fn<() => void>(() => {
+    setTimeout(() => controller.abort(), 0);
+  });
+  const sent = stubFetch(
+    () => new Response(new ReadableStream({ cancel: canceled }), { status: 503 }),
+  );
+
+  await expect(
+    s3Storage(options()).get("object.txt", { signal: controller.signal }),
+  ).rejects.toThrow(expect.objectContaining({ name: "AbortError" }));
+  expect(canceled).toHaveBeenCalledOnce();
+  expect(sent).toHaveLength(1);
 });
 
 test.each([
