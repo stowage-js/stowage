@@ -10,16 +10,12 @@ import {
 } from "../assertions.ts";
 import type { ConformanceCaseSource } from "../case.ts";
 import type { ConformanceContext } from "../target.ts";
-import { collect, patternOf, streamOf } from "./bytes.ts";
+import { collect, mebibyte, multipartSize, patternOf, streamOf } from "./bytes.ts";
 import { acceptedKeys, keyFor, prefixFor, type RefusedKey, refusedWritableKeys } from "./keys.ts";
 
 const utf8 = new TextEncoder();
 
 const kibibyte = 1024;
-const mebibyte = 1024 * kibibyte;
-
-/** ADR 0016 makes one part the threshold for a stream, so 17 MiB provokes a multipart upload. */
-const multipartSize = 17 * mebibyte;
 
 /** Spec 4.3 takes an ASCII HTTP token as a user metadata key, which this is not. */
 const metadataKeyAboveAscii: Record<string, string> = { grüße: "hallo" };

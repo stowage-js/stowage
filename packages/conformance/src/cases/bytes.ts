@@ -1,3 +1,11 @@
+const kibibyte = 1024;
+
+/** The bytes a body is measured in, where a case names a size spec 8.5 or 8.6 states. */
+export const mebibyte: number = 1024 * kibibyte;
+
+/** ADR 0016 makes one part the threshold for a stream, so 17 MiB provokes a multipart upload. */
+export const multipartSize: number = 17 * mebibyte;
+
 /**
  * The bytes a case writes: a pattern it rebuilds rather than holds, so that a body the
  * provider reassembled out of order or lost a part of shows up as a mismatch, which one
