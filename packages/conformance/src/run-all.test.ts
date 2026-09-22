@@ -33,11 +33,10 @@ test("the `fast` tier runs by default and both tiers run with `includeSlow`", ()
   expect(costs(selectedCases())).toEqual(["fast"]);
   expect(costs(selectedCases({ includeSlow: false }))).toEqual(["fast"]);
   expect(selectedCases({ includeSlow: true })).toEqual(conformanceCaseSources);
-  // The cases past one thousand objects are the `slow` tier of spec 8.5, and a default
-  // run leaves them out rather than writing a thousand objects on every pull request.
-  expect(
-    conformanceCaseSources.filter((source) => source.cost === "slow").map((source) => source.name),
-  ).toEqual(["list/past-one-thousand", "delete/past-one-thousand", "deleteAll/past-one-thousand"]);
+  // Which case carries which cost is asserted against the rows of spec 8.5 elsewhere.
+  // What this needs of the suite is a `slow` case at all: without one the two tiers hold
+  // the same cases and the three expectations above pass on a filter that does nothing.
+  expect(costs(conformanceCaseSources)).toContain("slow");
 });
 
 test("a case that returns is reported as passed, naming the half that ran", async () => {

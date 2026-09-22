@@ -19,15 +19,15 @@ interface UndeclaredBehavior {
   readonly readsUserMetadata?: boolean;
 }
 
+// Spec 4.9: a storage declaring no `keyBytesPreserved` hands a key back Unicode-
+// equivalent to what was written, which this one does by folding it into one form.
+const storedKey = (key: string): string => key.normalize();
+
 /**
  * A storage keeping the weaker promise of spec 4.9 at every point it declares nothing.
  * No adapter of this repository declares as little, so the `runWithout` halves would
  * otherwise be the one part of the suite nothing here runs.
  */
-// Spec 4.9: a storage declaring no `keyBytesPreserved` hands a key back Unicode-
-// equivalent to what was written, which this one does by folding it into one form.
-const stored = (key: string): string => key.normalize();
-
 const undeclaring = (behavior: UndeclaredBehavior = {}): Storage => {
   const held = new Map<string, Readonly<Record<string, string>>>();
 
@@ -48,18 +48,18 @@ const undeclaring = (behavior: UndeclaredBehavior = {}): Storage => {
         throw unsupported("userMetadata", "put");
       }
 
-      held.set(stored(key), userMetadata);
+      held.set(storedKey(key), userMetadata);
 
-      return describe(stored(key));
+      return describe(storedKey(key));
     },
     get: async (key, options) => {
       if (options?.range !== undefined && behavior.answersRanges !== true) {
         throw unsupported("rangeReads", "get");
       }
 
-      return bodilessObject(describe(stored(key)));
+      return bodilessObject(describe(storedKey(key)));
     },
-    stat: async (key) => describe(stored(key)),
+    stat: async (key) => describe(storedKey(key)),
     list: (options) =>
       stubListing(
         [...held.keys()]
@@ -67,9 +67,9 @@ const undeclaring = (behavior: UndeclaredBehavior = {}): Storage => {
           .map((key) => describe(key)),
       ),
     copy: async (from, to) => {
-      held.set(stored(to), held.get(stored(from)) ?? {});
+      held.set(storedKey(to), held.get(storedKey(from)) ?? {});
 
-      return describe(stored(to));
+      return describe(storedKey(to));
     },
   });
 };

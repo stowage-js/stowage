@@ -6,15 +6,18 @@ import { serializeError } from "../result.ts";
 import type { ConformanceContext } from "../target.ts";
 import { patternOf } from "./bytes.ts";
 import { prefixFor } from "./keys.ts";
-import { assertNamesEachOnce, collectEntries, keysBelow, putEach } from "./objects.ts";
+import {
+  assertNamesEachOnce,
+  collectEntries,
+  keysBelow,
+  pastOneThousand,
+  putEach,
+} from "./objects.ts";
 
 const utf8 = new TextEncoder();
 
 /** The page size spec 4.6 bounds a page at, which two page sizes sit on either side of. */
 const pageSizeLimit = 1000;
-
-/** What the `slow` cases write, one object past the page a provider answers at the most. */
-const pastOneThousand = pageSizeLimit + 1;
 
 interface NormalForm {
   /** How the case names the form, which is what a failing one reports. */

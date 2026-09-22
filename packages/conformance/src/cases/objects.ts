@@ -10,6 +10,13 @@ import type { ConformanceContext } from "../target.ts";
  */
 const inFlight = 32;
 
+/**
+ * What the `slow` cases of spec 8.5 write: one past the thousand objects a provider
+ * answers a listing with and takes in a delete at the most, so that the case reaches
+ * past the one page and the one batch rather than filling them.
+ */
+export const pastOneThousand = 1001;
+
 /** The keys of `count` objects below `prefix`, numbered so that a failure names one. */
 export function keysBelow(prefix: string, count: number): readonly string[] {
   const width = String(count - 1).length;
@@ -20,7 +27,6 @@ export function keysBelow(prefix: string, count: number): readonly string[] {
   );
 }
 
-/** The same body under every key, a few writes at a time. */
 export async function putEach(
   ctx: ConformanceContext,
   keys: readonly string[],

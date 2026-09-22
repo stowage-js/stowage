@@ -36,7 +36,7 @@ export function assertSameBytes(actual: Uint8Array, expected: Uint8Array, what: 
  * listing entry carry it. A target may be written in JavaScript, where the declared type
  * of a field promises nothing about what the storage hands over.
  */
-export function assertDate(value: Date, what: string): asserts value is Date {
+export function assertDate(value: unknown, what: string): asserts value is Date {
   assert(
     value instanceof Date && Number.isFinite(value.getTime()),
     `${what} is ${JSON.stringify(value)}, which is no \`Date\``,

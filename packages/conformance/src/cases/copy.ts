@@ -15,7 +15,7 @@ interface WrittenObject {
   readonly body: Uint8Array;
 }
 
-export const copyCases: readonly ConformanceCaseSource[] = [
+export const copyAndMoveCases: readonly ConformanceCaseSource[] = [
   {
     name: "copy/round-trip",
     requires: [],
@@ -202,7 +202,7 @@ async function assertHolds(
     stored.stat.contentType === contentType,
     `${what} reports the content type ${JSON.stringify(stored.stat.contentType)} and not ${JSON.stringify(contentType)}`,
   );
-  assertSameBytes(await stored.bytes(), body, `the body of ${what.toLowerCase()}`);
+  assertSameBytes(await stored.bytes(), body, `The body under ${JSON.stringify(key)}`);
 }
 
 async function assertAbsent(ctx: ConformanceContext, key: string, after: string): Promise<void> {

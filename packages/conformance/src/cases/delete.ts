@@ -4,10 +4,7 @@ import { assert } from "../assertions.ts";
 import type { ConformanceCaseSource } from "../case.ts";
 import { patternOf } from "./bytes.ts";
 import { keyFor, prefixFor } from "./keys.ts";
-import { assertNothingBelow, keysBelow, putEach } from "./objects.ts";
-
-/** What the `slow` cases delete, one key past the batch a provider takes at the most. */
-const pastOneThousand = 1001;
+import { assertNothingBelow, keysBelow, pastOneThousand, putEach } from "./objects.ts";
 
 export const deleteCases: readonly ConformanceCaseSource[] = [
   {
