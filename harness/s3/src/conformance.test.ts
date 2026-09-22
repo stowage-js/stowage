@@ -1,4 +1,4 @@
-import { describe, test } from "vitest";
+import { describe, expect, test } from "vitest";
 
 import { s3Storage } from "../../../packages/adapter-s3/src/index.ts";
 import type { ConformanceCaseSource } from "../../../packages/conformance/src/case.ts";
@@ -57,10 +57,14 @@ const target: ConformanceTarget = {
   async cleanup() {},
 };
 
-// ADR 0012 wants `pnpm test` to fail where no daemon is reachable rather than to pass
-// with the tier skipped. It does not yet: CI does not start `compose.yml`, so until it
-// does, an unconfigured run reports every case skipped and the tier is opt-in.
-describeCases(selectedCases().filter(covered), target, {
+// ADR 0012: `pnpm test` includes this tier and fails where no endpoint is reachable
+// rather than passing with it skipped. One failure says so, in place of the same reason
+// repeated over every case the run then registers none of.
+test("the S3 endpoint of ADR 0012 is configured (see `harness/s3/README.md`)", () => {
+  expect(configured).toBeDefined();
+});
+
+describeCases(configured === undefined ? [] : selectedCases().filter(covered), target, {
   describe,
-  test: configured === undefined ? test.skip : test,
+  test,
 });

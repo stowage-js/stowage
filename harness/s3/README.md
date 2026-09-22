@@ -26,9 +26,8 @@ reads:
 | `AWS_ACCESS_KEY_ID`           | Read by `fromEnv`                                      |
 | `AWS_SECRET_ACCESS_KEY`       | Read by `fromEnv`                                      |
 
-Without `STOWAGE_S3_ENDPOINT` every case of the tier reports itself skipped. ADR 0012
-asks for more than that — `pnpm test` is to fail where no daemon is reachable — and that
-is owed until CI starts `compose.yml` itself.
+Docker is required. Without `STOWAGE_S3_ENDPOINT` the run fails rather than passing with
+the tier skipped (ADR 0012), and CI starts `compose.yml` itself before `pnpm test`.
 
 The credential in `s3.json` is this container's and nothing else's: it authenticates a
 local emulator holding a run's throwaway objects.

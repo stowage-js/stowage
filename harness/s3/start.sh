@@ -1,13 +1,14 @@
 #!/bin/sh
 # Starts the endpoint of ADR 0012 and creates the bucket the suite runs against, then
-# prints the environment the conformance run reads.
+# prints the environment the conformance run reads. Its standard output is that
+# environment and nothing else, so CI can append it to `GITHUB_ENV`.
 set -eu
 
 cd "$(dirname "$0")"
 
 bucket="${STOWAGE_S3_BUCKET:-stowage-conformance}"
 
-docker compose up --detach --wait
+docker compose up --detach --wait >&2
 
 # `weed shell` is idempotent about a bucket that is already there, which is what a second
 # start of a container that outlived its run meets.
