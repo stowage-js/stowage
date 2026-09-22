@@ -307,7 +307,11 @@ export const putCases: readonly ConformanceCaseSource[] = [
       await ctx.storage.put(key, body);
 
       // Spec 4.2 leaves the stream at its end or canceled once `put` settled, and a read
-      // answers `done` either way; a stream `put` handed back unread would not.
+      // answers `done` either way; a stream `put` handed back unread would not. A reader
+      // `put` never released holds the lock and answers nothing at all, which is why the
+      // lock is read before the body rather than as a `TypeError` out of `getReader`.
+      assert(!body.locked, "The source stream is still locked to a reader `put` kept");
+
       const { done } = await body.getReader().read();
 
       assert(done, "The source stream is neither at its end nor canceled after `put`");
