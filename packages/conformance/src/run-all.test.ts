@@ -284,5 +284,7 @@ test("`runAll` runs the suite's own cases and reports one result per case", asyn
   expect(results.map((result) => result.case.name)).toEqual(
     selectedCases().map((source) => source.name),
   );
-  expect(results.filter((result) => result.status === "passed")).not.toEqual([]);
+  expect(
+    results.filter((result) => result.status === "passed").map((result) => result.case.name),
+  ).toContain("declaration/identity");
 });

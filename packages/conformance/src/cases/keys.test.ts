@@ -31,7 +31,7 @@ test("every key of the refused writable list of spec 8.7 is one `put` refuses", 
 });
 
 test("a refused key the case asks `exists` about is one the addressable rule allows", () => {
-  const asked = refusedWritableKeys(prefix).filter((one) => one.existsIsFalse);
+  const asked = refusedWritableKeys(prefix).filter((one) => one.asksExists);
 
   expect(asked.map((one) => one.label)).toEqual(["a/", "a\\b"]);
 

@@ -20,7 +20,6 @@ export function prefixFor(ctx: ConformanceContext, caseName: string): string {
   return `${ctx.keyPrefix}${caseName}/`;
 }
 
-/** One key of a case, below the prefix that carries the case's name. */
 export function keyFor(ctx: ConformanceContext, caseName: string, name = "object"): string {
   return `${prefixFor(ctx, caseName)}${name}`;
 }
@@ -76,8 +75,12 @@ const acceptedNames: readonly string[] = [
 ];
 
 export interface RefusedKey extends ConformanceKey {
-  /** Whether `put/refused-keys` asks `exists` about the key once the write was refused. */
-  readonly existsIsFalse: boolean;
+  /**
+   * Whether `put/refused-keys` asks `exists` about the key once the write was refused,
+   * which it then has to answer `false`: the addressable keys of spec 8.7, less the one
+   * a provider may refuse to address.
+   */
+  readonly asksExists: boolean;
 }
 
 /**
@@ -88,25 +91,25 @@ export interface RefusedKey extends ConformanceKey {
  */
 export function refusedWritableKeys(prefix: string): readonly RefusedKey[] {
   return [
-    { label: "the empty string", key: "", existsIsFalse: false },
-    { label: "/a", key: "/a", existsIsFalse: false },
-    { label: "a/", key: `${prefix}a/`, existsIsFalse: true },
-    { label: "a//b", key: `${prefix}a//b`, existsIsFalse: false },
-    { label: "./a", key: `${prefix}./a`, existsIsFalse: false },
-    { label: "a/../b", key: `${prefix}a/../b`, existsIsFalse: false },
-    { label: "..", key: `${prefix}..`, existsIsFalse: false },
-    { label: "a\\b", key: `${prefix}a\\b`, existsIsFalse: true },
-    ...refusedControlCharacters.map((code) => ({
+    { label: "the empty string", key: "", asksExists: false },
+    { label: "/a", key: "/a", asksExists: false },
+    { label: "a/", key: `${prefix}a/`, asksExists: true },
+    { label: "a//b", key: `${prefix}a//b`, asksExists: false },
+    { label: "./a", key: `${prefix}./a`, asksExists: false },
+    { label: "a/../b", key: `${prefix}a/../b`, asksExists: false },
+    { label: "..", key: `${prefix}..`, asksExists: false },
+    { label: "a\\b", key: `${prefix}a\\b`, asksExists: true },
+    ...refusedControlCharacters.map((code): RefusedKey => ({
       label: `a key holding U+${code.toString(16).toUpperCase().padStart(4, "0")}`,
       key: `${prefix}a${String.fromCharCode(code)}b`,
-      existsIsFalse: false,
+      asksExists: false,
     })),
     // Addressable, and still not asked: spec 8.7 leaves a provider free to refuse a key
     // it cannot hold, and S3 answers this one with `KeyTooLongError` rather than `false`.
     {
       label: "a key of 1025 bytes",
       key: keyOfBytes(prefix, writableKeyLimit + 1),
-      existsIsFalse: false,
+      asksExists: false,
     },
   ];
 }

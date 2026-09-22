@@ -1,15 +1,17 @@
-import type { ObjectStat } from "@stowage/core";
+import type { ByteRange, ObjectStat } from "@stowage/core";
 
 import {
   assert,
   assertSameBytes,
+  assertSameDescription,
   expectRuntimeError,
   expectStorageError,
   expectUnsupported,
 } from "../assertions.ts";
 import type { ConformanceCaseSource } from "../case.ts";
+import type { ConformanceContext } from "../target.ts";
 import { collect, patternOf } from "./bytes.ts";
-import { keyFor, prefixFor } from "./keys.ts";
+import { type ConformanceKey, keyFor, prefixFor } from "./keys.ts";
 
 /** Small enough to read whole in an assertion, and long enough to hold a range within it. */
 const rangedSize = 1024;
@@ -105,12 +107,12 @@ export const getCases: readonly ConformanceCaseSource[] = [
       const stored = await ctx.storage.get(key);
       const described = await ctx.storage.stat(key);
 
-      for (const field of ["key", "size", "contentType", "etag"] as const) {
-        assert(
-          stored.stat[field] === described[field],
-          `\`get\` reports \`${field}: ${JSON.stringify(stored.stat[field])}\` and \`stat\` ${JSON.stringify(described[field])}`,
-        );
-      }
+      assertSameDescription(
+        stored.stat,
+        described,
+        ["key", "size", "contentType", "etag"],
+        "`get` and `stat`",
+      );
     },
   },
   {
@@ -121,7 +123,7 @@ export const getCases: readonly ConformanceCaseSource[] = [
       const prefix = prefixFor(ctx, "get/addressable-keys");
       // Spec 4.8 lets `get` name a key stowage would not write, so that an object another
       // tool put in the bucket stays reachable: absent is `NotFound`, not `InvalidKey`.
-      const absent = [
+      const absent: readonly ConformanceKey[] = [
         { label: "a key ending in a slash", key: `${prefix}absent/` },
         { label: "a key holding a backslash", key: `${prefix}absent\\key` },
       ];
@@ -173,13 +175,7 @@ export const getCases: readonly ConformanceCaseSource[] = [
       );
     },
     async runWithout(ctx) {
-      const key = keyFor(ctx, "get/range");
-
-      await ctx.storage.put(key, patternOf(rangedSize));
-      await expectUnsupported(
-        () => ctx.storage.get(key, { range: { start: 0, end: 15 } }),
-        "rangeReads",
-      );
+      await refuseRanges(ctx, "get/range", [{ start: 0, end: 15 }]);
     },
   },
   {
@@ -205,17 +201,10 @@ export const getCases: readonly ConformanceCaseSource[] = [
       );
     },
     async runWithout(ctx) {
-      const key = keyFor(ctx, "get/range-unsatisfiable");
-
-      await ctx.storage.put(key, patternOf(rangedSize));
-      await expectUnsupported(
-        () => ctx.storage.get(key, { range: { start: rangedSize } }),
-        "rangeReads",
-      );
-      await expectUnsupported(
-        () => ctx.storage.get(key, { range: { start: 8, end: 4 } }),
-        "rangeReads",
-      );
+      await refuseRanges(ctx, "get/range-unsatisfiable", [
+        { start: rangedSize },
+        { start: 8, end: 4 },
+      ]);
     },
   },
   {
@@ -239,13 +228,9 @@ export const getCases: readonly ConformanceCaseSource[] = [
       );
     },
     async runWithout(ctx) {
-      const key = keyFor(ctx, "get/range-clipped");
-
-      await ctx.storage.put(key, patternOf(rangedSize));
-      await expectUnsupported(
-        () => ctx.storage.get(key, { range: { start: rangedSize - 8, end: 4 * rangedSize } }),
-        "rangeReads",
-      );
+      await refuseRanges(ctx, "get/range-clipped", [
+        { start: rangedSize - 8, end: 4 * rangedSize },
+      ]);
     },
   },
 ];
@@ -256,5 +241,22 @@ function assertWholeSize(described: ObjectStat): void {
   assert(
     described.size === rangedSize,
     `A ranged \`get\` reports ${described.size} bytes for an object of ${rangedSize}`,
+  );
+}
+
+// Spec 4.9 leaves every range of the three rows with the same `Unsupported`, so what
+// tells their halves apart is the bounds each row names rather than what it expects.
+async function refuseRanges(
+  ctx: ConformanceContext,
+  caseName: string,
+  ranges: readonly ByteRange[],
+): Promise<void> {
+  const key = keyFor(ctx, caseName);
+
+  await ctx.storage.put(key, patternOf(rangedSize));
+  await Promise.all(
+    ranges.map(
+      async (range) => await expectUnsupported(() => ctx.storage.get(key, { range }), "rangeReads"),
+    ),
   );
 }

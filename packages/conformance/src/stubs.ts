@@ -61,7 +61,6 @@ export function stubTarget(fields: Partial<ConformanceTarget> = {}): Conformance
   return { name: "stub", createStorage: () => stubStorage(), ...fields };
 }
 
-/** The case a test reads, which is missing where the suite no longer holds that name. */
 export function caseNamed(name: string): ConformanceCaseSource {
   const source = conformanceCaseSources.find((one) => one.name === name);
 

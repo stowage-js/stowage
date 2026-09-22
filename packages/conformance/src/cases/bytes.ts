@@ -33,7 +33,6 @@ export function streamOf(
   });
 }
 
-/** What a stream yielded, joined, which is how a case reads a body `stream()` handed it. */
 export async function collect(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
   const chunks: Uint8Array[] = [];
   let size = 0;

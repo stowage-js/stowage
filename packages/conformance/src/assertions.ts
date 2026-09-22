@@ -1,6 +1,7 @@
 import {
   type CapabilityName,
   isStorageError,
+  type ObjectStat,
   type StorageError,
   type StorageErrorCode,
 } from "@stowage/core";
@@ -26,6 +27,28 @@ export function assertSameBytes(actual: Uint8Array, expected: Uint8Array, what: 
     assert(
       actual[index] === expected[index],
       `${what} holds ${actual[index]} at byte ${index}, and not the ${expected[index]} that was written`,
+    );
+  }
+}
+
+/** What two reads of one object are held against each other on, `===` telling them apart. */
+export type ComparedStatField = "key" | "size" | "contentType" | "etag";
+
+/**
+ * Two descriptions of one object, on the fields the row of spec 8.5 names. Spec 4.4
+ * leaves `lastModified` free to differ between a write and a later read by the
+ * provider's rounding, so a row names its fields rather than the whole description.
+ */
+export function assertSameDescription(
+  one: ObjectStat,
+  other: ObjectStat,
+  fields: readonly ComparedStatField[],
+  what: string,
+): void {
+  for (const field of fields) {
+    assert(
+      one[field] === other[field],
+      `${what} report \`${field}\` as ${JSON.stringify(one[field])} and ${JSON.stringify(other[field])}`,
     );
   }
 }
@@ -118,7 +141,6 @@ export async function expectUnsupported(
   }
 }
 
-/** The value the call rejected with; a call that resolves fails the expectation itself. */
 async function rejectionOf(call: () => Promise<unknown>, expectation: string): Promise<unknown> {
   try {
     await call();

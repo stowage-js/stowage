@@ -3,6 +3,7 @@ import type { ObjectStat, PutBody, PutOptions } from "@stowage/core";
 import {
   assert,
   assertSameBytes,
+  assertSameDescription,
   expectRuntimeError,
   expectStorageError,
   expectUnsupported,
@@ -39,7 +40,12 @@ export const putCases: readonly ConformanceCaseSource[] = [
       const stored = await ctx.storage.get(key);
 
       assertSameBytes(await stored.bytes(), bytes, "the body `get` read back");
-      assertDescribeAlike(written, await ctx.storage.stat(key));
+      assertSameDescription(
+        written,
+        await ctx.storage.stat(key),
+        ["key", "size", "contentType"],
+        "`put` and a later `stat`",
+      );
     },
   },
   {
@@ -216,14 +222,14 @@ export const putCases: readonly ConformanceCaseSource[] = [
       const bytes = patternOf(16);
 
       await Promise.all(
-        refused.map(async ({ label, key, existsIsFalse }) => {
+        refused.map(async ({ label, key, asksExists }) => {
           await expectStorageError(
             () => ctx.storage.put(key, bytes),
             { code: "InvalidKey", attempts: 0 },
             label,
           );
 
-          if (!existsIsFalse) return;
+          if (!asksExists) return;
 
           assert(
             !(await ctx.storage.exists(key)),
@@ -374,18 +380,6 @@ export const putCases: readonly ConformanceCaseSource[] = [
     },
   },
 ];
-
-// Spec 4.4 leaves `lastModified` free to differ between the write and a later read by
-// the provider's rounding and `etag` to the provider, so the three fields the row of
-// spec 8.5 names are the three that are compared.
-function assertDescribeAlike(written: ObjectStat, read: ObjectStat): void {
-  for (const field of ["key", "size", "contentType"] as const) {
-    assert(
-      written[field] === read[field],
-      `\`put\` reported \`${field}: ${JSON.stringify(written[field])}\` and \`stat\` ${JSON.stringify(read[field])}`,
-    );
-  }
-}
 
 function assertContentType(described: ObjectStat, expected: string, where: string): void {
   assert(
