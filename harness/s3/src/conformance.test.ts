@@ -43,7 +43,7 @@ const covered = (source: ConformanceCaseSource): boolean =>
 const configured = configuredStorage();
 const denied = configured === undefined ? undefined : storageWithDeniedCredentials(configured);
 
-/** ADR 0012: a run without an endpoint fails, and one failure says why (see below). */
+/** ADR 0012: a run without an endpoint fails rather than passing with the tier skipped. */
 function endpointOrFail(): S3AdapterOptions {
   if (configured === undefined) {
     throw new Error("No S3 endpoint is configured; see `harness/s3/README.md`");

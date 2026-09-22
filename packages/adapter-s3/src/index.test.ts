@@ -607,3 +607,26 @@ test("`copy` of a key onto itself is `InvalidRequest` before any request", async
   expect(failure.attempts).toBe(0);
   expect(sent).toHaveLength(0);
 });
+
+// Spec 7.5: the group is a transport failure that received no response plus `408`, `429`
+// and every `5xx`. No provider code adds to it and none removes from it (ADR 0013).
+test.each([408, 429, 500, 502, 503])("a %i is repeated on the budget", async (status) => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+  const sent = stubFetch(() => refused(status, "NothingThisTableHolds", "Try again"));
+
+  const failure = await rejection(async () => await s3Storage(options()).get("object.txt"));
+
+  expect(failure.retryable).toBe(true);
+  expect(failure.attempts).toBe(3);
+  expect(sent).toHaveLength(3);
+});
+
+test.each([400, 403, 404, 409])("a %i is not repeated", async (status) => {
+  const sent = stubFetch(() => refused(status, "NothingThisTableHolds", "No."));
+
+  const failure = await rejection(async () => await s3Storage(options()).get("object.txt"));
+
+  expect(failure.retryable).toBe(false);
+  expect(failure.attempts).toBe(1);
+  expect(sent).toHaveLength(1);
+});

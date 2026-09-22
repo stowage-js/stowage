@@ -7,25 +7,15 @@ import { listOptionKeys, optionError, requireKnownOptions } from "./options.ts";
 const defaultPageSize = 1000;
 const maxPageSize = 1000;
 
-export interface ListRequest {
-  readonly prefix: string;
-  readonly delimiter?: string;
-  readonly pageSize: number;
-  /** The continuation token the page before this one ended with. */
-  readonly cursor?: string;
-}
-
 /**
- * The listing one reader asks for. Spec 4.6 has `list` send nothing until it is read, so
- * an option arrives here from the reader that asked rather than from `list` itself, and
- * what it refuses is refused before any request.
+ * Everything spec 4.11 has `list` refuse without asking the provider. Spec 4.6 has the
+ * listing send nothing until it is read, so this runs from the reader that asked rather
+ * than from `list` itself. The `cursor` is the one option left to the provider: spec 7.9
+ * reads the `InvalidArgument` it answers as `InvalidOption` naming the option.
  */
-export function readListOptions(bucket: string, options: ListOptions | undefined): ListRequest {
+export function requireListOptions(bucket: string, options: ListOptions | undefined): void {
   requireKnownOptions(bucket, options, listOptionKeys, "list");
-
-  const prefix = options?.prefix ?? "";
-
-  requireKey(bucket, prefix, "prefix", "list");
+  requireKey(bucket, options?.prefix ?? "", "prefix", "list");
 
   const pageSize = options?.pageSize ?? defaultPageSize;
 
@@ -36,8 +26,4 @@ export function readListOptions(bucket: string, options: ListOptions | undefined
   if (options?.delimiter === "") {
     throw optionError(bucket, "delimiter", "takes at least one character", "list");
   }
-
-  // A cursor is the provider's continuation token and is refused where it is spent: spec
-  // 7.9 reads the `InvalidArgument` it answers as `InvalidOption` naming `cursor`.
-  return { prefix, delimiter: options?.delimiter, pageSize, cursor: options?.cursor };
 }

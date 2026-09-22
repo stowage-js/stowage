@@ -5,7 +5,7 @@ import type { S3Configuration } from "./configuration.ts";
 import { resolveCredentials } from "./credentials.ts";
 import { readErrorDocument, type S3ErrorDocument } from "./error-document.ts";
 import { sha256Hex } from "./hash.ts";
-import { type ProviderFailure, readProviderFailure } from "./provider-code.ts";
+import { readProviderFailure } from "./provider-code.ts";
 import { signRequest } from "./sign.ts";
 import { inStorage, s3Error } from "./storage-error.ts";
 
@@ -34,10 +34,13 @@ const service = "s3";
 export async function send(configuration: S3Configuration, request: S3Request): Promise<Response> {
   const payloadHash = await sha256Hex(request.body ?? emptyBody);
 
-  return await withRetry(async () => await attempt(configuration, request, payloadHash), {
-    maxAttempts: configuration.maxAttempts,
-    signal: request.signal,
-  });
+  return await withRetry(
+    async () => await attemptWithRefresh(configuration, request, payloadHash),
+    {
+      maxAttempts: configuration.maxAttempts,
+      signal: request.signal,
+    },
+  );
 }
 
 /**
@@ -47,21 +50,22 @@ export async function send(configuration: S3Configuration, request: S3Request): 
  * not switch that repeat off, so an attempt costs one request or two and an operation at
  * most six (ADR 0013).
  */
-async function attempt(
+async function attemptWithRefresh(
   configuration: S3Configuration,
   request: S3Request,
   payloadHash: string,
 ): Promise<Response> {
   try {
-    return await perform(configuration, request, payloadHash, false, 1);
+    return await attemptOnce(configuration, request, payloadHash, false, 1);
   } catch (failure) {
     if (!isStorageError(failure) || failure.code !== "Expired") throw failure;
 
-    return await perform(configuration, request, payloadHash, true, 2);
+    return await attemptOnce(configuration, request, payloadHash, true, 2);
   }
 }
 
-async function perform(
+/** One signed request, which is the attempt CONTEXT.md names and what a repeat repeats. */
+async function attemptOnce(
   configuration: S3Configuration,
   request: S3Request,
   payloadHash: string,
@@ -137,11 +141,18 @@ async function failureOf(
   attempts: number,
 ): Promise<StorageError> {
   const document = await readFailure(request, response);
-  const failure = readProviderFailure(document.code, response.status, request.operation);
+  const failure = readProviderFailure({
+    status: response.status,
+    operation: request.operation,
+    method: request.method,
+    providerCode: document.code,
+    providerMessage: document.message,
+    bucketRegion: response.headers.get("x-amz-bucket-region") ?? undefined,
+  });
 
   return s3Error(configuration.bucket, {
     code: failure.code,
-    message: messageFor(failure, document, request, response),
+    message: failure.message,
     operation: request.operation,
     key: request.key,
     attempts,
@@ -170,32 +181,6 @@ async function readFailure(request: S3Request, response: Response): Promise<S3Er
     // A body that broke on the way says nothing the status has not said already.
     return {};
   }
-}
-
-function messageFor(
-  failure: ProviderFailure,
-  document: S3ErrorDocument,
-  request: S3Request,
-  response: Response,
-): string {
-  // Spec 4.10 passes the provider's message on word for word. Where it sent none, the
-  // status is the whole of what there is to say.
-  const said =
-    document.message ?? `The provider answered ${response.status} to \`${request.method}\``;
-
-  if (failure.option === "region") {
-    const region = response.headers.get("x-amz-bucket-region");
-
-    return `The option \`region\` is not the bucket's${
-      region === null ? "" : `, which is \`${region}\``
-    }: ${said}`;
-  }
-
-  if (failure.option === "cursor") {
-    return `The option \`cursor\` is not one the provider continued from: ${said}`;
-  }
-
-  return said;
 }
 
 // Spec 4.10: an aborted signal produces the runtime's `AbortError` and never a

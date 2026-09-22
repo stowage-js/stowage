@@ -18,7 +18,7 @@ import {
 import { readConfiguration, type S3AdapterOptions, type S3Configuration } from "./configuration.ts";
 import { defaultContentType, describeResponse, describeWrite } from "./description.ts";
 import { requireKey } from "./key.ts";
-import { readListOptions } from "./listing.ts";
+import { requireListOptions } from "./listing.ts";
 import {
   getOptionKeys,
   operationOptionKeys,
@@ -132,19 +132,19 @@ class SimpleStorageServiceStorage implements S3Storage {
    * request itself and the parser that reads its answer arrive with the listing.
    */
   list(options?: ListOptions): ObjectListing {
-    const readOptions = (): void => {
-      readListOptions(this.bucket, options);
+    const refuseOptions = (): void => {
+      requireListOptions(this.bucket, options);
     };
 
     return {
       async page(): Promise<ListPage> {
-        readOptions();
+        refuseOptions();
 
         throw notBuiltYet("list");
       },
 
       [Symbol.asyncIterator](): AsyncIterator<ObjectEntry> {
-        readOptions();
+        refuseOptions();
 
         throw notBuiltYet("list");
       },

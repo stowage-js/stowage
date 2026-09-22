@@ -41,39 +41,64 @@ const providerCodes: ReadonlyMap<string, StorageErrorCode> = new Map([
   ["RequestTimeout", "ProviderError"],
 ]);
 
-/** The option a refused request names, where spec 7.9 has it name one (spec 4.3). */
-export type RefusedOption = "cursor" | "region";
+/** What a provider answered a request with, as much of it as spec 7.9 reads. */
+export interface ProviderAnswer {
+  readonly status: number;
+  /** The operation the caller invoked, which decides what `InvalidArgument` means. */
+  readonly operation: string;
+  /** The method, which says what a provider that sent no message answered to. */
+  readonly method: string;
+  readonly providerCode?: string;
+  readonly providerMessage?: string;
+  /** `x-amz-bucket-region`, the region a redirect says the bucket is really in. */
+  readonly bucketRegion?: string;
+}
 
 export interface ProviderFailure {
   readonly code: StorageErrorCode;
-  readonly option?: RefusedOption;
+  readonly message: string;
 }
 
 // Spec 7.1: the bucket lives in another region than the one the request was signed for.
 const permanentRedirect = 301;
 
 /**
- * What the provider's answer means, from its own code where the table recognizes one and
- * from the status where it does not.
+ * What the provider's answer means, decided by its own code where the table recognizes
+ * one and by the status where it does not. The message is the provider's word for word
+ * (spec 4.10), except where spec 7.9 has the failure name the option that is wrong: a
+ * caller can act on `region` and on `cursor`, and cannot on a message about either.
  */
-export function readProviderFailure(
-  providerCode: string | undefined,
-  status: number,
-  operation: string,
-): ProviderFailure {
+export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
+  // Spec 4.10: where the provider sent no message, the status is the whole of what there
+  // is to say — a `HEAD` carries no body to read one out of.
+  const said =
+    answer.providerMessage ?? `The provider answered ${answer.status} to \`${answer.method}\``;
+
   // Spec 7.1 reads a `301` as a `region` the caller configured wrong, and a `HEAD` that
   // meets one carries no body to read `PermanentRedirect` out of, so the status says it.
-  if (status === permanentRedirect || providerCode === "PermanentRedirect") {
-    return { code: "InvalidOption", option: "region" };
+  if (answer.status === permanentRedirect || answer.providerCode === "PermanentRedirect") {
+    const region = answer.bucketRegion === undefined ? "" : `, which is \`${answer.bucketRegion}\``;
+
+    return {
+      code: "InvalidOption",
+      message: `The option \`region\` is not the bucket's${region}: ${said}`,
+    };
   }
 
   // Spec 7.9: `InvalidArgument` answered to a listing is the provider refusing the
   // continuation token, which reaches the caller as the `cursor` they handed `list`.
-  if (providerCode === "InvalidArgument" && operation === "list") {
-    return { code: "InvalidOption", option: "cursor" };
+  if (answer.providerCode === "InvalidArgument" && answer.operation === "list") {
+    return {
+      code: "InvalidOption",
+      message: `The option \`cursor\` is not one the provider continued from: ${said}`,
+    };
   }
 
-  const recognized = providerCode === undefined ? undefined : providerCodes.get(providerCode);
+  const recognized =
+    answer.providerCode === undefined ? undefined : providerCodes.get(answer.providerCode);
 
-  return { code: recognized ?? errorCodeForStatus(status) ?? "ProviderError" };
+  return {
+    code: recognized ?? errorCodeForStatus(answer.status) ?? "ProviderError",
+    message: said,
+  };
 }
