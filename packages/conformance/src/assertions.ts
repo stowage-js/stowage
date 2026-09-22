@@ -11,8 +11,9 @@ export function assert(condition: boolean, message: string): asserts condition {
 }
 
 /**
- * Spec 8.2: a call needing a capability the storage does not declare rejects with
- * `Unsupported` naming it, which is what most of the `runWithout` halves assert.
+ * Spec 4.9 leaves a call needing a capability the storage does not declare with an
+ * `Unsupported` error naming it, and spec 8.2 has most of the `runWithout` halves assert
+ * that through this.
  */
 export async function expectUnsupported(
   call: () => Promise<unknown>,
