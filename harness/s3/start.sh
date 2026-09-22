@@ -21,4 +21,6 @@ export STOWAGE_S3_REGION=us-east-1
 export STOWAGE_S3_FORCE_PATH_STYLE=true
 export AWS_ACCESS_KEY_ID=stowage
 export AWS_SECRET_ACCESS_KEY=stowage-secret
+export STOWAGE_S3_DENIED_ACCESS_KEY_ID=stowage-readonly
+export STOWAGE_S3_DENIED_SECRET_ACCESS_KEY=stowage-readonly-secret
 ENVIRONMENT

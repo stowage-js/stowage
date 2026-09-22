@@ -26,3 +26,31 @@ export function configuredStorage(): S3AdapterOptions | undefined {
     credentials: fromEnv,
   };
 }
+
+/**
+ * Spec 8.3: a credential the provider refuses. No identity is configured for it — a key
+ * id no provider ever issued is refused by every one of them.
+ */
+export function storageWithBadCredentials(configured: S3AdapterOptions): S3AdapterOptions {
+  return {
+    ...configured,
+    credentials: { accessKeyId: "stowage-no-such-identity", secretAccessKey: "nor-this-secret" },
+  };
+}
+
+/**
+ * Spec 8.3: a credential the provider accepts and refuses the write to. It reads and
+ * lists and may not write, which is what tells the `403` that means this caller may not
+ * do this from the two that fail to authenticate.
+ */
+export function storageWithDeniedCredentials(
+  configured: S3AdapterOptions,
+): S3AdapterOptions | undefined {
+  const accessKeyId = env["STOWAGE_S3_DENIED_ACCESS_KEY_ID"];
+  const secretAccessKey = env["STOWAGE_S3_DENIED_SECRET_ACCESS_KEY"];
+
+  if (accessKeyId === undefined || accessKeyId === "") return undefined;
+  if (secretAccessKey === undefined || secretAccessKey === "") return undefined;
+
+  return { ...configured, credentials: { accessKeyId, secretAccessKey } };
+}

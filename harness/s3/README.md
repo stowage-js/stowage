@@ -26,10 +26,19 @@ reads:
 | `AWS_ACCESS_KEY_ID`           | Read by `fromEnv`                                      |
 | `AWS_SECRET_ACCESS_KEY`       | Read by `fromEnv`                                      |
 
+The credential the provider accepts and refuses a write to, which spec 8.3 asks a target
+for, is the second identity of `s3.json` and reaches the run through two more variables.
+Without them the case that needs it reports as skipped.
+
+| Variable                              | What it names                                      |
+| ------------------------------------- | -------------------------------------------------- |
+| `STOWAGE_S3_DENIED_ACCESS_KEY_ID`     | An identity that reads and lists and may not write |
+| `STOWAGE_S3_DENIED_SECRET_ACCESS_KEY` | Its secret                                         |
+
 Docker is required. Without `STOWAGE_S3_ENDPOINT` the run fails rather than passing with
 the tier skipped (ADR 0012), and CI starts `compose.yml` itself before `pnpm test`.
 
-The credential in `s3.json` is this container's and nothing else's: it authenticates a
+The credentials in `s3.json` are this container's and nothing else's: they authenticate a
 local emulator holding a run's throwaway objects.
 
 ## What is not here yet
