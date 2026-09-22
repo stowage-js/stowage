@@ -1,3 +1,4 @@
+import type { CapabilityName } from "./capabilities.ts";
 import type { StorageError } from "./errors.ts";
 
 export type PutBody = Uint8Array | string | ReadableStream<Uint8Array>;
@@ -8,6 +9,17 @@ export interface OperationOptions {
 
 export interface PutOptions extends OperationOptions {
   contentType?: string;
+  userMetadata?: Record<string, string>;
+}
+
+/** Both ends inclusive; `end` absent means to the end of the object. */
+export interface ByteRange {
+  start: number;
+  end?: number;
+}
+
+export interface GetOptions extends OperationOptions {
+  range?: ByteRange;
 }
 
 export interface ListOptions extends OperationOptions {
@@ -55,9 +67,11 @@ export interface DeleteReport {
 export interface Storage {
   readonly provider: string;
   readonly bucket: string;
+  /** Every capability the storage implements, each once, fixed when it was constructed. */
+  readonly capabilities: readonly CapabilityName[];
 
   put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat>;
-  get(key: string, options?: OperationOptions): Promise<StoredObject>;
+  get(key: string, options?: GetOptions): Promise<StoredObject>;
   stat(key: string, options?: OperationOptions): Promise<ObjectStat>;
   exists(key: string, options?: OperationOptions): Promise<boolean>;
   list(options?: ListOptions): ObjectListing;

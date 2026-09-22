@@ -7,7 +7,9 @@ export {
 } from "./errors.ts";
 export { invalidKeyReason, type KeyRule } from "./keys.ts";
 export type {
+  ByteRange,
   DeleteReport,
+  GetOptions,
   ListOptions,
   ListPage,
   ObjectEntry,

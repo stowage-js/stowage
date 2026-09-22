@@ -1,5 +1,7 @@
 import type {
+  CapabilityName,
   DeleteReport,
+  GetOptions,
   ListOptions,
   ObjectEntry,
   ObjectListing,
@@ -12,12 +14,20 @@ import type {
   StoredObject,
 } from "@stowage/core";
 
-import { readBody } from "./bytes.ts";
+import { cancelBody, readBody } from "./bytes.ts";
 import { etagOf } from "./etag.ts";
 import { keyError, requireKey } from "./key.ts";
 import { createListing } from "./listing.ts";
+import {
+  getOptionKeys,
+  operationOptionKeys,
+  putOptionKeys,
+  requireKnownOptions,
+} from "./options.ts";
+import { requireRange, sliceRange } from "./range.ts";
 import { memoryError } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
+import { readUserMetadata } from "./user-metadata.ts";
 
 export interface MemoryStorage extends Storage {
   readonly provider: "memory";
@@ -29,10 +39,19 @@ export function memoryStorage(): MemoryStorage {
 
 const defaultContentType = "application/octet-stream";
 
+// One frozen array behind every storage: the declaration is fixed once the storage is
+// constructed, and a caller reaching past the `readonly` type reaches all of them.
+const memoryCapabilities: readonly CapabilityName[] = Object.freeze([
+  "keyBytesPreserved",
+  "rangeReads",
+  "userMetadata",
+] as const);
+
 interface MemoryObject {
   readonly key: string;
   readonly bytes: Uint8Array<ArrayBuffer>;
   readonly contentType: string;
+  readonly userMetadata: Readonly<Record<string, string>>;
   readonly etag: string;
   readonly lastModified: Date;
 }
@@ -40,17 +59,18 @@ interface MemoryObject {
 class InMemoryStorage implements MemoryStorage {
   readonly provider = "memory" as const;
   readonly bucket: string = "memory";
+  readonly capabilities: readonly CapabilityName[] = memoryCapabilities;
 
   readonly #objects = new Map<string, MemoryObject>();
 
   async put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat> {
-    requireKey(key, "writable", "put");
-
+    const userMetadata = await this.#accept(key, body, options);
     const bytes = await readBody(body, options?.signal);
     const object: MemoryObject = {
       key,
       bytes,
       contentType: options?.contentType ?? defaultContentType,
+      userMetadata,
       etag: await etagOf(bytes),
       lastModified: new Date(),
     };
@@ -60,18 +80,46 @@ class InMemoryStorage implements MemoryStorage {
     return describe(object);
   }
 
-  async get(key: string, options?: OperationOptions): Promise<StoredObject> {
+  /**
+   * What `put` checks in front of the body, answering with the metadata to hold. Spec 4.2
+   * leaves a stream at its end or canceled once `put` settled, so a refusal here cancels
+   * the body it is not going to read.
+   */
+  async #accept(
+    key: string,
+    body: PutBody,
+    options?: PutOptions,
+  ): Promise<Readonly<Record<string, string>>> {
+    try {
+      requireKey(key, "writable", "put");
+      requireKnownOptions(options, putOptionKeys, "put");
+
+      return readUserMetadata(options?.userMetadata, key);
+    } catch (refusal) {
+      try {
+        await cancelBody(body, refusal);
+      } finally {
+        // oxlint-disable-next-line no-unsafe-finally -- The original refusal wins over a cancel failure.
+        throw refusal;
+      }
+    }
+  }
+
+  async get(key: string, options?: GetOptions): Promise<StoredObject> {
     requireKey(key, "addressable", "get");
+    requireKnownOptions(options, getOptionKeys, "get");
+    requireRange(options?.range);
 
     options?.signal?.throwIfAborted();
 
     const object = this.#require(key, "get");
 
-    return createStoredObject(describe(object), object.bytes);
+    return createStoredObject(describe(object), sliceRange(object.bytes, options?.range, key));
   }
 
   async stat(key: string, options?: OperationOptions): Promise<ObjectStat> {
     requireKey(key, "addressable", "stat");
+    requireKnownOptions(options, operationOptionKeys, "stat");
 
     options?.signal?.throwIfAborted();
 
@@ -80,6 +128,7 @@ class InMemoryStorage implements MemoryStorage {
 
   async exists(key: string, options?: OperationOptions): Promise<boolean> {
     requireKey(key, "addressable", "exists");
+    requireKnownOptions(options, operationOptionKeys, "exists");
 
     options?.signal?.throwIfAborted();
 
@@ -105,6 +154,7 @@ class InMemoryStorage implements MemoryStorage {
 
   async deleteAll(prefix: string, options?: OperationOptions): Promise<DeleteReport> {
     requireKey(prefix, "prefix", "deleteAll");
+    requireKnownOptions(options, operationOptionKeys, "deleteAll");
 
     options?.signal?.throwIfAborted();
 
@@ -130,6 +180,7 @@ class InMemoryStorage implements MemoryStorage {
   #copy(from: string, to: string, operation: string, options?: OperationOptions): ObjectStat {
     requireKey(from, "addressable", operation);
     requireKey(to, "writable", operation);
+    requireKnownOptions(options, operationOptionKeys, operation);
 
     options?.signal?.throwIfAborted();
 
@@ -179,7 +230,7 @@ class InMemoryStorage implements MemoryStorage {
 }
 
 function describe(object: MemoryObject): ObjectStat {
-  return { ...entryOf(object), contentType: object.contentType, userMetadata: {} };
+  return { ...entryOf(object), contentType: object.contentType, userMetadata: object.userMetadata };
 }
 
 // What a listing yields carries neither the content type nor the user metadata, because

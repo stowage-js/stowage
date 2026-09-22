@@ -1,6 +1,8 @@
 import {
+  capabilityNames,
   isStorageError,
   type ObjectListing,
+  type PutOptions,
   type StorageError,
   type StoredObject,
 } from "@stowage/core";
@@ -54,6 +56,13 @@ const storageWith = async (...keys: readonly string[]): Promise<MemoryStorage> =
   return storage;
 };
 
+/**
+ * An option key the spec does not list. TypeScript refuses one at the call site, so it
+ * reaches a call from plain JavaScript alone.
+ */
+const withUnknownOption = <T extends object>(options: T): T =>
+  Object.assign({}, options, { retries: 3 });
+
 /** Order is not promised, so every assertion over a whole listing sorts first. */
 const iterate = async (listing: ObjectListing): Promise<string[]> => {
   const keys: string[] = [];
@@ -68,6 +77,27 @@ test("names the provider and the bucket it is bound to", () => {
 
   expect(storage.provider).toBe("memory");
   expect(storage.bucket).toBe("memory");
+});
+
+test("declares the capabilities it implements", () => {
+  expect(memoryStorage().capabilities.toSorted()).toEqual([
+    "keyBytesPreserved",
+    "rangeReads",
+    "userMetadata",
+  ]);
+});
+
+test("declares a published name at most once", () => {
+  const { capabilities } = memoryStorage();
+
+  expect(new Set(capabilities).size).toBe(capabilities.length);
+  expect(capabilities.filter((name) => !capabilityNames.includes(name))).toEqual([]);
+});
+
+test("hands out a frozen declaration", () => {
+  const { capabilities } = memoryStorage();
+
+  expect(Object.isFrozen(capabilities)).toBe(true);
 });
 
 test("shares nothing with a second storage", async () => {
@@ -189,6 +219,68 @@ test.each([
   expect(error.code).toBe("InvalidRequest");
 });
 
+test("reads the range it was given, both ends inclusive", async () => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello");
+
+  const stored = await storage.get("greeting", { range: { start: 1, end: 3 } });
+
+  expect(await stored.text()).toBe("ell");
+  // The description stays the whole object's, which is what a caller pages through a
+  // large object against (spec 4.4).
+  expect(stored.stat.size).toBe(5);
+  expect(stored.stat.etag).toBe(helloDigest);
+});
+
+test("reads to the end of the object where the range names no end", async () => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello");
+
+  expect(await (await storage.get("greeting", { range: { start: 3 } })).text()).toBe("lo");
+});
+
+test("clips a range that ends beyond the object", async () => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello");
+
+  expect(await (await storage.get("greeting", { range: { start: 3, end: 99 } })).text()).toBe("lo");
+});
+
+test("refuses a range starting at the size of the object", async () => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello");
+
+  const error = await storageErrorOf(storage.get("greeting", { range: { start: 5 } }));
+
+  expect(error.code).toBe("InvalidRequest");
+  expect(error.key).toBe("greeting");
+  expect(error.operation).toBe("get");
+});
+
+test.each([
+  ["a start above the end", { start: 3, end: 1 }],
+  ["a negative start", { start: -1 }],
+  ["a fractional start", { start: 1.5 }],
+  ["a negative end", { start: 0, end: -1 }],
+  ["a fractional end", { start: 0, end: 1.5 }],
+])("refuses a range with %s", async (_name, range) => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello");
+
+  const error = await storageErrorOf(storage.get("greeting", { range }));
+
+  expect(error.code).toBe("InvalidOption");
+  expect(error.message).toContain("range");
+  expect(error.attempts).toBe(0);
+});
+
+test("refuses the bounds of a range before it looks the key up", async () => {
+  const error = await storageErrorOf(memoryStorage().get("absent", { range: { start: -4096 } }));
+
+  expect(error.code).toBe("InvalidOption");
+  expect(error.message).not.toContain("4096");
+});
+
 test("answers for a key that is there", async () => {
   const storage = memoryStorage();
   await storage.put("greeting", "hello");
@@ -230,6 +322,162 @@ test("replaces the bytes and the content type under a key that is taken", async 
 
   expect(await stored.text()).toBe("servus");
   expect(stored.stat.contentType).toBe("text/markdown");
+});
+
+test("carries user metadata through put, stat and get", async () => {
+  const storage = memoryStorage();
+
+  const written = await storage.put("greeting", "hello", {
+    userMetadata: { "Written-By": "stowage", locale: "de-AT" },
+  });
+
+  // A metadata key is a header field name, so it is held folded to lower case and two
+  // keys differing in case alone are one key (spec 4.3).
+  expect(written.userMetadata).toEqual({ "written-by": "stowage", locale: "de-AT" });
+  expect((await storage.stat("greeting")).userMetadata).toEqual(written.userMetadata);
+  expect((await storage.get("greeting")).stat.userMetadata).toEqual(written.userMetadata);
+});
+
+test("holds metadata names inherited from Object.prototype", async () => {
+  const storage = memoryStorage();
+  const userMetadata: Record<string, string> = Object.create(null);
+  userMetadata["constructor"] = "stowage";
+  userMetadata["toString"] = "memory";
+  userMetadata["__proto__"] = "adapter";
+
+  const written = await storage.put("greeting", "hello", { userMetadata });
+
+  expect(written.userMetadata["constructor"]).toBe("stowage");
+  expect(written.userMetadata["tostring"]).toBe("memory");
+  expect(written.userMetadata["__proto__"]).toBe("adapter");
+});
+
+test("holds a metadata value of any Unicode", async () => {
+  const storage = memoryStorage();
+
+  const written = await storage.put("greeting", "hello", {
+    userMetadata: { greeting: "grüße 日本語" },
+  });
+
+  expect(written.userMetadata["greeting"]).toBe("grüße 日本語");
+});
+
+test("replaces the metadata under a key that is taken", async () => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello", { userMetadata: { locale: "de-AT" } });
+
+  await storage.put("greeting", "servus", { userMetadata: {} });
+
+  expect((await storage.stat("greeting")).userMetadata).toEqual({});
+});
+
+test("copies the metadata it was handed", async () => {
+  const storage = memoryStorage();
+  const userMetadata = { locale: "de-AT" };
+
+  await storage.put("greeting", "hello", { userMetadata });
+  userMetadata.locale = "de-DE";
+
+  expect((await storage.stat("greeting")).userMetadata).toEqual({ locale: "de-AT" });
+});
+
+test.each(["copy", "move"] as const)(
+  "carries the metadata of the source through %s",
+  async (operation) => {
+    const storage = memoryStorage();
+    await storage.put("greeting", "hello", { userMetadata: { locale: "de-AT" } });
+
+    const destination = await storage[operation]("greeting", "servus");
+
+    expect(destination.userMetadata).toEqual({ locale: "de-AT" });
+  },
+);
+
+test.each([
+  ["a space", "written by"],
+  ["a colon", "written:by"],
+  ["a slash", "written/by"],
+  ["a question mark", "written?by"],
+  ["a bracket", "written[by]"],
+  ["a control character", "writtenby"],
+  ["a character above ASCII", "grüße"],
+  ["nothing", ""],
+])("refuses a metadata key holding %s", async (_name, key) => {
+  const storage = memoryStorage();
+
+  const error = await storageErrorOf(
+    storage.put("greeting", "hello", { userMetadata: { [key]: "stowage" } }),
+  );
+
+  expect(error.code).toBe("InvalidRequest");
+  expect(error.attempts).toBe(0);
+  expect(error.message).not.toContain("stowage");
+  expect(await storage.exists("greeting")).toBe(false);
+});
+
+test("refuses two metadata keys that differ in case alone", async () => {
+  const storage = memoryStorage();
+
+  const error = await storageErrorOf(
+    storage.put("greeting", "hello", { userMetadata: { Locale: "de-AT", locale: "de-DE" } }),
+  );
+
+  expect(error.code).toBe("InvalidRequest");
+  expect(error.attempts).toBe(0);
+});
+
+test("takes a metadata set of two kilobytes of encoded header bytes", async () => {
+  const storage = memoryStorage();
+
+  const written = await storage.put("greeting", "hello", {
+    userMetadata: { note: "a".repeat(2044) },
+  });
+
+  expect(written.userMetadata["note"]).toHaveLength(2044);
+});
+
+test("refuses a metadata set above two kilobytes of encoded header bytes", async () => {
+  const storage = memoryStorage();
+
+  const error = await storageErrorOf(
+    storage.put("greeting", "hello", { userMetadata: { note: "a".repeat(2045) } }),
+  );
+
+  expect(error.code).toBe("InvalidRequest");
+  expect(error.attempts).toBe(0);
+  expect(await storage.exists("greeting")).toBe(false);
+});
+
+test("counts a metadata value above ASCII as the bytes its encoding costs", async () => {
+  const storage = memoryStorage();
+  // 1600 UTF-8 bytes, which fit under the limit until RFC 2047 encodes them to 2136.
+  const userMetadata = { note: "ü".repeat(800) };
+
+  const error = await storageErrorOf(storage.put("greeting", "hello", { userMetadata }));
+
+  expect(error.code).toBe("InvalidRequest");
+});
+
+test.each([
+  ["put", (storage: MemoryStorage) => storage.put("greeting", "hello", withUnknownOption({}))],
+  ["get", (storage: MemoryStorage) => storage.get("greeting", withUnknownOption({}))],
+  ["stat", (storage: MemoryStorage) => storage.stat("greeting", withUnknownOption({}))],
+  ["exists", (storage: MemoryStorage) => storage.exists("greeting", withUnknownOption({}))],
+  ["deleteAll", (storage: MemoryStorage) => storage.deleteAll("", withUnknownOption({}))],
+  ["copy", (storage: MemoryStorage) => storage.copy("greeting", "servus", withUnknownOption({}))],
+  ["move", (storage: MemoryStorage) => storage.move("greeting", "servus", withUnknownOption({}))],
+  ["list", (storage: MemoryStorage) => storage.list(withUnknownOption({})).page()],
+])("refuses an option key %s does not list", async (operation, call) => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello");
+
+  const error = await storageErrorOf(call(storage));
+
+  expect(error.code).toBe("InvalidOption");
+  expect(error.operation).toBe(operation);
+  expect(error.attempts).toBe(0);
+  expect(error.message).toContain("retries");
+  expect(error.message).not.toContain("3");
 });
 
 test("copies the bytes it was handed", async () => {
@@ -429,6 +677,42 @@ test("stores a key as it was given rather than in a normalized form", async () =
   expect(stat.key).toBe(composed);
   expect(await (await storage.get(composed)).text()).toBe("hello");
   expect(await (await storage.get(decomposed)).text()).toBe("servus");
+  // `keyBytesPreserved`: both keys come back as they were written, rather than in one
+  // Unicode-equivalent form (spec 4.9).
+  expect(await iterate(storage.list())).toEqual([composed, decomposed].toSorted());
+});
+
+test.each<[string, string, PutOptions]>([
+  ["the key", "greeting/", {}],
+  ["an option key", "greeting", withUnknownOption({})],
+  ["a metadata key", "greeting", { userMetadata: { "written by": "stowage" } }],
+])("cancels a stream body where %s makes it refuse the put", async (_name, key, options) => {
+  let canceled = false;
+  const body = new ReadableStream<Uint8Array>({
+    cancel() {
+      canceled = true;
+    },
+  });
+
+  await storageErrorOf(memoryStorage().put(key, body, options));
+
+  expect(canceled).toBe(true);
+});
+
+test("preserves a refusal when canceling a stream body fails", async () => {
+  let canceled = false;
+  const body = new ReadableStream<Uint8Array>({
+    cancel() {
+      canceled = true;
+      throw new Error("cancel failed");
+    },
+  });
+
+  const error = await storageErrorOf(memoryStorage().put("greeting/", body));
+
+  expect(canceled).toBe(true);
+  expect(error.code).toBe("InvalidKey");
+  expect(error.key).toBe("greeting/");
 });
 
 test("stores nothing and reads no body where the key of a put is invalid", async () => {

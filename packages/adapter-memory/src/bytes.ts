@@ -13,6 +13,11 @@ export async function readBody(
   return typeof body === "string" ? new TextEncoder().encode(body) : new Uint8Array(body);
 }
 
+/** Spec 4.2 leaves a stream at its end or canceled once `put` settled, read or not. */
+export async function cancelBody(body: PutBody, reason: unknown): Promise<void> {
+  if (isStream(body)) await body.cancel(reason);
+}
+
 function isStream(body: PutBody): body is ReadableStream<Uint8Array> {
   return typeof body !== "string" && !(body instanceof Uint8Array);
 }
