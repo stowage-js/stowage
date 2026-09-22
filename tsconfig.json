@@ -5,5 +5,11 @@
     // packages without them, so nothing in a published source reaches a Node global.
     "types": ["node"]
   },
-  "include": ["packages/*/src/**/*.ts", "test/**/*.ts", "tsdown.config.ts", "vitest.config.ts"]
+  "include": [
+    "packages/*/src/**/*.ts",
+    "harness/*/src/**/*.ts",
+    "test/**/*.ts",
+    "tsdown.config.ts",
+    "vitest.config.ts"
+  ]
 }
