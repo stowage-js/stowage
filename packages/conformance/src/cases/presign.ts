@@ -11,7 +11,7 @@ const utf8 = new TextEncoder();
 const contentType = "text/plain";
 
 /** Long enough for the case to call the URL, and far below the ceiling of spec 7.10. */
-const lifetime = 300;
+export const presignLifetime: number = 300;
 
 /** The seconds spec 7.10 allows `expiresIn`, which the two refused values sit outside. */
 const refusedLifetimes: readonly number[] = [0, 604_801];
@@ -21,11 +21,11 @@ const refusedLifetimes: readonly number[] = [0, 604_801];
  * behavior, so `Storage` carries neither and the suite reads them off the storage it was
  * handed (ADR 0011). What a storage declaring the capability owes is that they are there.
  */
-type PresignName = "presignGet" | "presignPut";
+export type PresignName = "presignGet" | "presignPut";
 
 const presignNames: readonly PresignName[] = ["presignGet", "presignPut"];
 
-interface PresignOptions {
+export interface PresignOptions {
   readonly expiresIn: number;
   readonly contentType?: string;
   readonly contentLength?: number;
@@ -43,7 +43,9 @@ export const presignCases: readonly ConformanceCaseSource[] = [
       await ctx.storage.put(key, body, { contentType });
 
       const described = await ctx.storage.stat(key);
-      const response = await fetch(await sign(ctx, "presignGet", key, { expiresIn: lifetime }));
+      const response = await fetch(
+        await signedUrl(ctx, "presignGet", key, { expiresIn: presignLifetime }),
+      );
 
       assertStatus(response.status, 200, "`fetch` on a signed `GET`");
       assertHeader(response, "content-type", described.contentType);
@@ -62,8 +64,8 @@ export const presignCases: readonly ConformanceCaseSource[] = [
     async run(ctx) {
       const key = keyFor(ctx, "presign/put", "object.txt");
       const body = utf8.encode("the body a signed `PUT` takes");
-      const url = await sign(ctx, "presignPut", key, {
-        expiresIn: lifetime,
+      const url = await signedUrl(ctx, "presignPut", key, {
+        expiresIn: presignLifetime,
         contentType,
         contentLength: body.byteLength,
       });
@@ -126,8 +128,8 @@ export const presignCases: readonly ConformanceCaseSource[] = [
     async run(ctx) {
       const key = keyFor(ctx, "presign/put-rejects-type", "object.txt");
       const body = utf8.encode("a body of another type than the signature binds");
-      const url = await sign(ctx, "presignPut", key, {
-        expiresIn: lifetime,
+      const url = await signedUrl(ctx, "presignPut", key, {
+        expiresIn: presignLifetime,
         contentType,
         contentLength: body.byteLength,
       });
@@ -150,8 +152,8 @@ export const presignCases: readonly ConformanceCaseSource[] = [
     async run(ctx) {
       const key = keyFor(ctx, "presign/put-rejects-length", "object.txt");
       const body = utf8.encode("a body longer than the signature binds");
-      const url = await sign(ctx, "presignPut", key, {
-        expiresIn: lifetime,
+      const url = await signedUrl(ctx, "presignPut", key, {
+        expiresIn: presignLifetime,
         contentType,
         contentLength: body.byteLength - 1,
       });
@@ -182,7 +184,7 @@ export const presignCases: readonly ConformanceCaseSource[] = [
       // key being absent.
       await ctx.storage.put(key, "the body the URL stops handing out", { contentType });
 
-      const url = await sign(ctx, "presignGet", key, { expiresIn: 1 });
+      const url = await signedUrl(ctx, "presignGet", key, { expiresIn: 1 });
 
       await delay(2000);
 
@@ -197,7 +199,7 @@ export const presignCases: readonly ConformanceCaseSource[] = [
  * storage that declares no `presignedUrls`, so there is no call that could fail with
  * `Unsupported` and the absence itself is what the half reads.
  */
-async function assertNeitherMethod(ctx: ConformanceContext): Promise<void> {
+export async function assertNeitherMethod(ctx: ConformanceContext): Promise<void> {
   for (const name of presignNames) {
     assert(
       !(name in ctx.storage),
@@ -207,7 +209,7 @@ async function assertNeitherMethod(ctx: ConformanceContext): Promise<void> {
 }
 
 /** The URL the method handed back, which a target may report as anything at runtime. */
-async function sign(
+export async function signedUrl(
   ctx: ConformanceContext,
   name: PresignName,
   key: string,
