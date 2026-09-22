@@ -57,6 +57,36 @@ function accepted(): Response {
   });
 }
 
+/** The error document a provider answers every failed request but a `HEAD` with. */
+function refused(
+  status: number,
+  code: string,
+  message: string,
+  headers: Record<string, string> = {},
+): Response {
+  return new Response(
+    `<?xml version="1.0" encoding="UTF-8"?>\n<Error><Code>${code}</Code><Message>${message}</Message><Resource>/stowage/object.txt</Resource><RequestId>abc</RequestId></Error>`,
+    {
+      status,
+      headers: { "content-type": "application/xml", "x-amz-request-id": "abc", ...headers },
+    },
+  );
+}
+
+/** The delay of every wait, with the timer itself fired at once so the run goes on. */
+function recordedDelays(): number[] {
+  const delays: number[] = [];
+  const fire = globalThis.setTimeout;
+
+  vi.stubGlobal("setTimeout", (handler: () => void, milliseconds?: number): unknown => {
+    delays.push(milliseconds ?? 0);
+
+    return fire(handler, 0);
+  });
+
+  return delays;
+}
+
 const credentials = { accessKeyId: "AKIDEXAMPLE", secretAccessKey: "secret" };
 
 function options(overrides: Partial<S3AdapterOptions> = {}): S3AdapterOptions {
@@ -313,13 +343,9 @@ test("`retry: false` limits a transport failure to one attempt", async () => {
   expect(sent).toHaveLength(1);
 });
 
-test("transient responses are canceled, re-signed and retried", async () => {
+test("transient responses are re-signed and retried", async () => {
   vi.spyOn(Math, "random").mockReturnValue(0);
-  const canceled = vi.fn<() => void>();
-  const responses = [
-    new Response(new ReadableStream({ cancel: canceled }), { status: 503 }),
-    storedResponse("stored"),
-  ];
+  const responses = [refused(503, "SlowDown", "Please reduce your request rate")];
   const sent = stubFetch(() => responses.shift() ?? storedResponse("stored"));
   const held = [
     { ...credentials, accessKeyId: "FIRST" },
@@ -329,46 +355,167 @@ test("transient responses are canceled, re-signed and retried", async () => {
 
   await s3Storage(options({ credentials: resolve })).get("object.txt");
 
-  expect(canceled).toHaveBeenCalledOnce();
   expect(resolve).toHaveBeenCalledTimes(2);
   expect(sent).toHaveLength(2);
   expect(sent[0]?.headers.get("authorization")).toContain("Credential=FIRST/");
   expect(sent[1]?.headers.get("authorization")).toContain("Credential=SECOND/");
 });
 
-test("a final transient response preserves its attempt count and cancels every response", async () => {
+test("a final transient response preserves its attempt count", async () => {
   vi.spyOn(Math, "random").mockReturnValue(0);
-  const canceled = vi.fn<() => void>();
-  const sent = stubFetch(
-    () => new Response(new ReadableStream({ cancel: canceled }), { status: 503 }),
-  );
+  const sent = stubFetch(() => refused(503, "SlowDown", "Please reduce your request rate"));
 
   const failure = await rejection(
     async () => await s3Storage(options({ retry: { maxAttempts: 2 } })).get("object.txt"),
   );
 
+  expect(failure.code).toBe("ProviderError");
   expect(failure.status).toBe(503);
+  expect(failure.providerCode).toBe("SlowDown");
+  expect(failure.message).toBe("Please reduce your request rate");
   expect(failure.retryable).toBe(true);
   expect(failure.attempts).toBe(2);
-  expect(canceled).toHaveBeenCalledTimes(2);
   expect(sent).toHaveLength(2);
+});
+
+// Spec 7.5: neither promised provider sends `Retry-After` on its S3 API, and the adapter
+// honors no header it could not test against the endpoint of ADR 0012.
+test("the wait is the backoff curve and never a `Retry-After`", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(1);
+  const delays = recordedDelays();
+
+  stubFetch(() => refused(503, "SlowDown", "Slow down", { "retry-after": "120" }));
+
+  await rejection(async () => await s3Storage(options()).get("object.txt"));
+
+  expect(delays).toEqual([200, 400]);
 });
 
 test("an abort interrupts the wait before another attempt", async () => {
   vi.spyOn(Math, "random").mockReturnValue(0.5);
   const controller = new AbortController();
-  const canceled = vi.fn<() => void>(() => {
+  const sent = stubFetch(() => {
     setTimeout(() => controller.abort(), 0);
+
+    return refused(503, "SlowDown", "Please reduce your request rate");
   });
-  const sent = stubFetch(
-    () => new Response(new ReadableStream({ cancel: canceled }), { status: 503 }),
-  );
 
   await expect(
     s3Storage(options()).get("object.txt", { signal: controller.signal }),
   ).rejects.toThrow(expect.objectContaining({ name: "AbortError" }));
-  expect(canceled).toHaveBeenCalledOnce();
   expect(sent).toHaveLength(1);
+});
+
+test("the provider's code decides the error and its message travels word for word", async () => {
+  stubFetch(() => refused(404, "NoSuchKey", "The specified key does not exist."));
+
+  const failure = await rejection(async () => await s3Storage(options()).get("absent.txt"));
+
+  expect(failure.code).toBe("NotFound");
+  expect(failure.providerCode).toBe("NoSuchKey");
+  expect(failure.message).toBe("The specified key does not exist.");
+  expect(failure.status).toBe(404);
+  expect(failure.requestId).toBe("abc");
+  expect(failure.retryable).toBe(false);
+});
+
+test("a provider code the table does not hold falls to the status", async () => {
+  stubFetch(() => refused(403, "SomethingNewEntirely", "No."));
+
+  const failure = await rejection(async () => await s3Storage(options()).get("object.txt"));
+
+  expect(failure.code).toBe("AccessDenied");
+  expect(failure.providerCode).toBe("SomethingNewEntirely");
+});
+
+// Spec 7.9: `HEAD` carries no body, so `stat` and `exists` report the status alone.
+test("`stat` reports the status of a `HEAD` without a provider code", async () => {
+  stubFetch(() => refused(403, "AccessDenied", "Access Denied"));
+
+  const failure = await rejection(async () => await s3Storage(options()).stat("object.txt"));
+
+  expect(failure.code).toBe("AccessDenied");
+  expect(failure.providerCode).toBeUndefined();
+  expect(failure.message).toContain("403");
+});
+
+// ADR 0013: a second request signed against the same wrong clock fails the same way.
+test("`RequestTimeTooSkewed` is `InvalidRequest` and is not repeated", async () => {
+  const sent = stubFetch(() =>
+    refused(
+      403,
+      "RequestTimeTooSkewed",
+      "The difference between the request time and the current time is too large",
+    ),
+  );
+
+  const failure = await rejection(async () => await s3Storage(options()).get("object.txt"));
+
+  expect(failure.code).toBe("InvalidRequest");
+  expect(failure.retryable).toBe(false);
+  expect(failure.attempts).toBe(1);
+  expect(sent).toHaveLength(1);
+});
+
+// Spec 7.1: nothing discovers a region, so the answer names the option that is wrong.
+test("a `301` names `region` and the region the provider answered", async () => {
+  stubFetch(() =>
+    refused(301, "PermanentRedirect", "The bucket is in this region", {
+      "x-amz-bucket-region": "eu-west-1",
+    }),
+  );
+
+  const failure = await rejection(async () => await s3Storage(options()).get("object.txt"));
+
+  expect(failure.code).toBe("InvalidOption");
+  expect(failure.message).toContain("`region`");
+  expect(failure.message).toContain("eu-west-1");
+});
+
+test("an `Expired` answer costs one repeat under `forceRefresh` and no wait", async () => {
+  const delays = recordedDelays();
+  const responses = [refused(403, "ExpiredToken", "The provided token has expired.")];
+  const sent = stubFetch(() => responses.shift() ?? storedResponse("stored"));
+  const resolve = vi.fn<() => typeof credentials>(() => credentials);
+
+  await s3Storage(options({ credentials: resolve })).get("object.txt");
+
+  expect(sent).toHaveLength(2);
+  expect(resolve).toHaveBeenNthCalledWith(1, { forceRefresh: false });
+  expect(resolve).toHaveBeenNthCalledWith(2, { forceRefresh: true });
+  expect(delays).toEqual([]);
+});
+
+// ADR 0013: the repeat is how a caching resolver is told to refresh rather than a repeat
+// of the transport, and without it an expired credential has no way back.
+test("`retry: false` does not switch the `Expired` repeat off", async () => {
+  const sent = stubFetch(() => refused(403, "ExpiredToken", "The provided token has expired."));
+
+  const failure = await rejection(
+    async () => await s3Storage(options({ retry: false })).get("object.txt"),
+  );
+
+  expect(failure.code).toBe("Expired");
+  expect(failure.attempts).toBe(2);
+  expect(sent).toHaveLength(2);
+});
+
+test("one request costs at most six: three attempts, each doubled by the repeat", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+  let answered = 0;
+  const sent = stubFetch(() => {
+    answered += 1;
+
+    return answered % 2 === 1
+      ? refused(403, "ExpiredToken", "The provided token has expired.")
+      : refused(503, "SlowDown", "Please reduce your request rate");
+  });
+
+  const failure = await rejection(async () => await s3Storage(options()).get("object.txt"));
+
+  expect(failure.code).toBe("ProviderError");
+  expect(failure.attempts).toBe(6);
+  expect(sent).toHaveLength(6);
 });
 
 test.each([
