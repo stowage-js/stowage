@@ -141,10 +141,17 @@ export const listCases: readonly ConformanceCaseSource[] = [
         counts.push(read.objects.length);
         cursor = read.cursor;
 
-        assert(
-          page === 3 || cursor !== undefined,
-          `Page ${page} of 3 carries no cursor, so the listing ends before its objects do`,
-        );
+        if (page === 3) {
+          assert(
+            cursor === undefined,
+            "Page 3 of 3 carries a cursor, so the listing continues after its final object",
+          );
+        } else {
+          assert(
+            cursor !== undefined,
+            `Page ${page} of 3 carries no cursor, so the listing ends before its objects do`,
+          );
+        }
       }
 
       assert(

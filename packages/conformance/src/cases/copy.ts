@@ -43,6 +43,7 @@ export const copyAndMoveCases: readonly ConformanceCaseSource[] = [
 
       await ctx.storage.copy(source.key, destination.key);
       await assertHolds(ctx, destination.key, source.body, "The destination that was there");
+      await assertHolds(ctx, source.key, source.body, "The source after the copy");
     },
   },
   {
