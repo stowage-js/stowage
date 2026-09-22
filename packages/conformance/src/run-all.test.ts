@@ -33,9 +33,10 @@ test("the `fast` tier runs by default and both tiers run with `includeSlow`", ()
   expect(costs(selectedCases())).toEqual(["fast"]);
   expect(costs(selectedCases({ includeSlow: false }))).toEqual(["fast"]);
   expect(selectedCases({ includeSlow: true })).toEqual(conformanceCaseSources);
-  // Every case of the suite is `fast` today, so the two tiers hold the same cases and
-  // what tells them apart is the cost the filter reads rather than what it returns here.
-  expect(costs(conformanceCaseSources)).toEqual(["fast"]);
+  // Which case carries which cost is asserted against the rows of spec 8.5 elsewhere.
+  // What this needs of the suite is a `slow` case at all: without one the two tiers hold
+  // the same cases and the three expectations above pass on a filter that does nothing.
+  expect(costs(conformanceCaseSources)).toContain("slow");
 });
 
 test("a case that returns is reported as passed, naming the half that ran", async () => {

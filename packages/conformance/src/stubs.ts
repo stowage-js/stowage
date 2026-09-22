@@ -1,6 +1,7 @@
 import type {
   CapabilityName,
   DeleteReport,
+  ObjectEntry,
   ObjectListing,
   ObjectStat,
   Storage,
@@ -19,6 +20,8 @@ export interface StubStorageFields {
   readonly put?: Storage["put"];
   readonly get?: Storage["get"];
   readonly stat?: Storage["stat"];
+  readonly list?: Storage["list"];
+  readonly copy?: Storage["copy"];
   readonly deleteAll?: (prefix: string) => Promise<DeleteReport>;
 }
 
@@ -41,13 +44,25 @@ export function stubStorage(fields: StubStorageFields = {}): Storage {
     get: fields.get ?? unreachable<StoredObject>("get"),
     stat: fields.stat ?? unreachable<ObjectStat>("stat"),
     exists: unreachable<boolean>("exists"),
-    list: (): ObjectListing => {
-      throw new Error("The stub storage has no `list`");
-    },
+    list:
+      fields.list ??
+      ((): ObjectListing => {
+        throw new Error("The stub storage has no `list`");
+      }),
     delete: unreachable<DeleteReport>("delete"),
     deleteAll,
-    copy: unreachable<ObjectStat>("copy"),
+    copy: fields.copy ?? unreachable<ObjectStat>("copy"),
     move: unreachable<ObjectStat>("move"),
+  };
+}
+
+/** A listing over entries already in hand, which is as far as a stub of this package goes. */
+export function stubListing(entries: readonly ObjectEntry[]): ObjectListing {
+  return {
+    page: async () => ({ objects: entries, prefixes: [] }),
+    async *[Symbol.asyncIterator](): AsyncIterator<ObjectEntry> {
+      yield* entries;
+    },
   };
 }
 

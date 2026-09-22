@@ -8,14 +8,20 @@ import {
 import { expect, test } from "vitest";
 
 import { createKeyPrefix, selectHalf, startRun } from "../run.ts";
-import { caseNamed, stubStorage, stubTarget } from "../stubs.ts";
+import { caseNamed, stubListing, stubStorage, stubTarget } from "../stubs.ts";
 
 interface UndeclaredBehavior {
   /** Answers a range although it declares no `rangeReads`, which the half has to catch. */
   readonly answersRanges?: boolean;
   /** Stores user metadata although it declares none, which the half has to catch. */
   readonly storesUserMetadata?: boolean;
+  /** Reads user metadata back although it declares none, which the half has to catch. */
+  readonly readsUserMetadata?: boolean;
 }
+
+// Spec 4.9: a storage declaring no `keyBytesPreserved` hands a key back Unicode-
+// equivalent to what was written, which this one does by folding it into one form.
+const storedKey = (key: string): string => key.normalize();
 
 /**
  * A storage keeping the weaker promise of spec 4.9 at every point it declares nothing.
@@ -30,7 +36,8 @@ const undeclaring = (behavior: UndeclaredBehavior = {}): Storage => {
     size: 0,
     lastModified: new Date(),
     contentType: "application/octet-stream",
-    userMetadata: held.get(key) ?? {},
+    userMetadata:
+      behavior.readsUserMetadata === true ? { "written-by": "stowage" } : (held.get(key) ?? {}),
   });
 
   return stubStorage({
@@ -41,18 +48,29 @@ const undeclaring = (behavior: UndeclaredBehavior = {}): Storage => {
         throw unsupported("userMetadata", "put");
       }
 
-      held.set(key, userMetadata);
+      held.set(storedKey(key), userMetadata);
 
-      return describe(key);
+      return describe(storedKey(key));
     },
     get: async (key, options) => {
       if (options?.range !== undefined && behavior.answersRanges !== true) {
         throw unsupported("rangeReads", "get");
       }
 
-      return bodilessObject(describe(key));
+      return bodilessObject(describe(storedKey(key)));
     },
-    stat: async (key) => describe(key),
+    stat: async (key) => describe(storedKey(key)),
+    list: (options) =>
+      stubListing(
+        [...held.keys()]
+          .filter((key) => key.startsWith(options?.prefix ?? ""))
+          .map((key) => describe(key)),
+      ),
+    copy: async (from, to) => {
+      held.set(storedKey(to), held.get(storedKey(from)) ?? {});
+
+      return describe(storedKey(to));
+    },
   });
 };
 
@@ -96,12 +114,16 @@ test.each(["get/range", "get/range-unsatisfiable", "get/range-clipped"])(
   },
 );
 
-test.each(["put/user-metadata", "put/user-metadata-limits"])(
+test.each(["put/user-metadata", "put/user-metadata-limits", "copy/user-metadata"])(
   "`%s` holds where the storage declares no `userMetadata`",
   async (name) => {
     await expect(runWithout(name, undeclaring())).resolves.toBe("without");
   },
 );
+
+test("`list/key-bytes` holds where the storage declares no `keyBytesPreserved`", async () => {
+  await expect(runWithout("list/key-bytes", undeclaring())).resolves.toBe("without");
+});
 
 test("the `get/range` half refuses a storage answering a range it declared nothing for", async () => {
   await expect(runWithout("get/range", undeclaring({ answersRanges: true }))).rejects.toThrow(
@@ -113,4 +135,10 @@ test("the `put/user-metadata` half refuses a storage holding metadata it declare
   await expect(
     runWithout("put/user-metadata", undeclaring({ storesUserMetadata: true })),
   ).rejects.toThrow("Expected `Unsupported` naming `userMetadata`");
+});
+
+test("the `copy/user-metadata` half refuses a storage reading metadata it declared none for", async () => {
+  await expect(
+    runWithout("copy/user-metadata", undeclaring({ readsUserMetadata: true })),
+  ).rejects.toThrow("on a storage that holds none");
 });
