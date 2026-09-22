@@ -338,6 +338,20 @@ test("carries user metadata through put, stat and get", async () => {
   expect((await storage.get("greeting")).stat.userMetadata).toEqual(written.userMetadata);
 });
 
+test("holds metadata names inherited from Object.prototype", async () => {
+  const storage = memoryStorage();
+  const userMetadata: Record<string, string> = Object.create(null);
+  userMetadata["constructor"] = "stowage";
+  userMetadata["toString"] = "memory";
+  userMetadata["__proto__"] = "adapter";
+
+  const written = await storage.put("greeting", "hello", { userMetadata });
+
+  expect(written.userMetadata["constructor"]).toBe("stowage");
+  expect(written.userMetadata["tostring"]).toBe("memory");
+  expect(written.userMetadata["__proto__"]).toBe("adapter");
+});
+
 test("holds a metadata value of any Unicode", async () => {
   const storage = memoryStorage();
 
@@ -683,6 +697,22 @@ test.each<[string, string, PutOptions]>([
   await storageErrorOf(memoryStorage().put(key, body, options));
 
   expect(canceled).toBe(true);
+});
+
+test("preserves a refusal when canceling a stream body fails", async () => {
+  let canceled = false;
+  const body = new ReadableStream<Uint8Array>({
+    cancel() {
+      canceled = true;
+      throw new Error("cancel failed");
+    },
+  });
+
+  const error = await storageErrorOf(memoryStorage().put("greeting/", body));
+
+  expect(canceled).toBe(true);
+  expect(error.code).toBe("InvalidKey");
+  expect(error.key).toBe("greeting/");
 });
 
 test("stores nothing and reads no body where the key of a put is invalid", async () => {

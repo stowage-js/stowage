@@ -96,9 +96,12 @@ class InMemoryStorage implements MemoryStorage {
 
       return readUserMetadata(options?.userMetadata, key);
     } catch (refusal) {
-      await cancelBody(body, refusal);
-
-      throw refusal;
+      try {
+        await cancelBody(body, refusal);
+      } finally {
+        // oxlint-disable-next-line no-unsafe-finally -- The original refusal wins over a cancel failure.
+        throw refusal;
+      }
     }
   }
 

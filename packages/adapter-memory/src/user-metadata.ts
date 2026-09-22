@@ -24,7 +24,7 @@ export function readUserMetadata(
   userMetadata: Record<string, string> | undefined,
   key: string,
 ): Readonly<Record<string, string>> {
-  const held: Record<string, string> = {};
+  const held: Record<string, string> = Object.create(null);
   let headerBytes = 0;
 
   for (const [name, value] of Object.entries(userMetadata ?? {})) {
