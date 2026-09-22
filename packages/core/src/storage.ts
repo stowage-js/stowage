@@ -10,6 +10,13 @@ export interface PutOptions extends OperationOptions {
   contentType?: string;
 }
 
+export interface ListOptions extends OperationOptions {
+  prefix?: string;
+  delimiter?: string;
+  pageSize?: number;
+  cursor?: string;
+}
+
 export interface ObjectEntry {
   readonly key: string;
   readonly size: number;
@@ -30,6 +37,16 @@ export interface StoredObject {
   json<T = unknown>(): Promise<T>;
 }
 
+export interface ListPage {
+  readonly objects: readonly ObjectEntry[];
+  readonly prefixes: readonly string[];
+  readonly cursor?: string;
+}
+
+export interface ObjectListing extends AsyncIterable<ObjectEntry> {
+  page(): Promise<ListPage>;
+}
+
 export interface DeleteReport {
   readonly requested: number;
   readonly failed: readonly StorageError[];
@@ -43,6 +60,7 @@ export interface Storage {
   get(key: string, options?: OperationOptions): Promise<StoredObject>;
   stat(key: string, options?: OperationOptions): Promise<ObjectStat>;
   exists(key: string, options?: OperationOptions): Promise<boolean>;
+  list(options?: ListOptions): ObjectListing;
   delete(...keys: readonly string[]): Promise<DeleteReport>;
   deleteAll(prefix: string, options?: OperationOptions): Promise<DeleteReport>;
   copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat>;
