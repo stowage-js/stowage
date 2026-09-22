@@ -74,13 +74,21 @@ const acceptedNames: readonly string[] = [
   "Grüße/日本語/ключ.txt",
 ];
 
-export interface RefusedKey extends ConformanceKey {
+/** What `exists` answers for a key `put` refused, once the write was refused. */
+export type RefusedKeyAnswer =
+  /** No addressable key either, which spec 8.5 leaves `exists` unasked about. */
+  | "unasked"
+  /** Addressable, and nothing was written, so the object is not there. */
+  | "false"
   /**
-   * Whether `put/refused-keys` asks `exists` about the key once the write was refused,
-   * which it then has to answer `false`: the addressable keys of spec 8.7, less the one
-   * a provider may refuse to address.
+   * Addressable, and one a provider may refuse to hold rather than answer: S3 answers a
+   * key above 1024 bytes with `KeyTooLongError`, which reaches the caller as `InvalidKey`
+   * (spec 8.7). Either answer says what the case is after, which is that nothing is there.
    */
-  readonly asksExists: boolean;
+  | "false-or-refusal";
+
+export interface RefusedKey extends ConformanceKey {
+  readonly existsAnswers: RefusedKeyAnswer;
 }
 
 /**
@@ -91,25 +99,23 @@ export interface RefusedKey extends ConformanceKey {
  */
 export function refusedWritableKeys(prefix: string): readonly RefusedKey[] {
   return [
-    { label: "the empty string", key: "", asksExists: false },
-    { label: "/a", key: "/a", asksExists: false },
-    { label: "a/", key: `${prefix}a/`, asksExists: true },
-    { label: "a//b", key: `${prefix}a//b`, asksExists: false },
-    { label: "./a", key: `${prefix}./a`, asksExists: false },
-    { label: "a/../b", key: `${prefix}a/../b`, asksExists: false },
-    { label: "..", key: `${prefix}..`, asksExists: false },
-    { label: "a\\b", key: `${prefix}a\\b`, asksExists: true },
+    { label: "the empty string", key: "", existsAnswers: "unasked" },
+    { label: "/a", key: "/a", existsAnswers: "unasked" },
+    { label: "a/", key: `${prefix}a/`, existsAnswers: "false" },
+    { label: "a//b", key: `${prefix}a//b`, existsAnswers: "unasked" },
+    { label: "./a", key: `${prefix}./a`, existsAnswers: "unasked" },
+    { label: "a/../b", key: `${prefix}a/../b`, existsAnswers: "unasked" },
+    { label: "..", key: `${prefix}..`, existsAnswers: "unasked" },
+    { label: "a\\b", key: `${prefix}a\\b`, existsAnswers: "false" },
     ...refusedControlCharacters.map((code): RefusedKey => ({
       label: `a key holding U+${code.toString(16).toUpperCase().padStart(4, "0")}`,
       key: `${prefix}a${String.fromCharCode(code)}b`,
-      asksExists: false,
+      existsAnswers: "unasked",
     })),
-    // Addressable, and still not asked: spec 8.7 leaves a provider free to refuse a key
-    // it cannot hold, and S3 answers this one with `KeyTooLongError` rather than `false`.
     {
       label: "a key of 1025 bytes",
       key: keyOfBytes(prefix, writableKeyLimit + 1),
-      asksExists: false,
+      existsAnswers: "false-or-refusal",
     },
   ];
 }

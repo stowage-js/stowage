@@ -1,4 +1,4 @@
-import type { ObjectStat, PutBody, PutOptions } from "@stowage/core";
+import { isStorageError, type ObjectStat, type PutBody, type PutOptions } from "@stowage/core";
 
 import {
   assert,
@@ -9,8 +9,9 @@ import {
   expectUnsupported,
 } from "../assertions.ts";
 import type { ConformanceCaseSource } from "../case.ts";
+import type { ConformanceContext } from "../target.ts";
 import { collect, patternOf, streamOf } from "./bytes.ts";
-import { acceptedKeys, keyFor, prefixFor, refusedWritableKeys } from "./keys.ts";
+import { acceptedKeys, keyFor, prefixFor, type RefusedKey, refusedWritableKeys } from "./keys.ts";
 
 const utf8 = new TextEncoder();
 
@@ -222,19 +223,14 @@ export const putCases: readonly ConformanceCaseSource[] = [
       const bytes = patternOf(16);
 
       await Promise.all(
-        refused.map(async ({ label, key, asksExists }) => {
+        refused.map(async (refusal) => {
           await expectStorageError(
-            () => ctx.storage.put(key, bytes),
+            () => ctx.storage.put(refusal.key, bytes),
             { code: "InvalidKey", attempts: 0 },
-            label,
+            refusal.label,
           );
 
-          if (!asksExists) return;
-
-          assert(
-            !(await ctx.storage.exists(key)),
-            `\`exists\` answers true for ${label}, which \`put\` refused`,
-          );
+          await assertNothingWasWritten(ctx, refusal);
         }),
       );
     },
@@ -412,4 +408,35 @@ function assertNoMetadata(held: Readonly<Record<string, string>>, where: string)
     Object.keys(held).length === 0,
     `${where} reports the user metadata ${JSON.stringify(held)} on a storage that holds none`,
   );
+}
+
+// Spec 8.5 has `exists` answer `false` for a key `put` refused, where the key is one a
+// caller may address at all.
+async function assertNothingWasWritten(
+  ctx: ConformanceContext,
+  refused: RefusedKey,
+): Promise<void> {
+  if (refused.existsAnswers === "unasked") return;
+
+  const answer = await existsOrRefusal(ctx, refused);
+
+  assert(answer !== true, `\`exists\` answers true for ${refused.label}, which \`put\` refused`);
+}
+
+async function existsOrRefusal(
+  ctx: ConformanceContext,
+  refused: RefusedKey,
+): Promise<boolean | "refusal"> {
+  try {
+    return await ctx.storage.exists(refused.key);
+  } catch (thrown) {
+    const refusable =
+      refused.existsAnswers === "false-or-refusal" &&
+      isStorageError(thrown) &&
+      thrown.code === "InvalidKey";
+
+    if (!refusable) throw thrown;
+
+    return "refusal";
+  }
 }

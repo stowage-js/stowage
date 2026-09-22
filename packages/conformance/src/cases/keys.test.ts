@@ -31,9 +31,9 @@ test("every key of the refused writable list of spec 8.7 is one `put` refuses", 
 });
 
 test("a refused key the case asks `exists` about is one the addressable rule allows", () => {
-  const asked = refusedWritableKeys(prefix).filter((one) => one.asksExists);
+  const asked = refusedWritableKeys(prefix).filter((one) => one.existsAnswers !== "unasked");
 
-  expect(asked.map((one) => one.label)).toEqual(["a/", "a\\b"]);
+  expect(asked.map((one) => one.label)).toEqual(["a/", "a\\b", "a key of 1025 bytes"]);
 
   for (const { label, key } of asked) {
     expect(`${label}: ${invalidKeyReason(key, "addressable")}`).toBe(`${label}: undefined`);
