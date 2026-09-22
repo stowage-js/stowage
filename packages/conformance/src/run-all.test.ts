@@ -37,7 +37,7 @@ test("the `fast` tier runs by default and both tiers run with `includeSlow`", ()
   // run leaves them out rather than writing a thousand objects on every pull request.
   expect(
     conformanceCaseSources.filter((source) => source.cost === "slow").map((source) => source.name),
-  ).toEqual(["list/past-one-thousand"]);
+  ).toEqual(["list/past-one-thousand", "delete/past-one-thousand", "deleteAll/past-one-thousand"]);
 });
 
 test("a case that returns is reported as passed, naming the half that ran", async () => {

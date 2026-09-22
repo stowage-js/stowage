@@ -50,6 +50,15 @@ const specified: readonly SpecifiedCase[] = [
   ["list/invalid-delimiter", [], "fast"],
   ["list/past-one-thousand", [], "slow"],
   ["list/key-bytes", ["keyBytesPreserved"], "fast"],
+  ["delete/single", [], "fast"],
+  ["delete/many", [], "fast"],
+  ["delete/absent-key-succeeds", [], "fast"],
+  ["delete/nothing", [], "fast"],
+  ["delete/invalid-key-reported", [], "fast"],
+  ["delete/past-one-thousand", [], "slow"],
+  ["deleteAll/below-prefix", [], "fast"],
+  ["deleteAll/nothing", [], "fast"],
+  ["deleteAll/past-one-thousand", [], "slow"],
 ];
 
 test("the suite holds the cases of spec 8.5, each with the requirement and the cost of its row", () => {
