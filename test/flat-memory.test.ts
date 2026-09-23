@@ -69,7 +69,7 @@ function bufferMeter(): { sample: () => void; growth: () => number } {
  * `size` bytes made one chunk at a time as they are pulled, so the source holds nothing the
  * adapter did not ask for. `onSample` runs every `sampleInterval` bytes.
  */
-function generatedStream(size: number, onSample: () => void): ReadableStream<Uint8Array> {
+function generatedStream(size: number, onSample?: () => void): ReadableStream<Uint8Array> {
   let pulled = 0;
 
   return new ReadableStream({
@@ -84,7 +84,7 @@ function generatedStream(size: number, onSample: () => void): ReadableStream<Uin
       controller.enqueue(new Uint8Array(length).fill(pulled / mebibyte));
       pulled += length;
 
-      if (pulled % sampleInterval === 0) onSample();
+      if (pulled % sampleInterval === 0) onSample?.();
     },
   });
 }
@@ -104,8 +104,11 @@ async function drain(stream: ReadableStream<Uint8Array>, onSample: () => void): 
   return read;
 }
 
-afterEach(() => {
+const roots: string[] = [];
+
+afterEach(async () => {
   vi.unstubAllGlobals();
+  await Promise.all(roots.splice(0).map(async (root) => await rm(root, { recursive: true })));
 });
 
 // A meter that cannot fail proves nothing. `adapter-memory` holds the object whole by
@@ -192,16 +195,13 @@ test(
     vi.stubGlobal(
       "fetch",
       async (): Promise<Response> =>
-        new Response(
-          generatedStream(objectSize, () => {}),
-          {
-            status: 200,
-            headers: {
-              "content-length": String(objectSize),
-              "last-modified": "Sun, 30 Aug 2015 12:36:00 GMT",
-            },
+        new Response(generatedStream(objectSize), {
+          status: 200,
+          headers: {
+            "content-length": String(objectSize),
+            "last-modified": "Sun, 30 Aug 2015 12:36:00 GMT",
           },
-        ),
+        }),
     );
 
     const stored = await s3Storage(s3Options).get("large.bin");
@@ -211,12 +211,6 @@ test(
   },
   measurementTimeout,
 );
-
-const roots: string[] = [];
-
-afterEach(async () => {
-  await Promise.all(roots.splice(0).map(async (root) => await rm(root, { recursive: true })));
-});
 
 async function temporaryFsStorage(): Promise<FsStorage> {
   const root = await mkdtemp(join(tmpdir(), "stowage-flat-memory-"));
@@ -245,10 +239,7 @@ test(
   async () => {
     const storage = await temporaryFsStorage();
 
-    await storage.put(
-      "large.bin",
-      generatedStream(objectSize, () => {}),
-    );
+    await storage.put("large.bin", generatedStream(objectSize));
 
     const meter = bufferMeter();
     const stored = await storage.get("large.bin");
