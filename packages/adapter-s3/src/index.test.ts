@@ -504,9 +504,7 @@ test.each([
 
   await rejection(async () => await s3Storage(options()).get("object.txt"));
 
-  expect(delays).toHaveLength(2);
-  expect(delays[0]).toBeCloseTo(expected[0] ?? Number.NaN);
-  expect(delays[1]).toBeCloseTo(expected[1] ?? Number.NaN);
+  expect(delays).toEqual(expected.map((delay) => expect.closeTo(delay)));
 });
 
 test("an abort interrupts the wait before another attempt", async () => {
@@ -898,6 +896,31 @@ test.each([400, 403, 404, 409])("a %i is not repeated", async (status) => {
   const failure = await rejection(async () => await s3Storage(options()).get("object.txt"));
 
   expect(failure.retryable).toBe(false);
+  expect(failure.attempts).toBe(1);
+  expect(sent).toHaveLength(1);
+});
+
+test.each([
+  [500, "AccessDenied"],
+  [503, "NoSuchKey"],
+])("a %i is repeated on the budget though it carries `%s`", async (status, code) => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+  const sent = stubFetch(() => refused(status, code, "Try again"));
+
+  const failure = await rejection(async () => await s3Storage(options()).get("object.txt"));
+
+  expect(failure.providerCode).toBe(code);
+  expect(failure.attempts).toBe(3);
+  expect(sent).toHaveLength(3);
+});
+
+// AWS answers `RequestTimeout` with `400` where a client sent its body too slowly.
+test.each(["RequestTimeout", "SlowDown"])("a 400 carrying `%s` is not repeated", async (code) => {
+  const sent = stubFetch(() => refused(400, code, "No."));
+
+  const failure = await rejection(async () => await s3Storage(options()).get("object.txt"));
+
+  expect(failure.providerCode).toBe(code);
   expect(failure.attempts).toBe(1);
   expect(sent).toHaveLength(1);
 });
