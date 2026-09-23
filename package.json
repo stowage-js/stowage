@@ -9,6 +9,8 @@
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "test": "vitest run",
+    "test:bun": "bun test harness/bun",
+    "test:deno": "deno test --no-check --allow-env --allow-read --allow-write --allow-net harness/deno",
     "changeset": "changeset"
   },
   "devDependencies": {

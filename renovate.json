@@ -11,6 +11,20 @@
     {
       "matchManagers": ["github-actions"],
       "groupName": "GitHub Actions"
+    },
+    {
+      "matchDepNames": ["bun", "deno"],
+      "groupName": "Bun and Deno"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The Deno version CI runs, which no built-in manager reads from `.dvmrc`",
+      "managerFilePatterns": ["/(^|/)\\.dvmrc$/"],
+      "matchStrings": ["^(?<currentValue>\\S+)"],
+      "depNameTemplate": "deno",
+      "datasourceTemplate": "npm"
     }
   ]
 }

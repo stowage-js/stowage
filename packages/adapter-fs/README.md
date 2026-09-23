@@ -8,7 +8,7 @@ states and on nothing else a package happens to export.
 
 ## Runtimes
 
-Node 24 and later, Bun and Deno. The Bun and Deno versions CI last ran green are named here once CI has run them.
+Node 24 and later, Bun and Deno. CI last ran green on Bun 1.4.2 and Deno 2.9.6.
 
 ## Documentation
 
