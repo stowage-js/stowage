@@ -648,3 +648,51 @@ test("a completion whose `200` broke before its body said how it went is not abo
   expect(failure.retryable).toBe(true);
   expect(sent.map(stepOf)).not.toContain("abort");
 });
+
+test("a stream that needs more than 10,000 parts rejects naming `partSize` and the way past it", async () => {
+  // Hashing 50 GB would take the better part of a minute, and no answer here reads a
+  // signature. The bodies are counted rather than kept, for the same reason.
+  vi.spyOn(crypto.subtle, "digest").mockResolvedValue(new ArrayBuffer(32));
+
+  const steps: string[] = [];
+  const provider = multipartProvider();
+
+  vi.stubGlobal("fetch", async (url: string, init: RequestInit): Promise<Response> => {
+    const request: SentRequest = {
+      url: new URL(url),
+      method: init.method ?? "GET",
+      headers: new Headers(init.headers),
+      body: undefined,
+      signal: undefined,
+    };
+
+    steps.push(stepOf(request));
+
+    return await provider(request);
+  });
+
+  const chunk = new Uint8Array(smallestPart);
+  let canceled = false;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      controller.enqueue(chunk);
+    },
+    cancel() {
+      canceled = true;
+    },
+  });
+  const storage = s3Storage(options({ multipart: { partSize: smallestPart } }));
+
+  const failure = await storageRejection(() => storage.put("object.bin", body));
+
+  expect(failure.code).toBe("InvalidRequest");
+  expect(failure.attempts).toBe(0);
+  expect(failure.message).toContain("10000 parts");
+  expect(failure.message).toContain(`\`partSize\` of ${smallestPart} bytes`);
+  expect(failure.message).toContain("a larger `multipart.partSize`");
+  // The part that would be the 10,000th is known not to be the last, so it is not sent.
+  expect(steps.filter((step) => step.startsWith("part "))).toHaveLength(9999);
+  expect(steps).not.toContain("complete");
+  expect(steps.at(-1)).toBe("abort");
+  expect(canceled).toBe(true);
+}, 30_000);

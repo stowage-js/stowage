@@ -77,6 +77,9 @@ interface UploadedPart {
 
 const s3Namespace = "http://s3.amazonaws.com/doc/2006-03-01/";
 
+/** The provider's limit on both sides, which ADR 0016 leaves no option to lift. */
+const maxParts = 10_000;
+
 interface SentParts {
   /** In part-number order, which is how `CompleteMultipartUpload` lists them. */
   readonly uploaded: readonly UploadedPart[];
@@ -146,6 +149,8 @@ async function sendParts(
 
   try {
     for (let number = 1, part = first; ; number += 1) {
+      if (number === maxParts && !part.last) throw tooManyParts(configuration, write);
+
       const sending = sendPart(number, part);
 
       inFlight.add(sending);
@@ -323,6 +328,20 @@ function answeredRequest(
   subject: string,
 ): AnsweredRequest {
   return { bucket: configuration.bucket, operation: "put", key: write.key, subject };
+}
+
+/**
+ * Spec 7.6: known once the last part the provider takes is full and the stream goes on.
+ * ADR 0016 fixes the part size before the first part, so the way past it is a larger one.
+ */
+function tooManyParts(configuration: S3Configuration, write: ObjectWrite): StorageError {
+  return s3Error(configuration.bucket, {
+    code: "InvalidRequest",
+    message: `The stream needs more than ${maxParts} parts of the configured \`partSize\` of ${configuration.partSize} bytes; a larger \`multipart.partSize\` carries it`,
+    operation: "put",
+    key: write.key,
+    attempts: 0,
+  });
 }
 
 // An answer that leaves out what the next request of the upload needs cannot be carried
