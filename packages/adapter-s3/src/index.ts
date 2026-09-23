@@ -27,7 +27,7 @@ import {
   requireKnownOptions,
 } from "./options.ts";
 import { send } from "./request.ts";
-import { rangeHeader, requireRange, wholeObjectFailure } from "./range.ts";
+import { partialContent, rangeHeader, requireRange, wholeAnswerFailure } from "./range.ts";
 import { s3Error } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
 import { userMetadataHeaders } from "./user-metadata.ts";
@@ -51,8 +51,6 @@ export function s3Storage(options: S3AdapterOptions): S3Storage {
 const s3Capabilities: readonly CapabilityName[] = Object.freeze(["rangeReads", "userMetadata"]);
 
 const utf8 = new TextEncoder();
-
-const partialContent = 206;
 
 class SimpleStorageServiceStorage implements S3Storage {
   readonly provider = "s3" as const;
@@ -117,10 +115,15 @@ class SimpleStorageServiceStorage implements S3Storage {
     });
     const stat = describeResponse(this.bucket, key, "get", response);
 
-    if (range !== undefined && response.status !== partialContent) {
+    const refusal =
+      range === undefined || response.status === partialContent
+        ? undefined
+        : wholeAnswerFailure(this.bucket, key, range, stat.size);
+
+    if (refusal !== undefined) {
       await response.body?.cancel();
 
-      throw wholeObjectFailure(this.bucket, key, range, stat.size);
+      throw refusal;
     }
 
     return createStoredObject(this.bucket, stat, response);

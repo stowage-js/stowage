@@ -716,6 +716,21 @@ test("a range the provider answers with the whole of a longer object is a `Provi
   expect(failure.code).toBe("ProviderError");
 });
 
+test.each([
+  ["no end", { start: 0 }],
+  ["an end beyond the object", { start: 0, end: 100 }],
+])(
+  "a range covering the whole object, answered with all of it, is what was asked for: %s",
+  async (_case, range) => {
+    stubFetch(() => storedResponse("a stored body"));
+
+    const stored = await s3Storage(options()).get("object.txt", { range });
+
+    expect(stored.stat.size).toBe(13);
+    expect(await stored.text()).toBe("a stored body");
+  },
+);
+
 test.each([["bytes 0-3"], ["bytes 0-3/*"], ["items 0-3/4"], [undefined]])(
   "a partial answer with the content range %j is a `ProviderError`",
   async (contentRange) => {

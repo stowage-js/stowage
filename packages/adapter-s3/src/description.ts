@@ -1,12 +1,10 @@
 import type { ObjectStat, StorageError } from "@stowage/core";
 
-import { wholeSizeOf } from "./range.ts";
+import { partialContent, wholeSizeOf } from "./range.ts";
 import { s3Error } from "./storage-error.ts";
 import { readUserMetadata } from "./user-metadata.ts";
 
 export const defaultContentType = "application/octet-stream";
-
-const partialContent = 206;
 
 /** The description a `GET` or a `HEAD` response carries in its headers (spec 4.4). */
 export function describeResponse(

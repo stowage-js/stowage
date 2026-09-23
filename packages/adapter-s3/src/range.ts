@@ -24,6 +24,9 @@ export function rangeHeader(range: ByteRange): string {
   return `bytes=${range.start}-${range.end ?? ""}`;
 }
 
+/** What a provider answers a range it honored with. */
+export const partialContent = 206;
+
 const contentRange = /^bytes (\d+)-(\d+)\/(\d+)$/u;
 
 /**
@@ -38,16 +41,22 @@ export function wholeSizeOf(response: Response): number | undefined {
 }
 
 /**
- * A provider that answers a ranged `GET` with `200` sent the whole object instead. For an
- * object the range starts beyond, which is how S3 answers a range on an empty object, that
- * is the refusal spec 4.3 names; for any other it is a body the caller did not ask for.
+ * A provider that answers a ranged `GET` with `200` sent the whole object instead, which
+ * RFC 9110 allows. Where the range covers the object, clipped as spec 4.3 clips it, that
+ * is the body asked for. For an object the range starts beyond, which is how S3 answers a
+ * range on an empty object, it is the refusal spec 4.3 names; for any other it is a body
+ * the caller did not ask for.
  */
-export function wholeObjectFailure(
+export function wholeAnswerFailure(
   bucket: string,
   key: string,
   range: ByteRange,
   size: number,
-): StorageError {
+): StorageError | undefined {
+  if (range.start === 0 && size > 0 && (range.end === undefined || range.end >= size - 1)) {
+    return undefined;
+  }
+
   if (range.start >= size) {
     return s3Error(bucket, {
       code: "InvalidRequest",
