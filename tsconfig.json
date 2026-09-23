@@ -10,6 +10,7 @@
     "harness/*/src/**/*.ts",
     "test/**/*.ts",
     "tsdown.config.ts",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    "harness/*/vitest.config.ts"
   ]
 }

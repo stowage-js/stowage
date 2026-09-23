@@ -8,7 +8,7 @@ states and on nothing else a package happens to export.
 
 ## Runtimes
 
-Node 24 and later, Bun, Deno and `workerd` at the compatibility date `2026-09-01`. The Bun and Deno versions CI last ran green are named here once CI has run them.
+Node 24 and later, Bun, Deno and `workerd` at the compatibility date `2026-09-01`. CI last ran green on Bun 1.4.2 and Deno 2.9.6.
 
 ## Documentation
 

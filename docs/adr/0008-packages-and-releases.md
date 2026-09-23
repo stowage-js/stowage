@@ -49,8 +49,8 @@ there is no facade and no manager, so an application that uses two adapters hold
   out of the tarball through `files: ["dist"]`, as does `docs/spec.md`. One of those tests is the
   check of ADR 0018, which compiles every `ts` block in a README and in the spec against the built
   declarations. The four conformance harnesses are private
-  packages under `harness/`: the `workerd` one needs a worker entry point and Wrangler
-  configuration, the Deno one a `deno.json`, and neither belongs in a published package.
+  packages under `harness/`: the `workerd` one needs a worker entry point and a
+  `workerd.capnp` configuration, the Deno one a `deno.json`, and neither belongs in a published package.
 - `ci.yml` runs on pull requests and on pushes to `main`: build, `tsc --noEmit`, lint, format
   check, then the `fast` conformance tier across the matrix of ADR 0002. `conformance-full.yml`
   runs the `slow` tier on a schedule, on demand and before every release, which is the split ADR

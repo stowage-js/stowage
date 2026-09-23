@@ -1,0 +1,10 @@
+{
+  "name": "@stowage/harness-node",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Private harness: the fast tier of the conformance suite on Node, under Vitest.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  }
+}

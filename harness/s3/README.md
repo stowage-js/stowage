@@ -11,8 +11,16 @@ is a way to look, not a second definition of correct.
 ```sh
 eval "$(./harness/s3/start.sh)"
 pnpm test
+pnpm test:workerd
+pnpm test:bun
+pnpm test:deno
 ./harness/s3/stop.sh
 ```
+
+`pnpm test` runs the Node column of spec 2. `pnpm test:workerd` starts the `workerd` that
+`harness/workerd` pins and reports its results on Node. Bun and Deno are not dependencies:
+`pnpm test:bun` and `pnpm test:deno` need them installed, in the versions `.bun-version`
+and `.dvmrc` pin for CI.
 
 `start.sh` starts the container, creates the bucket and prints the environment the run
 reads:
@@ -36,7 +44,7 @@ Without them the case that needs it reports as skipped.
 | `STOWAGE_S3_DENIED_SECRET_ACCESS_KEY` | Its secret                                         |
 
 Docker is required. Without `STOWAGE_S3_ENDPOINT` the run fails rather than passing with
-the tier skipped (ADR 0012), and CI starts `compose.yml` itself before `pnpm test`.
+the tier skipped (ADR 0012), and CI starts `compose.yml` itself before the harnesses run.
 
 The credentials in `s3.json` are this container's and nothing else's: they authenticate a
 local emulator holding a run's throwaway objects.

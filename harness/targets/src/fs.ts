@@ -3,12 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { platform } from "node:process";
 
-import { describe, test } from "vitest";
-
-import { fsStorage } from "../packages/adapter-fs/src/index.ts";
-import { describeCases } from "../packages/conformance/src/describe.ts";
-import { selectedCases } from "../packages/conformance/src/run.ts";
-import type { ConformanceTarget } from "../packages/conformance/src/target.ts";
+import { fsStorage } from "../../../packages/adapter-fs/src/index.ts";
+import type { ConformanceCaseSource } from "../../../packages/conformance/src/case.ts";
+import { selectedCases } from "../../../packages/conformance/src/run.ts";
+import type { ConformanceTarget } from "../../../packages/conformance/src/target.ts";
 
 /**
  * What one path may measure, the root counted in. macOS bounds it at 1024 bytes, and the
@@ -23,13 +21,16 @@ const boundaryKeyBytes = 1024;
 const runnable = (name: string): boolean =>
   name !== "put/accepted-keys" || tmpdir().length + boundaryKeyBytes < pathByteLimit;
 
+// ADR 0006: `adapter-fs` is read against the suite like any other adapter. The harness
+// reaches past `describeConformance` for the cases alone, so that the case the path limit
+// rules out is left unrun rather than red on a machine whose temporary directory is one
+// character too long.
+export const fsCases = (): readonly ConformanceCaseSource[] =>
+  selectedCases().filter((source) => runnable(source.name));
+
 const roots: string[] = [];
 
-// ADR 0006: `adapter-fs` is read against the suite like any other adapter. It reaches past
-// `describeConformance` for the cases alone, so that the case the path limit rules out is
-// left unrun rather than red on a machine whose temporary directory is one character too
-// long.
-const target: ConformanceTarget = {
+export const fsTarget: ConformanceTarget = {
   name: "@stowage/adapter-fs",
 
   async createStorage() {
@@ -49,9 +50,3 @@ const target: ConformanceTarget = {
     );
   },
 };
-
-describeCases(
-  selectedCases().filter((source) => runnable(source.name)),
-  target,
-  { describe, test },
-);

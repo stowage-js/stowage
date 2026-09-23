@@ -12,6 +12,7 @@ interface PackageManifest {
   readonly name: string;
   readonly type?: string;
   readonly files?: readonly string[];
+  readonly exports?: Readonly<Record<string, unknown>>;
   readonly engines?: Readonly<Record<string, string>>;
   readonly dependencies?: Readonly<Record<string, string>>;
   readonly peerDependencies?: Readonly<Record<string, string>>;
@@ -52,4 +53,10 @@ test.each(published)("$name has no runtime dependency outside `@stowage`", (mani
   ];
 
   expect(runtimeDependencies.filter((name) => !name.startsWith("@stowage/"))).toEqual([]);
+});
+
+// Spec 1: nothing detects the runtime at import time, so no package hands one runtime an
+// entry point of its own through a condition such as `bun`, `deno` or `workerd`.
+test.each(published)("$name exports one entry point for every runtime", (manifest) => {
+  expect(manifest.exports?.["."]).toBe("./dist/index.js");
 });
