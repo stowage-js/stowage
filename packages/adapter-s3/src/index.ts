@@ -20,6 +20,12 @@ import { defaultContentType, describeResponse } from "./description.ts";
 import { requireKey } from "./key.ts";
 import { createListing } from "./listing.ts";
 import {
+  presignGet,
+  presignPut,
+  type S3PresignGetOptions,
+  type S3PresignPutOptions,
+} from "./presign.ts";
+import {
   getOptionKeys,
   operationOptionKeys,
   optionError,
@@ -35,21 +41,36 @@ import { userMetadataHeaders } from "./user-metadata.ts";
 
 export type { S3AdapterOptions } from "./configuration.ts";
 export { fromEnv, type S3Credentials } from "./credentials.ts";
+export type { S3PresignGetOptions, S3PresignPutOptions } from "./presign.ts";
 
 export interface S3Storage extends Storage {
   readonly provider: "s3";
+  /**
+   * A URL a client holding no credential calls with a plain `GET` for this one key until
+   * it expires. Whoever holds it may read the object: it is a bearer token. Sends no
+   * request, and works against the endpoint that signed it only.
+   */
+  presignGet(key: string, options: S3PresignGetOptions): Promise<string>;
+  /**
+   * A URL a client holding no credential calls with a plain `PUT` of one body under this
+   * key until it expires. `contentType` and `contentLength` bind exactly: the provider
+   * refuses a body of another type or another length, so a body of unknown length cannot
+   * be uploaded through it. It signs `UNSIGNED-PAYLOAD` and no checksum, so the upload
+   * carries no integrity check. Sends no request.
+   */
+  presignPut(key: string, options: S3PresignPutOptions): Promise<string>;
 }
 
 export function s3Storage(options: S3AdapterOptions): S3Storage {
   return new SimpleStorageServiceStorage(options);
 }
 
-/**
- * Spec 7.1 has this storage declare `presignedUrls`, `rangeReads` and `userMetadata`.
- * Each is declared where it is built, so that what the storage names is what the
- * conformance suite finds: `presignedUrls` arrives with `presignGet` and `presignPut`.
- */
-const s3Capabilities: readonly CapabilityName[] = Object.freeze(["rangeReads", "userMetadata"]);
+/** Spec 7.1: what this storage declares, which spec 4.9 lists as `capabilityNames` orders them. */
+const s3Capabilities: readonly CapabilityName[] = Object.freeze([
+  "presignedUrls",
+  "rangeReads",
+  "userMetadata",
+]);
 
 const utf8 = new TextEncoder();
 
@@ -189,6 +210,14 @@ class SimpleStorageServiceStorage implements S3Storage {
     await response.body?.cancel();
 
     return written;
+  }
+
+  async presignGet(key: string, options: S3PresignGetOptions): Promise<string> {
+    return await presignGet(this.#configuration, key, options);
+  }
+
+  async presignPut(key: string, options: S3PresignPutOptions): Promise<string> {
+    return await presignPut(this.#configuration, key, options);
   }
 
   async #head(key: string, operation: string, options?: OperationOptions): Promise<Response> {
