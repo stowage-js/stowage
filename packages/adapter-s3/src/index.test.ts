@@ -786,6 +786,16 @@ test("a position the provider refuses is `InvalidOption` naming `cursor`", async
   expect(sent).toHaveLength(2);
 });
 
+test("an `InvalidArgument` on the first listing page is an `InvalidRequest`", async () => {
+  const sent = stubFetch(() => refused(400, "InvalidArgument", "The prefix is invalid"));
+
+  const failure = await rejection(async () => await s3Storage(options()).list().page());
+
+  expect(failure.code).toBe("InvalidRequest");
+  expect(failure.message).toBe("The prefix is invalid");
+  expect(sent).toHaveLength(1);
+});
+
 // Spec 7.4: the prefix travels percent-encoded like a key on the path, and a key comes
 // back out of its entities as it was written.
 test("keys holding `#`, `%`, `?`, `+`, a space and characters above ASCII round-trip", async () => {
@@ -916,4 +926,20 @@ test("an iteration handed a cursor walks on from where it points", async () => {
 
   expect(keys).toEqual(["b"]);
   expect(queryOf(sent[1])["continuation-token"]).toBe("second");
+});
+
+test("an iteration rejects a provider repeating the continuation token it was sent", async () => {
+  const sent = stubFetch(() => listed(["a"], { nextToken: "again" }));
+  const storage = s3Storage(options());
+  const keys: string[] = [];
+
+  const failure = await rejection(async () => {
+    for await (const entry of storage.list()) keys.push(entry.key);
+  });
+
+  expect(failure.code).toBe("ProviderError");
+  expect(failure.operation).toBe("list");
+  expect(keys).toEqual(["a"]);
+  expect(sent).toHaveLength(2);
+  expect(queryOf(sent[1])["continuation-token"]).toBe("again");
 });

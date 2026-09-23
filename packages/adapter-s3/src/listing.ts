@@ -56,6 +56,18 @@ export function createListing(
         // oxlint-disable-next-line no-await-in-loop -- the next page needs this one's token
         const document = await requestPage(configuration, { ...request, continuationToken });
 
+        if (
+          document.continuationToken !== undefined &&
+          document.continuationToken === continuationToken
+        ) {
+          throw s3Error(configuration.bucket, {
+            code: "ProviderError",
+            message: "The provider repeated the continuation token it was sent",
+            operation: "list",
+            attempts: 1,
+          });
+        }
+
         yield* document.objects;
 
         if (document.continuationToken === undefined) return;

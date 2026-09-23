@@ -58,11 +58,19 @@ test("the message is the provider's, or the status where it sent none", () => {
 
 // Spec 7.9: the provider refusing the continuation token is the `cursor` the caller
 // handed `list`, and nothing else the same code answers is one.
-test("`InvalidArgument` names `cursor` where a listing asked and not elsewhere", () => {
-  const listing = answered({ providerCode: "InvalidArgument", status: 400, operation: "list" });
+test("`InvalidArgument` names `cursor` where a continued listing asked and not elsewhere", () => {
+  const listing = answered({
+    providerCode: "InvalidArgument",
+    status: 400,
+    operation: "list",
+    hasContinuationToken: true,
+  });
 
   expect(listing.code).toBe("InvalidOption");
   expect(listing.message).toContain("`cursor`");
+  expect(answered({ providerCode: "InvalidArgument", status: 400, operation: "list" }).code).toBe(
+    "InvalidRequest",
+  );
   expect(answered({ providerCode: "InvalidArgument", status: 400, operation: "put" }).code).toBe(
     "InvalidRequest",
   );
