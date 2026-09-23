@@ -45,5 +45,4 @@ local emulator holding a run's throwaway objects.
 
 The divergence list of ADR 0012 — one entry per conformance case the endpoint answers
 differently from the provider it stands in for — arrives once the cases it would describe
-run. `conformance.test.ts` carries the cases `adapter-s3` cannot run yet instead, each
-named by the operation that brings it.
+run.
