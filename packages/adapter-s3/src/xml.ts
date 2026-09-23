@@ -45,7 +45,7 @@ function isXmlCharacter(codePoint: number): boolean {
 }
 
 /** The five entities XML defines without a DTD, which is every one a document here has. */
-const predefinedEntities: ReadonlyMap<string, string> = new Map([
+export const predefinedEntities: ReadonlyMap<string, string> = new Map([
   ["amp", "&"],
   ["lt", "<"],
   ["gt", ">"],
