@@ -1,0 +1,264 @@
+import type { ObjectStat, StorageError } from "@stowage/core";
+
+import { type AnsweredRequest, readAnswerDocument, textOf } from "./answer-document.ts";
+import type { S3Configuration } from "./configuration.ts";
+import { describeWrite, unquotedEtag } from "./description.ts";
+import { type Part, PartReader } from "./part-reader.ts";
+import { send } from "./request.ts";
+import { s3Error } from "./storage-error.ts";
+import type { UserMetadataHeaders } from "./user-metadata.ts";
+import { escapeXml } from "./xml.ts";
+
+/** What `put` writes, apart from the body. */
+export interface ObjectWrite {
+  readonly key: string;
+  readonly contentType: string;
+  readonly userMetadata: UserMetadataHeaders;
+  readonly signal?: AbortSignal;
+}
+
+/** Spec 7.6: bytes the adapter holds go as one `PUT`, which it never splits. */
+export async function putObject(
+  configuration: S3Configuration,
+  write: ObjectWrite,
+  bytes: Uint8Array<ArrayBuffer>,
+): Promise<ObjectStat> {
+  const response = await send(configuration, {
+    method: "PUT",
+    operation: "put",
+    key: write.key,
+    headers: [["content-type", write.contentType], ...write.userMetadata.headers],
+    body: bytes,
+    signal: write.signal,
+  });
+
+  await response.body?.cancel();
+
+  return describeWrite(
+    configuration.bucket,
+    write.key,
+    bytes.byteLength,
+    write.contentType,
+    write.userMetadata.held,
+    response,
+  );
+}
+
+/**
+ * Spec 7.6: a stream is read into parts of `partSize`, and one that ends within the first
+ * goes as the `PUT` held bytes get.
+ */
+export async function uploadStream(
+  configuration: S3Configuration,
+  write: ObjectWrite,
+  stream: ReadableStream<Uint8Array>,
+): Promise<ObjectStat> {
+  const parts = new PartReader(stream, configuration.partSize, write.signal);
+
+  try {
+    const first = await parts.next();
+
+    if (first.last) return await putObject(configuration, write, first.bytes);
+
+    return await multipartUpload(configuration, write, parts, first);
+  } catch (failure) {
+    await parts.cancel(failure);
+
+    throw failure;
+  } finally {
+    parts.release();
+  }
+}
+
+interface UploadedPart {
+  readonly number: number;
+  readonly etag: string;
+}
+
+const s3Namespace = "http://s3.amazonaws.com/doc/2006-03-01/";
+
+/**
+ * Spec 7.6: `concurrency` parts in flight, and the next part read only once one of them
+ * settled, so the part buffers never outnumber the parts in flight.
+ */
+async function multipartUpload(
+  configuration: S3Configuration,
+  write: ObjectWrite,
+  parts: PartReader,
+  first: Part,
+): Promise<ObjectStat> {
+  const uploadId = await createUpload(configuration, write);
+  const inFlight = new Set<Promise<void>>();
+  const uploaded: UploadedPart[] = [];
+  let failure: { readonly reason: unknown } | undefined;
+  let size = 0;
+
+  const sendPart = async (number: number, part: Part): Promise<void> => {
+    try {
+      uploaded.push({
+        number,
+        etag: await uploadPart(configuration, write, uploadId, number, part),
+      });
+    } catch (reason) {
+      failure ??= { reason };
+    }
+  };
+
+  for (let number = 1, part = first; ; number += 1) {
+    const sending = sendPart(number, part);
+
+    inFlight.add(sending);
+    void sending.finally(() => inFlight.delete(sending));
+    size += part.bytes.byteLength;
+
+    if (part.last) break;
+
+    // oxlint-disable-next-line no-await-in-loop -- a free slot is what lets the next part go
+    while (inFlight.size >= configuration.concurrency) await Promise.race(inFlight);
+
+    if (failure !== undefined) break;
+
+    // oxlint-disable-next-line no-await-in-loop -- the next part is read into the free slot
+    part = await parts.next();
+  }
+
+  await Promise.all(inFlight);
+
+  if (failure !== undefined) throw failure.reason;
+
+  return await completeUpload(
+    configuration,
+    write,
+    uploadId,
+    uploaded.toSorted((one, other) => one.number - other.number),
+    size,
+  );
+}
+
+async function createUpload(configuration: S3Configuration, write: ObjectWrite): Promise<string> {
+  const response = await send(configuration, {
+    method: "POST",
+    operation: "put",
+    key: write.key,
+    query: [["uploads", ""]],
+    headers: [["content-type", write.contentType], ...write.userMetadata.headers],
+    signal: write.signal,
+  });
+  const answered = answeredRequest(configuration, write, "the start of the upload");
+  const document = await readAnswerDocument(answered, response, "InitiateMultipartUploadResult");
+  const uploadId = textOf(document, "UploadId");
+
+  if (uploadId === undefined || uploadId === "") {
+    throw incompleteAnswer(
+      configuration,
+      write,
+      response,
+      "the start of the upload",
+      "no upload id",
+    );
+  }
+
+  return uploadId;
+}
+
+async function uploadPart(
+  configuration: S3Configuration,
+  write: ObjectWrite,
+  uploadId: string,
+  number: number,
+  part: Part,
+): Promise<string> {
+  const response = await send(configuration, {
+    method: "PUT",
+    operation: "put",
+    key: write.key,
+    query: [
+      ["partNumber", String(number)],
+      ["uploadId", uploadId],
+    ],
+    body: part.bytes,
+    signal: write.signal,
+  });
+
+  await response.body?.cancel();
+
+  const etag = response.headers.get("etag");
+
+  if (etag === null || etag === "") {
+    throw incompleteAnswer(configuration, write, response, `part ${number}`, "no entity tag");
+  }
+
+  return etag;
+}
+
+async function completeUpload(
+  configuration: S3Configuration,
+  write: ObjectWrite,
+  uploadId: string,
+  uploaded: readonly UploadedPart[],
+  size: number,
+): Promise<ObjectStat> {
+  const response = await send(configuration, {
+    method: "POST",
+    operation: "put",
+    key: write.key,
+    query: [["uploadId", uploadId]],
+    headers: [["content-type", "application/xml"]],
+    body: utf8.encode(completeDocument(uploaded)),
+    signal: write.signal,
+  });
+  const answered = answeredRequest(configuration, write, "the completion of the upload");
+  const document = await readAnswerDocument(answered, response, "CompleteMultipartUploadResult");
+  const etag = textOf(document, "ETag");
+
+  return describeWrite(
+    configuration.bucket,
+    write.key,
+    size,
+    write.contentType,
+    write.userMetadata.held,
+    response,
+    etag === undefined ? undefined : unquotedEtag(etag),
+  );
+}
+
+const utf8 = new TextEncoder();
+
+function completeDocument(uploaded: readonly UploadedPart[]): string {
+  const parts = uploaded
+    .map(
+      ({ number, etag }) =>
+        `<Part><PartNumber>${number}</PartNumber><ETag>${escapeXml(etag)}</ETag></Part>`,
+    )
+    .join("");
+
+  return `<?xml version="1.0" encoding="UTF-8"?><CompleteMultipartUpload xmlns="${s3Namespace}">${parts}</CompleteMultipartUpload>`;
+}
+
+function answeredRequest(
+  configuration: S3Configuration,
+  write: ObjectWrite,
+  subject: string,
+): AnsweredRequest {
+  return { bucket: configuration.bucket, operation: "put", key: write.key, subject };
+}
+
+// An answer that leaves out what the next request of the upload needs cannot be carried
+// on, and spec 4.10 names it a `ProviderError` rather than a value invented for it.
+function incompleteAnswer(
+  configuration: S3Configuration,
+  write: ObjectWrite,
+  response: Response,
+  subject: string,
+  missing: string,
+): StorageError {
+  return s3Error(configuration.bucket, {
+    code: "ProviderError",
+    message: `The provider answered ${subject} with ${missing}`,
+    operation: "put",
+    key: write.key,
+    attempts: 1,
+    status: response.status,
+    requestId: response.headers.get("x-amz-request-id") ?? undefined,
+  });
+}

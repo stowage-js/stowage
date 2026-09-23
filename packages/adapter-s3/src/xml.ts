@@ -53,6 +53,19 @@ export const predefinedEntities: ReadonlyMap<string, string> = new Map([
   ["apos", "'"],
 ]);
 
+const xmlEscapes: Readonly<Record<string, string>> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&apos;",
+};
+
+/** Text as it stands inside an element of a request document stowage writes. */
+export function escapeXml(text: string): string {
+  return text.replaceAll(/[&<>"']/gu, (character) => xmlEscapes[character] ?? character);
+}
+
 class Scanner {
   readonly #document: string;
   #position = 0;
