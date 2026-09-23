@@ -282,9 +282,10 @@ async function completeUpload(
 }
 
 /**
- * Spec 7.7: a completion that received no response may have committed, and one whose
- * `200` broke before its body said which is as undecided. Neither is aborted, because an
- * abort could meet a commit still on its way.
+ * Spec 7.7 leaves a completion that received no response unaborted, because an abort
+ * could meet a commit still on its way. A `200` that broke before its body said how the
+ * commit went is left alone for the same reason: S3 sends that status before it has
+ * decided, so the commit may be on its way there too.
  */
 function mayHaveCommitted(failure: unknown): boolean {
   return isStorageError(failure) && failure.code === "NetworkError";
