@@ -8,6 +8,9 @@
     "start": "./start.sh",
     "stop": "./stop.sh"
   },
+  "devDependencies": {
+    "@aws-sdk/client-s3": "3.1137.0"
+  },
   "engines": {
     "node": ">=24"
   }
