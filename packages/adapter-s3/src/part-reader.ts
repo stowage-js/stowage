@@ -9,6 +9,10 @@ export interface Part {
  * A stream read into parts of one size (spec 7.6). A part is known to be the last only
  * once the stream has ended behind it, so a full part looks one chunk ahead; that chunk
  * is the stream's own and becomes the start of the next part.
+ *
+ * A part handed back through `recycle` lends its buffer to a later one. Spec 7.6 bounds
+ * an upload at `partSize × concurrency` of buffers, and a fresh buffer per part would
+ * keep the settled ones alive until the collector noticed them.
  */
 export class PartReader {
   readonly #reader: ReadableStreamDefaultReader<Uint8Array>;
@@ -17,6 +21,7 @@ export class PartReader {
   readonly #cancelOnAbort = (): void => {
     void this.#reader.cancel(this.#signal?.reason).catch(() => {});
   };
+  readonly #free: ArrayBuffer[] = [];
   #ahead: Uint8Array | undefined;
 
   constructor(stream: ReadableStream<Uint8Array>, partSize: number, signal?: AbortSignal) {
@@ -30,7 +35,7 @@ export class PartReader {
   }
 
   async next(): Promise<Part> {
-    const bytes = new Uint8Array(this.#partSize);
+    const bytes = new Uint8Array(this.#free.pop() ?? new ArrayBuffer(this.#partSize));
     let filled = 0;
 
     while (filled < this.#partSize) {
@@ -52,6 +57,11 @@ export class PartReader {
     this.#ahead ??= await this.#read();
 
     return { bytes, last: this.#ahead === undefined };
+  }
+
+  /** The part's request settled, so nothing reads its bytes any more. */
+  recycle(part: Part): void {
+    this.#free.push(part.bytes.buffer);
   }
 
   /** Spec 4.2 leaves the stream canceled where `put` rejects before reading it to its end. */

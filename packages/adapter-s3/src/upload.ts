@@ -144,6 +144,8 @@ async function sendParts(
       uploaded.push({ number, etag });
     } catch (reason) {
       fail(reason);
+    } finally {
+      parts.recycle(part);
     }
   };
 

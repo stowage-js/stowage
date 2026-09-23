@@ -33,7 +33,7 @@ function stubFetch(answer: Answer): SentRequest[] {
       url: new URL(url),
       method: init.method ?? "GET",
       headers: new Headers(init.headers),
-      body: init.body instanceof Uint8Array ? init.body : undefined,
+      body: sentBytes(init.body),
       signal: init.signal ?? undefined,
     };
 
@@ -43,6 +43,11 @@ function stubFetch(answer: Answer): SentRequest[] {
   });
 
   return sent;
+}
+
+/** Copied as `fetch` sends it, since a part's buffer goes on to hold a later part. */
+function sentBytes(body: unknown): Uint8Array | undefined {
+  return body instanceof Uint8Array ? body.slice() : undefined;
 }
 
 /** What a provider answers `PutObject` with: an entity tag and the time it accepted it. */
