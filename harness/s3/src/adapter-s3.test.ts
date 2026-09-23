@@ -93,6 +93,10 @@ async function uploadsBelow(prefix: string): Promise<{ key: string; uploadId: st
   }));
 }
 
+test("the S3 endpoint of ADR 0012 is configured (see `harness/s3/README.md`)", () => {
+  expect(configured).toBeDefined();
+});
+
 describe.skipIf(configured === undefined)("adapter-s3 against the endpoint", () => {
   const prefix = `adapter-s3-${randomUUID()}/`;
 
