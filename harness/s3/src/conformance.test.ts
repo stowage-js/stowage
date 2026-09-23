@@ -13,15 +13,10 @@ import {
 
 /**
  * The operations `adapter-s3` has not been built yet, each named by the case it leaves
- * unrun. The list shrinks as they land: the listing and its XML parser, the removals
- * and the copy, the streamed upload and the presigned URLs.
+ * unrun. The list shrinks as they land: the removals and the copy, the streamed upload
+ * and the presigned URLs.
  */
 const casesNotBuiltYet: readonly string[] = [
-  // The listing and everything that reads one.
-  "put/accepted-keys",
-  "list/",
-  "flow/3-file-browser",
-  "errors/bad-credentials",
   // The removals, the copy and the move.
   "delete/",
   "deleteAll/",
