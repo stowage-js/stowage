@@ -835,3 +835,26 @@ test("a stream `put` refuses before any request is canceled", async () => {
   expect(sent).toHaveLength(0);
   expect(source.canceled()).toBe(true);
 });
+
+test("the caller's abort during the completion leaves the upload to the commit on its way", async () => {
+  const controller = new AbortController();
+  const sent = stubFetch(
+    multipartProvider({
+      complete: async (request) => {
+        controller.abort();
+
+        return await openUntilAborted(request);
+      },
+    }),
+  );
+  const storage = s3Storage(options({ multipart: { partSize: smallestPart } }));
+
+  const failure = await rejection(() =>
+    storage.put("object.bin", streamOf(patternOf(smallestPart + 1), mebibyte), {
+      signal: controller.signal,
+    }),
+  );
+
+  expect(failure).toHaveProperty("name", "AbortError");
+  expect(sent.map(stepOf)).not.toContain("abort");
+});

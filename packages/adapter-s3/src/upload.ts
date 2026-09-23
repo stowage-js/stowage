@@ -267,7 +267,7 @@ async function completeUpload(
       "CompleteMultipartUploadResult",
     );
   } catch (failure) {
-    if (!mayHaveCommitted(failure)) await abortUpload(configuration, write, uploadId);
+    if (!mayHaveCommitted(failure, write.signal)) await abortUpload(configuration, write, uploadId);
 
     throw failure;
   }
@@ -287,11 +287,14 @@ async function completeUpload(
 
 /**
  * Spec 7.7 leaves a completion that received no response unaborted, because an abort
- * could meet a commit still on its way. A `200` that broke before its body said how the
- * commit went is left alone for the same reason: S3 sends that status before it has
- * decided, so the commit may be on its way there too.
+ * could meet a commit still on its way. The same holds for a `200` that broke before its
+ * body said how the commit went, since S3 sends that status before it has decided, and
+ * for the caller's abort while the completion was out: the request may have arrived.
+ * Only the provider's answer that it did not commit is aborted.
  */
-function mayHaveCommitted(failure: unknown): boolean {
+function mayHaveCommitted(failure: unknown, signal: AbortSignal | undefined): boolean {
+  if (signal?.aborted) return true;
+
   return isStorageError(failure) && failure.code === "NetworkError";
 }
 
