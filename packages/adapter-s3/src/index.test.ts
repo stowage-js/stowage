@@ -1,4 +1,4 @@
-import { isStorageError, type StorageError } from "@stowage/core";
+import { isStorageError, type StorageError, type StoredObject } from "@stowage/core";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { sha256Hex } from "./hash.ts";
@@ -327,6 +327,64 @@ test("a second read of a body is refused", async () => {
 
   expect((await rejection(async () => await stored.text())).code).toBe("InvalidRequest");
 });
+
+/** A `200` whose body breaks with `failure` after its first chunk. */
+function bodyBreakingPartway(failure: unknown): Response {
+  let pulls = 0;
+
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls += 1;
+
+        if (pulls === 1) controller.enqueue(new TextEncoder().encode('{"partial":'));
+        else controller.error(failure);
+      },
+    }),
+    {
+      status: 200,
+      headers: {
+        "content-length": "1024",
+        "last-modified": "Sun, 30 Aug 2015 12:36:00 GMT",
+        "x-amz-request-id": "broken-request",
+      },
+    },
+  );
+}
+
+const readers = {
+  stream: async (stored: StoredObject) => {
+    const reader = stored.stream().getReader();
+
+    for (;;) if ((await reader.read()).done) return;
+  },
+  bytes: async (stored: StoredObject) => await stored.bytes(),
+  text: async (stored: StoredObject) => await stored.text(),
+  json: async (stored: StoredObject) => await stored.json(),
+};
+
+test.each(Object.entries(readers))(
+  "a body that breaks partway through `get` arrives as a `StorageError` through `%s()`",
+  async (_reader, read) => {
+    const cause = new TypeError("terminated");
+
+    stubFetch(() => bodyBreakingPartway(cause));
+
+    const stored = await s3Storage(options()).get("object.json");
+    const failure = await rejection(async () => await read(stored));
+
+    expect(failure).toMatchObject({
+      code: "NetworkError",
+      operation: "get",
+      key: "object.json",
+      bucket: "stowage",
+      retryable: true,
+      attempts: 1,
+      requestId: "broken-request",
+      cause,
+    });
+  },
+);
 
 test("a missing key is `NotFound` after the one attempt it cost", async () => {
   const sent = stubFetch(

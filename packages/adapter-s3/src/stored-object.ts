@@ -36,6 +36,7 @@ export function createStoredObject(
       key: stat.key,
       attempts: 1,
       retryable: true,
+      requestId: response.headers.get("x-amz-request-id") ?? undefined,
       cause: failure,
     });
 
