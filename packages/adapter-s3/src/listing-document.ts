@@ -1,5 +1,6 @@
 import type { ObjectEntry, StorageError } from "@stowage/core";
 
+import { unquotedEtag } from "./description.ts";
 import { s3Error } from "./storage-error.ts";
 import { parseXml, type XmlElement, XmlSyntaxError } from "./xml.ts";
 
@@ -92,12 +93,10 @@ function sizeOf(text: string | undefined): number | undefined {
   return Number.isSafeInteger(size) ? size : undefined;
 }
 
-// The quotes belong to the XML S3 writes rather than to the value, which spec 4.4 leaves
-// opaque; stripping them is what makes a listing answer the string `stat` answers.
 function etagOf(text: string | undefined): string | undefined {
   if (text === undefined || text === "") return undefined;
 
-  return text.replace(/^"|"$/gu, "");
+  return unquotedEtag(text);
 }
 
 /**
