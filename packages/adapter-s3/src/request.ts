@@ -145,6 +145,7 @@ async function failureOf(
     status: response.status,
     operation: request.operation,
     method: request.method,
+    hasContinuationToken: request.query?.some(([name]) => name === "continuation-token"),
     providerCode: document.code,
     providerMessage: document.message,
     bucketRegion: response.headers.get("x-amz-bucket-region") ?? undefined,

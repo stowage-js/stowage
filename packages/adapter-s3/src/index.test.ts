@@ -73,6 +73,48 @@ function refused(
   );
 }
 
+/** A `ListObjectsV2` answer holding `entries`, as AWS writes one. */
+function listed(
+  entries: readonly string[],
+  page: { prefixes?: readonly string[]; nextToken?: string } = {},
+): Response {
+  const contents = entries
+    .map(
+      (key) =>
+        `<Contents><Key>${key}</Key><LastModified>2026-09-23T08:00:00.000Z</LastModified><ETag>&quot;etag&quot;</ETag><Size>4</Size><StorageClass>STANDARD</StorageClass></Contents>`,
+    )
+    .join("");
+  const prefixes = (page.prefixes ?? [])
+    .map((prefix) => `<CommonPrefixes><Prefix>${prefix}</Prefix></CommonPrefixes>`)
+    .join("");
+  const next =
+    page.nextToken === undefined
+      ? "<IsTruncated>false</IsTruncated>"
+      : `<IsTruncated>true</IsTruncated><NextContinuationToken>${page.nextToken}</NextContinuationToken>`;
+
+  return new Response(
+    `<?xml version="1.0" encoding="UTF-8"?>\n<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Name>stowage</Name><MaxKeys>1000</MaxKeys>${next}${contents}${prefixes}</ListBucketResult>`,
+    { status: 200, headers: { "content-type": "application/xml" } },
+  );
+}
+
+/** A `200` whose body breaks with `failure` once it is read. */
+function brokenBody(failure: unknown): Response {
+  return new Response(
+    new ReadableStream({
+      pull(controller) {
+        controller.error(failure);
+      },
+    }),
+    { status: 200, headers: { "x-amz-request-id": "broken-request" } },
+  );
+}
+
+/** The query parameters a request carried, by name. */
+function queryOf(request: SentRequest | undefined): Record<string, string> {
+  return Object.fromEntries(new URL(request?.url ?? "https://absent.invalid/").searchParams);
+}
+
 /** The delay of every wait, with the timer itself fired at once so the run goes on. */
 function recordedDelays(): number[] {
   const delays: number[] = [];
@@ -629,4 +671,275 @@ test.each([400, 403, 404, 409])("a %i is not repeated", async (status) => {
   expect(failure.retryable).toBe(false);
   expect(failure.attempts).toBe(1);
   expect(sent).toHaveLength(1);
+});
+
+test("`page()` sends one `ListObjectsV2` for the prefix, the delimiter and the page size", async () => {
+  const sent = stubFetch(() => listed(["photos/cat.jpg"], { prefixes: ["photos/2026/"] }));
+
+  const page = await s3Storage(options())
+    .list({ prefix: "photos/", delimiter: "/", pageSize: 5 })
+    .page();
+
+  expect(sent).toHaveLength(1);
+  expect(sent[0]?.method).toBe("GET");
+  expect(new URL(sent[0]?.url ?? "").pathname).toBe("/");
+  expect(queryOf(sent[0])).toEqual({
+    "list-type": "2",
+    prefix: "photos/",
+    delimiter: "/",
+    "max-keys": "5",
+  });
+  expect(page).toEqual({
+    objects: [
+      {
+        key: "photos/cat.jpg",
+        size: 4,
+        lastModified: new Date("2026-09-23T08:00:00.000Z"),
+        etag: "etag",
+      },
+    ],
+    prefixes: ["photos/2026/"],
+    cursor: undefined,
+  });
+});
+
+// Spec 4.6: iterated, the listing walks the pages itself and yields the objects of each,
+// the pseudo-directories a delimiter shapes a page with reaching the caller through
+// `page()` alone.
+test("the iteration walks every page and yields the objects alone", async () => {
+  const sent = stubFetch((request) =>
+    queryOf(request)["continuation-token"] === undefined
+      ? listed(["a/1", "a/2"], { prefixes: ["a/b/"], nextToken: "token+1/=" })
+      : listed(["a/3"]),
+  );
+  const keys: string[] = [];
+
+  for await (const entry of s3Storage(options()).list({ prefix: "a/", delimiter: "/" })) {
+    keys.push(entry.key);
+  }
+
+  expect(keys).toEqual(["a/1", "a/2", "a/3"]);
+  expect(sent).toHaveLength(2);
+  expect(queryOf(sent[1])).toEqual({
+    "list-type": "2",
+    prefix: "a/",
+    delimiter: "/",
+    "max-keys": "1000",
+    "continuation-token": "token+1/=",
+  });
+});
+
+// Spec 4.6: a cursor is opaque and continues the listing from a `list` call of its own,
+// which is what a caller paging from another process holds.
+test("a page's cursor continues the listing from a new `list`", async () => {
+  const sent = stubFetch((request) =>
+    queryOf(request)["continuation-token"] === undefined
+      ? listed(["a"], { nextToken: "1ueGcxLPRx1Tr/XYExHnhbYLgveDs2J/wm36Hy4vbOwM=" })
+      : listed(["b"]),
+  );
+  const storage = s3Storage(options());
+
+  const first = await storage.list({ pageSize: 1 }).page();
+
+  expect(first.cursor).toEqual(expect.any(String));
+  expect(first.cursor).not.toContain("1ueGcxLPRx1Tr");
+
+  const second = await storage.list({ pageSize: 1, cursor: first.cursor }).page();
+
+  expect(queryOf(sent[1])["continuation-token"]).toBe(
+    "1ueGcxLPRx1Tr/XYExHnhbYLgveDs2J/wm36Hy4vbOwM=",
+  );
+  expect(second.objects.map((entry) => entry.key)).toEqual(["b"]);
+  expect(second.cursor).toBeUndefined();
+});
+
+// Spec 4.3: a cursor the storage did not produce is `InvalidOption` naming `cursor`,
+// whether stowage tells it apart itself or the provider refuses the position inside.
+test.each(["not-a-cursor", btoa("stowage-memory-1:0061"), ""])(
+  "the cursor %j is refused by name before any request",
+  async (cursor) => {
+    const sent = stubFetch(() => listed([]));
+    const failure = await rejection(async () => await s3Storage(options()).list({ cursor }).page());
+
+    expect(failure.code).toBe("InvalidOption");
+    expect(failure.message).toContain("cursor");
+    expect(failure.attempts).toBe(0);
+    expect(sent).toHaveLength(0);
+  },
+);
+
+test("a position the provider refuses is `InvalidOption` naming `cursor`", async () => {
+  const sent = stubFetch((request) =>
+    queryOf(request)["continuation-token"] === undefined
+      ? listed(["a"], { nextToken: "genuine" })
+      : // The position is stowage's own, and the provider no longer continues from it.
+        refused(400, "InvalidArgument", "The continuation token provided is incorrect"),
+  );
+  const storage = s3Storage(options());
+  const { cursor } = await storage.list().page();
+
+  const failure = await rejection(async () => await storage.list({ cursor }).page());
+
+  expect(failure.code).toBe("InvalidOption");
+  expect(failure.message).toContain("cursor");
+  expect(failure.status).toBe(400);
+  expect(sent).toHaveLength(2);
+});
+
+test("an `InvalidArgument` on the first listing page is an `InvalidRequest`", async () => {
+  const sent = stubFetch(() => refused(400, "InvalidArgument", "The prefix is invalid"));
+
+  const failure = await rejection(async () => await s3Storage(options()).list().page());
+
+  expect(failure.code).toBe("InvalidRequest");
+  expect(failure.message).toBe("The prefix is invalid");
+  expect(sent).toHaveLength(1);
+});
+
+// Spec 7.4: the prefix travels percent-encoded like a key on the path, and a key comes
+// back out of its entities as it was written.
+test("keys holding `#`, `%`, `?`, `+`, a space and characters above ASCII round-trip", async () => {
+  const keys = [
+    "a#b",
+    "100%",
+    "q?x=1",
+    "a+b",
+    "hello world.txt",
+    "it's",
+    "a&b<c>",
+    "Grüße/日本語/ключ.txt",
+  ];
+  const escaped = keys.map((key) =>
+    key.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;"),
+  );
+  const sent = stubFetch((request) =>
+    request.method === "GET" && new URL(request.url).pathname === "/"
+      ? listed(escaped)
+      : storedResponse("body"),
+  );
+  const storage = s3Storage(options());
+
+  const page = await storage.list({ prefix: "Grüße #1 +%?" }).page();
+
+  expect(sent[0]?.url).toContain("prefix=Gr%C3%BC%C3%9Fe%20%231%20%2B%25%3F");
+  expect(page.objects.map((entry) => entry.key)).toEqual(keys);
+
+  for (const entry of page.objects) {
+    // oxlint-disable-next-line no-await-in-loop -- one request at a time keeps `sent` in order
+    await storage.stat(entry.key);
+  }
+
+  expect(sent.slice(1).map((request) => new URL(request.url).pathname)).toEqual([
+    "/a%23b",
+    "/100%25",
+    "/q%3Fx%3D1",
+    "/a%2Bb",
+    "/hello%20world.txt",
+    "/it%27s",
+    "/a%26b%3Cc%3E",
+    "/Gr%C3%BC%C3%9Fe/%E6%97%A5%E6%9C%AC%E8%AA%9E/%D0%BA%D0%BB%D1%8E%D1%87.txt",
+  ]);
+});
+
+// Spec 4.6: keys written by another tool appear as they are, including a key ending in
+// `/` and one longer than a writable key may be, and the addressable operations take them.
+test("keys another tool wrote are listed as they are and are readable", async () => {
+  const folder = "photos/";
+  const long = `${"x".repeat(200)}/`.repeat(6);
+  const sent = stubFetch((request) =>
+    new URL(request.url).pathname === "/" ? listed([folder, long]) : storedResponse(""),
+  );
+  const storage = s3Storage(options());
+  const listedKeys: string[] = [];
+
+  for await (const entry of storage.list()) listedKeys.push(entry.key);
+
+  expect(listedKeys).toEqual([folder, long]);
+  expect(new TextEncoder().encode(long).length).toBeGreaterThan(1024);
+
+  await expect(storage.stat(folder)).resolves.toMatchObject({ key: folder });
+  await expect(storage.exists(long)).resolves.toBe(true);
+  await expect((await storage.get(long)).text()).resolves.toBe("");
+  expect(sent).toHaveLength(4);
+});
+
+test("a listing answer outside the parser's subset is a `ProviderError`", async () => {
+  stubFetch(
+    () =>
+      new Response("<ListBucketResult><![CDATA[x]]></ListBucketResult>", {
+        status: 200,
+        headers: { "content-type": "application/xml", "x-amz-request-id": "listing-request" },
+      }),
+  );
+
+  const failure = await rejection(async () => await s3Storage(options()).list().page());
+
+  expect(failure.code).toBe("ProviderError");
+  expect(failure.operation).toBe("list");
+  // Spec 7.9: an error that carries a response names it, which traces it at the provider.
+  expect(failure.status).toBe(200);
+  expect(failure.requestId).toBe("listing-request");
+});
+
+test("a listing answer that breaks while it is read is a `NetworkError`", async () => {
+  stubFetch(() => brokenBody(new TypeError("terminated")));
+
+  const failure = await rejection(async () => await s3Storage(options()).list().page());
+
+  expect(failure.code).toBe("NetworkError");
+  expect(failure.operation).toBe("list");
+  expect(failure.retryable).toBe(true);
+  expect(failure.status).toBe(200);
+  expect(failure.requestId).toBe("broken-request");
+});
+
+test("a listing whose signal already fired sends nothing", async () => {
+  const sent = stubFetch(() => listed([]));
+
+  await expect(s3Storage(options()).list({ signal: AbortSignal.abort() }).page()).rejects.toThrow(
+    expect.objectContaining({ name: "AbortError" }),
+  );
+  expect(sent).toHaveLength(0);
+});
+
+// Spec 4.10: an abort produces the runtime's `AbortError` and never a `StorageError`,
+// also where it lands while the answer is read.
+test("an abort while the listing is read rejects with `AbortError`", async () => {
+  stubFetch(() => brokenBody(new DOMException("The operation was aborted", "AbortError")));
+
+  await expect(s3Storage(options()).list().page()).rejects.toThrow(
+    expect.objectContaining({ name: "AbortError" }),
+  );
+});
+
+test("an iteration handed a cursor walks on from where it points", async () => {
+  const sent = stubFetch((request) =>
+    queryOf(request)["continuation-token"] === undefined
+      ? listed(["a"], { nextToken: "second" })
+      : listed(["b"]),
+  );
+  const storage = s3Storage(options());
+  const { cursor } = await storage.list().page();
+  const keys: string[] = [];
+
+  for await (const entry of storage.list({ cursor })) keys.push(entry.key);
+
+  expect(keys).toEqual(["b"]);
+  expect(queryOf(sent[1])["continuation-token"]).toBe("second");
+});
+
+test("an iteration rejects a provider repeating the continuation token it was sent", async () => {
+  const sent = stubFetch(() => listed(["a"], { nextToken: "again" }));
+  const storage = s3Storage(options());
+  const keys: string[] = [];
+
+  const failure = await rejection(async () => {
+    for await (const entry of storage.list()) keys.push(entry.key);
+  });
+
+  expect(failure.code).toBe("ProviderError");
+  expect(failure.operation).toBe("list");
+  expect(keys).toEqual(["a"]);
+  expect(sent).toHaveLength(2);
+  expect(queryOf(sent[1])["continuation-token"]).toBe("again");
 });

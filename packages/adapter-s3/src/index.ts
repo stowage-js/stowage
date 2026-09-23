@@ -4,8 +4,6 @@ import {
   type GetOptions,
   isStorageError,
   type ListOptions,
-  type ListPage,
-  type ObjectEntry,
   type ObjectListing,
   type ObjectStat,
   type OperationOptions,
@@ -18,7 +16,7 @@ import {
 import { readConfiguration, type S3AdapterOptions, type S3Configuration } from "./configuration.ts";
 import { defaultContentType, describeResponse, describeWrite } from "./description.ts";
 import { requireKey } from "./key.ts";
-import { requireListOptions } from "./listing.ts";
+import { createListing } from "./listing.ts";
 import {
   getOptionKeys,
   operationOptionKeys,
@@ -126,33 +124,12 @@ class SimpleStorageServiceStorage implements S3Storage {
     }
   }
 
-  /**
-   * Spec 4.6: a listing sends no request until it is read, so an option it refuses
-   * reaches the caller from `page()` and from the iteration and not from `list`. The
-   * request itself and the parser that reads its answer arrive with the listing.
-   */
   list(options?: ListOptions): ObjectListing {
-    const refuseOptions = (): void => {
-      requireListOptions(this.bucket, options);
-    };
-
-    return {
-      async page(): Promise<ListPage> {
-        refuseOptions();
-
-        throw notBuiltYet("list");
-      },
-
-      [Symbol.asyncIterator](): AsyncIterator<ObjectEntry> {
-        refuseOptions();
-
-        throw notBuiltYet("list");
-      },
-    };
+    return createListing(this.#configuration, options);
   }
 
-  // The rest of the parity core of spec 4.11 is the step that reads a listing and the
-  // step that removes what it named: both arrive with the XML parser.
+  // The rest of the parity core of spec 4.11 is the step that removes what a listing
+  // named, which arrives with `DeleteObjects`.
   async delete(...keys: readonly string[]): Promise<DeleteReport> {
     void keys;
 

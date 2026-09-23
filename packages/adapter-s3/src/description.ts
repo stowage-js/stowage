@@ -51,13 +51,18 @@ export function describeWrite(
   };
 }
 
-// The quotes belong to the header field rather than to the value, which spec 4.4 leaves
-// opaque; stripping them is what makes `get` and `stat` answer the same string.
 function etagOf(response: Response): string | undefined {
   const etag = response.headers.get("etag");
 
   if (etag === null) return undefined;
 
+  return unquotedEtag(etag);
+}
+
+// The quotes belong to the header field and to the listing XML rather than to the value,
+// which spec 4.4 leaves opaque; stripping them is what makes `get`, `stat` and a listing
+// answer the same string.
+export function unquotedEtag(etag: string): string {
   return etag.replace(/^"|"$/gu, "");
 }
 

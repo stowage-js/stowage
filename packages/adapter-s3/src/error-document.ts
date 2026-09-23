@@ -1,3 +1,5 @@
+import { predefinedEntities } from "./xml.ts";
+
 export interface S3ErrorDocument {
   readonly code?: string;
   readonly message?: string;
@@ -21,14 +23,6 @@ function textOf(body: string, element: string): string | undefined {
   return text === undefined ? undefined : decodeEntities(text);
 }
 
-const namedEntities: ReadonlyMap<string, string> = new Map([
-  ["amp", "&"],
-  ["lt", "<"],
-  ["gt", ">"],
-  ["quot", '"'],
-  ["apos", "'"],
-]);
-
 // Spec 4.10 passes the provider's message on word for word, and a message holding a key
 // reaches here with its `&` and its `<` escaped. An entity that names nothing stays as it
 // was written, which is what leaves an unescaped `&` in a message alone.
@@ -42,6 +36,6 @@ function decodeEntities(text: string): string {
         : entity;
     }
 
-    return namedEntities.get(name.toLowerCase()) ?? entity;
+    return predefinedEntities.get(name.toLowerCase()) ?? entity;
   });
 }

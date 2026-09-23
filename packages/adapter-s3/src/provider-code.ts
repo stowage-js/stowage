@@ -48,6 +48,8 @@ export interface ProviderAnswer {
   readonly operation: string;
   /** The method, which says what a provider that sent no message answered to. */
   readonly method: string;
+  /** Whether the request included the continuation token a `cursor` becomes. */
+  readonly hasContinuationToken?: boolean;
   readonly providerCode?: string;
   readonly providerMessage?: string;
   /** `x-amz-bucket-region`, the region a redirect says the bucket is really in. */
@@ -85,9 +87,13 @@ export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
     };
   }
 
-  // Spec 7.9: `InvalidArgument` answered to a listing is the provider refusing the
-  // continuation token, which reaches the caller as the `cursor` they handed `list`.
-  if (answer.providerCode === "InvalidArgument" && answer.operation === "list") {
+  // Spec 7.9: `InvalidArgument` answered to a continued listing is the provider refusing
+  // the continuation token, which reaches the caller as the `cursor` they handed `list`.
+  if (
+    answer.providerCode === "InvalidArgument" &&
+    answer.operation === "list" &&
+    answer.hasContinuationToken
+  ) {
     return {
       code: "InvalidOption",
       message: `The option \`cursor\` is not one the provider continued from: ${said}`,
