@@ -8,13 +8,8 @@ import {
 } from "@aws-sdk/client-s3";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import {
-  fromEnv,
-  type S3AdapterOptions,
-  type S3Storage,
-  s3Storage,
-} from "../../../packages/adapter-s3/src/index.ts";
-import { configuredStorage } from "./environment.ts";
+import { fromEnv, type S3Storage, s3Storage } from "../../../packages/adapter-s3/src/index.ts";
+import { configuredStorage, endpointOrFail } from "./environment.ts";
 
 // Spec 8.4: promises of `adapter-s3` that the core API cannot observe, held against the
 // endpoint of ADR 0012. Without one these are skipped: `conformance.test.ts` already
@@ -31,51 +26,29 @@ const uploadTimeout = 60_000;
 /** The longest key AWS S3 and R2 hold, in UTF-8 bytes. */
 const longestKey = 1024;
 
-function endpoint(): S3AdapterOptions {
-  if (configured === undefined) throw new Error("No S3 endpoint is configured");
-
-  return configured;
-}
-
-const storage = (): S3Storage => s3Storage({ ...endpoint(), multipart: { partSize } });
+const storage = (): S3Storage => s3Storage({ ...endpointOrFail(), multipart: { partSize } });
 
 /** The writer spec 8.4 names: another tool, holding its own idea of what a key may be. */
 function sdkClient(): S3Client {
-  const { endpoint: url, region, forcePathStyle } = endpoint();
+  const { endpoint: url, region, forcePathStyle } = endpointOrFail();
 
   return new S3Client({ endpoint: url, region, forcePathStyle, credentials: fromEnv() });
 }
 
-/** `size` bytes that end in a break of the stream rather than in its close. */
-function streamBreakingAfter(size: number): ReadableStream<Uint8Array> {
+/** `size` bytes, one mebibyte at a time, ending as `ending` says. */
+function sourceStream(size: number, ending: "closes" | "breaks"): ReadableStream<Uint8Array> {
   let pulled = 0;
 
   return new ReadableStream({
     pull(controller) {
-      if (pulled >= size) {
-        controller.error(new Error("The source broke"));
-        return;
-      }
-
-      controller.enqueue(new Uint8Array(mebibyte).fill(pulled / mebibyte));
-      pulled += mebibyte;
-    },
-  });
-}
-
-/** `size` bytes that close, one mebibyte at a time. */
-function streamOf(size: number): ReadableStream<Uint8Array> {
-  let pulled = 0;
-
-  return new ReadableStream({
-    pull(controller) {
-      if (pulled >= size) {
+      if (pulled < size) {
+        controller.enqueue(new Uint8Array(mebibyte).fill(pulled / mebibyte));
+        pulled += mebibyte;
+      } else if (ending === "closes") {
         controller.close();
-        return;
+      } else {
+        controller.error(new Error("The source broke"));
       }
-
-      controller.enqueue(new Uint8Array(mebibyte).fill(pulled / mebibyte));
-      pulled += mebibyte;
     },
   });
 }
@@ -92,20 +65,26 @@ function stepOf(url: string, init: RequestInit | undefined): Step | undefined {
   return undefined;
 }
 
-/** The endpoint as it is, except for the one request `intercept` answers in its place. */
-function interceptStep(step: Step, intercept: () => Promise<Response>): void {
-  const forward = globalThis.fetch;
+/**
+ * The endpoint as it is, except for the one request `intercept` answers. `forward` sends that
+ * request on to the endpoint, for an interception that only watches.
+ */
+function interceptStep(
+  step: Step,
+  intercept: (forward: () => Promise<Response>) => Promise<Response>,
+): void {
+  const endpoint = globalThis.fetch;
 
   vi.stubGlobal("fetch", async (url: string, init?: RequestInit): Promise<Response> => {
-    if (stepOf(url, init) === step) return await intercept();
+    const forward = async (): Promise<Response> => await endpoint(url, init);
 
-    return await forward(url, init);
+    return stepOf(url, init) === step ? await intercept(forward) : await forward();
   });
 }
 
 async function uploadsBelow(prefix: string): Promise<{ key: string; uploadId: string }[]> {
   const listing = await sdkClient().send(
-    new ListMultipartUploadsCommand({ Bucket: endpoint().bucket, Prefix: prefix }),
+    new ListMultipartUploadsCommand({ Bucket: endpointOrFail().bucket, Prefix: prefix }),
   );
 
   return (listing.Uploads ?? []).map((upload) => ({
@@ -125,7 +104,7 @@ describe.skipIf(configured === undefined)("adapter-s3 against the endpoint", () 
         async ({ key, uploadId }) =>
           await sdkClient().send(
             new AbortMultipartUploadCommand({
-              Bucket: endpoint().bucket,
+              Bucket: endpointOrFail().bucket,
               Key: key,
               UploadId: uploadId,
             }),
@@ -141,7 +120,7 @@ describe.skipIf(configured === undefined)("adapter-s3 against the endpoint", () 
       const key = `${prefix}broken-source.bin`;
 
       await expect(
-        storage().put(key, streamBreakingAfter(2 * partSize + mebibyte)),
+        storage().put(key, sourceStream(2 * partSize + mebibyte, "breaks")),
       ).rejects.toThrow("The source broke");
 
       expect(await uploadsBelow(key)).toEqual([]);
@@ -157,13 +136,12 @@ describe.skipIf(configured === undefined)("adapter-s3 against the endpoint", () 
 
       interceptStep("part 2", async () => new Response(null, { status: 503 }));
 
-      await expect(storage().put(key, streamOf(3 * partSize))).rejects.toMatchObject({
+      await expect(storage().put(key, sourceStream(3 * partSize, "closes"))).rejects.toMatchObject({
         code: "ProviderError",
         status: 503,
         attempts: 3,
       });
 
-      vi.unstubAllGlobals();
       expect(await uploadsBelow(key)).toEqual([]);
     },
     uploadTimeout,
@@ -174,19 +152,17 @@ describe.skipIf(configured === undefined)("adapter-s3 against the endpoint", () 
     async () => {
       const key = `${prefix}aborted.bin`;
       const controller = new AbortController();
-      const forward = globalThis.fetch;
 
-      vi.stubGlobal("fetch", async (url: string, init?: RequestInit): Promise<Response> => {
-        if (stepOf(url, init) === "part 2") controller.abort();
+      interceptStep("part 2", async (forward) => {
+        controller.abort();
 
-        return await forward(url, init);
+        return await forward();
       });
 
       await expect(
-        storage().put(key, streamOf(3 * partSize), { signal: controller.signal }),
+        storage().put(key, sourceStream(3 * partSize, "closes"), { signal: controller.signal }),
       ).rejects.toHaveProperty("name", "AbortError");
 
-      vi.unstubAllGlobals();
       expect(await uploadsBelow(key)).toEqual([]);
     },
     uploadTimeout,
@@ -202,12 +178,13 @@ describe.skipIf(configured === undefined)("adapter-s3 against the endpoint", () 
         throw new TypeError("fetch failed");
       });
 
-      await expect(storage().put(key, streamOf(2 * partSize + mebibyte))).rejects.toMatchObject({
+      await expect(
+        storage().put(key, sourceStream(2 * partSize + mebibyte, "closes")),
+      ).rejects.toMatchObject({
         code: "NetworkError",
         attempts: 1,
       });
 
-      vi.unstubAllGlobals();
       expect(await uploadsBelow(key)).toEqual([{ key, uploadId: expect.any(String) }]);
     },
     uploadTimeout,
@@ -217,26 +194,36 @@ describe.skipIf(configured === undefined)("adapter-s3 against the endpoint", () 
   // endpoint, so no tool writes one there: the longest key another tool can leave is 1024
   // bytes, and a key above that is read against a stubbed `fetch` in `adapter-s3`.
   test("keys another tool wrote are listed as they are and are readable", async () => {
-    const folder = `${prefix}photos/`;
-    const long = `${prefix}${"x".repeat(longestKey - prefix.length - "/long.txt".length)}/long.txt`;
+    const slashEnded = `${prefix}photos/`;
+    const leaf = "/long.txt";
+    const long = `${prefix}${"x".repeat(longestKey - prefix.length - leaf.length)}${leaf}`;
 
     expect(new TextEncoder().encode(long).length).toBe(longestKey);
 
     const client = sdkClient();
 
     await client.send(
-      new PutObjectCommand({ Bucket: endpoint().bucket, Key: folder, Body: new Uint8Array(0) }),
+      new PutObjectCommand({
+        Bucket: endpointOrFail().bucket,
+        Key: slashEnded,
+        Body: new Uint8Array(0),
+      }),
     );
     await client.send(
-      new PutObjectCommand({ Bucket: endpoint().bucket, Key: long, Body: "written elsewhere" }),
+      new PutObjectCommand({
+        Bucket: endpointOrFail().bucket,
+        Key: long,
+        Body: "written elsewhere",
+      }),
     );
 
     const listed: string[] = [];
 
     for await (const entry of storage().list({ prefix })) listed.push(entry.key);
 
-    expect(listed.toSorted()).toEqual([folder, long].toSorted());
-    await expect(storage().stat(folder)).resolves.toMatchObject({ key: folder, size: 0 });
+    expect(listed.toSorted()).toEqual([slashEnded, long].toSorted());
+    await expect(storage().stat(slashEnded)).resolves.toMatchObject({ key: slashEnded, size: 0 });
+    await expect((await storage().get(slashEnded)).bytes()).resolves.toHaveLength(0);
     await expect((await storage().get(long)).text()).resolves.toBe("written elsewhere");
   });
 });
