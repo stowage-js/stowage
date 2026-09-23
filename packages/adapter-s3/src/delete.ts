@@ -12,7 +12,7 @@ import { maxPageSize, walkPages } from "./listing.ts";
 import { md5Base64 } from "./md5.ts";
 import { send } from "./request.ts";
 import { s3Error } from "./storage-error.ts";
-import type { XmlElement } from "./xml.ts";
+import { escapeXml, type XmlElement } from "./xml.ts";
 
 /** What one `DeleteObjects` names at most, and so what spec 4.1 sends one request per. */
 const keysPerRequest = 1000;
@@ -145,18 +145,6 @@ function deleteDocument(keys: readonly string[]): string {
   const objects = keys.map((key) => `<Object><Key>${escapeXml(key)}</Key></Object>`).join("");
 
   return `<?xml version="1.0" encoding="UTF-8"?><Delete><Quiet>true</Quiet>${objects}</Delete>`;
-}
-
-const xmlEscapes: Readonly<Record<string, string>> = {
-  "&": "&amp;",
-  "<": "&lt;",
-  ">": "&gt;",
-  '"': "&quot;",
-  "'": "&apos;",
-};
-
-function escapeXml(text: string): string {
-  return text.replaceAll(/[&<>"']/gu, (character) => xmlEscapes[character] ?? character);
 }
 
 /**

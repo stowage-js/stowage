@@ -16,7 +16,7 @@ import {
 import { readConfiguration, type S3AdapterOptions, type S3Configuration } from "./configuration.ts";
 import { copyObject } from "./copy.ts";
 import { deleteBelow, deleteKeys } from "./delete.ts";
-import { defaultContentType, describeResponse, describeWrite } from "./description.ts";
+import { defaultContentType, describeResponse } from "./description.ts";
 import { requireKey } from "./key.ts";
 import { createListing } from "./listing.ts";
 import {
@@ -30,6 +30,7 @@ import { send } from "./request.ts";
 import { partialContent, rangeHeader, requireRange, wholeAnswerFailure } from "./range.ts";
 import { s3Error } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
+import { type ObjectWrite, putObject, uploadStream } from "./upload.ts";
 import { userMetadataHeaders } from "./user-metadata.ts";
 
 export type { S3AdapterOptions } from "./configuration.ts";
@@ -65,35 +66,34 @@ class SimpleStorageServiceStorage implements S3Storage {
   }
 
   async put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat> {
+    try {
+      return await this.#put(key, body, options);
+    } catch (failure) {
+      // Spec 4.2 leaves the stream at its end or canceled once `put` settled, which for a
+      // refusal in front of the upload is this cancel and for a failed upload its own.
+      if (isStream(body) && !body.locked) await body.cancel(failure).catch(() => {});
+
+      throw failure;
+    }
+  }
+
+  async #put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat> {
     requireKey(this.bucket, key, "writable", "put");
     requireKnownOptions(this.bucket, options, putOptionKeys, "put");
 
-    const userMetadata = userMetadataHeaders(this.bucket, options?.userMetadata, key);
-    const contentType = this.#readContentType(options?.contentType);
-    const bytes = this.#holdBody(body);
+    const write: ObjectWrite = {
+      key,
+      userMetadata: userMetadataHeaders(this.bucket, options?.userMetadata, key),
+      contentType: this.#readContentType(options?.contentType),
+      signal: options?.signal,
+    };
 
     // Spec 4.3: a signal that already fired rejects before the request goes out.
     options?.signal?.throwIfAborted();
 
-    const response = await send(this.#configuration, {
-      method: "PUT",
-      operation: "put",
-      key,
-      headers: [["content-type", contentType], ...userMetadata.headers],
-      body: bytes,
-      signal: options?.signal,
-    });
+    if (isStream(body)) return await uploadStream(this.#configuration, write, body);
 
-    await response.body?.cancel();
-
-    return describeWrite(
-      this.bucket,
-      key,
-      bytes.byteLength,
-      contentType,
-      userMetadata.held,
-      response,
-    );
+    return await putObject(this.#configuration, write, bytesOf(body));
   }
 
   async get(key: string, options?: GetOptions): Promise<StoredObject> {
@@ -231,14 +231,6 @@ class SimpleStorageServiceStorage implements S3Storage {
     });
   }
 
-  /** Spec 4.2: a string travels as its UTF-8 bytes, and a stream as buffered parts. */
-  #holdBody(body: PutBody): Uint8Array<ArrayBuffer> {
-    if (typeof body === "string") return utf8.encode(body);
-    if (body instanceof Uint8Array) return heldBytes(body);
-
-    throw notBuiltYet("put of a stream");
-  }
-
   #readContentType(contentType: string | undefined): string {
     if (contentType === undefined) return defaultContentType;
 
@@ -248,6 +240,11 @@ class SimpleStorageServiceStorage implements S3Storage {
 
     return contentType;
   }
+}
+
+/** Spec 4.2: a string travels as its UTF-8 bytes. */
+function bytesOf(body: string | Uint8Array): Uint8Array<ArrayBuffer> {
+  return typeof body === "string" ? utf8.encode(body) : heldBytes(body);
 }
 
 /**
@@ -266,6 +263,6 @@ function heldBytes(body: Uint8Array): Uint8Array<ArrayBuffer> {
   return new Uint8Array(body);
 }
 
-function notBuiltYet(operation: string): Error {
-  return new Error(`\`${operation}\` is not implemented in @stowage/adapter-s3 yet`);
+function isStream(body: PutBody): body is ReadableStream<Uint8Array> {
+  return typeof body !== "string" && !(body instanceof Uint8Array);
 }

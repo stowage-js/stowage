@@ -12,9 +12,6 @@ export function s3Error(
  * written outside the adapter and knows neither bucket nor operation, so the error it
  * throws arrives without them and is re-issued here rather than reaching a caller with
  * the placeholders it was built from (spec 4.10).
- *
- * Every field of `StorageErrorFields` is named below, so a field added to that type has
- * to be added here too or it is dropped on the way through.
  */
 export function inStorage(
   failure: unknown,
@@ -24,11 +21,24 @@ export function inStorage(
 ): unknown {
   if (!isStorageError(failure)) return failure;
 
-  return s3Error(bucket, {
+  return s3Error(bucket, { ...fieldsOf(failure), operation, key: key ?? failure.key });
+}
+
+/** The same failure, counting the attempts made where the one that failed does not know. */
+export function withAttemptsMade(failure: StorageError, attempts: number): StorageError {
+  return s3Error(failure.bucket, { ...fieldsOf(failure), attempts });
+}
+
+/**
+ * Every field of `StorageErrorFields` is named below, so a field added to that type has
+ * to be added here too or it is dropped on the way through.
+ */
+function fieldsOf(failure: StorageError): Omit<StorageErrorFields, "bucket" | "provider"> {
+  return {
     code: failure.code,
     message: failure.message,
-    operation,
-    key: key ?? failure.key,
+    operation: failure.operation,
+    key: failure.key,
     attempts: failure.attempts,
     status: failure.status,
     providerCode: failure.providerCode,
@@ -36,5 +46,5 @@ export function inStorage(
     retryable: failure.retryable,
     capability: failure.capability,
     cause: failure.cause,
-  });
+  };
 }

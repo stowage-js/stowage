@@ -27,7 +27,8 @@ export function describeResponse(
  * What `put` wrote, described from what it sent: a `PutObject` answer carries the entity
  * tag and the time the provider accepted the object, and neither length nor type. Spec
  * 4.4 has that time come from the provider, so an answer without one is reported rather
- * than dated from this clock.
+ * than dated from this clock. `CompleteMultipartUpload` carries its entity tag in the
+ * body instead, and hands it in as `etag`.
  */
 export function describeWrite(
   bucket: string,
@@ -36,6 +37,7 @@ export function describeWrite(
   contentType: string,
   userMetadata: Readonly<Record<string, string>>,
   response: Response,
+  etag: string | undefined = etagOf(response),
 ): ObjectStat {
   const accepted = Date.parse(response.headers.get("date") ?? "");
 
@@ -45,7 +47,7 @@ export function describeWrite(
     key,
     size,
     lastModified: new Date(accepted),
-    etag: etagOf(response),
+    etag,
     contentType,
     userMetadata,
   };
