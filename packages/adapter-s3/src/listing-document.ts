@@ -1,5 +1,6 @@
 import type { ObjectEntry, StorageError } from "@stowage/core";
 
+import { textOf } from "./answer-document.ts";
 import { unquotedEtag } from "./description.ts";
 import { s3Error } from "./storage-error.ts";
 import { parseXml, type XmlElement, XmlSyntaxError } from "./xml.ts";
@@ -123,10 +124,6 @@ function continuationOf(answer: ListingAnswer, root: XmlElement): string | undef
 
 function childrenNamed(element: XmlElement, name: string): readonly XmlElement[] {
   return element.children.filter((child) => child.name === name);
-}
-
-function textOf(element: XmlElement, name: string): string | undefined {
-  return element.children.find((child) => child.name === name)?.text;
 }
 
 function malformed(answer: ListingAnswer, what: string, cause?: unknown): StorageError {

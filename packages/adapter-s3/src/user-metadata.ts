@@ -8,7 +8,7 @@ const headerPrefix = "x-amz-meta-";
 /** Spec 4.3 bounds the set at 2 KB of the header bytes it costs once it is encoded. */
 const headerByteLimit = 2048;
 
-/** The characters RFC 9110 allows in a field name, which is what a metadata key is. */
+/** The characters RFC 9110 allows in a field name, which is what a user metadata key is. */
 const httpToken = /^[!#$%&'*+.^_`|~\dA-Za-z-]+$/u;
 
 /**
@@ -32,7 +32,7 @@ const utf8 = new TextEncoder();
 export interface UserMetadataHeaders {
   /** One `x-amz-meta-*` field per key, which is how `PutObject` carries user metadata. */
   readonly headers: readonly HeaderField[];
-  /** The metadata as the provider hands it back: keys folded to lower case. */
+  /** The user metadata as the provider hands it back: keys folded to lower case. */
   readonly held: Readonly<Record<string, string>>;
 }
 
@@ -111,30 +111,30 @@ export function readUserMetadata(headers: Headers): Readonly<Record<string, stri
 function encodeValue(value: string): string {
   if (travelsAsWritten.test(value) && !value.includes("=?")) return value;
 
-  return utf8ChunksOf(value)
-    .map((chunk) => `${encodedWordStart}${btoa(String.fromCharCode(...chunk))}${encodedWordEnd}`)
+  return utf8PiecesOf(value)
+    .map((piece) => `${encodedWordStart}${btoa(String.fromCharCode(...piece))}${encodedWordEnd}`)
     .join(" ");
 }
 
 /** The UTF-8 bytes in pieces of at most one encoded word, each ending on a character. */
-function utf8ChunksOf(value: string): readonly Uint8Array[] {
-  const chunks: Uint8Array[] = [];
+function utf8PiecesOf(value: string): readonly Uint8Array[] {
+  const pieces: Uint8Array[] = [];
   let pending: number[] = [];
 
   for (const character of value) {
     const bytes = utf8.encode(character);
 
     if (pending.length + bytes.length > bytesPerEncodedWord) {
-      chunks.push(Uint8Array.from(pending));
+      pieces.push(Uint8Array.from(pending));
       pending = [];
     }
 
     pending.push(...bytes);
   }
 
-  chunks.push(Uint8Array.from(pending));
+  pieces.push(Uint8Array.from(pending));
 
-  return chunks;
+  return pieces;
 }
 
 const encodedWord = /=\?([^?\s]+)\?([BbQq])\?([^?\s]*)\?=/gu;

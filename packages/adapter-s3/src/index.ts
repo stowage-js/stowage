@@ -165,7 +165,7 @@ class SimpleStorageServiceStorage implements S3Storage {
   }
 
   async copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
-    this.#requireCopy(from, to, options, "copy");
+    this.#requireCopyKeys(from, to, options, "copy");
 
     return await copyObject(this.#configuration, from, to, "copy", options?.signal);
   }
@@ -176,7 +176,7 @@ class SimpleStorageServiceStorage implements S3Storage {
    * place and a repeated `move` is safe.
    */
   async move(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
-    this.#requireCopy(from, to, options, "move");
+    this.#requireCopyKeys(from, to, options, "move");
 
     const written = await copyObject(this.#configuration, from, to, "move", options?.signal);
     const response = await send(this.#configuration, {
@@ -210,7 +210,7 @@ class SimpleStorageServiceStorage implements S3Storage {
    * onto itself stop before it leaves the process; a `move` onto itself would otherwise
    * delete the one object it named.
    */
-  #requireCopy(
+  #requireCopyKeys(
     from: string,
     to: string,
     options: OperationOptions | undefined,

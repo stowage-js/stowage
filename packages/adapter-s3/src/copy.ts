@@ -11,7 +11,7 @@ import { inStorage } from "./storage-error.ts";
  * Spec 7.8: one `CopyObject`, with the provider's refusal of a source too large for it as
  * the answer rather than a fallback to `UploadPartCopy` (ADR 0016). S3's default
  * directive keeps the source's content type and user metadata, which spec 4.11 asks of a
- * copy. Its answer names neither the size nor the metadata of what it wrote, so a `HEAD`
+ * copy. Its answer names neither the size nor the user metadata of what it wrote, so a `HEAD`
  * of the destination describes it.
  */
 export async function copyObject(
