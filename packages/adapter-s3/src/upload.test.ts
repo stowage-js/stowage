@@ -19,6 +19,8 @@ interface SentRequest {
   readonly method: string;
   readonly headers: Headers;
   readonly body: Uint8Array | undefined;
+  /** The size of the buffer behind the body, which is what the request holds in memory. */
+  readonly heldBytes?: number;
   readonly signal: AbortSignal | undefined;
 }
 
@@ -34,6 +36,7 @@ function stubFetch(answer: Answer): SentRequest[] {
       method: init.method ?? "GET",
       headers: new Headers(init.headers),
       body: sentBytes(init.body),
+      heldBytes: init.body instanceof Uint8Array ? init.body.buffer.byteLength : undefined,
       signal: init.signal ?? undefined,
     };
 
@@ -857,4 +860,14 @@ test("the caller's abort during the completion leaves the upload to the commit o
 
   expect(failure).toHaveProperty("name", "AbortError");
   expect(sent.map(stepOf)).not.toContain("abort");
+});
+
+test("a stream shorter than a part holds little more than its own size", async () => {
+  const sent = stubFetch(accepted);
+  const bytes = patternOf(100 * kibibyte);
+
+  await s3Storage(options()).put("object.bin", streamOf(bytes, 4 * kibibyte));
+
+  expect(firstDifference(sent[0]?.body, bytes)).toBe(-1);
+  expect(sent[0]?.heldBytes).toBeLessThanOrEqual(2 * bytes.byteLength);
 });
