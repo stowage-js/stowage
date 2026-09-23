@@ -1,0 +1,10 @@
+{
+  "name": "@stowage/harness-targets",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Private: the conformance targets the Node, Bun and Deno harnesses share.",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  }
+}

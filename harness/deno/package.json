@@ -1,0 +1,13 @@
+{
+  "name": "@stowage/harness-deno",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Private harness: the fast tier of the conformance suite on Deno, under Deno.test.",
+  "type": "module",
+  "scripts": {
+    "test": "deno task test"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
