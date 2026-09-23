@@ -11,15 +11,16 @@ is a way to look, not a second definition of correct.
 ```sh
 eval "$(./harness/s3/start.sh)"
 pnpm test
+pnpm test:workerd
 pnpm test:bun
 pnpm test:deno
 ./harness/s3/stop.sh
 ```
 
-`pnpm test` runs the Node column of spec 2 and the `workerd` one, whose harness starts
-the `workerd` that `harness/workerd` pins and reports its results on Node. The other two runtimes are not
-dependencies: `pnpm test:bun` and `pnpm test:deno` need Bun and Deno installed, in the
-versions `.bun-version` and `.dvmrc` pin for CI.
+`pnpm test` runs the Node column of spec 2. `pnpm test:workerd` starts the `workerd` that
+`harness/workerd` pins and reports its results on Node. Bun and Deno are not dependencies:
+`pnpm test:bun` and `pnpm test:deno` need them installed, in the versions `.bun-version`
+and `.dvmrc` pin for CI.
 
 `start.sh` starts the container, creates the bucket and prints the environment the run
 reads:

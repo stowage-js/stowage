@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:bun": "pnpm --filter @stowage/harness-bun test",
     "test:deno": "pnpm --filter @stowage/harness-deno test",
+    "test:workerd": "pnpm --filter @stowage/harness-workerd test",
     "changeset": "changeset"
   },
   "devDependencies": {

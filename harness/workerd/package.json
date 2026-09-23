@@ -4,6 +4,9 @@
   "private": true,
   "description": "Private harness: the fast tier of the conformance suite inside workerd.",
   "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
   "devDependencies": {
     "workerd": "1.20260921.1"
   },

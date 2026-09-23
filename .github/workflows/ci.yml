@@ -48,8 +48,8 @@ jobs:
       - name: Start the S3 endpoint
         run: ./harness/s3/start.sh | sed 's/^export //' >> "$GITHUB_ENV"
 
-      # Spec 2: `test` holds the Node column and the `workerd` one, whose results Vitest
-      # reports on Node. Bun and Deno are columns of their own, in the job below.
+      # Spec 2: `test` holds the Node column. Bun, Deno and `workerd` are columns of their
+      # own, in the job below.
       - run: pnpm run test
 
       - name: Stop the S3 endpoint
@@ -67,13 +67,16 @@ jobs:
             script: test:bun
           - name: Deno
             script: test:deno
+          - name: workerd
+            script: test:workerd
     steps:
       - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v6
 
-      # Node is a tool here and not the runtime under test: pnpm installs with it, and the
-      # harnesses import `@stowage/core` from the `dist` that its build writes.
+      # Node is a tool here and not the runtime under test: pnpm installs with it, the
+      # harnesses import `@stowage/core` from the `dist` its build writes, and the `workerd`
+      # harness bundles its worker and reports the results on it.
       - uses: actions/setup-node@v7
         with:
           node-version: "24"
