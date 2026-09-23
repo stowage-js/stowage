@@ -14,6 +14,8 @@ import {
 } from "@stowage/core";
 
 import { readConfiguration, type S3AdapterOptions, type S3Configuration } from "./configuration.ts";
+import { copyObject } from "./copy.ts";
+import { deleteBelow, deleteKeys } from "./delete.ts";
 import { defaultContentType, describeResponse, describeWrite } from "./description.ts";
 import { requireKey } from "./key.ts";
 import { createListing } from "./listing.ts";
@@ -25,8 +27,10 @@ import {
   requireKnownOptions,
 } from "./options.ts";
 import { send } from "./request.ts";
+import { partialContent, rangeHeader, requireRange, wholeAnswerFailure } from "./range.ts";
 import { s3Error } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
+import { userMetadataHeaders } from "./user-metadata.ts";
 
 export type { S3AdapterOptions } from "./configuration.ts";
 export { fromEnv, type S3Credentials } from "./credentials.ts";
@@ -42,9 +46,9 @@ export function s3Storage(options: S3AdapterOptions): S3Storage {
 /**
  * Spec 7.1 has this storage declare `presignedUrls`, `rangeReads` and `userMetadata`.
  * Each is declared where it is built, so that what the storage names is what the
- * conformance suite finds; until then a call needing one is `Unsupported`.
+ * conformance suite finds: `presignedUrls` arrives with `presignGet` and `presignPut`.
  */
-const s3Capabilities: readonly CapabilityName[] = Object.freeze([]);
+const s3Capabilities: readonly CapabilityName[] = Object.freeze(["rangeReads", "userMetadata"]);
 
 const utf8 = new TextEncoder();
 
@@ -63,8 +67,8 @@ class SimpleStorageServiceStorage implements S3Storage {
   async put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat> {
     requireKey(this.bucket, key, "writable", "put");
     requireKnownOptions(this.bucket, options, putOptionKeys, "put");
-    this.#requireNoUserMetadata(options?.userMetadata, key);
 
+    const userMetadata = userMetadataHeaders(this.bucket, options?.userMetadata, key);
     const contentType = this.#readContentType(options?.contentType);
     const bytes = this.#holdBody(body);
 
@@ -75,20 +79,30 @@ class SimpleStorageServiceStorage implements S3Storage {
       method: "PUT",
       operation: "put",
       key,
-      headers: [["content-type", contentType]],
+      headers: [["content-type", contentType], ...userMetadata.headers],
       body: bytes,
       signal: options?.signal,
     });
 
     await response.body?.cancel();
 
-    return describeWrite(this.bucket, key, bytes.byteLength, contentType, response);
+    return describeWrite(
+      this.bucket,
+      key,
+      bytes.byteLength,
+      contentType,
+      userMetadata.held,
+      response,
+    );
   }
 
   async get(key: string, options?: GetOptions): Promise<StoredObject> {
     requireKey(this.bucket, key, "addressable", "get");
     requireKnownOptions(this.bucket, options, getOptionKeys, "get");
-    this.#requireNoRange(options?.range, key);
+
+    const range = options?.range;
+
+    requireRange(this.bucket, range);
 
     options?.signal?.throwIfAborted();
 
@@ -96,14 +110,23 @@ class SimpleStorageServiceStorage implements S3Storage {
       method: "GET",
       operation: "get",
       key,
+      headers: range === undefined ? [] : [["range", rangeHeader(range)]],
       signal: options?.signal,
     });
+    const stat = describeResponse(this.bucket, key, "get", response);
 
-    return createStoredObject(
-      this.bucket,
-      describeResponse(this.bucket, key, "get", response),
-      response,
-    );
+    const refusal =
+      range === undefined || response.status === partialContent
+        ? undefined
+        : wholeAnswerFailure(this.bucket, key, range, stat.size);
+
+    if (refusal !== undefined) {
+      await response.body?.cancel();
+
+      throw refusal;
+    }
+
+    return createStoredObject(this.bucket, stat, response);
   }
 
   async stat(key: string, options?: OperationOptions): Promise<ObjectStat> {
@@ -128,36 +151,44 @@ class SimpleStorageServiceStorage implements S3Storage {
     return createListing(this.#configuration, options);
   }
 
-  // The rest of the parity core of spec 4.11 is the step that removes what a listing
-  // named, which arrives with `DeleteObjects`.
   async delete(...keys: readonly string[]): Promise<DeleteReport> {
-    void keys;
-
-    throw notBuiltYet("delete");
+    return await deleteKeys(this.#configuration, keys, { operation: "delete" });
   }
 
   async deleteAll(prefix: string, options?: OperationOptions): Promise<DeleteReport> {
-    void prefix;
-    void options;
+    requireKey(this.bucket, prefix, "prefix", "deleteAll");
+    requireKnownOptions(this.bucket, options, operationOptionKeys, "deleteAll");
 
-    throw notBuiltYet("deleteAll");
+    options?.signal?.throwIfAborted();
+
+    return await deleteBelow(this.#configuration, prefix, options?.signal);
   }
 
   async copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
-    requireKey(this.bucket, from, "addressable", "copy");
-    requireKey(this.bucket, to, "writable", "copy");
-    requireKnownOptions(this.bucket, options, operationOptionKeys, "copy");
-    this.#requireDistinct(from, to);
+    this.#requireCopyKeys(from, to, options, "copy");
 
-    throw notBuiltYet("copy");
+    return await copyObject(this.#configuration, from, to, "copy", options?.signal);
   }
 
+  /**
+   * Spec 4.10: `copy`, then the source deleted, each failure told as `move`'s. The
+   * destination is described before the source goes, so a failing delete leaves both in
+   * place and a repeated `move` is safe.
+   */
   async move(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
-    void from;
-    void to;
-    void options;
+    this.#requireCopyKeys(from, to, options, "move");
 
-    throw notBuiltYet("move");
+    const written = await copyObject(this.#configuration, from, to, "move", options?.signal);
+    const response = await send(this.#configuration, {
+      method: "DELETE",
+      operation: "move",
+      key: from,
+      signal: options?.signal,
+    });
+
+    await response.body?.cancel();
+
+    return written;
   }
 
   async #head(key: string, operation: string, options?: OperationOptions): Promise<Response> {
@@ -174,14 +205,27 @@ class SimpleStorageServiceStorage implements S3Storage {
     });
   }
 
-  /** Spec 7.8: a copy of a key onto itself stores nothing and never leaves the process. */
-  #requireDistinct(from: string, to: string): void {
+  /**
+   * Spec 4.8 checks both keys before acting on either, and spec 7.8 has a copy of a key
+   * onto itself stop before it leaves the process; a `move` onto itself would otherwise
+   * delete the one object it named.
+   */
+  #requireCopyKeys(
+    from: string,
+    to: string,
+    options: OperationOptions | undefined,
+    operation: string,
+  ): void {
+    requireKey(this.bucket, from, "addressable", operation);
+    requireKey(this.bucket, to, "writable", operation);
+    requireKnownOptions(this.bucket, options, operationOptionKeys, operation);
+
     if (from !== to) return;
 
     throw s3Error(this.bucket, {
       code: "InvalidRequest",
       message: "A copy names one key as its source and another as its destination",
-      operation: "copy",
+      operation,
       key: from,
       attempts: 0,
     });
@@ -203,29 +247,6 @@ class SimpleStorageServiceStorage implements S3Storage {
     }
 
     return contentType;
-  }
-
-  #requireNoUserMetadata(userMetadata: Record<string, string> | undefined, key: string): void {
-    if (userMetadata === undefined || Object.keys(userMetadata).length === 0) return;
-
-    throw this.#undeclared("userMetadata", "put", key);
-  }
-
-  #requireNoRange(range: GetOptions["range"], key: string): void {
-    if (range === undefined) return;
-
-    throw this.#undeclared("rangeReads", "get", key);
-  }
-
-  #undeclared(capability: CapabilityName, operation: string, key: string): Error {
-    return s3Error(this.bucket, {
-      code: "Unsupported",
-      message: `This storage does not declare \`${capability}\``,
-      operation,
-      key,
-      attempts: 0,
-      capability,
-    });
   }
 }
 

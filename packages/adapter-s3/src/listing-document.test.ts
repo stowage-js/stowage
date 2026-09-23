@@ -2,7 +2,12 @@ import { expect, test } from "vitest";
 
 import { type ListingAnswer, readListingDocument } from "./listing-document.ts";
 
-const answered: ListingAnswer = { bucket: "stowage", status: 200, requestId: "abc" };
+const answered: ListingAnswer = {
+  bucket: "stowage",
+  operation: "list",
+  status: 200,
+  requestId: "abc",
+};
 
 /** A `ListObjectsV2` answer as AWS writes it, around the elements a case supplies. */
 function answer(inside: string, truncated = false): string {

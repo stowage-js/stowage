@@ -1,5 +1,6 @@
 import type { ObjectEntry, StorageError } from "@stowage/core";
 
+import { textOf } from "./answer-document.ts";
 import { unquotedEtag } from "./description.ts";
 import { s3Error } from "./storage-error.ts";
 import { parseXml, type XmlElement, XmlSyntaxError } from "./xml.ts";
@@ -7,6 +8,8 @@ import { parseXml, type XmlElement, XmlSyntaxError } from "./xml.ts";
 /** The response a listing document came in, which a failure to read it is told against. */
 export interface ListingAnswer {
   readonly bucket: string;
+  /** The operation the caller invoked, which lists on its own for `deleteAll`. */
+  readonly operation: string;
   readonly status: number;
   readonly requestId?: string;
 }
@@ -123,15 +126,11 @@ function childrenNamed(element: XmlElement, name: string): readonly XmlElement[]
   return element.children.filter((child) => child.name === name);
 }
 
-function textOf(element: XmlElement, name: string): string | undefined {
-  return element.children.find((child) => child.name === name)?.text;
-}
-
 function malformed(answer: ListingAnswer, what: string, cause?: unknown): StorageError {
   return s3Error(answer.bucket, {
     code: "ProviderError",
     message: `The provider answered the listing with ${what}`,
-    operation: "list",
+    operation: answer.operation,
     attempts: 1,
     status: answer.status,
     requestId: answer.requestId,
