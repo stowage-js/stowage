@@ -1,4 +1,4 @@
-import { isStorageError, type StorageError } from "@stowage/core";
+import { isStorageError, type StorageError, type StoredObject } from "@stowage/core";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { sha256Hex } from "./hash.ts";
@@ -328,6 +328,64 @@ test("a second read of a body is refused", async () => {
   expect((await rejection(async () => await stored.text())).code).toBe("InvalidRequest");
 });
 
+/** A `200` whose body breaks with `failure` after its first chunk. */
+function bodyBreakingPartway(failure: unknown): Response {
+  let pulls = 0;
+
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls += 1;
+
+        if (pulls === 1) controller.enqueue(new TextEncoder().encode('{"partial":'));
+        else controller.error(failure);
+      },
+    }),
+    {
+      status: 200,
+      headers: {
+        "content-length": "1024",
+        "last-modified": "Sun, 30 Aug 2015 12:36:00 GMT",
+        "x-amz-request-id": "broken-request",
+      },
+    },
+  );
+}
+
+const readers = {
+  stream: async (stored: StoredObject) => {
+    const reader = stored.stream().getReader();
+
+    for (;;) if ((await reader.read()).done) return;
+  },
+  bytes: async (stored: StoredObject) => await stored.bytes(),
+  text: async (stored: StoredObject) => await stored.text(),
+  json: async (stored: StoredObject) => await stored.json(),
+};
+
+test.each(Object.entries(readers))(
+  "a body that breaks partway through `get` arrives as a `StorageError` through `%s()`",
+  async (_reader, read) => {
+    const cause = new TypeError("terminated");
+
+    stubFetch(() => bodyBreakingPartway(cause));
+
+    const stored = await s3Storage(options()).get("object.json");
+    const failure = await rejection(async () => await read(stored));
+
+    expect(failure).toMatchObject({
+      code: "NetworkError",
+      operation: "get",
+      key: "object.json",
+      bucket: "stowage",
+      retryable: true,
+      attempts: 1,
+      requestId: "broken-request",
+      cause,
+    });
+  },
+);
+
 test("a missing key is `NotFound` after the one attempt it cost", async () => {
   const sent = stubFetch(
     () => new Response("", { status: 404, headers: { "x-amz-request-id": "abc" } }),
@@ -432,6 +490,21 @@ test("the wait is the backoff curve and never a `Retry-After`", async () => {
   await rejection(async () => await s3Storage(options()).get("object.txt"));
 
   expect(delays).toEqual([200, 400]);
+});
+
+test.each([
+  [0, [0, 0]],
+  [0.25, [50, 100]],
+  [0.999, [199.8, 399.6]],
+])("a random draw of %d waits a share of the curve", async (draw, expected) => {
+  vi.spyOn(Math, "random").mockReturnValue(draw);
+  const delays = recordedDelays();
+
+  stubFetch(() => refused(500, "InternalError", "We encountered an internal error."));
+
+  await rejection(async () => await s3Storage(options()).get("object.txt"));
+
+  expect(delays).toEqual(expected.map((delay) => expect.closeTo(delay)));
 });
 
 test("an abort interrupts the wait before another attempt", async () => {
@@ -823,6 +896,31 @@ test.each([400, 403, 404, 409])("a %i is not repeated", async (status) => {
   const failure = await rejection(async () => await s3Storage(options()).get("object.txt"));
 
   expect(failure.retryable).toBe(false);
+  expect(failure.attempts).toBe(1);
+  expect(sent).toHaveLength(1);
+});
+
+test.each([
+  [500, "AccessDenied"],
+  [503, "NoSuchKey"],
+])("a %i is repeated on the budget though it carries `%s`", async (status, code) => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+  const sent = stubFetch(() => refused(status, code, "Try again"));
+
+  const failure = await rejection(async () => await s3Storage(options()).get("object.txt"));
+
+  expect(failure.providerCode).toBe(code);
+  expect(failure.attempts).toBe(3);
+  expect(sent).toHaveLength(3);
+});
+
+// AWS answers `RequestTimeout` with `400` where a client sent its body too slowly.
+test.each(["RequestTimeout", "SlowDown"])("a 400 carrying `%s` is not repeated", async (code) => {
+  const sent = stubFetch(() => refused(400, code, "No."));
+
+  const failure = await rejection(async () => await s3Storage(options()).get("object.txt"));
+
+  expect(failure.providerCode).toBe(code);
   expect(failure.attempts).toBe(1);
   expect(sent).toHaveLength(1);
 });

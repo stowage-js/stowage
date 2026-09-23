@@ -132,6 +132,28 @@ test("a stream that ends within one part goes as one `PUT`", async () => {
   expect(body.locked).toBe(false);
 });
 
+// Spec 7.5: only a body the adapter holds is sent again, and a stream is never handed to
+// `fetch` — a stream `fetch` had read from could not be sent a second time.
+test("a stream within one part is repeated as the bytes the adapter holds", async () => {
+  immediateRetries();
+
+  let attempts = 0;
+  const sent = stubFetch(() => {
+    attempts += 1;
+
+    return attempts === 1
+      ? refused(503, "SlowDown", "Please reduce your request rate.")
+      : accepted();
+  });
+  const bytes = patternOf(64 * kibibyte);
+
+  await s3Storage(options()).put("object.bin", streamOf(bytes, 4 * kibibyte));
+
+  expect(sent).toHaveLength(2);
+  expect(firstDifference(sent[0]?.body, bytes)).toBe(-1);
+  expect(firstDifference(sent[1]?.body, bytes)).toBe(-1);
+});
+
 test("a stream that yields nothing goes as one empty `PUT`", async () => {
   const sent = stubFetch(accepted);
 

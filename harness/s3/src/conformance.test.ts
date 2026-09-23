@@ -1,26 +1,18 @@
 import { describe, expect, test } from "vitest";
 
-import { type S3AdapterOptions, s3Storage } from "../../../packages/adapter-s3/src/index.ts";
+import { s3Storage } from "../../../packages/adapter-s3/src/index.ts";
 import { describeCases } from "../../../packages/conformance/src/describe.ts";
 import { selectedCases } from "../../../packages/conformance/src/run.ts";
 import type { ConformanceTarget } from "../../../packages/conformance/src/target.ts";
 import {
   configuredStorage,
+  endpointOrFail,
   storageWithBadCredentials,
   storageWithDeniedCredentials,
 } from "./environment.ts";
 
 const configured = configuredStorage();
 const denied = configured === undefined ? undefined : storageWithDeniedCredentials(configured);
-
-/** ADR 0012: a run without an endpoint fails rather than passing with the tier skipped. */
-function endpointOrFail(): S3AdapterOptions {
-  if (configured === undefined) {
-    throw new Error("No S3 endpoint is configured; see `harness/s3/README.md`");
-  }
-
-  return configured;
-}
 
 const target: ConformanceTarget = {
   name: "@stowage/adapter-s3",

@@ -27,6 +27,17 @@ export function configuredStorage(): S3AdapterOptions | undefined {
   };
 }
 
+/** ADR 0012: a run without an endpoint fails rather than passing with the tier skipped. */
+export function endpointOrFail(): S3AdapterOptions {
+  const configured = configuredStorage();
+
+  if (configured === undefined) {
+    throw new Error("No S3 endpoint is configured; see `harness/s3/README.md`");
+  }
+
+  return configured;
+}
+
 /**
  * Spec 8.3: a credential the provider refuses. No identity is configured for it — a key
  * id no provider ever issued is refused by every one of them.
