@@ -1,3 +1,5 @@
+import { isStorageError } from "@stowage/core";
+
 import type { HeaderField, QueryParameter } from "./canonical.ts";
 import type { S3Configuration } from "./configuration.ts";
 import { resolveCredentials } from "./credentials.ts";
@@ -10,7 +12,7 @@ import {
 } from "./options.ts";
 import { pathOf, urlOf } from "./request.ts";
 import { presignRequest } from "./sign.ts";
-import { inStorage } from "./storage-error.ts";
+import { inStorage, s3Error } from "./storage-error.ts";
 
 export interface S3PresignGetOptions {
   /** Seconds, 1 to 604800. The credential that signs may cut the lifetime shorter. */
@@ -126,7 +128,18 @@ async function presignedUrl(configuration: S3Configuration, request: Presignable
   const credentials = await resolveCredentials(configuration.credentials, {
     forceRefresh: false,
   }).catch((failure: unknown) => {
-    throw inStorage(failure, configuration.bucket, request.operation, request.key);
+    if (isStorageError(failure) && failure.code === "InvalidCredentials") {
+      throw inStorage(failure, configuration.bucket, request.operation, request.key);
+    }
+
+    throw s3Error(configuration.bucket, {
+      code: "InvalidCredentials",
+      message: "The credential resolver failed",
+      operation: request.operation,
+      key: request.key,
+      attempts: 0,
+      cause: failure,
+    });
   });
   const path = pathOf(configuration, request.key);
   const presigned = await presignRequest({

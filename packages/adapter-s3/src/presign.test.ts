@@ -1,4 +1,4 @@
-import { isStorageError, type StorageError } from "@stowage/core";
+import { isStorageError, StorageError } from "@stowage/core";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { type S3AdapterOptions, type S3Credentials, s3Storage } from "./index.ts";
@@ -293,6 +293,89 @@ test("a credential the adapter refuses is `InvalidCredentials` told against the 
     code: "InvalidCredentials",
     operation: "presignPut",
     bucket: "stowage",
+    key: "object.txt",
+    attempts: 0,
+  });
+});
+
+test.each([
+  new Error("The resolver is unavailable"),
+  new StorageError({
+    code: "ProviderError",
+    message: "The resolver's upstream service is unavailable",
+    operation: "credentials",
+    bucket: "",
+    provider: "resolver",
+    attempts: 0,
+  }),
+])("a resolver failure is `InvalidCredentials` told against the presigned URL", async (cause) => {
+  const resolve = () => {
+    throw cause;
+  };
+  const storage = s3Storage(options({ credentials: resolve }));
+
+  const calls: readonly {
+    readonly operation: string;
+    readonly key: string;
+    readonly presign: () => Promise<string>;
+  }[] = [
+    {
+      operation: "presignGet",
+      key: "get.txt",
+      presign: async () => await storage.presignGet("get.txt", { expiresIn: 300 }),
+    },
+    {
+      operation: "presignPut",
+      key: "put.txt",
+      presign: async () => await storage.presignPut("put.txt", putOptions),
+    },
+  ];
+  const failures = await Promise.all(
+    calls.map(async ({ operation, key, presign }) => ({
+      operation,
+      key,
+      failure: await rejection(presign),
+    })),
+  );
+
+  for (const { operation, key, failure } of failures) {
+    expect(failure).toMatchObject({
+      code: "InvalidCredentials",
+      bucket: "stowage",
+      operation,
+      key,
+      attempts: 0,
+    });
+    expect(failure.cause).toBe(cause);
+  }
+});
+
+test("an `InvalidCredentials` resolver failure keeps its diagnostic details", async () => {
+  const cause = new StorageError({
+    code: "InvalidCredentials",
+    message: "The configured credential has expired",
+    operation: "credentials",
+    bucket: "",
+    provider: "resolver",
+    attempts: 0,
+  });
+  const storage = s3Storage(
+    options({
+      credentials: () => {
+        throw cause;
+      },
+    }),
+  );
+
+  const failure = await rejection(
+    async () => await storage.presignGet("object.txt", { expiresIn: 300 }),
+  );
+
+  expect(failure).toMatchObject({
+    code: "InvalidCredentials",
+    message: cause.message,
+    bucket: "stowage",
+    operation: "presignGet",
     key: "object.txt",
     attempts: 0,
   });
