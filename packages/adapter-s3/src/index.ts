@@ -93,7 +93,7 @@ class SimpleStorageServiceStorage implements S3Storage {
 
     if (isStream(body)) return await uploadStream(this.#configuration, write, body);
 
-    return await putObject(this.#configuration, write, holdBytes(body));
+    return await putObject(this.#configuration, write, bytesOf(body));
   }
 
   async get(key: string, options?: GetOptions): Promise<StoredObject> {
@@ -243,7 +243,7 @@ class SimpleStorageServiceStorage implements S3Storage {
 }
 
 /** Spec 4.2: a string travels as its UTF-8 bytes. */
-function holdBytes(body: string | Uint8Array): Uint8Array<ArrayBuffer> {
+function bytesOf(body: string | Uint8Array): Uint8Array<ArrayBuffer> {
   return typeof body === "string" ? utf8.encode(body) : heldBytes(body);
 }
 

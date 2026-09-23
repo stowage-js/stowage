@@ -1,6 +1,7 @@
 import { isStorageError, type ObjectStat, type StorageError } from "@stowage/core";
 
 import { type AnsweredRequest, readAnswerDocument, textOf } from "./answer-document.ts";
+import type { HeaderField } from "./canonical.ts";
 import type { S3Configuration } from "./configuration.ts";
 import { describeWrite, unquotedEtag } from "./description.ts";
 import { type Part, PartReader } from "./part-reader.ts";
@@ -17,6 +18,11 @@ export interface ObjectWrite {
   readonly signal?: AbortSignal;
 }
 
+/** The object's own headers, which a multipart upload sends with the request that starts it. */
+function objectHeaders(write: ObjectWrite): HeaderField[] {
+  return [["content-type", write.contentType], ...write.userMetadata.headers];
+}
+
 /** Spec 7.6: bytes the adapter holds go as one `PUT`, which it never splits. */
 export async function putObject(
   configuration: S3Configuration,
@@ -27,7 +33,7 @@ export async function putObject(
     method: "PUT",
     operation: "put",
     key: write.key,
-    headers: [["content-type", write.contentType], ...write.userMetadata.headers],
+    headers: objectHeaders(write),
     body: bytes,
     signal: write.signal,
   });
@@ -187,21 +193,19 @@ async function createUpload(configuration: S3Configuration, write: ObjectWrite):
     operation: "put",
     key: write.key,
     query: [["uploads", ""]],
-    headers: [["content-type", write.contentType], ...write.userMetadata.headers],
+    headers: objectHeaders(write),
     signal: write.signal,
   });
-  const answered = answeredRequest(configuration, write, "the start of the upload");
-  const document = await readAnswerDocument(answered, response, "InitiateMultipartUploadResult");
+  const subject = "the start of the upload";
+  const document = await readAnswerDocument(
+    answeredRequest(configuration, write, subject),
+    response,
+    "InitiateMultipartUploadResult",
+  );
   const uploadId = textOf(document, "UploadId");
 
   if (uploadId === undefined || uploadId === "") {
-    throw incompleteAnswer(
-      configuration,
-      write,
-      response,
-      "the start of the upload",
-      "no upload id",
-    );
+    throw incompleteAnswer(configuration, write, response, subject, "no upload id");
   }
 
   return uploadId;
