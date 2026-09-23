@@ -1,5 +1,6 @@
 import type { DeleteReport, StorageError } from "@stowage/core";
 
+import { readAnswerDocument, textOf } from "./answer-document.ts";
 import type { S3Configuration } from "./configuration.ts";
 import { keyError } from "./key.ts";
 import { maxPageSize, walkPages } from "./listing.ts";
@@ -7,7 +8,7 @@ import { md5Base64 } from "./md5.ts";
 import { readEmbeddedFailure } from "./provider-code.ts";
 import { send } from "./request.ts";
 import { s3Error } from "./storage-error.ts";
-import { parseXml, type XmlElement, XmlSyntaxError } from "./xml.ts";
+import type { XmlElement } from "./xml.ts";
 
 /** What one `DeleteObjects` names at most, and so what spec 4.1 sends one request per. */
 const keysPerRequest = 1000;
@@ -123,7 +124,11 @@ async function deleteBatch(
     signal: batch.signal,
   });
   const requestId = response.headers.get("x-amz-request-id") ?? undefined;
-  const document = await readResult(configuration.bucket, batch.operation, response, requestId);
+  const document = await readAnswerDocument(
+    { bucket: configuration.bucket, operation: batch.operation, subject: "the deletion" },
+    response,
+    "DeleteResult",
+  );
 
   return document.children
     .filter((child) => child.name === "Error")
@@ -149,53 +154,6 @@ function escapeXml(text: string): string {
   return text.replaceAll(/[&<>"']/gu, (character) => xmlEscapes[character] ?? character);
 }
 
-async function readResult(
-  bucket: string,
-  operation: string,
-  response: Response,
-  requestId: string | undefined,
-): Promise<XmlElement> {
-  const malformed = (what: string, cause?: unknown): StorageError =>
-    s3Error(bucket, {
-      code: "ProviderError",
-      message: `The provider answered the deletion with ${what}`,
-      operation,
-      attempts: 1,
-      status: response.status,
-      requestId,
-      cause,
-    });
-  let root: XmlElement;
-
-  try {
-    root = parseXml(await response.text());
-  } catch (failure) {
-    if (failure instanceof XmlSyntaxError) {
-      throw malformed(`a document outside the XML stowage reads: ${failure.message}`, failure);
-    }
-
-    // Spec 4.10: the caller's abort travels on as the runtime's `AbortError`.
-    if (failure instanceof Error && failure.name === "AbortError") throw failure;
-
-    throw s3Error(bucket, {
-      code: "NetworkError",
-      message: `The answer to the deletion broke while it was read: ${String(failure)}`,
-      operation,
-      attempts: 1,
-      status: response.status,
-      requestId,
-      retryable: true,
-      cause: failure,
-    });
-  }
-
-  if (root.name !== "DeleteResult") {
-    throw malformed(`a <${root.name}> where a <DeleteResult> belongs`);
-  }
-
-  return root;
-}
-
 function keyFailure(
   bucket: string,
   operation: string,
@@ -219,8 +177,4 @@ function keyFailure(
     requestId,
     retryable: failure.retryable,
   });
-}
-
-function textOf(element: XmlElement, name: string): string | undefined {
-  return element.children.find((child) => child.name === name)?.text;
 }

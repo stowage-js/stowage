@@ -1246,6 +1246,26 @@ test("a transient failure of the request as a whole is repeated on the budget", 
   expect(sent).toHaveLength(2);
 });
 
+test("a deletion that failed inside a `200` rejects with the provider's error", async () => {
+  const sent = stubFetch(
+    () =>
+      new Response(
+        `<?xml version="1.0" encoding="UTF-8"?>\n<Error><Code>InternalError</Code><Message>We encountered an internal error.</Message></Error>`,
+        { status: 200 },
+      ),
+  );
+
+  const failure = await rejection(async () => await s3Storage(options()).delete("one.txt"));
+
+  expect(failure).toMatchObject({
+    code: "ProviderError",
+    operation: "delete",
+    providerCode: "InternalError",
+    retryable: true,
+  });
+  expect(sent).toHaveLength(1);
+});
+
 test("an answer that is no `DeleteResult` is a `ProviderError`", async () => {
   stubFetch(() => listed([]));
 
@@ -1318,6 +1338,209 @@ test("`deleteAll` rejects before any request where the signal already fired", as
 
   await expect(
     s3Storage(options()).deleteAll("a/", { signal: AbortSignal.abort() }),
+  ).rejects.toThrow(expect.objectContaining({ name: "AbortError" }));
+  expect(sent).toHaveLength(0);
+});
+
+/** What a provider answers a `CopyObject` it carried out with. */
+function copied(): Response {
+  return new Response(
+    `<?xml version="1.0" encoding="UTF-8"?>\n<CopyObjectResult><LastModified>2026-09-23T08:00:00.000Z</LastModified><ETag>"copied"</ETag></CopyObjectResult>`,
+    { status: 200, headers: { "content-type": "application/xml" } },
+  );
+}
+
+/** The destination as a `HEAD` describes it once the copy landed. */
+function copiedStat(): Response {
+  return new Response(null, {
+    status: 200,
+    headers: {
+      "content-length": "13",
+      "content-type": "text/plain",
+      "last-modified": "Wed, 23 Sep 2026 08:00:00 GMT",
+      etag: '"copied"',
+      "x-amz-meta-written-by": "stowage",
+    },
+  });
+}
+
+/** A `CopyObject` answered, the `HEAD` after it and a `DELETE`, each as S3 answers it. */
+function copyingProvider(request: SentRequest): Response {
+  if (request.method === "PUT") return copied();
+  if (request.method === "HEAD") return copiedStat();
+
+  return new Response(null, { status: 204 });
+}
+
+test("`copy` sends `CopyObject` naming the source and describes the destination", async () => {
+  const sent = stubFetch(copyingProvider);
+
+  const written = await s3Storage(options()).copy("from.txt", "to.txt");
+
+  expect(sent.map((request) => request.method)).toEqual(["PUT", "HEAD"]);
+  expect(sent[0]?.url).toBe("https://stowage.s3.eu-central-1.amazonaws.com/to.txt");
+  expect(sent[0]?.headers.get("x-amz-copy-source")).toBe("/stowage/from.txt");
+  expect(sent[0]?.headers.get("authorization")).toContain("x-amz-copy-source");
+  // Spec 4.11 keeps the source's content type and user metadata, which S3's default
+  // directive does and a `REPLACE` would not.
+  expect(sent[0]?.headers.get("x-amz-metadata-directive")).toBeNull();
+  expect(sent[0]?.headers.get("content-type")).toBeNull();
+  expect(sent[1]?.url).toBe("https://stowage.s3.eu-central-1.amazonaws.com/to.txt");
+  expect(written).toMatchObject({
+    key: "to.txt",
+    size: 13,
+    contentType: "text/plain",
+    etag: "copied",
+    userMetadata: { "written-by": "stowage" },
+  });
+});
+
+test("the source is percent-encoded segment by segment in `x-amz-copy-source`", async () => {
+  const sent = stubFetch(copyingProvider);
+
+  await s3Storage(options()).copy("a b/ü#?.txt", "to.txt");
+
+  expect(sent[0]?.headers.get("x-amz-copy-source")).toBe("/stowage/a%20b/%C3%BC%23%3F.txt");
+});
+
+test("a missing source is `NotFound` naming the source", async () => {
+  const sent = stubFetch(() => refused(404, "NoSuchKey", "The specified key does not exist."));
+
+  const failure = await rejection(
+    async () => await s3Storage(options()).copy("from.txt", "to.txt"),
+  );
+
+  expect(failure).toMatchObject({ code: "NotFound", operation: "copy", key: "from.txt" });
+  expect(sent).toHaveLength(1);
+});
+
+// Spec 7.8 and ADR 0016: the provider's refusal is the answer, and no `UploadPartCopy`
+// follows against a source nothing pins.
+test("a source the provider refuses as too large rejects with its error and nothing more", async () => {
+  const message =
+    "The specified copy source is larger than the maximum allowable size for a copy source: 5368709120";
+  const sent = stubFetch(() => refused(400, "InvalidRequest", message));
+
+  const failure = await rejection(
+    async () => await s3Storage(options()).copy("from.txt", "to.txt"),
+  );
+
+  expect(failure).toMatchObject({
+    code: "ProviderError",
+    status: 400,
+    providerCode: "InvalidRequest",
+    message,
+    retryable: false,
+  });
+  expect(sent).toHaveLength(1);
+});
+
+test("a copy that failed inside a `200` rejects with the provider's error", async () => {
+  const sent = stubFetch(
+    () =>
+      new Response(
+        `<?xml version="1.0" encoding="UTF-8"?>\n<Error><Code>InternalError</Code><Message>We encountered an internal error. Please try again.</Message></Error>`,
+        { status: 200, headers: { "x-amz-request-id": "copy-request" } },
+      ),
+  );
+
+  const failure = await rejection(
+    async () => await s3Storage(options()).copy("from.txt", "to.txt"),
+  );
+
+  expect(failure).toMatchObject({
+    code: "ProviderError",
+    operation: "copy",
+    key: "to.txt",
+    status: 200,
+    providerCode: "InternalError",
+    requestId: "copy-request",
+    message: "We encountered an internal error. Please try again.",
+    retryable: true,
+    attempts: 1,
+  });
+  expect(sent).toHaveLength(1);
+});
+
+test("an answer to a copy that is no `CopyObjectResult` is a `ProviderError`", async () => {
+  stubFetch(() => listed([]));
+
+  const failure = await rejection(
+    async () => await s3Storage(options()).copy("from.txt", "to.txt"),
+  );
+
+  expect(failure).toMatchObject({ code: "ProviderError", operation: "copy" });
+});
+
+test.each([
+  ["copy", "from.txt", "ends-in-a-slash/"],
+  ["copy", "../from.txt", "to.txt"],
+  ["move", "from.txt", "ends-in-a-slash/"],
+  ["move", "../from.txt", "to.txt"],
+] as const)(
+  "`%s` refuses an invalid key on either side before any request",
+  async (operation, from, to) => {
+    const sent = stubFetch(copyingProvider);
+
+    const failure = await rejection(async () => await s3Storage(options())[operation](from, to));
+
+    expect(failure).toMatchObject({ code: "InvalidKey", operation, attempts: 0 });
+    expect(sent).toHaveLength(0);
+  },
+);
+
+test("`move` copies, describes the destination and then deletes the source", async () => {
+  const sent = stubFetch(copyingProvider);
+
+  const written = await s3Storage(options()).move("from.txt", "to.txt");
+
+  expect(sent.map((request) => request.method)).toEqual(["PUT", "HEAD", "DELETE"]);
+  expect(sent[2]?.url).toBe("https://stowage.s3.eu-central-1.amazonaws.com/from.txt");
+  expect(written).toMatchObject({ key: "to.txt", size: 13 });
+});
+
+test("`move` of a key onto itself is `InvalidRequest` and deletes nothing", async () => {
+  const sent = stubFetch(copyingProvider);
+
+  const failure = await rejection(
+    async () => await s3Storage(options()).move("same.txt", "same.txt"),
+  );
+
+  expect(failure).toMatchObject({ code: "InvalidRequest", operation: "move", attempts: 0 });
+  expect(sent).toHaveLength(0);
+});
+
+test("`move` whose copy fails deletes nothing and throws the copy's error", async () => {
+  const sent = stubFetch(() => refused(404, "NoSuchKey", "The specified key does not exist."));
+
+  const failure = await rejection(
+    async () => await s3Storage(options()).move("from.txt", "to.txt"),
+  );
+
+  expect(failure).toMatchObject({ code: "NotFound", operation: "move", key: "from.txt" });
+  expect(sent).toHaveLength(1);
+});
+
+test("`move` whose delete fails throws the delete's error", async () => {
+  const sent = stubFetch((request) =>
+    request.method === "DELETE"
+      ? refused(403, "AccessDenied", "Access Denied")
+      : copyingProvider(request),
+  );
+
+  const failure = await rejection(
+    async () => await s3Storage(options()).move("from.txt", "to.txt"),
+  );
+
+  expect(failure).toMatchObject({ code: "AccessDenied", operation: "move", key: "from.txt" });
+  expect(sent.map((request) => request.method)).toEqual(["PUT", "HEAD", "DELETE"]);
+});
+
+test("`copy` rejects before any request where the signal already fired", async () => {
+  const sent = stubFetch(copyingProvider);
+
+  await expect(
+    s3Storage(options()).copy("from.txt", "to.txt", { signal: AbortSignal.abort() }),
   ).rejects.toThrow(expect.objectContaining({ name: "AbortError" }));
   expect(sent).toHaveLength(0);
 });

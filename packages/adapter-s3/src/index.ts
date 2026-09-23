@@ -14,6 +14,7 @@ import {
 } from "@stowage/core";
 
 import { readConfiguration, type S3AdapterOptions, type S3Configuration } from "./configuration.ts";
+import { copyObject } from "./copy.ts";
 import { deleteBelow, deleteKeys } from "./delete.ts";
 import { defaultContentType, describeResponse, describeWrite } from "./description.ts";
 import { requireKey } from "./key.ts";
@@ -161,20 +162,30 @@ class SimpleStorageServiceStorage implements S3Storage {
   }
 
   async copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
-    requireKey(this.bucket, from, "addressable", "copy");
-    requireKey(this.bucket, to, "writable", "copy");
-    requireKnownOptions(this.bucket, options, operationOptionKeys, "copy");
-    this.#requireDistinct(from, to);
+    this.#requireCopy(from, to, options, "copy");
 
-    throw notBuiltYet("copy");
+    return await copyObject(this.#configuration, from, to, "copy", options?.signal);
   }
 
+  /**
+   * Spec 4.10: `copy`, then the source deleted, each failure told as `move`'s. The
+   * destination is described before the source goes, so a failing delete leaves both in
+   * place and a repeated `move` is safe.
+   */
   async move(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
-    void from;
-    void to;
-    void options;
+    this.#requireCopy(from, to, options, "move");
 
-    throw notBuiltYet("move");
+    const written = await copyObject(this.#configuration, from, to, "move", options?.signal);
+    const response = await send(this.#configuration, {
+      method: "DELETE",
+      operation: "move",
+      key: from,
+      signal: options?.signal,
+    });
+
+    await response.body?.cancel();
+
+    return written;
   }
 
   async #head(key: string, operation: string, options?: OperationOptions): Promise<Response> {
@@ -191,14 +202,27 @@ class SimpleStorageServiceStorage implements S3Storage {
     });
   }
 
-  /** Spec 7.8: a copy of a key onto itself stores nothing and never leaves the process. */
-  #requireDistinct(from: string, to: string): void {
+  /**
+   * Spec 4.8 checks both keys before acting on either, and spec 7.8 has a copy of a key
+   * onto itself stop before it leaves the process; a `move` onto itself would otherwise
+   * delete the one object it named.
+   */
+  #requireCopy(
+    from: string,
+    to: string,
+    options: OperationOptions | undefined,
+    operation: string,
+  ): void {
+    requireKey(this.bucket, from, "addressable", operation);
+    requireKey(this.bucket, to, "writable", operation);
+    requireKnownOptions(this.bucket, options, operationOptionKeys, operation);
+
     if (from !== to) return;
 
     throw s3Error(this.bucket, {
       code: "InvalidRequest",
       message: "A copy names one key as its source and another as its destination",
-      operation: "copy",
+      operation,
       key: from,
       attempts: 0,
     });
