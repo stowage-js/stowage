@@ -12,3 +12,8 @@ strictPeerDependencies: true
 # what an install then refuses.
 minimumReleaseAge: 1440
 minimumReleaseAgeStrict: true
+
+# `workerd` finds its platform binary without the postinstall that would copy it into
+# place, so no dependency runs a script of its own at install.
+allowBuilds:
+  workerd: false
