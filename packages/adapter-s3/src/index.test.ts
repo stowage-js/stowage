@@ -492,6 +492,23 @@ test("the wait is the backoff curve and never a `Retry-After`", async () => {
   expect(delays).toEqual([200, 400]);
 });
 
+test.each([
+  [0, [0, 0]],
+  [0.25, [50, 100]],
+  [0.999, [199.8, 399.6]],
+])("a random draw of %d waits a share of the curve", async (draw, expected) => {
+  vi.spyOn(Math, "random").mockReturnValue(draw);
+  const delays = recordedDelays();
+
+  stubFetch(() => refused(500, "InternalError", "We encountered an internal error."));
+
+  await rejection(async () => await s3Storage(options()).get("object.txt"));
+
+  expect(delays).toHaveLength(2);
+  expect(delays[0]).toBeCloseTo(expected[0] ?? Number.NaN);
+  expect(delays[1]).toBeCloseTo(expected[1] ?? Number.NaN);
+});
+
 test("an abort interrupts the wait before another attempt", async () => {
   vi.spyOn(Math, "random").mockReturnValue(0.5);
   const controller = new AbortController();
