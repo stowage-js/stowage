@@ -152,7 +152,7 @@ test("it names the provider, the bucket and what it declares", () => {
 
   expect(storage.provider).toBe("s3");
   expect(storage.bucket).toBe("stowage");
-  expect(storage.capabilities).toEqual([]);
+  expect(storage.capabilities).toEqual(["rangeReads", "userMetadata"]);
 });
 
 test("`put` addresses the bucket virtual-hosted over https", async () => {
@@ -580,25 +580,163 @@ test("a signal that already fired rejects before any request", async () => {
   expect(sent).toHaveLength(0);
 });
 
-test.each([
-  [
-    "userMetadata",
-    async (): Promise<unknown> =>
-      await s3Storage(options()).put("object.txt", "body", { userMetadata: { note: "x" } }),
-  ],
-  [
-    "rangeReads",
-    async (): Promise<unknown> =>
-      await s3Storage(options()).get("object.txt", { range: { start: 0, end: 1 } }),
-  ],
-])("a call needing the undeclared `%s` is `Unsupported`", async (capability, act) => {
+test("`put` writes the user metadata as `x-amz-meta-*` headers and reports it folded", async () => {
   const sent = stubFetch(accepted);
-  const failure = await rejection(act);
 
-  expect(failure.code).toBe("Unsupported");
-  expect(failure.capability).toBe(capability);
+  const written = await s3Storage(options()).put("object.txt", "body", {
+    userMetadata: { "Written-By": "stowage", greeting: "grüße" },
+  });
+
+  expect(sent[0]?.headers.get("x-amz-meta-written-by")).toBe("stowage");
+  expect(sent[0]?.headers.get("x-amz-meta-greeting")).toBe("=?UTF-8?B?Z3LDvMOfZQ==?=");
+  expect(sent[0]?.headers.get("authorization")).toContain("x-amz-meta-greeting");
+  expect(written.userMetadata).toEqual({ "written-by": "stowage", greeting: "grüße" });
+});
+
+test("a user metadata set over 2 KB is `InvalidRequest` before any request", async () => {
+  const sent = stubFetch(accepted);
+  const failure = await rejection(
+    async () =>
+      await s3Storage(options()).put("object.txt", "body", {
+        userMetadata: { note: "x".repeat(2048) },
+      }),
+  );
+
+  expect(failure.code).toBe("InvalidRequest");
+  expect(failure.attempts).toBe(0);
   expect(sent).toHaveLength(0);
 });
+
+test.each([
+  [
+    "stat",
+    async (): Promise<unknown> => (await s3Storage(options()).stat("object.txt")).userMetadata,
+  ],
+  [
+    "get",
+    async (): Promise<unknown> => (await s3Storage(options()).get("object.txt")).stat.userMetadata,
+  ],
+])("`%s` reads the user metadata back out of the headers", async (_operation, act) => {
+  stubFetch(() =>
+    storedResponse("body", {
+      "x-amz-meta-written-by": "stowage",
+      "x-amz-meta-greeting": "=?UTF-8?B?Z3LDvMOfZQ==?=",
+    }),
+  );
+
+  expect(await act()).toEqual({ "written-by": "stowage", greeting: "grüße" });
+});
+
+test("a ranged `get` asks for the bytes and reports the size of the whole object", async () => {
+  const sent = stubFetch(
+    () =>
+      new Response("0123", {
+        status: 206,
+        headers: {
+          "content-length": "4",
+          "content-range": "bytes 100-103/1024",
+          "last-modified": "Sun, 30 Aug 2015 12:36:00 GMT",
+        },
+      }),
+  );
+
+  const stored = await s3Storage(options()).get("object.txt", { range: { start: 100, end: 103 } });
+
+  expect(sent[0]?.headers.get("range")).toBe("bytes=100-103");
+  expect(sent[0]?.headers.get("authorization")).toContain("range");
+  expect(stored.stat.size).toBe(1024);
+  expect(await stored.text()).toBe("0123");
+});
+
+test("a range without an end asks for the rest of the object", async () => {
+  const sent = stubFetch(
+    () =>
+      new Response("3", {
+        status: 206,
+        headers: {
+          "content-length": "1",
+          "content-range": "bytes 1023-1023/1024",
+          "last-modified": "Sun, 30 Aug 2015 12:36:00 GMT",
+        },
+      }),
+  );
+
+  await s3Storage(options()).get("object.txt", { range: { start: 1023 } });
+
+  expect(sent[0]?.headers.get("range")).toBe("bytes=1023-");
+});
+
+test.each([
+  ["a negative start", { start: -1 }],
+  ["a fractional start", { start: 0.5 }],
+  ["an end below the start", { start: 8, end: 4 }],
+  ["a fractional end", { start: 0, end: 1.5 }],
+])("%s is `InvalidOption` naming `range` before any request", async (_case, range) => {
+  const sent = stubFetch(accepted);
+  const failure = await rejection(
+    async () => await s3Storage(options()).get("object.txt", { range }),
+  );
+
+  expect(failure.code).toBe("InvalidOption");
+  expect(failure.message).toContain("range");
+  expect(sent).toHaveLength(0);
+});
+
+test("a range starting at the size of the object is `InvalidRequest`", async () => {
+  stubFetch(() => refused(416, "InvalidRange", "The requested range is not satisfiable"));
+
+  const failure = await rejection(
+    async () => await s3Storage(options()).get("object.txt", { range: { start: 1024 } }),
+  );
+
+  expect(failure.code).toBe("InvalidRequest");
+  expect(failure.status).toBe(416);
+});
+
+// A provider may answer the whole of an empty object to a range rather than a `416`.
+test("a range the provider answers with the whole empty object is `InvalidRequest`", async () => {
+  stubFetch(() => storedResponse(""));
+
+  const failure = await rejection(
+    async () => await s3Storage(options()).get("object.txt", { range: { start: 0 } }),
+  );
+
+  expect(failure.code).toBe("InvalidRequest");
+  expect(failure.attempts).toBe(1);
+});
+
+test("a range the provider answers with the whole of a longer object is a `ProviderError`", async () => {
+  stubFetch(() => storedResponse("a stored body"));
+
+  const failure = await rejection(
+    async () => await s3Storage(options()).get("object.txt", { range: { start: 1 } }),
+  );
+
+  expect(failure.code).toBe("ProviderError");
+});
+
+test.each([["bytes 0-3"], ["bytes 0-3/*"], ["items 0-3/4"], [undefined]])(
+  "a partial answer with the content range %j is a `ProviderError`",
+  async (contentRange) => {
+    stubFetch(
+      () =>
+        new Response("0123", {
+          status: 206,
+          headers: {
+            "content-length": "4",
+            "last-modified": "Sun, 30 Aug 2015 12:36:00 GMT",
+            ...(contentRange === undefined ? {} : { "content-range": contentRange }),
+          },
+        }),
+    );
+
+    const failure = await rejection(
+      async () => await s3Storage(options()).get("object.txt", { range: { start: 0, end: 3 } }),
+    );
+
+    expect(failure.code).toBe("ProviderError");
+  },
+);
 
 test("an unknown option is refused by name before any request", async () => {
   const sent = stubFetch(accepted);

@@ -1,11 +1,12 @@
 import type { ObjectStat, StorageError } from "@stowage/core";
 
+import { wholeSizeOf } from "./range.ts";
 import { s3Error } from "./storage-error.ts";
+import { readUserMetadata } from "./user-metadata.ts";
 
 export const defaultContentType = "application/octet-stream";
 
-/** A storage that does not declare `userMetadata` reads back none of it (spec 4.9). */
-const noUserMetadata: Readonly<Record<string, string>> = Object.freeze({});
+const partialContent = 206;
 
 /** The description a `GET` or a `HEAD` response carries in its headers (spec 4.4). */
 export function describeResponse(
@@ -20,7 +21,7 @@ export function describeResponse(
     lastModified: lastModifiedOf(bucket, key, operation, response),
     etag: etagOf(response),
     contentType: response.headers.get("content-type") ?? defaultContentType,
-    userMetadata: noUserMetadata,
+    userMetadata: readUserMetadata(response.headers),
   };
 }
 
@@ -35,6 +36,7 @@ export function describeWrite(
   key: string,
   size: number,
   contentType: string,
+  userMetadata: Readonly<Record<string, string>>,
   response: Response,
 ): ObjectStat {
   const accepted = Date.parse(response.headers.get("date") ?? "");
@@ -47,7 +49,7 @@ export function describeWrite(
     lastModified: new Date(accepted),
     etag: etagOf(response),
     contentType,
-    userMetadata: noUserMetadata,
+    userMetadata,
   };
 }
 
@@ -67,6 +69,14 @@ export function unquotedEtag(etag: string): string {
 }
 
 function sizeOf(bucket: string, key: string, operation: string, response: Response): number {
+  if (response.status === partialContent) {
+    const size = wholeSizeOf(response);
+
+    if (size === undefined) throw incomplete(bucket, key, operation, "no size of the whole object");
+
+    return size;
+  }
+
   const header = response.headers.get("content-length");
 
   if (header === null || header.trim() === "") {

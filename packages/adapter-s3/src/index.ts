@@ -25,8 +25,10 @@ import {
   requireKnownOptions,
 } from "./options.ts";
 import { send } from "./request.ts";
+import { rangeHeader, requireRange, wholeObjectFailure } from "./range.ts";
 import { s3Error } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
+import { userMetadataHeaders } from "./user-metadata.ts";
 
 export type { S3AdapterOptions } from "./configuration.ts";
 export { fromEnv, type S3Credentials } from "./credentials.ts";
@@ -42,11 +44,13 @@ export function s3Storage(options: S3AdapterOptions): S3Storage {
 /**
  * Spec 7.1 has this storage declare `presignedUrls`, `rangeReads` and `userMetadata`.
  * Each is declared where it is built, so that what the storage names is what the
- * conformance suite finds; until then a call needing one is `Unsupported`.
+ * conformance suite finds: `presignedUrls` arrives with `presignGet` and `presignPut`.
  */
-const s3Capabilities: readonly CapabilityName[] = Object.freeze([]);
+const s3Capabilities: readonly CapabilityName[] = Object.freeze(["rangeReads", "userMetadata"]);
 
 const utf8 = new TextEncoder();
+
+const partialContent = 206;
 
 class SimpleStorageServiceStorage implements S3Storage {
   readonly provider = "s3" as const;
@@ -63,8 +67,8 @@ class SimpleStorageServiceStorage implements S3Storage {
   async put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat> {
     requireKey(this.bucket, key, "writable", "put");
     requireKnownOptions(this.bucket, options, putOptionKeys, "put");
-    this.#requireNoUserMetadata(options?.userMetadata, key);
 
+    const userMetadata = userMetadataHeaders(this.bucket, options?.userMetadata, key);
     const contentType = this.#readContentType(options?.contentType);
     const bytes = this.#holdBody(body);
 
@@ -75,20 +79,30 @@ class SimpleStorageServiceStorage implements S3Storage {
       method: "PUT",
       operation: "put",
       key,
-      headers: [["content-type", contentType]],
+      headers: [["content-type", contentType], ...userMetadata.headers],
       body: bytes,
       signal: options?.signal,
     });
 
     await response.body?.cancel();
 
-    return describeWrite(this.bucket, key, bytes.byteLength, contentType, response);
+    return describeWrite(
+      this.bucket,
+      key,
+      bytes.byteLength,
+      contentType,
+      userMetadata.held,
+      response,
+    );
   }
 
   async get(key: string, options?: GetOptions): Promise<StoredObject> {
     requireKey(this.bucket, key, "addressable", "get");
     requireKnownOptions(this.bucket, options, getOptionKeys, "get");
-    this.#requireNoRange(options?.range, key);
+
+    const range = options?.range;
+
+    requireRange(this.bucket, range);
 
     options?.signal?.throwIfAborted();
 
@@ -96,14 +110,18 @@ class SimpleStorageServiceStorage implements S3Storage {
       method: "GET",
       operation: "get",
       key,
+      headers: range === undefined ? [] : [["range", rangeHeader(range)]],
       signal: options?.signal,
     });
+    const stat = describeResponse(this.bucket, key, "get", response);
 
-    return createStoredObject(
-      this.bucket,
-      describeResponse(this.bucket, key, "get", response),
-      response,
-    );
+    if (range !== undefined && response.status !== partialContent) {
+      await response.body?.cancel();
+
+      throw wholeObjectFailure(this.bucket, key, range, stat.size);
+    }
+
+    return createStoredObject(this.bucket, stat, response);
   }
 
   async stat(key: string, options?: OperationOptions): Promise<ObjectStat> {
@@ -203,29 +221,6 @@ class SimpleStorageServiceStorage implements S3Storage {
     }
 
     return contentType;
-  }
-
-  #requireNoUserMetadata(userMetadata: Record<string, string> | undefined, key: string): void {
-    if (userMetadata === undefined || Object.keys(userMetadata).length === 0) return;
-
-    throw this.#undeclared("userMetadata", "put", key);
-  }
-
-  #requireNoRange(range: GetOptions["range"], key: string): void {
-    if (range === undefined) return;
-
-    throw this.#undeclared("rangeReads", "get", key);
-  }
-
-  #undeclared(capability: CapabilityName, operation: string, key: string): Error {
-    return s3Error(this.bucket, {
-      code: "Unsupported",
-      message: `This storage does not declare \`${capability}\``,
-      operation,
-      key,
-      attempts: 0,
-      capability,
-    });
   }
 }
 
