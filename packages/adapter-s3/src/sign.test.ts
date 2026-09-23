@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import type { S3Credentials } from "./credentials.ts";
-import { signRequest, type SignedRequest } from "./sign.ts";
+import { type PresignedRequest, presignRequest, signRequest, type SignedRequest } from "./sign.ts";
 
 /**
  * The published AWS SigV4 test suite, case by case, as `awslabs/aws-c-auth` carries it
@@ -502,4 +502,87 @@ test("it signs `host` without handing it back as a header to send", async () => 
 
   expect(signed.canonicalRequest).toContain("host:example.amazonaws.com");
   expect(new Map(signed.headers).has("host")).toBe(false);
+});
+
+/**
+ * The query-signing example of the S3 API reference ("Authenticating Requests: Using
+ * Query Parameters"), which AWS removed from the live reference and ADR 0011 cites from
+ * an Internet Archive capture: a `GET` on `test.txt`, valid for 86400 seconds.
+ */
+const queryVector = {
+  credentials: {
+    accessKeyId: "AKIAIOSFODNN7EXAMPLE",
+    secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+  },
+  canonicalRequest: `GET
+/test.txt
+X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20130524T000000Z&X-Amz-Expires=86400&X-Amz-SignedHeaders=host
+host:examplebucket.s3.amazonaws.com
+
+host
+UNSIGNED-PAYLOAD`,
+  stringToSign: `AWS4-HMAC-SHA256
+20130524T000000Z
+20130524/us-east-1/s3/aws4_request
+3bfa292879f6447bbcda7001decf97f4a54dc650c8942174ae0a9121cf58ad04`,
+  signature: "aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404",
+} as const;
+
+async function presignQueryVector(
+  overrides: { headers?: readonly (readonly [string, string])[]; sessionToken?: string } = {},
+): Promise<PresignedRequest> {
+  return await presignRequest({
+    method: "GET",
+    host: "examplebucket.s3.amazonaws.com",
+    path: "/test.txt",
+    query: [],
+    headers: overrides.headers ?? [],
+    credentials:
+      overrides.sessionToken === undefined
+        ? queryVector.credentials
+        : { ...queryVector.credentials, sessionToken: overrides.sessionToken },
+    region: "us-east-1",
+    service: "s3",
+    date: new Date("2013-05-24T00:00:00Z"),
+    expiresIn: 86_400,
+  });
+}
+
+test("a presigned request builds the canonical request the reference states", async () => {
+  expect((await presignQueryVector()).canonicalRequest).toBe(queryVector.canonicalRequest);
+});
+
+test("a presigned request builds the string to sign the reference states", async () => {
+  expect((await presignQueryVector()).stringToSign).toBe(queryVector.stringToSign);
+});
+
+test("a presigned request carries the signature the reference states", async () => {
+  const presigned = await presignQueryVector();
+
+  expect(presigned.query.at(-1)).toEqual(["X-Amz-Signature", queryVector.signature]);
+});
+
+test("a presigned request signs the headers it binds beside `host`", async () => {
+  const presigned = await presignQueryVector({
+    headers: [
+      ["content-type", "text/plain"],
+      ["content-length", "12"],
+    ],
+  });
+
+  expect(new Map(presigned.query).get("X-Amz-SignedHeaders")).toBe(
+    "content-length;content-type;host",
+  );
+  expect(presigned.canonicalRequest).toContain(
+    "content-length:12\ncontent-type:text/plain\nhost:examplebucket.s3.amazonaws.com\n",
+  );
+});
+
+// The session token goes into the query it signs rather than into a header, because
+// whoever calls the URL sends no header the signer chose.
+test("a presigned request signs the session token into its query", async () => {
+  const presigned = await presignQueryVector({ sessionToken: "token" });
+
+  expect(new Map(presigned.query).get("X-Amz-Security-Token")).toBe("token");
+  expect(presigned.canonicalRequest).toContain("X-Amz-Security-Token=token");
 });

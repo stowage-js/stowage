@@ -153,7 +153,7 @@ test("it names the provider, the bucket and what it declares", () => {
 
   expect(storage.provider).toBe("s3");
   expect(storage.bucket).toBe("stowage");
-  expect(storage.capabilities).toEqual(["rangeReads", "userMetadata"]);
+  expect(storage.capabilities).toEqual(["presignedUrls", "rangeReads", "userMetadata"]);
 });
 
 test("`put` addresses the bucket virtual-hosted over https", async () => {
@@ -1572,4 +1572,46 @@ test("`copy` rejects before any request where the signal already fired", async (
     s3Storage(options()).copy("from.txt", "to.txt", { signal: AbortSignal.abort() }),
   ).rejects.toThrow(expect.objectContaining({ name: "AbortError" }));
   expect(sent).toHaveLength(0);
+});
+
+/** Every operation answered as S3 answers it, told apart by what the request carries. */
+function answeringProvider(request: SentRequest): Response {
+  const query = queryOf(request);
+
+  if (request.method === "POST" && "delete" in query) return deleteResult();
+  if (request.method === "GET" && "list-type" in query) return listed(["object.txt"]);
+  if (request.method === "PUT" && request.headers.has("x-amz-copy-source")) return copied();
+  if (request.method === "PUT") return accepted();
+  if (request.method === "HEAD") return copiedStat();
+  if (request.method === "GET") return storedResponse("stored");
+
+  return new Response(null, { status: 204 });
+}
+
+// Spec 7.4: `UNSIGNED-PAYLOAD` belongs to a presigned URL alone, so every request the
+// adapter sends itself carries the SHA-256 of its body, and none signs through the query.
+test("no operation sends `UNSIGNED-PAYLOAD` or a signature in the query", async () => {
+  const sent = stubFetch(answeringProvider);
+  const storage = s3Storage(options());
+
+  await storage.put("object.txt", "body");
+  await storage.put("streamed.txt", new Blob(["streamed"]).stream());
+  await (await storage.get("object.txt")).text();
+  await storage.stat("object.txt");
+  await storage.exists("object.txt");
+  await storage.list().page();
+  await storage.delete("object.txt");
+  await storage.deleteAll("folder/");
+  await storage.copy("object.txt", "copy.txt");
+  await storage.move("copy.txt", "moved.txt");
+
+  expect(new Set(sent.map((request) => request.method))).toEqual(
+    new Set(["PUT", "GET", "HEAD", "POST", "DELETE"]),
+  );
+
+  for (const request of sent) {
+    expect(request.headers.get("x-amz-content-sha256")).toMatch(/^[\da-f]{64}$/u);
+    expect(request.headers.get("authorization")).toMatch(/^AWS4-HMAC-SHA256 /u);
+    expect(Object.keys(queryOf(request)).filter((name) => name.startsWith("X-Amz-"))).toEqual([]);
+  }
 });

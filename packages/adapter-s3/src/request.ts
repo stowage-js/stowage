@@ -133,9 +133,7 @@ async function attemptOnce(
     service,
     date: new Date(),
   });
-  const url = `${configuration.protocol}//${configuration.host}${encodePath(path)}${
-    query.length === 0 ? "" : `?${encodeQuery(query)}`
-  }`;
+  const url = urlOf(configuration, path, query);
   let response: Response;
 
   try {
@@ -159,7 +157,7 @@ async function attemptOnce(
  * through the first segment of the path. The key follows as it stands; `encodePath` is
  * what percent-encodes it, on the URL and in the signature alike.
  */
-function pathOf(configuration: S3Configuration, key: string | undefined): string {
+export function pathOf(configuration: S3Configuration, key: string | undefined): string {
   const prefix = configuration.forcePathStyle
     ? `${configuration.basePath}/${configuration.bucket}`
     : configuration.basePath;
@@ -167,6 +165,21 @@ function pathOf(configuration: S3Configuration, key: string | undefined): string
   if (key === undefined) return prefix === "" ? "/" : prefix;
 
   return `${prefix}/${key}`;
+}
+
+/**
+ * The URL a request is sent to, its path and query encoded as SigV4 signs them: the
+ * provider rebuilds the canonical request from what the URL carries, so the two may not
+ * differ by a single escape.
+ */
+export function urlOf(
+  configuration: S3Configuration,
+  path: string,
+  query: readonly QueryParameter[],
+): string {
+  const search = query.length === 0 ? "" : `?${encodeQuery(query)}`;
+
+  return `${configuration.protocol}//${configuration.host}${encodePath(path)}${search}`;
 }
 
 /**

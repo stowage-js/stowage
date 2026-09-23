@@ -1,4 +1,5 @@
 import {
+  type CanonicalHeaders,
   canonicalHeaders,
   encodePath,
   encodeQuery,
@@ -41,37 +42,137 @@ export interface SignedRequest {
 
 export async function signRequest(request: SignableRequest): Promise<SignedRequest> {
   const amzDate = amzDateOf(request.date);
-  const scope = `${amzDate.slice(0, 8)}/${request.region}/${request.service}/aws4_request`;
+  const scope = scopeOf(request, amzDate);
   const toSend: readonly HeaderField[] = [
     ...request.headers,
     ["x-amz-date", amzDate],
     ...sessionTokenField(request.credentials),
   ];
   const canonical = canonicalHeaders([...toSend, ["host", request.host]]);
+  const signed = await signCanonical(request, {
+    query: request.query,
+    headers: canonical,
+    payloadHash: request.payloadHash,
+    amzDate,
+    scope,
+  });
+  const authorization =
+    `${signingAlgorithm} Credential=${request.credentials.accessKeyId}/${scope}, ` +
+    `SignedHeaders=${canonical.names}, Signature=${signed.signature}`;
+
+  return { headers: [...toSend, ["authorization", authorization]], ...signed };
+}
+
+/**
+ * Spec 7.4 and ADR 0011: the payload hash a presigned URL signs, which excludes the body
+ * from the signature because the signer never sees it. It is written here and nowhere
+ * else, so a request the adapter sends itself has no way to carry it.
+ */
+const unsignedPayload = "UNSIGNED-PAYLOAD";
+
+export interface PresignableRequest {
+  readonly method: string;
+  readonly host: string;
+  /** Written as the URL carries it; `encodePath` is what percent-encodes it. */
+  readonly path: string;
+  /** What the URL carries beside the parameters the signature adds. */
+  readonly query: readonly QueryParameter[];
+  /** What whoever calls the URL has to send exactly, beside `host`. */
+  readonly headers: readonly HeaderField[];
+  readonly credentials: S3Credentials;
+  readonly region: string;
+  readonly service: string;
+  readonly date: Date;
+  /** Seconds, which spec 7.10 has the caller check against 1 to 604800 first. */
+  readonly expiresIn: number;
+}
+
+export interface PresignedRequest {
+  /** The whole query of the URL, the signature last. */
+  readonly query: readonly QueryParameter[];
+  readonly canonicalRequest: string;
+  readonly stringToSign: string;
+}
+
+/**
+ * SigV4 query signing: the authorization travels in the query rather than in headers, so
+ * that a client holding no credential can send the request. The headers it binds are
+ * signed and not handed back, because whoever calls the URL sends them.
+ */
+export async function presignRequest(request: PresignableRequest): Promise<PresignedRequest> {
+  const amzDate = amzDateOf(request.date);
+  const scope = scopeOf(request, amzDate);
+  const canonical = canonicalHeaders([...request.headers, ["host", request.host]]);
+  const query: readonly QueryParameter[] = [
+    ...request.query,
+    ["X-Amz-Algorithm", signingAlgorithm],
+    ["X-Amz-Credential", `${request.credentials.accessKeyId}/${scope}`],
+    ["X-Amz-Date", amzDate],
+    ["X-Amz-Expires", String(request.expiresIn)],
+    ["X-Amz-SignedHeaders", canonical.names],
+    ...sessionTokenParameter(request.credentials),
+  ];
+  const signed = await signCanonical(request, {
+    query,
+    headers: canonical,
+    payloadHash: unsignedPayload,
+    amzDate,
+    scope,
+  });
+
+  return {
+    query: [...query, ["X-Amz-Signature", signed.signature]],
+    canonicalRequest: signed.canonicalRequest,
+    stringToSign: signed.stringToSign,
+  };
+}
+
+interface RequestToSign {
+  readonly method: string;
+  readonly path: string;
+  readonly credentials: S3Credentials;
+  readonly region: string;
+  readonly service: string;
+}
+
+interface CanonicalInput {
+  readonly query: readonly QueryParameter[];
+  readonly headers: CanonicalHeaders;
+  readonly payloadHash: string;
+  readonly amzDate: string;
+  readonly scope: string;
+}
+
+interface Signature {
+  readonly canonicalRequest: string;
+  readonly stringToSign: string;
+  readonly signature: string;
+}
+
+async function signCanonical(request: RequestToSign, input: CanonicalInput): Promise<Signature> {
   const canonicalRequest = [
     request.method,
     encodePath(request.path),
-    encodeQuery(request.query),
-    canonical.lines,
-    canonical.names,
-    request.payloadHash,
+    encodeQuery(input.query),
+    input.headers.lines,
+    input.headers.names,
+    input.payloadHash,
   ].join("\n");
-  const stringToSign = [signingAlgorithm, amzDate, scope, await sha256Hex(canonicalRequest)].join(
-    "\n",
-  );
+  const stringToSign = [
+    signingAlgorithm,
+    input.amzDate,
+    input.scope,
+    await sha256Hex(canonicalRequest),
+  ].join("\n");
   const signature = hex(
-    await hmacSha256(await signingKey(request, amzDate.slice(0, 8)), stringToSign),
+    await hmacSha256(await signingKey(request, input.amzDate.slice(0, 8)), stringToSign),
   );
-  const authorization =
-    `${signingAlgorithm} Credential=${request.credentials.accessKeyId}/${scope}, ` +
-    `SignedHeaders=${canonical.names}, Signature=${signature}`;
 
-  return {
-    headers: [...toSend, ["authorization", authorization]],
-    canonicalRequest,
-    stringToSign,
-    signature,
-  };
+  return { canonicalRequest, stringToSign, signature };
+}
+
+function scopeOf(request: RequestToSign, amzDate: string): string {
+  return `${amzDate.slice(0, 8)}/${request.region}/${request.service}/aws4_request`;
 }
 
 /** `20150830T123600Z`, which is what `x-amz-date` and the credential scope are written in. */
@@ -85,7 +186,13 @@ function sessionTokenField(credentials: S3Credentials): readonly HeaderField[] {
   return [["x-amz-security-token", credentials.sessionToken]];
 }
 
-async function signingKey(request: SignableRequest, dateStamp: string): Promise<ArrayBuffer> {
+function sessionTokenParameter(credentials: S3Credentials): readonly QueryParameter[] {
+  if (credentials.sessionToken === undefined) return [];
+
+  return [["X-Amz-Security-Token", credentials.sessionToken]];
+}
+
+async function signingKey(request: RequestToSign, dateStamp: string): Promise<ArrayBuffer> {
   const utf8 = new TextEncoder();
   const date = await hmacSha256(
     utf8.encode(`AWS4${request.credentials.secretAccessKey}`),
