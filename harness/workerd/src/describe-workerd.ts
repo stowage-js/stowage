@@ -60,12 +60,13 @@ async function withWorkerd<T>(use: (origin: string) => Promise<T>): Promise<T> {
     cwd: harnessDirectory,
     stdio: ["ignore", "inherit", "inherit", "pipe"],
   });
+  const exited = once(child, "exit").catch(() => {});
 
   try {
     return await use(`http://127.0.0.1:${await listeningPort(child)}`);
   } finally {
     child.kill();
-    await once(child, "exit");
+    await exited;
   }
 }
 
