@@ -30,16 +30,6 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: pnpm
 
-      # Spec 1: Bun and Deno have no floor. These two files pin the version the harnesses
-      # run on, which is the version each README names as the one CI last ran green.
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version-file: .dvmrc
-
       - run: pnpm install --frozen-lockfile
 
       # ADR 0008: the type-aware lint rules read the declarations of the other
@@ -58,14 +48,58 @@ jobs:
       - name: Start the S3 endpoint
         run: ./harness/s3/start.sh | sed 's/^export //' >> "$GITHUB_ENV"
 
-      # Spec 2: every covered cell runs against the endpoint. `test` holds the Node column
-      # and the `workerd` one, whose results Vitest reports on Node; Bun and Deno run under
-      # their own test framework.
+      # Spec 2: `test` holds the Node column and the `workerd` one, whose results Vitest
+      # reports on Node. Bun and Deno are columns of their own, in the job below.
       - run: pnpm run test
 
-      - run: pnpm run test:bun
+      - name: Stop the S3 endpoint
+        if: always()
+        run: ./harness/s3/stop.sh
 
-      - run: pnpm run test:deno
+  runtimes:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Bun
+            script: test:bun
+          - name: Deno
+            script: test:deno
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      # Node is a tool here and not the runtime under test: pnpm installs with it, and the
+      # harnesses import `@stowage/core` from the `dist` that its build writes.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      # Spec 1: Bun and Deno have no floor. These two files pin the version the harnesses
+      # run on, which is the version each README names as the one CI last ran green.
+      - if: matrix.name == 'Bun'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - if: matrix.name == 'Deno'
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version-file: .dvmrc
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm run build
+
+      # ADR 0012, as in the job above.
+      - name: Start the S3 endpoint
+        run: ./harness/s3/start.sh | sed 's/^export //' >> "$GITHUB_ENV"
+
+      - run: pnpm run ${{ matrix.script }}
 
       - name: Stop the S3 endpoint
         if: always()
