@@ -25,45 +25,62 @@ export async function readAnswerDocument(
   expectedRoot: string,
 ): Promise<XmlElement> {
   const requestId = response.headers.get("x-amz-request-id") ?? undefined;
-  const told = {
+  const context: ErrorContext = {
     operation: request.operation,
     key: request.key,
     attempts: 1,
     status: response.status,
     requestId,
   };
-  const root = parseAnswer(request, await readBody(request, response, told), told);
+  const root = parseAnswer(request, await readBody(request, response, context), context);
 
-  if (root.name === "Error") {
-    const providerCode = textOf(root, "Code") ?? "";
-    const failure = readEmbeddedFailure(
-      providerCode,
-      textOf(root, "Message") ?? `The provider failed ${request.subject}: ${providerCode}`,
-    );
-
-    throw s3Error(request.bucket, {
-      ...told,
-      code: failure.code,
-      message: failure.message,
-      providerCode: providerCode === "" ? undefined : providerCode,
-      retryable: failure.retryable,
-    });
-  }
+  if (root.name === "Error") throw embeddedFailure(request, context, root);
 
   if (root.name !== expectedRoot) {
-    throw malformed(request, told, `a <${root.name}> where a <${expectedRoot}> belongs`);
+    throw malformed(request, context, `a <${root.name}> where a <${expectedRoot}> belongs`);
   }
 
   return root;
+}
+
+/**
+ * The failure an `<Error>` element inside a `200` reports: a whole answer's, or one key's
+ * of a `DeleteObjects`. No status speaks for it, so its code decides alone.
+ */
+export function embeddedFailure(
+  request: AnsweredRequest,
+  context: ErrorContext,
+  element: XmlElement,
+): StorageError {
+  const providerCode = textOf(element, "Code") ?? "";
+  const failure = readEmbeddedFailure(
+    providerCode,
+    textOf(element, "Message") ?? `The provider failed ${request.subject}: ${providerCode}`,
+  );
+
+  return s3Error(request.bucket, {
+    ...context,
+    code: failure.code,
+    message: failure.message,
+    providerCode: providerCode === "" ? undefined : providerCode,
+    retryable: failure.retryable,
+  });
 }
 
 export function textOf(element: XmlElement, name: string): string | undefined {
   return element.children.find((child) => child.name === name)?.text;
 }
 
-type Told = Pick<StorageError, "operation" | "key" | "attempts" | "status" | "requestId">;
+export type ErrorContext = Pick<
+  StorageError,
+  "operation" | "key" | "attempts" | "status" | "requestId"
+>;
 
-async function readBody(request: AnsweredRequest, response: Response, told: Told): Promise<string> {
+async function readBody(
+  request: AnsweredRequest,
+  response: Response,
+  context: ErrorContext,
+): Promise<string> {
   try {
     return await response.text();
   } catch (failure) {
@@ -71,7 +88,7 @@ async function readBody(request: AnsweredRequest, response: Response, told: Told
     if (failure instanceof Error && failure.name === "AbortError") throw failure;
 
     throw s3Error(request.bucket, {
-      ...told,
+      ...context,
       code: "NetworkError",
       message: `The answer to ${request.subject} broke while it was read: ${String(failure)}`,
       retryable: true,
@@ -80,14 +97,14 @@ async function readBody(request: AnsweredRequest, response: Response, told: Told
   }
 }
 
-function parseAnswer(request: AnsweredRequest, body: string, told: Told): XmlElement {
+function parseAnswer(request: AnsweredRequest, body: string, context: ErrorContext): XmlElement {
   try {
     return parseXml(body);
   } catch (failure) {
     if (failure instanceof XmlSyntaxError) {
       throw malformed(
         request,
-        told,
+        context,
         `a document outside the XML stowage reads: ${failure.message}`,
         failure,
       );
@@ -99,12 +116,12 @@ function parseAnswer(request: AnsweredRequest, body: string, told: Told): XmlEle
 
 function malformed(
   request: AnsweredRequest,
-  told: Told,
+  context: ErrorContext,
   what: string,
   cause?: unknown,
 ): StorageError {
   return s3Error(request.bucket, {
-    ...told,
+    ...context,
     code: "ProviderError",
     message: `The provider answered ${request.subject} with ${what}`,
     cause,

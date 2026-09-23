@@ -1242,6 +1242,20 @@ test("a key the provider failed is reported with its code, and not repeated", as
   });
 });
 
+test("a failed key the provider does not name is a `ProviderError`", async () => {
+  stubFetch(
+    () =>
+      new Response(
+        `<?xml version="1.0" encoding="UTF-8"?>\n<DeleteResult><Error><Code>AccessDenied</Code><Message>Access Denied</Message></Error></DeleteResult>`,
+        { status: 200 },
+      ),
+  );
+
+  const failure = await rejection(async () => await s3Storage(options()).delete("one.txt"));
+
+  expect(failure).toMatchObject({ code: "ProviderError", operation: "delete" });
+});
+
 test("a failure of the request as a whole rejects instead of filling the report", async () => {
   stubFetch(() => refused(403, "AccessDenied", "Access Denied"));
 

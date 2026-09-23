@@ -1,11 +1,15 @@
 import type { DeleteReport, StorageError } from "@stowage/core";
 
-import { readAnswerDocument, textOf } from "./answer-document.ts";
+import {
+  type AnsweredRequest,
+  embeddedFailure,
+  readAnswerDocument,
+  textOf,
+} from "./answer-document.ts";
 import type { S3Configuration } from "./configuration.ts";
 import { keyError } from "./key.ts";
 import { maxPageSize, walkPages } from "./listing.ts";
 import { md5Base64 } from "./md5.ts";
-import { readEmbeddedFailure } from "./provider-code.ts";
 import { send } from "./request.ts";
 import { s3Error } from "./storage-error.ts";
 import type { XmlElement } from "./xml.ts";
@@ -124,15 +128,16 @@ async function deleteBatch(
     signal: batch.signal,
   });
   const requestId = response.headers.get("x-amz-request-id") ?? undefined;
-  const document = await readAnswerDocument(
-    { bucket: configuration.bucket, operation: batch.operation, subject: "the deletion" },
-    response,
-    "DeleteResult",
-  );
+  const answered: AnsweredRequest = {
+    bucket: configuration.bucket,
+    operation: batch.operation,
+    subject: "the deletion",
+  };
+  const document = await readAnswerDocument(answered, response, "DeleteResult");
 
   return document.children
     .filter((child) => child.name === "Error")
-    .map((entry) => keyFailure(configuration.bucket, batch.operation, entry, requestId));
+    .map((entry) => keyFailure(answered, entry, requestId));
 }
 
 /** `Quiet` has the provider answer with the keys it failed alone. */
@@ -154,27 +159,31 @@ function escapeXml(text: string): string {
   return text.replaceAll(/[&<>"']/gu, (character) => xmlEscapes[character] ?? character);
 }
 
+/**
+ * One key the provider failed, told as the answer's failure is, without the `200` that
+ * spoke for the whole request. Spec 4.7 has every entry carry its key, so an entry the
+ * provider names no key for leaves the answer unread rather than reported keyless.
+ */
 function keyFailure(
-  bucket: string,
-  operation: string,
+  request: AnsweredRequest,
   entry: XmlElement,
   requestId: string | undefined,
 ): StorageError {
   const key = textOf(entry, "Key");
-  const providerCode = textOf(entry, "Code") ?? "";
-  const failure = readEmbeddedFailure(
-    providerCode,
-    textOf(entry, "Message") ?? `The provider did not delete the key: ${providerCode}`,
-  );
 
-  return s3Error(bucket, {
-    code: failure.code,
-    message: failure.message,
-    operation,
-    key,
-    attempts: 1,
-    providerCode: providerCode === "" ? undefined : providerCode,
-    requestId,
-    retryable: failure.retryable,
-  });
+  if (key === undefined || key === "") {
+    throw s3Error(request.bucket, {
+      code: "ProviderError",
+      message: `The provider answered ${request.subject} with a failed key it did not name`,
+      operation: request.operation,
+      attempts: 1,
+      requestId,
+    });
+  }
+
+  return embeddedFailure(
+    request,
+    { operation: request.operation, key, attempts: 1, requestId },
+    entry,
+  );
 }
