@@ -76,7 +76,7 @@ function refused(
 /** A `ListObjectsV2` answer holding `entries`, as AWS writes one. */
 function listed(
   entries: readonly string[],
-  page: { prefixes?: readonly string[]; next?: string } = {},
+  page: { prefixes?: readonly string[]; nextToken?: string } = {},
 ): Response {
   const contents = entries
     .map(
@@ -88,13 +88,25 @@ function listed(
     .map((prefix) => `<CommonPrefixes><Prefix>${prefix}</Prefix></CommonPrefixes>`)
     .join("");
   const next =
-    page.next === undefined
+    page.nextToken === undefined
       ? "<IsTruncated>false</IsTruncated>"
-      : `<IsTruncated>true</IsTruncated><NextContinuationToken>${page.next}</NextContinuationToken>`;
+      : `<IsTruncated>true</IsTruncated><NextContinuationToken>${page.nextToken}</NextContinuationToken>`;
 
   return new Response(
     `<?xml version="1.0" encoding="UTF-8"?>\n<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Name>stowage</Name><MaxKeys>1000</MaxKeys>${next}${contents}${prefixes}</ListBucketResult>`,
     { status: 200, headers: { "content-type": "application/xml" } },
+  );
+}
+
+/** A `200` whose body breaks with `failure` once it is read. */
+function brokenBody(failure: unknown): Response {
+  return new Response(
+    new ReadableStream({
+      pull(controller) {
+        controller.error(failure);
+      },
+    }),
+    { status: 200, headers: { "x-amz-request-id": "broken-request" } },
   );
 }
 
@@ -697,7 +709,7 @@ test("`page()` sends one `ListObjectsV2` for the prefix, the delimiter and the p
 test("the iteration walks every page and yields the objects alone", async () => {
   const sent = stubFetch((request) =>
     queryOf(request)["continuation-token"] === undefined
-      ? listed(["a/1", "a/2"], { prefixes: ["a/b/"], next: "token+1/=" })
+      ? listed(["a/1", "a/2"], { prefixes: ["a/b/"], nextToken: "token+1/=" })
       : listed(["a/3"]),
   );
   const keys: string[] = [];
@@ -722,7 +734,7 @@ test("the iteration walks every page and yields the objects alone", async () => 
 test("a page's cursor continues the listing from a new `list`", async () => {
   const sent = stubFetch((request) =>
     queryOf(request)["continuation-token"] === undefined
-      ? listed(["a"], { next: "1ueGcxLPRx1Tr/XYExHnhbYLgveDs2J/wm36Hy4vbOwM=" })
+      ? listed(["a"], { nextToken: "1ueGcxLPRx1Tr/XYExHnhbYLgveDs2J/wm36Hy4vbOwM=" })
       : listed(["b"]),
   );
   const storage = s3Storage(options());
@@ -759,7 +771,7 @@ test.each(["not-a-cursor", btoa("stowage-memory-1:0061"), ""])(
 test("a position the provider refuses is `InvalidOption` naming `cursor`", async () => {
   const sent = stubFetch((request) =>
     queryOf(request)["continuation-token"] === undefined
-      ? listed(["a"], { next: "genuine" })
+      ? listed(["a"], { nextToken: "genuine" })
       : // The position is stowage's own, and the provider no longer continues from it.
         refused(400, "InvalidArgument", "The continuation token provided is incorrect"),
   );
@@ -846,7 +858,7 @@ test("a listing answer outside the parser's subset is a `ProviderError`", async 
     () =>
       new Response("<ListBucketResult><![CDATA[x]]></ListBucketResult>", {
         status: 200,
-        headers: { "content-type": "application/xml" },
+        headers: { "content-type": "application/xml", "x-amz-request-id": "listing-request" },
       }),
   );
 
@@ -854,26 +866,21 @@ test("a listing answer outside the parser's subset is a `ProviderError`", async 
 
   expect(failure.code).toBe("ProviderError");
   expect(failure.operation).toBe("list");
+  // Spec 7.9: an error that carries a response names it, which traces it at the provider.
+  expect(failure.status).toBe(200);
+  expect(failure.requestId).toBe("listing-request");
 });
 
 test("a listing answer that breaks while it is read is a `NetworkError`", async () => {
-  stubFetch(
-    () =>
-      new Response(
-        new ReadableStream({
-          pull(controller) {
-            controller.error(new TypeError("terminated"));
-          },
-        }),
-        { status: 200 },
-      ),
-  );
+  stubFetch(() => brokenBody(new TypeError("terminated")));
 
   const failure = await rejection(async () => await s3Storage(options()).list().page());
 
   expect(failure.code).toBe("NetworkError");
   expect(failure.operation).toBe("list");
   expect(failure.retryable).toBe(true);
+  expect(failure.status).toBe(200);
+  expect(failure.requestId).toBe("broken-request");
 });
 
 test("a listing whose signal already fired sends nothing", async () => {
@@ -888,17 +895,7 @@ test("a listing whose signal already fired sends nothing", async () => {
 // Spec 4.10: an abort produces the runtime's `AbortError` and never a `StorageError`,
 // also where it lands while the answer is read.
 test("an abort while the listing is read rejects with `AbortError`", async () => {
-  stubFetch(
-    () =>
-      new Response(
-        new ReadableStream({
-          pull(controller) {
-            controller.error(new DOMException("The operation was aborted", "AbortError"));
-          },
-        }),
-        { status: 200 },
-      ),
-  );
+  stubFetch(() => brokenBody(new DOMException("The operation was aborted", "AbortError")));
 
   await expect(s3Storage(options()).list().page()).rejects.toThrow(
     expect.objectContaining({ name: "AbortError" }),
@@ -908,7 +905,7 @@ test("an abort while the listing is read rejects with `AbortError`", async () =>
 test("an iteration handed a cursor walks on from where it points", async () => {
   const sent = stubFetch((request) =>
     queryOf(request)["continuation-token"] === undefined
-      ? listed(["a"], { next: "second" })
+      ? listed(["a"], { nextToken: "second" })
       : listed(["b"]),
   );
   const storage = s3Storage(options());

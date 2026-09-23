@@ -4,7 +4,11 @@ import type { QueryParameter } from "./canonical.ts";
 import type { S3Configuration } from "./configuration.ts";
 import { decodeCursor, encodeCursor } from "./cursor.ts";
 import { requireKey } from "./key.ts";
-import { type ListingDocument, readListingDocument } from "./listing-document.ts";
+import {
+  type ListingAnswer,
+  type ListingDocument,
+  readListingDocument,
+} from "./listing-document.ts";
 import { listOptionKeys, optionError, requireKnownOptions } from "./options.ts";
 import { send } from "./request.ts";
 import { s3Error } from "./storage-error.ts";
@@ -33,7 +37,7 @@ export function createListing(
   return {
     async page(): Promise<ListPage> {
       const request = readListRequest(configuration.bucket, options);
-      const document = await listOnce(configuration, request, request.continuationToken);
+      const document = await requestPage(configuration, request);
 
       return {
         objects: document.objects,
@@ -50,7 +54,7 @@ export function createListing(
 
       for (let { continuationToken } = request; ;) {
         // oxlint-disable-next-line no-await-in-loop -- the next page needs this one's token
-        const document = await listOnce(configuration, request, continuationToken);
+        const document = await requestPage(configuration, { ...request, continuationToken });
 
         yield* document.objects;
 
@@ -96,11 +100,9 @@ function readListRequest(bucket: string, options: ListOptions | undefined): List
   };
 }
 
-/** One `ListObjectsV2` request, which is what one page costs. */
-async function listOnce(
+async function requestPage(
   configuration: S3Configuration,
   request: ListRequest,
-  continuationToken?: string,
 ): Promise<ListingDocument> {
   // Spec 4.3: a signal that already fired rejects before the request goes out.
   request.signal?.throwIfAborted();
@@ -112,7 +114,9 @@ async function listOnce(
 
   if (request.prefix !== "") query.push(["prefix", request.prefix]);
   if (request.delimiter !== undefined) query.push(["delimiter", request.delimiter]);
-  if (continuationToken !== undefined) query.push(["continuation-token", continuationToken]);
+  if (request.continuationToken !== undefined) {
+    query.push(["continuation-token", request.continuationToken]);
+  }
 
   const response = await send(configuration, {
     method: "GET",
@@ -121,25 +125,33 @@ async function listOnce(
     signal: request.signal,
   });
 
-  return readListingDocument(configuration.bucket, await readBody(configuration.bucket, response));
+  const answer: ListingAnswer = {
+    bucket: configuration.bucket,
+    status: response.status,
+    requestId: response.headers.get("x-amz-request-id") ?? undefined,
+  };
+
+  return readListingDocument(answer, await readBody(answer, response));
 }
 
 /**
  * Spec 7.5 repeats a transport failure that received no response; this one received its
  * response and broke in the body, which spec 4.5 leaves unresumed for `get` as well.
  */
-async function readBody(bucket: string, response: Response): Promise<string> {
+async function readBody(answer: ListingAnswer, response: Response): Promise<string> {
   try {
     return await response.text();
   } catch (failure) {
     // Spec 4.10: the caller's abort travels on as the runtime's `AbortError`.
     if (failure instanceof Error && failure.name === "AbortError") throw failure;
 
-    throw s3Error(bucket, {
+    throw s3Error(answer.bucket, {
       code: "NetworkError",
       message: `The listing broke while it was read: ${String(failure)}`,
       operation: "list",
       attempts: 1,
+      status: answer.status,
+      requestId: answer.requestId,
       retryable: true,
       cause: failure,
     });

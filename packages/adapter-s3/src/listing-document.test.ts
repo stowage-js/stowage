@@ -1,6 +1,8 @@
 import { expect, test } from "vitest";
 
-import { readListingDocument } from "./listing-document.ts";
+import { type ListingAnswer, readListingDocument } from "./listing-document.ts";
+
+const answered: ListingAnswer = { bucket: "stowage", status: 200, requestId: "abc" };
 
 /** A `ListObjectsV2` answer as AWS writes it, around the elements a case supplies. */
 function answer(inside: string, truncated = false): string {
@@ -22,7 +24,7 @@ function contents(key: string, size = "434234"): string {
 
 test("it reads the objects, the pseudo-directories and that the listing is complete", () => {
   const document = readListingDocument(
-    "stowage",
+    answered,
     answer(
       `${contents("photos/cat.jpg")}<CommonPrefixes><Prefix>photos/2026/</Prefix></CommonPrefixes>`,
     ),
@@ -44,7 +46,7 @@ test("it reads the objects, the pseudo-directories and that the listing is compl
 
 test("an incomplete listing hands over the position the provider continues from", () => {
   const document = readListingDocument(
-    "stowage",
+    answered,
     answer(
       `${contents("a")}<NextContinuationToken>1ueGcxLPRx1Tr/XYExHnhbYLgveDs2J/wm36Hy4vbOwM=</NextContinuationToken>`,
       true,
@@ -58,7 +60,7 @@ test("an incomplete listing hands over the position the provider continues from"
 // around an entity tag as `&#34;` where S3 writes `&quot;`.
 test("a key and an entity tag arrive through their entities", () => {
   const document = readListingDocument(
-    "stowage",
+    answered,
     answer(
       "<Contents><Key>a&amp;b &lt;c&gt; &#39;d&#39;</Key><LastModified>2026-09-23T08:00:00Z</LastModified><ETag>&#34;abc&#34;</ETag><Size>0</Size></Contents>",
     ),
@@ -71,7 +73,7 @@ test("a key and an entity tag arrive through their entities", () => {
 
 test("an entry without an entity tag reads as one without", () => {
   const document = readListingDocument(
-    "stowage",
+    answered,
     answer(
       "<Contents><Key>a</Key><LastModified>2026-09-23T08:00:00Z</LastModified><Size>1</Size></Contents>",
     ),
@@ -100,8 +102,14 @@ test.each([
   ],
   ["a prefix in a pseudo-directory", "<CommonPrefixes></CommonPrefixes>"],
 ])("an entry without %s is a `ProviderError`", (_part, inside) => {
-  expect(() => readListingDocument("stowage", answer(inside))).toThrow(
-    expect.objectContaining({ code: "ProviderError", operation: "list", bucket: "stowage" }),
+  expect(() => readListingDocument(answered, answer(inside))).toThrow(
+    expect.objectContaining({
+      code: "ProviderError",
+      operation: "list",
+      bucket: "stowage",
+      status: 200,
+      requestId: "abc",
+    }),
   );
 });
 
@@ -112,7 +120,7 @@ test.each([
   ["no word on completeness", answer("").replace("<IsTruncated>false</IsTruncated>", "")],
   ["a truncated listing without a token", answer("", true)],
 ])("%s is a `ProviderError`", (_case, body) => {
-  expect(() => readListingDocument("stowage", body)).toThrow(
+  expect(() => readListingDocument(answered, body)).toThrow(
     expect.objectContaining({ code: "ProviderError", operation: "list" }),
   );
 });

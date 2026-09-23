@@ -3,6 +3,13 @@ import type { ObjectEntry, StorageError } from "@stowage/core";
 import { s3Error } from "./storage-error.ts";
 import { parseXml, type XmlElement, XmlSyntaxError } from "./xml.ts";
 
+/** The response a listing document came in, which a failure to read it is told against. */
+export interface ListingAnswer {
+  readonly bucket: string;
+  readonly status: number;
+  readonly requestId?: string;
+}
+
 /** One page of a `ListObjectsV2` answer. */
 export interface ListingDocument {
   readonly objects: readonly ObjectEntry[];
@@ -17,35 +24,35 @@ export interface ListingDocument {
  * spec 7.4 a document outside the subset the parser reads; both leave the page unread
  * rather than hand the caller a value made up for what was missing.
  */
-export function readListingDocument(bucket: string, body: string): ListingDocument {
-  const root = parse(bucket, body);
+export function readListingDocument(answer: ListingAnswer, body: string): ListingDocument {
+  const root = parse(answer, body);
 
   if (root.name !== "ListBucketResult") {
-    throw malformed(bucket, `a <${root.name}> where a <ListBucketResult> belongs`);
+    throw malformed(answer, `a <${root.name}> where a <ListBucketResult> belongs`);
   }
 
   return {
-    objects: childrenNamed(root, "Contents").map((entry) => readEntry(bucket, entry)),
+    objects: childrenNamed(root, "Contents").map((entry) => readEntry(answer, entry)),
     prefixes: childrenNamed(root, "CommonPrefixes").map((prefix) => {
       const text = textOf(prefix, "Prefix");
 
       if (text === undefined || text === "") {
-        throw malformed(bucket, "a pseudo-directory with no prefix");
+        throw malformed(answer, "a pseudo-directory with no prefix");
       }
 
       return text;
     }),
-    continuationToken: continuationOf(bucket, root),
+    continuationToken: continuationOf(answer, root),
   };
 }
 
-function parse(bucket: string, body: string): XmlElement {
+function parse(answer: ListingAnswer, body: string): XmlElement {
   try {
     return parseXml(body);
   } catch (failure) {
     if (failure instanceof XmlSyntaxError) {
       throw malformed(
-        bucket,
+        answer,
         `a document outside the XML stowage reads: ${failure.message}`,
         failure,
       );
@@ -55,21 +62,21 @@ function parse(bucket: string, body: string): XmlElement {
   }
 }
 
-function readEntry(bucket: string, entry: XmlElement): ObjectEntry {
+function readEntry(answer: ListingAnswer, entry: XmlElement): ObjectEntry {
   const key = textOf(entry, "Key");
 
-  if (key === undefined || key === "") throw malformed(bucket, "an object with no key");
+  if (key === undefined || key === "") throw malformed(answer, "an object with no key");
 
   const size = sizeOf(textOf(entry, "Size"));
 
   if (size === undefined) {
-    throw malformed(bucket, `the object under ${JSON.stringify(key)} with no size`);
+    throw malformed(answer, `the object under ${JSON.stringify(key)} with no size`);
   }
 
   const lastModified = Date.parse(textOf(entry, "LastModified") ?? "");
 
   if (Number.isNaN(lastModified)) {
-    throw malformed(bucket, `the object under ${JSON.stringify(key)} with no last-modified time`);
+    throw malformed(answer, `the object under ${JSON.stringify(key)} with no last-modified time`);
   }
 
   return { key, size, lastModified: new Date(lastModified), etag: etagOf(textOf(entry, "ETag")) };
@@ -97,17 +104,17 @@ function etagOf(text: string | undefined): string | undefined {
  * The token the next page continues from. A listing the provider calls truncated and
  * hands no token for would end early without a word, so that is malformed too.
  */
-function continuationOf(bucket: string, root: XmlElement): string | undefined {
+function continuationOf(answer: ListingAnswer, root: XmlElement): string | undefined {
   const truncated = textOf(root, "IsTruncated");
 
   if (truncated === "false") return undefined;
 
-  if (truncated !== "true") throw malformed(bucket, "no word on whether the listing is complete");
+  if (truncated !== "true") throw malformed(answer, "no word on whether the listing is complete");
 
   const token = textOf(root, "NextContinuationToken");
 
   if (token === undefined || token === "") {
-    throw malformed(bucket, "a listing it calls incomplete and no position to continue from");
+    throw malformed(answer, "a listing it calls incomplete and no position to continue from");
   }
 
   return token;
@@ -121,12 +128,14 @@ function textOf(element: XmlElement, name: string): string | undefined {
   return element.children.find((child) => child.name === name)?.text;
 }
 
-function malformed(bucket: string, what: string, cause?: unknown): StorageError {
-  return s3Error(bucket, {
+function malformed(answer: ListingAnswer, what: string, cause?: unknown): StorageError {
+  return s3Error(answer.bucket, {
     code: "ProviderError",
     message: `The provider answered the listing with ${what}`,
     operation: "list",
     attempts: 1,
+    status: answer.status,
+    requestId: answer.requestId,
     cause,
   });
 }
