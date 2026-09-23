@@ -108,3 +108,37 @@ export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
     message: said,
   };
 }
+
+/**
+ * The codes of the table a provider answers with a transient status: the five the table
+ * leaves to the status, as spec 7.9 notes beside them.
+ */
+const transientProviderCodes: ReadonlySet<string> = new Set([
+  "SlowDown",
+  "TooManyRequests",
+  "ServiceUnavailable",
+  "InternalError",
+  "RequestTimeout",
+]);
+
+export interface EmbeddedFailure extends ProviderFailure {
+  readonly retryable: boolean;
+}
+
+/**
+ * A failure the provider reported inside a `200`, such as one key of a `DeleteObjects` or
+ * a `CopyObject` that failed after the answer began. No status speaks for it, so the code
+ * decides alone; whether it is transient is read off the code, since spec 4.7 has the
+ * entry carry `retryable` for a caller who repeats it. Nothing here is repeated: ADR 0013
+ * lets no provider code into the retry group.
+ */
+export function readEmbeddedFailure(
+  providerCode: string,
+  providerMessage: string,
+): EmbeddedFailure {
+  return {
+    code: providerCodes.get(providerCode) ?? "ProviderError",
+    message: providerMessage,
+    retryable: transientProviderCodes.has(providerCode),
+  };
+}

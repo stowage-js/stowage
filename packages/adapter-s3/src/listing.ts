@@ -15,9 +15,11 @@ import { s3Error } from "./storage-error.ts";
 
 // Spec 7.2: a page holds at most 1000 keys, which is what `ListObjectsV2` answers.
 const defaultPageSize = 1000;
-const maxPageSize = 1000;
+export const maxPageSize = 1000;
 
-interface ListRequest {
+export interface ListRequest {
+  /** The operation the caller invoked, which lists on its own for `deleteAll`. */
+  readonly operation: string;
   readonly prefix: string;
   readonly delimiter?: string;
   readonly pageSize: number;
@@ -50,32 +52,46 @@ export function createListing(
     },
 
     async *[Symbol.asyncIterator](): AsyncIterator<ObjectEntry> {
-      const request = readListRequest(configuration.bucket, options);
-
-      for (let { continuationToken } = request; ;) {
-        // oxlint-disable-next-line no-await-in-loop -- the next page needs this one's token
-        const document = await requestPage(configuration, { ...request, continuationToken });
-
-        if (
-          document.continuationToken !== undefined &&
-          document.continuationToken === continuationToken
-        ) {
-          throw s3Error(configuration.bucket, {
-            code: "ProviderError",
-            message: "The provider repeated the continuation token it was sent",
-            operation: "list",
-            attempts: 1,
-          });
-        }
-
+      for await (const document of walkPages(
+        configuration,
+        readListRequest(configuration.bucket, options),
+      )) {
         yield* document.objects;
-
-        if (document.continuationToken === undefined) return;
-
-        continuationToken = document.continuationToken;
       }
     },
   };
+}
+
+/**
+ * Every page of the listing from where the request starts to its end, which `list`
+ * iterates and `deleteAll` deletes page by page as it arrives.
+ */
+export async function* walkPages(
+  configuration: S3Configuration,
+  request: ListRequest,
+): AsyncGenerator<ListingDocument> {
+  for (let { continuationToken } = request; ;) {
+    // oxlint-disable-next-line no-await-in-loop -- the next page needs this one's token
+    const document = await requestPage(configuration, { ...request, continuationToken });
+
+    if (
+      document.continuationToken !== undefined &&
+      document.continuationToken === continuationToken
+    ) {
+      throw s3Error(configuration.bucket, {
+        code: "ProviderError",
+        message: "The provider repeated the continuation token it was sent",
+        operation: request.operation,
+        attempts: 1,
+      });
+    }
+
+    yield document;
+
+    if (document.continuationToken === undefined) return;
+
+    continuationToken = document.continuationToken;
+  }
 }
 
 /** Everything spec 4.11 has `list` refuse without asking the provider. */
@@ -104,6 +120,7 @@ function readListRequest(bucket: string, options: ListOptions | undefined): List
   }
 
   return {
+    operation: "list",
     prefix,
     delimiter: options?.delimiter,
     pageSize,
@@ -132,13 +149,14 @@ async function requestPage(
 
   const response = await send(configuration, {
     method: "GET",
-    operation: "list",
+    operation: request.operation,
     query,
     signal: request.signal,
   });
 
   const answer: ListingAnswer = {
     bucket: configuration.bucket,
+    operation: request.operation,
     status: response.status,
     requestId: response.headers.get("x-amz-request-id") ?? undefined,
   };
@@ -160,7 +178,7 @@ async function readBody(answer: ListingAnswer, response: Response): Promise<stri
     throw s3Error(answer.bucket, {
       code: "NetworkError",
       message: `The listing broke while it was read: ${String(failure)}`,
-      operation: "list",
+      operation: answer.operation,
       attempts: 1,
       status: answer.status,
       requestId: answer.requestId,

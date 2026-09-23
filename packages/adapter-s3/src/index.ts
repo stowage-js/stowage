@@ -14,6 +14,7 @@ import {
 } from "@stowage/core";
 
 import { readConfiguration, type S3AdapterOptions, type S3Configuration } from "./configuration.ts";
+import { deleteBelow, deleteKeys } from "./delete.ts";
 import { defaultContentType, describeResponse, describeWrite } from "./description.ts";
 import { requireKey } from "./key.ts";
 import { createListing } from "./listing.ts";
@@ -146,19 +147,17 @@ class SimpleStorageServiceStorage implements S3Storage {
     return createListing(this.#configuration, options);
   }
 
-  // The rest of the parity core of spec 4.11 is the step that removes what a listing
-  // named, which arrives with `DeleteObjects`.
   async delete(...keys: readonly string[]): Promise<DeleteReport> {
-    void keys;
-
-    throw notBuiltYet("delete");
+    return await deleteKeys(this.#configuration, keys, { operation: "delete" });
   }
 
   async deleteAll(prefix: string, options?: OperationOptions): Promise<DeleteReport> {
-    void prefix;
-    void options;
+    requireKey(this.bucket, prefix, "prefix", "deleteAll");
+    requireKnownOptions(this.bucket, options, operationOptionKeys, "deleteAll");
 
-    throw notBuiltYet("deleteAll");
+    options?.signal?.throwIfAborted();
+
+    return await deleteBelow(this.#configuration, prefix, options?.signal);
   }
 
   async copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
