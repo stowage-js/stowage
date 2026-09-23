@@ -65,7 +65,7 @@ export function s3Storage(options: S3AdapterOptions): S3Storage {
   return new SimpleStorageServiceStorage(options);
 }
 
-/** Spec 7.1: what this storage declares, which spec 4.9 lists as `capabilityNames` orders them. */
+/** Spec 7.1, in the order `capabilityNames` of spec 4.9 lists the names. */
 const s3Capabilities: readonly CapabilityName[] = Object.freeze([
   "presignedUrls",
   "rangeReads",

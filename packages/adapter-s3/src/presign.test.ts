@@ -266,9 +266,10 @@ test("options that are no group are `InvalidOption`", async () => {
   );
 
   expect(failure).toMatchObject({ code: "InvalidOption", operation: "presignGet" });
+  expect(failure.message).toContain("`expiresIn`");
 });
 
-test("the key is checked before the options and the options before the credential", async () => {
+test("the key is checked before the options", async () => {
   const resolve = vi.fn<() => S3Credentials>(() => credentials);
   const storage = s3Storage(options({ credentials: resolve }));
 

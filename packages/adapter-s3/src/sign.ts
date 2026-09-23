@@ -51,7 +51,7 @@ export async function signRequest(request: SignableRequest): Promise<SignedReque
   const canonical = canonicalHeaders([...toSend, ["host", request.host]]);
   const signed = await signCanonical(request, {
     query: request.query,
-    canonical,
+    headers: canonical,
     payloadHash: request.payloadHash,
     amzDate,
     scope,
@@ -114,7 +114,7 @@ export async function presignRequest(request: PresignableRequest): Promise<Presi
   ];
   const signed = await signCanonical(request, {
     query,
-    canonical,
+    headers: canonical,
     payloadHash: unsignedPayload,
     amzDate,
     scope,
@@ -127,7 +127,7 @@ export async function presignRequest(request: PresignableRequest): Promise<Presi
   };
 }
 
-interface SigningScope {
+interface RequestToSign {
   readonly method: string;
   readonly path: string;
   readonly credentials: S3Credentials;
@@ -137,7 +137,7 @@ interface SigningScope {
 
 interface CanonicalInput {
   readonly query: readonly QueryParameter[];
-  readonly canonical: CanonicalHeaders;
+  readonly headers: CanonicalHeaders;
   readonly payloadHash: string;
   readonly amzDate: string;
   readonly scope: string;
@@ -149,14 +149,13 @@ interface Signature {
   readonly signature: string;
 }
 
-/** The part both forms share: the canonical request, the string to sign and its HMAC. */
-async function signCanonical(request: SigningScope, input: CanonicalInput): Promise<Signature> {
+async function signCanonical(request: RequestToSign, input: CanonicalInput): Promise<Signature> {
   const canonicalRequest = [
     request.method,
     encodePath(request.path),
     encodeQuery(input.query),
-    input.canonical.lines,
-    input.canonical.names,
+    input.headers.lines,
+    input.headers.names,
     input.payloadHash,
   ].join("\n");
   const stringToSign = [
@@ -172,7 +171,7 @@ async function signCanonical(request: SigningScope, input: CanonicalInput): Prom
   return { canonicalRequest, stringToSign, signature };
 }
 
-function scopeOf(request: SigningScope, amzDate: string): string {
+function scopeOf(request: RequestToSign, amzDate: string): string {
   return `${amzDate.slice(0, 8)}/${request.region}/${request.service}/aws4_request`;
 }
 
@@ -193,7 +192,7 @@ function sessionTokenParameter(credentials: S3Credentials): readonly QueryParame
   return [["X-Amz-Security-Token", credentials.sessionToken]];
 }
 
-async function signingKey(request: SigningScope, dateStamp: string): Promise<ArrayBuffer> {
+async function signingKey(request: RequestToSign, dateStamp: string): Promise<ArrayBuffer> {
   const utf8 = new TextEncoder();
   const date = await hmacSha256(
     utf8.encode(`AWS4${request.credentials.secretAccessKey}`),

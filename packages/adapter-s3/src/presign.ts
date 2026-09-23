@@ -165,9 +165,9 @@ function readGroup(
 
 /** ADR 0011: outside the week SigV4 allows, refused rather than signed for a `403`. */
 function readExpiresIn(bucket: string, value: unknown, operation: string): number {
-  if (Number.isInteger(value) && Number(value) >= 1 && Number(value) <= longestLifetime) {
-    return Number(value);
-  }
+  const inRange = typeof value === "number" && value >= 1 && value <= longestLifetime;
+
+  if (inRange && Number.isInteger(value)) return value;
 
   throw optionError(
     bucket,
@@ -177,10 +177,7 @@ function readExpiresIn(bucket: string, value: unknown, operation: string): numbe
   );
 }
 
-/**
- * Spec 7.10: a finite, non-negative integer, checked before signing. It is written out
- * as digits, because `String` writes an integer from `1e21` up as an exponent.
- */
+// Written out as digits, because `String` writes an integer from `1e21` up as an exponent.
 function readContentLength(bucket: string, value: unknown, operation: string): string {
   if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
     return BigInt(value).toString();
