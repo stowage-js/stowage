@@ -701,3 +701,65 @@ test("a stream that needs more than 10,000 parts rejects naming `partSize` and t
   expect(steps.at(-1)).toBe("abort");
   expect(canceled).toBe(true);
 }, 30_000);
+
+/** A stream that yields `size` bytes and then neither ends nor yields again. */
+function stallingStream(size: number): {
+  body: ReadableStream<Uint8Array>;
+  canceled: () => boolean;
+} {
+  let canceled = false;
+  const bytes = patternOf(size);
+  let pulled = 0;
+
+  return {
+    canceled: () => canceled,
+    body: new ReadableStream({
+      async pull(controller) {
+        if (pulled >= bytes.byteLength) {
+          await new Promise(() => {});
+          return;
+        }
+
+        controller.enqueue(bytes.subarray(pulled, pulled + mebibyte));
+        pulled += mebibyte;
+      },
+      cancel() {
+        canceled = true;
+      },
+    }),
+  };
+}
+
+test("a part that fails while the stream stalls does not wait for the stream", async () => {
+  const sent = stubFetch(
+    multipartProvider({ part: () => refused(403, "AccessDenied", "Access Denied") }),
+  );
+  const source = stallingStream(smallestPart + mebibyte);
+  const storage = s3Storage(options({ multipart: { partSize: smallestPart } }));
+
+  const failure = await storageRejection(() => storage.put("object.bin", source.body));
+
+  expect(failure.code).toBe("AccessDenied");
+  expect(source.canceled()).toBe(true);
+  expect(sent.map(stepOf).at(-1)).toBe("abort");
+});
+
+test("the caller's abort while the stream stalls rejects with `AbortError`", async () => {
+  const controller = new AbortController();
+  const sent = stubFetch(multipartProvider());
+  const source = stallingStream(smallestPart + mebibyte);
+  const storage = s3Storage(options({ multipart: { partSize: smallestPart } }));
+
+  const put = rejection(() =>
+    storage.put("object.bin", source.body, { signal: controller.signal }),
+  );
+
+  await vi.waitFor(() => {
+    expect(sent.map(stepOf)).toContain("part 1");
+  });
+  controller.abort();
+
+  expect(await put).toHaveProperty("name", "AbortError");
+  expect(source.canceled()).toBe(true);
+  expect(sent.map(stepOf).at(-1)).toBe("abort");
+});

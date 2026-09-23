@@ -133,9 +133,12 @@ async function sendParts(
   let failure: { readonly reason: unknown } | undefined;
   let size = 0;
 
+  // The source is canceled along with the parts, because a stream that stalls would
+  // otherwise hold the upload at the read of a part that is never sent.
   const fail = (reason: unknown): void => {
     failure ??= { reason };
     stop.abort();
+    void parts.cancel(reason);
   };
   const sendPart = async (number: number, part: Part): Promise<void> => {
     try {
@@ -150,7 +153,7 @@ async function sendParts(
   };
 
   try {
-    for (let number = 1, part = first; ; number += 1) {
+    for (let number = 1, part = first; !stop.signal.aborted; number += 1) {
       if (number === maxParts && !part.last) throw tooManyParts(configuration, write);
 
       const sending = sendPart(number, part);
@@ -163,8 +166,6 @@ async function sendParts(
 
       // oxlint-disable-next-line no-await-in-loop -- a free slot is what lets the next part go
       while (inFlight.size >= configuration.concurrency) await Promise.race(inFlight);
-
-      if (failure !== undefined) break;
 
       // oxlint-disable-next-line no-await-in-loop -- the next part is read into the free slot
       part = await parts.next();
