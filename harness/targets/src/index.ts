@@ -1,7 +1,7 @@
 import { env } from "node:process";
 
-import { configuredStorage, endpointMissing } from "../../s3/src/environment.ts";
-import { endpointConfiguredTest, s3Target } from "../../s3/src/target.ts";
+import { configuredStorage } from "../../s3/src/environment.ts";
+import { describeEndpointCheck, s3Target } from "../../s3/src/target.ts";
 import {
   type ConformanceFramework,
   describeCases,
@@ -25,9 +25,7 @@ export function describeAdapters(framework: ConformanceFramework): void {
 
   const configured = configuredStorage();
 
-  framework.test(endpointConfiguredTest, async () => {
-    if (configured === undefined) throw new Error(endpointMissing);
-  });
+  describeEndpointCheck(framework, configured);
 
   if (configured !== undefined)
     describeCases(selectedCases(), s3Target(configured, env), framework);

@@ -10,12 +10,12 @@ const packages = ["core", "adapter-memory", "adapter-fs", "adapter-s3", "conform
 // Spec 1: Bun and Deno have no floor, and each README names the version CI last ran green.
 // CI installs the version these two files pin, so a README naming another one names a
 // version nothing ran.
-const bun = (await read(".bun-version")).trim();
-const deno = (await read(".dvmrc")).trim();
+const bunVersion = (await read(".bun-version")).trim();
+const denoVersion = (await read(".dvmrc")).trim();
 
 test.each(packages)("the README of %s names the Bun and Deno versions CI runs", async (name) => {
   expect(await read(`packages/${name}/README.md`)).toContain(
-    `CI last ran green on Bun ${bun} and Deno ${deno}.`,
+    `CI last ran green on Bun ${bunVersion} and Deno ${denoVersion}.`,
   );
 });
 

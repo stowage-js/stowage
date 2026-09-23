@@ -16,8 +16,8 @@ pnpm test:deno
 ./harness/s3/stop.sh
 ```
 
-`pnpm test` runs the Node column of spec 2 and the `workerd` one, whose driver runs on
-Node and starts the `workerd` that `harness/workerd` pins. The other two runtimes are not
+`pnpm test` runs the Node column of spec 2 and the `workerd` one, whose harness starts
+the `workerd` that `harness/workerd` pins and reports its results on Node. The other two runtimes are not
 dependencies: `pnpm test:bun` and `pnpm test:deno` need Bun and Deno installed, in the
 versions `.bun-version` and `.dvmrc` pin for CI.
 

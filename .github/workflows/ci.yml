@@ -59,8 +59,8 @@ jobs:
         run: ./harness/s3/start.sh | sed 's/^export //' >> "$GITHUB_ENV"
 
       # Spec 2: every covered cell runs against the endpoint. `test` holds the Node column
-      # and the `workerd` one, whose driver runs on Node; Bun and Deno run under their own
-      # test framework.
+      # and the `workerd` one, whose results Vitest reports on Node; Bun and Deno run under
+      # their own test framework.
       - run: pnpm run test
 
       - run: pnpm run test:bun

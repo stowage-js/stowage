@@ -1,5 +1,6 @@
 import type { S3AdapterOptions } from "../../../packages/adapter-s3/src/index.ts";
 import { s3Storage } from "../../../packages/adapter-s3/src/index.ts";
+import type { ConformanceFramework } from "../../../packages/conformance/src/describe.ts";
 import type { ConformanceTarget } from "../../../packages/conformance/src/target.ts";
 import {
   storageWithBadCredentials,
@@ -29,8 +30,21 @@ export function s3Target(configured: S3AdapterOptions, variables: Variables): Co
   };
 }
 
-// ADR 0012: a run includes this tier and fails where no endpoint is reachable rather than
-// passing with it skipped. One failure says so, in place of the same reason repeated over
-// every case the run then registers none of.
-export const endpointConfiguredTest =
-  "the S3 endpoint of ADR 0012 is configured (see `harness/s3/README.md`)";
+export const endpointMissing = "No S3 endpoint is configured; see `harness/s3/README.md`";
+
+/**
+ * ADR 0012: a run includes this tier and fails where no endpoint is reachable rather than
+ * passing with it skipped. One failure says so, in place of the same reason repeated over
+ * every case the run then registers none of.
+ */
+export function describeEndpointCheck(
+  framework: ConformanceFramework,
+  configured: S3AdapterOptions | undefined,
+): void {
+  framework.test(
+    "the S3 endpoint of ADR 0012 is configured (see `harness/s3/README.md`)",
+    async () => {
+      if (configured === undefined) throw new Error(endpointMissing);
+    },
+  );
+}

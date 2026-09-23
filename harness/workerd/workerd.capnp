@@ -1,5 +1,6 @@
-# The `workerd` cell of spec 2. `worker.js` is `src/worker.ts` bundled by the driver,
-# which starts this config and reads the port from the control descriptor.
+# The `workerd` cell of spec 2. `worker.js` is `src/worker.ts`, bundled on Node by
+# `src/describe-workerd.ts`, which starts this config and reads the port from the control
+# descriptor.
 using Workerd = import "/workerd/workerd.capnp";
 
 const config :Workerd.Config = (
@@ -14,7 +15,8 @@ const config :Workerd.Config = (
 
 const conformance :Workerd.Worker = (
   modules = [(name = "worker.js", esModule = embed "dist/worker.js")],
-  # Spec 1: the date `workerd` runs at, and no compatibility flag beside it.
+  # Spec 1: the date `workerd` runs at. No `nodejs_compat` beside it, so the cell shows
+  # that `adapter-memory` and `adapter-s3` reach no Node API.
   compatibilityDate = "2026-09-01",
   globalOutbound = "internet",
   bindings = [

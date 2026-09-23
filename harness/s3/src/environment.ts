@@ -3,6 +3,7 @@ import { env } from "node:process";
 import type { S3AdapterOptions } from "../../../packages/adapter-s3/src/index.ts";
 import { fromEnv } from "../../../packages/adapter-s3/src/index.ts";
 import { storageOptionsFrom } from "./configuration.ts";
+import { endpointMissing } from "./target.ts";
 
 /**
  * The endpoint as a runtime with `process.env` reads it: `start.sh` prints what a local
@@ -20,5 +21,3 @@ export function endpointOrFail(): S3AdapterOptions {
 
   return configured;
 }
-
-export const endpointMissing = "No S3 endpoint is configured; see `harness/s3/README.md`";

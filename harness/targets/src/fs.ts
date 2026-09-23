@@ -21,9 +21,10 @@ const boundaryKeyBytes = 1024;
 const runnable = (name: string): boolean =>
   name !== "put/accepted-keys" || tmpdir().length + boundaryKeyBytes < pathByteLimit;
 
-// The harness reaches past `describeConformance` for the cases alone, so that the case
-// the path limit rules out is left unrun rather than red on a machine whose temporary
-// directory is one character too long.
+// ADR 0006: `adapter-fs` is read against the suite like any other adapter. The harness
+// reaches past `describeConformance` for the cases alone, so that the case the path limit
+// rules out is left unrun rather than red on a machine whose temporary directory is one
+// character too long.
 export const fsCases = (): readonly ConformanceCaseSource[] =>
   selectedCases().filter((source) => runnable(source.name));
 

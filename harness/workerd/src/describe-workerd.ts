@@ -9,15 +9,15 @@ import { build } from "tsdown";
 
 import type { ConformanceFramework } from "../../../packages/conformance/src/describe.ts";
 import type { ConformanceResult } from "../../../packages/conformance/src/result.ts";
-import { configuredStorage, endpointMissing } from "../../s3/src/environment.ts";
-import { endpointConfiguredTest } from "../../s3/src/target.ts";
+import { configuredStorage } from "../../s3/src/environment.ts";
+import { describeEndpointCheck } from "../../s3/src/target.ts";
 
-const harness = fileURLToPath(new URL("..", import.meta.url));
+const harnessDirectory = fileURLToPath(new URL("..", import.meta.url));
 
 /**
  * ADR 0006: `workerd` has no test function to hand the cases to, so the worker runs them
- * and answers with the results, and this driver, running on Node, reports each one as a
- * test of its own, named as `describeConformance` names the case.
+ * and answers with the results, and the harness reports each one on Node as a test of its
+ * own, named as `describeConformance` names the case.
  */
 export async function describeWorkerd(framework: ConformanceFramework): Promise<void> {
   await bundleWorker();
@@ -31,9 +31,7 @@ export async function describeWorkerd(framework: ConformanceFramework): Promise<
 
   describeResults(framework, "@stowage/adapter-memory", memory);
 
-  framework.test(endpointConfiguredTest, async () => {
-    if (configured === undefined) throw new Error(endpointMissing);
-  });
+  describeEndpointCheck(framework, configured);
 
   if (s3 !== undefined) describeResults(framework, "@stowage/adapter-s3", s3);
 }
@@ -42,7 +40,7 @@ export async function describeWorkerd(framework: ConformanceFramework): Promise<
 async function bundleWorker(): Promise<void> {
   await build({
     config: false,
-    cwd: harness,
+    cwd: harnessDirectory,
     entry: { worker: "src/worker.ts" },
     outDir: "dist",
     format: "esm",
@@ -54,11 +52,12 @@ async function bundleWorker(): Promise<void> {
 }
 
 async function withWorkerd<T>(use: (origin: string) => Promise<T>): Promise<T> {
-  // The package hands out the path of its platform binary as its default export.
+  // The package hands out the path of the binary built for this machine as its default
+  // export.
   const workerd: { readonly default: string } = createRequire(import.meta.url)("workerd");
 
   const child = spawn(workerd.default, ["serve", "workerd.capnp", "--control-fd=3"], {
-    cwd: harness,
+    cwd: harnessDirectory,
     stdio: ["ignore", "inherit", "inherit", "pipe"],
   });
 

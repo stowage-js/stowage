@@ -17,8 +17,8 @@ const excludedCases: ReadonlySet<string> = new Set([
 
 const cases = selectedCases().filter((source) => !excludedCases.has(source.name));
 
-// `workerd` has no test framework, so the worker runs one target per request through the
-// runner behind `runAll` and answers with the results, which the driver reports.
+// `workerd` has no test framework, so the worker runs one target per request through what
+// `runAll` runs, less the exclusion above, and answers with the results for Node to report.
 export default {
   async fetch(request: Request, variables: Variables): Promise<Response> {
     const target = targetAt(new URL(request.url).pathname, variables);
