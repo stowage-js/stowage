@@ -13,17 +13,12 @@ import {
 
 /**
  * The operations `adapter-s3` has not been built yet, each named by the case it leaves
- * unrun. The list shrinks as they land: the removals and the copy, the streamed upload
- * and the presigned URLs.
+ * unrun. The list shrinks as they land: the streamed upload and the presigned URLs.
  */
 const casesNotBuiltYet: readonly string[] = [
-  // The removals, the copy and the move.
-  "delete/",
-  "deleteAll/",
-  "copy/",
-  "move/",
+  // A body that arrives as a stream, and the multipart upload above one part. The prefix
+  // move of flow 5 hands `put` the stream out of `get`.
   "flow/5-prefix-move",
-  // A body that arrives as a stream, and the multipart upload above one part.
   "put/stream-round-trip",
   "put/multipart-round-trip",
   "put/empty-body",
@@ -62,10 +57,12 @@ const target: ConformanceTarget = {
   // what an endpoint without the second identity of `s3.json` leaves.
   ...(denied === undefined ? {} : { createStorageWithDeniedCredentials: () => s3Storage(denied) }),
 
-  // Spec 8.2 deletes below the prefix, which needs the `deleteAll` that arrives with the
-  // removals. Until then the endpoint of ADR 0012 starts from an empty store and every
-  // run writes below a prefix of its own.
-  async cleanup() {},
+  // A run without an endpoint wrote nothing, and its one failure is the test below.
+  async cleanup(keyPrefix) {
+    if (configured === undefined) return;
+
+    await s3Storage(configured).deleteAll(keyPrefix);
+  },
 };
 
 // ADR 0012: `pnpm test` includes this tier and fails where no endpoint is reachable
