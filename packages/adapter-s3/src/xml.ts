@@ -64,7 +64,7 @@ class Scanner {
   skipDeclaration(): void {
     if (!this.#startsWith("<?xml")) return;
 
-    this.#position = this.#after("?>", "The XML declaration is never closed");
+    this.#position = this.#positionPast("?>", "The XML declaration is never closed");
   }
 
   /** Whitespace and comments, which are all that may stand beside the root element. */
@@ -90,7 +90,7 @@ class Scanner {
 
     const name = this.#readName();
 
-    if (this.#readAttributes() === "empty") return { name, children: [], text: "" };
+    if (this.#readStartTagEnd() === "empty") return { name, children: [], text: "" };
 
     const children: XmlElement[] = [];
     let text = "";
@@ -123,8 +123,7 @@ class Scanner {
     this.#expect(">");
   }
 
-  /** Reads to the end of the start tag, which says whether content follows. */
-  #readAttributes(): "empty" | "open" {
+  #readStartTagEnd(): "empty" | "open" {
     for (;;) {
       const before = this.#position;
 
@@ -157,7 +156,7 @@ class Scanner {
 
     if (quote !== '"' && quote !== "'") throw this.#error("An attribute value is not quoted");
 
-    this.#position = this.#after(quote, "An attribute value is never closed", 1);
+    this.#position = this.#positionPast(quote, "An attribute value is never closed", 1);
   }
 
   /** Text up to the next markup, every `&` in it the start of an entity it decodes. */
@@ -215,7 +214,7 @@ class Scanner {
   }
 
   #skipComment(): void {
-    this.#position = this.#after("-->", "A comment is never closed", 4);
+    this.#position = this.#positionPast("-->", "A comment is never closed", 4);
   }
 
   #readName(): string {
@@ -242,8 +241,7 @@ class Scanner {
     this.#position += literal.length;
   }
 
-  /** The position just past the next `terminator`, searched from `offset` on. */
-  #after(terminator: string, unterminated: string, offset = 0): number {
+  #positionPast(terminator: string, unterminated: string, offset = 0): number {
     const end = this.#document.indexOf(terminator, this.#position + offset);
 
     if (end === -1) throw this.#error(unterminated);
