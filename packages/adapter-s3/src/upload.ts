@@ -1,4 +1,4 @@
-import type { ObjectStat, StorageError } from "@stowage/core";
+import { isStorageError, type ObjectStat, type StorageError } from "@stowage/core";
 
 import { type AnsweredRequest, readAnswerDocument, textOf } from "./answer-document.ts";
 import type { S3Configuration } from "./configuration.ts";
@@ -7,7 +7,7 @@ import { type Part, PartReader } from "./part-reader.ts";
 import { send } from "./request.ts";
 import { s3Error } from "./storage-error.ts";
 import type { UserMetadataHeaders } from "./user-metadata.ts";
-import { escapeXml } from "./xml.ts";
+import { escapeXml, type XmlElement } from "./xml.ts";
 
 /** What `put` writes, apart from the body. */
 export interface ObjectWrite {
@@ -77,9 +77,15 @@ interface UploadedPart {
 
 const s3Namespace = "http://s3.amazonaws.com/doc/2006-03-01/";
 
+interface SentParts {
+  /** In part-number order, which is how `CompleteMultipartUpload` lists them. */
+  readonly uploaded: readonly UploadedPart[];
+  readonly size: number;
+}
+
 /**
- * Spec 7.6: `concurrency` parts in flight, and the next part read only once one of them
- * settled, so the part buffers never outnumber the parts in flight.
+ * Spec 7.6: a multipart upload aborts itself once it failed, after the parts in flight
+ * and the source stream were canceled.
  */
 async function multipartUpload(
   configuration: S3Configuration,
@@ -88,51 +94,83 @@ async function multipartUpload(
   first: Part,
 ): Promise<ObjectStat> {
   const uploadId = await createUpload(configuration, write);
+  let sent: SentParts;
+
+  try {
+    sent = await sendParts(configuration, write, uploadId, parts, first);
+  } catch (failure) {
+    await parts.cancel(failure);
+    await abortUpload(configuration, write, uploadId);
+
+    throw failure;
+  }
+
+  return await completeUpload(configuration, write, uploadId, sent);
+}
+
+/**
+ * Spec 7.6: `concurrency` parts in flight, and the next part read only once one of them
+ * settled, so the part buffers never outnumber the parts in flight. The first failure
+ * stops the parts still in flight, and is what the upload rejects with once they settled.
+ */
+async function sendParts(
+  configuration: S3Configuration,
+  write: ObjectWrite,
+  uploadId: string,
+  parts: PartReader,
+  first: Part,
+): Promise<SentParts> {
+  const stop = new AbortController();
+  const partWrite: ObjectWrite = {
+    ...write,
+    signal: write.signal === undefined ? stop.signal : AbortSignal.any([write.signal, stop.signal]),
+  };
   const inFlight = new Set<Promise<void>>();
   const uploaded: UploadedPart[] = [];
   let failure: { readonly reason: unknown } | undefined;
   let size = 0;
 
+  const fail = (reason: unknown): void => {
+    failure ??= { reason };
+    stop.abort();
+  };
   const sendPart = async (number: number, part: Part): Promise<void> => {
     try {
-      uploaded.push({
-        number,
-        etag: await uploadPart(configuration, write, uploadId, number, part),
-      });
+      const etag = await uploadPart(configuration, partWrite, uploadId, number, part);
+
+      uploaded.push({ number, etag });
     } catch (reason) {
-      failure ??= { reason };
+      fail(reason);
     }
   };
 
-  for (let number = 1, part = first; ; number += 1) {
-    const sending = sendPart(number, part);
+  try {
+    for (let number = 1, part = first; ; number += 1) {
+      const sending = sendPart(number, part);
 
-    inFlight.add(sending);
-    void sending.finally(() => inFlight.delete(sending));
-    size += part.bytes.byteLength;
+      inFlight.add(sending);
+      void sending.finally(() => inFlight.delete(sending));
+      size += part.bytes.byteLength;
 
-    if (part.last) break;
+      if (part.last) break;
 
-    // oxlint-disable-next-line no-await-in-loop -- a free slot is what lets the next part go
-    while (inFlight.size >= configuration.concurrency) await Promise.race(inFlight);
+      // oxlint-disable-next-line no-await-in-loop -- a free slot is what lets the next part go
+      while (inFlight.size >= configuration.concurrency) await Promise.race(inFlight);
 
-    if (failure !== undefined) break;
+      if (failure !== undefined) break;
 
-    // oxlint-disable-next-line no-await-in-loop -- the next part is read into the free slot
-    part = await parts.next();
+      // oxlint-disable-next-line no-await-in-loop -- the next part is read into the free slot
+      part = await parts.next();
+    }
+  } catch (reason) {
+    fail(reason);
   }
 
   await Promise.all(inFlight);
 
   if (failure !== undefined) throw failure.reason;
 
-  return await completeUpload(
-    configuration,
-    write,
-    uploadId,
-    uploaded.toSorted((one, other) => one.number - other.number),
-    size,
-  );
+  return { uploaded: uploaded.toSorted((one, other) => one.number - other.number), size };
 }
 
 async function createUpload(configuration: S3Configuration, write: ObjectWrite): Promise<string> {
@@ -195,20 +233,33 @@ async function completeUpload(
   configuration: S3Configuration,
   write: ObjectWrite,
   uploadId: string,
-  uploaded: readonly UploadedPart[],
-  size: number,
+  { uploaded, size }: SentParts,
 ): Promise<ObjectStat> {
-  const response = await send(configuration, {
-    method: "POST",
-    operation: "put",
-    key: write.key,
-    query: [["uploadId", uploadId]],
-    headers: [["content-type", "application/xml"]],
-    body: utf8.encode(completeDocument(uploaded)),
-    signal: write.signal,
-  });
-  const answered = answeredRequest(configuration, write, "the completion of the upload");
-  const document = await readAnswerDocument(answered, response, "CompleteMultipartUploadResult");
+  let response: Response;
+  let document: XmlElement;
+
+  try {
+    response = await send(configuration, {
+      method: "POST",
+      operation: "put",
+      key: write.key,
+      query: [["uploadId", uploadId]],
+      headers: [["content-type", "application/xml"]],
+      body: utf8.encode(completeDocument(uploaded)),
+      signal: write.signal,
+      repeatWithoutResponse: false,
+    });
+    document = await readAnswerDocument(
+      answeredRequest(configuration, write, "the completion of the upload"),
+      response,
+      "CompleteMultipartUploadResult",
+    );
+  } catch (failure) {
+    if (!mayHaveCommitted(failure)) await abortUpload(configuration, write, uploadId);
+
+    throw failure;
+  }
+
   const etag = textOf(document, "ETag");
 
   return describeWrite(
@@ -220,6 +271,37 @@ async function completeUpload(
     response,
     etag === undefined ? undefined : unquotedEtag(etag),
   );
+}
+
+/**
+ * Spec 7.7: a completion that received no response may have committed, and one whose
+ * `200` broke before its body said which is as undecided. Neither is aborted, because an
+ * abort could meet a commit still on its way.
+ */
+function mayHaveCommitted(failure: unknown): boolean {
+  return isStorageError(failure) && failure.code === "NetworkError";
+}
+
+/**
+ * Spec 7.6: sent without a signal, because the caller's may be the one that just fired,
+ * and never reported, because the failure that led here is what the caller is owed. What
+ * a failed abort leaves behind is removed by the lifecycle rule of spec 7.2.
+ */
+async function abortUpload(
+  configuration: S3Configuration,
+  write: ObjectWrite,
+  uploadId: string,
+): Promise<void> {
+  try {
+    const response = await send(configuration, {
+      method: "DELETE",
+      operation: "put",
+      key: write.key,
+      query: [["uploadId", uploadId]],
+    });
+
+    await response.body?.cancel();
+  } catch {}
 }
 
 const utf8 = new TextEncoder();

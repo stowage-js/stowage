@@ -1,3 +1,4 @@
+import { isStorageError, type StorageError } from "@stowage/core";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { type S3AdapterOptions, s3Storage } from "./index.ts";
@@ -367,4 +368,283 @@ test("parts are 8 MiB and go four at a time by default", async () => {
   ]);
   expect(held.mostInFlight()).toBe(4);
   expect(Math.max(...held.heldAtEachPart)).toBeLessThanOrEqual(4 * 8 * mebibyte + 2 * mebibyte);
+});
+
+async function rejection(act: () => Promise<unknown>): Promise<unknown> {
+  try {
+    await act();
+  } catch (failure) {
+    return failure;
+  }
+
+  throw new Error("The call resolved");
+}
+
+async function storageRejection(act: () => Promise<unknown>): Promise<StorageError> {
+  const failure = await rejection(act);
+
+  if (isStorageError(failure)) return failure;
+
+  throw failure;
+}
+
+/** Every wait between two attempts cut to nothing, so a spent budget costs no time. */
+function immediateRetries(): void {
+  const fire = globalThis.setTimeout;
+
+  vi.stubGlobal("setTimeout", (handler: () => void): unknown => fire(handler, 0));
+}
+
+/** A request that stays open until its signal fires, and then fails as `fetch` does. */
+async function openUntilAborted(request: SentRequest): Promise<Response> {
+  return await new Promise((_resolve, reject) => {
+    const { signal } = request;
+
+    if (signal?.aborted) reject(signal.reason);
+
+    signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+  });
+}
+
+function refused(status: number, code: string, message: string): Response {
+  return new Response(
+    `<?xml version="1.0" encoding="UTF-8"?>\n<Error><Code>${code}</Code><Message>${message}</Message><RequestId>abc</RequestId></Error>`,
+    { status, headers: { "content-type": "application/xml", "x-amz-request-id": "abc" } },
+  );
+}
+
+/** A long stream that notes whether it was canceled. */
+function cancelableStream(size: number): {
+  body: ReadableStream<Uint8Array>;
+  canceled: () => boolean;
+} {
+  let canceled = false;
+  const bytes = patternOf(size);
+  let pulled = 0;
+
+  return {
+    canceled: () => canceled,
+    body: new ReadableStream({
+      pull(controller) {
+        if (pulled >= bytes.byteLength) {
+          controller.close();
+          return;
+        }
+
+        controller.enqueue(bytes.subarray(pulled, pulled + mebibyte));
+        pulled += mebibyte;
+      },
+      cancel() {
+        canceled = true;
+      },
+    }),
+  };
+}
+
+test("a part that spent its budget cancels the rest, aborts the upload and rejects with its error", async () => {
+  immediateRetries();
+
+  const sent = stubFetch(
+    multipartProvider({
+      "part 1": openUntilAborted,
+      "part 2": () => refused(500, "InternalError", "We encountered an internal error."),
+    }),
+  );
+  const source = cancelableStream(10 * smallestPart);
+  const storage = s3Storage(options({ multipart: { partSize: smallestPart, concurrency: 2 } }));
+
+  const failure = await storageRejection(() => storage.put("object.bin", source.body));
+
+  expect(failure.code).toBe("ProviderError");
+  expect(failure.status).toBe(500);
+  expect(failure.message).toBe("We encountered an internal error.");
+  expect(failure.attempts).toBe(3);
+  expect(sent.map(stepOf).filter((step) => step === "part 2")).toHaveLength(3);
+  expect(sent.find((request) => stepOf(request) === "part 1")?.signal?.aborted).toBe(true);
+  expect(source.canceled()).toBe(true);
+
+  const abort = sent.filter((request) => stepOf(request) === "abort");
+
+  expect(abort).toHaveLength(1);
+  expect(abort[0]?.url.searchParams.get("uploadId")).toBe(uploadId);
+  expect(sent.map(stepOf)).not.toContain("complete");
+  expect(sent.map(stepOf)).not.toContain("part 3");
+});
+
+test("the caller's abort cancels the parts, aborts the upload without a signal and rejects with `AbortError`", async () => {
+  const controller = new AbortController();
+  const sent = stubFetch(
+    multipartProvider({
+      part: async (request) => {
+        controller.abort();
+
+        return await openUntilAborted(request);
+      },
+    }),
+  );
+  const source = cancelableStream(10 * smallestPart);
+  const storage = s3Storage(options({ multipart: { partSize: smallestPart } }));
+
+  const failure = await rejection(() =>
+    storage.put("object.bin", source.body, { signal: controller.signal }),
+  );
+
+  expect(isStorageError(failure)).toBe(false);
+  expect(failure).toHaveProperty("name", "AbortError");
+  expect(source.canceled()).toBe(true);
+  expect(partsOf(sent).every((part) => part.signal?.aborted)).toBe(true);
+
+  const abort = sent.filter((request) => stepOf(request) === "abort");
+
+  expect(abort).toHaveLength(1);
+  expect(abort[0]?.signal).toBeUndefined();
+  expect(sent.map(stepOf)).not.toContain("complete");
+});
+
+test("an abort request that fails is not reported", async () => {
+  immediateRetries();
+
+  const controller = new AbortController();
+  const sent = stubFetch(
+    multipartProvider({
+      part: async (request) => {
+        controller.abort();
+
+        return await openUntilAborted(request);
+      },
+      abort: () => {
+        throw new TypeError("fetch failed");
+      },
+    }),
+  );
+  const storage = s3Storage(options({ multipart: { partSize: smallestPart } }));
+
+  const failure = await rejection(() =>
+    storage.put("object.bin", cancelableStream(3 * smallestPart).body, {
+      signal: controller.signal,
+    }),
+  );
+
+  expect(failure).toHaveProperty("name", "AbortError");
+  // The abort went out on the budget of any request, and its last failure went nowhere.
+  expect(sent.filter((request) => stepOf(request) === "abort")).toHaveLength(3);
+});
+
+test("a completion is judged by its body, which may carry an error under `200`", async () => {
+  const sent = stubFetch(
+    multipartProvider({
+      complete: () =>
+        xmlAnswer(
+          "<Error><Code>InvalidPart</Code><Message>One or more of the specified parts could not be found.</Message></Error>",
+          { "x-amz-request-id": "complete-request" },
+        ),
+    }),
+  );
+  const storage = s3Storage(options({ multipart: { partSize: smallestPart } }));
+
+  const failure = await storageRejection(() =>
+    storage.put("object.bin", streamOf(patternOf(smallestPart + 1), mebibyte)),
+  );
+
+  expect(failure.code).toBe("InvalidRequest");
+  expect(failure.providerCode).toBe("InvalidPart");
+  expect(failure.message).toBe("One or more of the specified parts could not be found.");
+  expect(failure.requestId).toBe("complete-request");
+  expect(sent.map(stepOf).filter((step) => step === "complete")).toHaveLength(1);
+  expect(sent.map(stepOf).at(-1)).toBe("abort");
+});
+
+test("a completion that received no response is neither repeated nor aborted", async () => {
+  immediateRetries();
+
+  const sent = stubFetch(
+    multipartProvider({
+      complete: () => {
+        throw new TypeError("fetch failed");
+      },
+    }),
+  );
+  const storage = s3Storage(options({ multipart: { partSize: smallestPart } }));
+
+  const failure = await storageRejection(() =>
+    storage.put("object.bin", streamOf(patternOf(smallestPart + 1), mebibyte)),
+  );
+
+  expect(failure.code).toBe("NetworkError");
+  expect(failure.retryable).toBe(true);
+  expect(failure.attempts).toBe(1);
+  expect(sent.map(stepOf).filter((step) => step === "complete")).toHaveLength(1);
+  expect(sent.map(stepOf)).not.toContain("abort");
+});
+
+test("a completion answered with a transient status is repeated on the budget", async () => {
+  immediateRetries();
+
+  let completions = 0;
+  const provider = multipartProvider();
+  const sent = stubFetch(
+    multipartProvider({
+      complete: async (request) => {
+        completions += 1;
+
+        if (completions === 1) return refused(503, "SlowDown", "Please reduce your request rate.");
+
+        return await provider(request);
+      },
+    }),
+  );
+  const storage = s3Storage(options({ multipart: { partSize: smallestPart } }));
+
+  const written = await storage.put("object.bin", streamOf(patternOf(smallestPart + 1), mebibyte));
+
+  expect(written.etag).toBe("assembled-3");
+  expect(sent.map(stepOf).filter((step) => step === "complete")).toHaveLength(2);
+});
+
+test("a start of the upload that received no response is repeated", async () => {
+  immediateRetries();
+
+  let creations = 0;
+  const provider = multipartProvider();
+  const sent = stubFetch(
+    multipartProvider({
+      create: async (request) => {
+        creations += 1;
+
+        if (creations === 1) throw new TypeError("fetch failed");
+
+        return await provider(request);
+      },
+    }),
+  );
+  const storage = s3Storage(options({ multipart: { partSize: smallestPart } }));
+
+  await storage.put("object.bin", streamOf(patternOf(smallestPart + 1), mebibyte));
+
+  expect(sent.map(stepOf).filter((step) => step === "create")).toHaveLength(2);
+});
+
+test("a completion whose `200` broke before its body said how it went is not aborted", async () => {
+  const sent = stubFetch(
+    multipartProvider({
+      complete: () =>
+        new Response(
+          new ReadableStream({
+            pull(controller) {
+              controller.error(new TypeError("terminated"));
+            },
+          }),
+          { status: 200 },
+        ),
+    }),
+  );
+  const storage = s3Storage(options({ multipart: { partSize: smallestPart } }));
+
+  const failure = await storageRejection(() =>
+    storage.put("object.bin", streamOf(patternOf(smallestPart + 1), mebibyte)),
+  );
+
+  expect(failure.code).toBe("NetworkError");
+  expect(failure.retryable).toBe(true);
+  expect(sent.map(stepOf)).not.toContain("abort");
 });

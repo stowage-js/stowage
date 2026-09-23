@@ -7,7 +7,7 @@ import { readErrorDocument, type S3ErrorDocument } from "./error-document.ts";
 import { sha256Hex } from "./hash.ts";
 import { readProviderFailure } from "./provider-code.ts";
 import { signRequest } from "./sign.ts";
-import { inStorage, s3Error } from "./storage-error.ts";
+import { inStorage, s3Error, withAttemptsMade } from "./storage-error.ts";
 
 export interface S3Request {
   readonly method: string;
@@ -19,6 +19,12 @@ export interface S3Request {
   /** Held whole, because signing hashes it and a repeat sends it again (ADR 0009). */
   readonly body?: Uint8Array<ArrayBuffer>;
   readonly signal?: AbortSignal;
+  /**
+   * `false` for a request whose effect may have happened although no response arrived,
+   * which spec 7.5 names for `CompleteMultipartUpload` alone. A status is repeated as
+   * for any other request: the provider answered, so it did not commit.
+   */
+  readonly repeatWithoutResponse?: boolean;
 }
 
 const emptyBody: Uint8Array<ArrayBuffer> = new Uint8Array(0);
@@ -33,14 +39,49 @@ const service = "s3";
  */
 export async function send(configuration: S3Configuration, request: S3Request): Promise<Response> {
   const payloadHash = await sha256Hex(request.body ?? emptyBody);
+  let requestsSent = 0;
 
-  return await withRetry(
-    async () => await attemptWithRefresh(configuration, request, payloadHash),
-    {
-      maxAttempts: configuration.maxAttempts,
-      signal: request.signal,
-    },
-  );
+  try {
+    return await withRetry(
+      async () => {
+        try {
+          return await attemptWithRefresh(configuration, request, payloadHash);
+        } catch (failure) {
+          if (!isStorageError(failure)) throw failure;
+
+          requestsSent += failure.attempts;
+
+          if (request.repeatWithoutResponse === false && receivedNoResponse(failure)) {
+            throw new Unrepeated(withAttemptsMade(failure, requestsSent));
+          }
+
+          throw failure;
+        }
+      },
+      { maxAttempts: configuration.maxAttempts, signal: request.signal },
+    );
+  } catch (thrown) {
+    if (thrown instanceof Unrepeated) throw thrown.failure;
+
+    throw thrown;
+  }
+}
+
+/**
+ * A failure carried past `withRetry`, which repeats every `retryable` `StorageError` it
+ * sees; the one that must not be repeated still reaches the caller as `retryable`,
+ * because spec 4.10 has that flag state the condition and not what stowage did about it.
+ */
+class Unrepeated {
+  readonly failure: StorageError;
+
+  constructor(failure: StorageError) {
+    this.failure = failure;
+  }
+}
+
+function receivedNoResponse(failure: StorageError): boolean {
+  return failure.code === "NetworkError" && failure.status === undefined;
 }
 
 /**
