@@ -763,3 +763,75 @@ test("the caller's abort while the stream stalls rejects with `AbortError`", asy
   expect(source.canceled()).toBe(true);
   expect(sent.map(stepOf).at(-1)).toBe("abort");
 });
+
+test("held bytes above one part go as one `PUT`, which the adapter never splits", async () => {
+  const sent = stubFetch(accepted);
+  const bytes = patternOf(2 * smallestPart);
+  const storage = s3Storage(options({ multipart: { partSize: smallestPart } }));
+
+  await storage.put("object.bin", bytes);
+  await storage.put("object.txt", "x".repeat(2 * smallestPart));
+
+  expect(sent.map(stepOf)).toEqual(["PUT /object.bin", "PUT /object.txt"]);
+  expect(firstDifference(sent[0]?.body, bytes)).toBe(-1);
+  expect(sent[1]?.body?.byteLength).toBe(2 * smallestPart);
+});
+
+test("held bytes the provider finds too large are `InvalidRequest`, sent once", async () => {
+  const sent = stubFetch(() =>
+    refused(400, "EntityTooLarge", "Your proposed upload exceeds the maximum allowed size"),
+  );
+
+  const failure = await storageRejection(() =>
+    s3Storage(options()).put("object.bin", patternOf(kibibyte)),
+  );
+
+  expect(failure.code).toBe("InvalidRequest");
+  expect(failure.providerCode).toBe("EntityTooLarge");
+  expect(sent).toHaveLength(1);
+});
+
+test("a part that fails is repeated with the same bytes", async () => {
+  immediateRetries();
+
+  let attempts = 0;
+  const provider = multipartProvider();
+  const sent = stubFetch(
+    multipartProvider({
+      "part 2": async (request) => {
+        attempts += 1;
+
+        if (attempts === 1)
+          return refused(500, "InternalError", "We encountered an internal error.");
+
+        return await provider(request);
+      },
+    }),
+  );
+  const bytes = patternOf(2 * smallestPart + 1);
+  const storage = s3Storage(options({ multipart: { partSize: smallestPart } }));
+
+  await storage.put("object.bin", streamOf(bytes, mebibyte));
+
+  const secondParts = sent.filter((request) => stepOf(request) === "part 2");
+
+  expect(secondParts).toHaveLength(2);
+  expect(
+    firstDifference(secondParts[0]?.body, bytes.subarray(smallestPart, 2 * smallestPart)),
+  ).toBe(-1);
+  expect(
+    firstDifference(secondParts[1]?.body, bytes.subarray(smallestPart, 2 * smallestPart)),
+  ).toBe(-1);
+  expect(sent.map(stepOf).at(-1)).toBe("complete");
+});
+
+test("a stream `put` refuses before any request is canceled", async () => {
+  const sent = stubFetch(accepted);
+  const source = cancelableStream(smallestPart);
+
+  const failure = await storageRejection(() => s3Storage(options()).put("../outside", source.body));
+
+  expect(failure.code).toBe("InvalidKey");
+  expect(sent).toHaveLength(0);
+  expect(source.canceled()).toBe(true);
+});
