@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { connect as connectTcp } from "node:net";
-import { env } from "node:process";
 import { text } from "node:stream/consumers";
 import { connect as connectTls } from "node:tls";
 
@@ -23,8 +22,7 @@ import { isStorageError } from "../../../packages/core/src/index.ts";
 import { pathOf, send } from "../../../packages/adapter-s3/src/request.ts";
 import { signRequest } from "../../../packages/adapter-s3/src/sign.ts";
 import { escapeXml } from "../../../packages/adapter-s3/src/xml.ts";
-import { runOptionsFrom } from "../../targets/src/run-options.ts";
-import { configuredStorage, endpointOrFail } from "./environment.ts";
+import { endpointOrFail, scheduledStorage } from "./environment.ts";
 import { firstRunSuite, probeNames } from "./first-run.ts";
 
 /* oxlint-disable vitest/valid-title -- the titles are the names the spec 12 report reads,
@@ -33,7 +31,7 @@ import { firstRunSuite, probeNames } from "./first-run.ts";
 // Spec 12: what no documentation settled, asked of the endpoint by the scheduled run. The
 // requests go through the adapter's own signing and failure mapping wherever the adapter
 // can send them, so that what is observed is what a caller of `adapter-s3` meets.
-const scheduled = runOptionsFrom(env).includeSlow === true && configuredStorage() !== undefined;
+const scheduled = scheduledStorage() !== undefined;
 
 const utf8 = new TextEncoder();
 
@@ -247,7 +245,6 @@ describe.skipIf(!scheduled)(firstRunSuite, () => {
 
 const endpointConfiguration = (): S3Configuration => readConfiguration(endpointOrFail());
 
-/** `size` zero bytes, a mebibyte at a time. */
 function zeroes(size: number): ReadableStream<Uint8Array> {
   let pulled = 0;
 

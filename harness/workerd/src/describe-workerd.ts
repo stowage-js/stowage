@@ -3,7 +3,6 @@ import { once } from "node:events";
 import { readFile } from "node:fs/promises";
 import { get, type IncomingMessage } from "node:http";
 import { createRequire } from "node:module";
-import { env } from "node:process";
 import { createInterface } from "node:readline";
 import { Readable } from "node:stream";
 import { text } from "node:stream/consumers";
@@ -13,10 +12,9 @@ import { build } from "tsdown";
 import type { describe, test } from "vitest";
 
 import type { ConformanceResult } from "../../../packages/conformance/src/result.ts";
-import { configuredStorage } from "../../s3/src/environment.ts";
+import { configuredStorage, scheduledStorage } from "../../s3/src/environment.ts";
 import { firstRunSuite, measuredOnWorkerd } from "../../s3/src/first-run.ts";
 import { describeEndpointCheck } from "../../s3/src/target.ts";
-import { runOptionsFrom } from "../../targets/src/run-options.ts";
 import { excludedCases } from "./excluded.ts";
 
 const harnessDirectory = fileURLToPath(new URL("..", import.meta.url));
@@ -51,8 +49,7 @@ export async function describeWorkerd(framework: VitestFramework): Promise<void>
   await bundleWorker();
 
   const configured = configuredStorage();
-  // Spec 12 asks the scheduled run, and not every commit, what a multipart upload costs.
-  const measuring = configured !== undefined && runOptionsFrom(env).includeSlow === true;
+  const measuring = scheduledStorage() !== undefined;
 
   const { memory, s3, measured } = await withWorkerd(async (workerd) => ({
     memory: await resultsOf(workerd.origin, "adapter-memory"),
@@ -138,7 +135,6 @@ async function resultsOf(origin: string, path: string): Promise<readonly Conform
   return results;
 }
 
-/** Each excluded case alone, one after the other, so that no two share the CPU counted. */
 async function measureExcluded(workerd: Workerd): Promise<readonly Measurement[]> {
   const measured: Measurement[] = [];
 
