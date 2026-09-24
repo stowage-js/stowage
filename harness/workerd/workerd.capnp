@@ -20,6 +20,7 @@ const conformance :Workerd.Worker = (
   compatibilityDate = "2026-09-01",
   globalOutbound = "internet",
   bindings = [
+    (name = "STOWAGE_CONFORMANCE_INCLUDE_SLOW", fromEnvironment = "STOWAGE_CONFORMANCE_INCLUDE_SLOW"),
     (name = "STOWAGE_S3_ENDPOINT", fromEnvironment = "STOWAGE_S3_ENDPOINT"),
     (name = "STOWAGE_S3_BUCKET", fromEnvironment = "STOWAGE_S3_BUCKET"),
     (name = "STOWAGE_S3_REGION", fromEnvironment = "STOWAGE_S3_REGION"),

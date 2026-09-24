@@ -1,36 +1,37 @@
+import type { ConformanceCaseSource } from "../../../packages/conformance/src/case.ts";
 import { runCases } from "../../../packages/conformance/src/run-all.ts";
 import { selectedCases } from "../../../packages/conformance/src/run.ts";
 import type { ConformanceTarget } from "../../../packages/conformance/src/target.ts";
 import { storageOptionsFrom, type Variables } from "../../s3/src/configuration.ts";
 import { s3Target } from "../../s3/src/target.ts";
 import { memoryTarget } from "../../targets/src/memory.ts";
+import { runOptionsFrom } from "../../targets/src/run-options.ts";
+import { excludedCases } from "./excluded.ts";
 
-/**
- * ADR 0006: flow 1 on `workerd` is one named exclusion in this harness, and the multipart
- * round trip of ADR 0016 joins it. Spec 12 leaves open what CPU and duration a multipart
- * upload spends here, which decides the cell; neither case names a runtime itself.
- */
-const excludedCases: ReadonlySet<string> = new Set([
-  "flow/1-large-upload",
-  "put/multipart-round-trip",
-]);
-
-const cases = selectedCases().filter((source) => !excludedCases.has(source.name));
+interface Run {
+  readonly target: ConformanceTarget;
+  readonly cases: readonly ConformanceCaseSource[];
+}
 
 // `workerd` has no test framework, so the worker runs one target per request through what
-// `runAll` runs, less the exclusion above, and answers with the results for Node to report.
+// `runAll` runs, less the exclusion, and answers with the results for Node to report.
 export default {
   async fetch(request: Request, variables: Variables): Promise<Response> {
-    const target = targetAt(new URL(request.url).pathname, variables);
+    const url = new URL(request.url);
+    const run = runAt(url.pathname, variables);
 
-    if (target === undefined) return new Response(null, { status: 404 });
+    if (run === undefined) return new Response(null, { status: 404 });
 
-    return Response.json(await runCases(cases, target));
+    const cases = run.cases.filter((source) => !excludedCases.includes(source.name));
+
+    return Response.json(await runCases(cases, run.target));
   },
 };
 
-function targetAt(pathname: string, variables: Variables): ConformanceTarget | undefined {
-  if (pathname === "/adapter-memory") return memoryTarget;
+function runAt(pathname: string, variables: Variables): Run | undefined {
+  const cases = selectedCases(runOptionsFrom(variables));
+
+  if (pathname === "/adapter-memory") return { target: memoryTarget, cases };
   if (pathname !== "/adapter-s3") return undefined;
 
   // The worker runs without `nodejs_compat`, where `fromEnv` finds no `process` to read,
@@ -40,5 +41,7 @@ function targetAt(pathname: string, variables: Variables): ConformanceTarget | u
     secretAccessKey: variables["AWS_SECRET_ACCESS_KEY"] ?? "",
   });
 
-  return configured === undefined ? undefined : s3Target(configured, variables);
+  if (configured === undefined) return undefined;
+
+  return { target: s3Target(configured, variables), cases };
 }
