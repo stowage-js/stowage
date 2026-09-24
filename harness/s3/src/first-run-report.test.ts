@@ -98,9 +98,26 @@ describe("firstRunReport", () => {
   });
 
   test("reads a point none of whose tests ran as not run", () => {
+    const report = firstRunReport([run("aws-s3-node-24")]);
+
+    expect(cellOf(report, headPoint, "aws-s3-node-24")).toBe("not run");
+  });
+
+  test("leaves a point out of a runtime that does not ask it", () => {
     const report = firstRunReport([run("aws-s3-workerd")]);
 
-    expect(cellOf(report, headPoint, "aws-s3-workerd")).toBe("not run");
+    expect(cellOf(report, headPoint, "aws-s3-workerd")).toBe("—");
+  });
+
+  test("leaves a point about R2 out of the columns of AWS S3", () => {
+    const report = firstRunReport([
+      run(
+        "aws-s3-node-24",
+        assertion({ ancestorTitles: ["@stowage/adapter-s3"], title: "errors/expired-credentials" }),
+      ),
+    ]);
+
+    expect(cellOf(report, "`ExpiredRequest`", "aws-s3-node-24")).toBe("—");
   });
 
   test("reads the case against the endpoint and not the one of the same name against memory", () => {

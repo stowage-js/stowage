@@ -1,4 +1,5 @@
 import { excludedCases } from "../../workerd/src/excluded.ts";
+import type { RealEndpoint } from "./configuration.ts";
 
 declare module "vitest" {
   interface TaskMeta {
@@ -34,6 +35,11 @@ export interface FirstRunPoint {
   readonly promise: string;
   /** The tests of the scheduled run that answer it. */
   readonly tests: readonly FirstRunTest[];
+  /**
+   * The jobs the point is asked of, where not every one: a point about R2 is not settled
+   * against AWS, and a probe that runs on Node alone leaves the `workerd` column empty.
+   */
+  readonly askedOf?: { readonly provider?: RealEndpoint; readonly runtime?: string };
 }
 
 const probe = (title: string): FirstRunTest => ({ suite: firstRunSuite, title });
@@ -44,6 +50,7 @@ export const firstRunPoints: readonly FirstRunPoint[] = [
   {
     promise: "`EntityTooSmall` and `InvalidPart` are answered as this document maps them",
     tests: [probe(probeNames.entityTooSmall), probe(probeNames.invalidPart)],
+    askedOf: { runtime: "node" },
   },
   {
     promise: "A presigned `PUT` enforces the `Content-Length` and `Content-Type` it signed",
@@ -55,21 +62,27 @@ export const firstRunPoints: readonly FirstRunPoint[] = [
   {
     promise: "`HEAD` is answered without a body",
     tests: [probe(probeNames.headWithoutBody)],
+    askedOf: { runtime: "node" },
   },
   {
     promise: "R2 honors the four response overrides on `presignGet`",
     tests: [probe(probeNames.responseOverrides)],
+    askedOf: { provider: "r2", runtime: "node" },
   },
   {
     promise: "R2 answers `ExpiredRequest` for an expired credential",
     tests: [conformanceCase("errors/expired-credentials")],
+    askedOf: { provider: "r2" },
   },
   {
     promise: "The CPU and duration a multipart upload spends on `workerd`",
     tests: excludedCases.map((name) => probe(measuredOnWorkerd(name))),
+    askedOf: { runtime: "workerd" },
   },
   {
     promise: "The refusal of `copy` above the single-request limit against a real provider",
     tests: [probe(probeNames.copyAboveLimit)],
+    // The provider's limit is no property of the Node line, so one line uploads the 5 GiB.
+    askedOf: { runtime: "node-24" },
   },
 ];

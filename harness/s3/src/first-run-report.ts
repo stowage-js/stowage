@@ -2,6 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { argv, stdout } from "node:process";
 
+import { realEndpoints } from "./configuration.ts";
 import { type FirstRunPoint, type FirstRunTest, firstRunPoints } from "./first-run.ts";
 
 /** The part of one test in Vitest's JSON report that the table reads. */
@@ -18,7 +19,10 @@ export interface JsonResults {
   readonly testResults: readonly { readonly assertionResults: readonly JsonAssertion[] }[];
 }
 
-/** One job of the scheduled run: which endpoint and runtime, and what Vitest reported. */
+/**
+ * One job of the scheduled run and what Vitest reported. `label` is the job's artifact,
+ * `<provider>-<runtime>` as `conformance-full.yml` names it: `aws-s3-node-24`, `r2-workerd`.
+ */
 export interface FirstRunRun {
   readonly label: string;
   readonly results: JsonResults;
@@ -31,7 +35,9 @@ export interface FirstRunRun {
 export function firstRunReport(runs: readonly FirstRunRun[]): string {
   const header = ["Spec 12", ...runs.map((each) => each.label)];
   const rows = firstRunPoints.map((point) =>
-    [point.promise].concat(runs.map((each) => cellFor(point, each.results))),
+    [point.promise].concat(
+      runs.map((each) => (isAsked(point, each.label) ? cellFor(point, each.results) : "—")),
+    ),
   );
 
   return [
@@ -44,6 +50,16 @@ export function firstRunReport(runs: readonly FirstRunRun[]): string {
     "A promise this run disproves is withdrawn from `docs/spec.md` in a minor release (spec 12).",
     "",
   ].join("\n");
+}
+
+function isAsked(point: FirstRunPoint, label: string): boolean {
+  const provider = realEndpoints.find((name) => label.startsWith(`${name}-`));
+  const runtime = provider === undefined ? label : label.slice(provider.length + 1);
+  const { askedOf } = point;
+
+  if (askedOf?.provider !== undefined && askedOf.provider !== provider) return false;
+
+  return askedOf?.runtime === undefined || runtime.startsWith(askedOf.runtime);
 }
 
 function cellFor(point: FirstRunPoint, results: JsonResults): string {
