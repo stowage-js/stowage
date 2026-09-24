@@ -2,6 +2,7 @@ import { env } from "node:process";
 
 import type { S3AdapterOptions } from "../../../packages/adapter-s3/src/index.ts";
 import { fromEnv } from "../../../packages/adapter-s3/src/index.ts";
+import { runOptionsFrom } from "../../targets/src/run-options.ts";
 import { storageOptionsFrom } from "./configuration.ts";
 import { endpointMissing } from "./target.ts";
 
@@ -20,4 +21,12 @@ export function endpointOrFail(): S3AdapterOptions {
   if (configured === undefined) throw new Error(endpointMissing);
 
   return configured;
+}
+
+/**
+ * The endpoint where the scheduled run asks for both tiers, which is where spec 12 is
+ * asked of it, and nothing on every commit.
+ */
+export function scheduledStorage(): S3AdapterOptions | undefined {
+  return runOptionsFrom(env).includeSlow === true ? configuredStorage() : undefined;
 }

@@ -15,6 +15,7 @@ docker compose up --detach --wait >&2
 echo "s3.bucket.create -name ${bucket}" | docker compose exec -T s3 weed shell >/dev/null
 
 cat <<ENVIRONMENT
+export STOWAGE_S3_ENDPOINT_NAME=seaweedfs
 export STOWAGE_S3_ENDPOINT=http://127.0.0.1:8333
 export STOWAGE_S3_BUCKET=${bucket}
 export STOWAGE_S3_REGION=us-east-1

@@ -1,5 +1,7 @@
 import { env } from "node:process";
 
+import { endpointNameFrom } from "../../s3/src/configuration.ts";
+import { withDivergences } from "../../s3/src/divergences.ts";
 import { configuredStorage } from "../../s3/src/environment.ts";
 import { describeEndpointCheck, s3Target } from "../../s3/src/target.ts";
 import {
@@ -10,23 +12,31 @@ import {
 import { selectedCases } from "../../../packages/conformance/src/run.ts";
 import { fsCases, fsTarget } from "./fs.ts";
 import { memoryTarget } from "./memory.ts";
+import { runOptionsFrom } from "./run-options.ts";
 
 /**
- * The `fast` tier against the three adapters spec 2 names for Node, Bun and Deno. The
- * columns share it whole, and a harness differs from the next in the framework it hands
- * over and nothing else, which is what keeps runtime detection out of the cases.
+ * The tiers the run asks for against the three adapters spec 2 names for Node, Bun and
+ * Deno. The columns share them whole, and a harness differs from the next in the framework
+ * it hands over and nothing else, which is what keeps runtime detection out of the cases.
  */
 export function describeAdapters(framework: ConformanceFramework): void {
+  const options = runOptionsFrom(env);
+
   // ADR 0006: `adapter-memory` is read against the suite like any other adapter, through
   // the same entry point a third-party harness calls.
-  describeConformance(memoryTarget, framework);
+  describeConformance(memoryTarget, { ...framework, ...options });
 
-  describeCases(fsCases(), fsTarget, framework);
+  describeCases(fsCases(options), fsTarget, framework);
 
   const configured = configuredStorage();
 
   describeEndpointCheck(framework, configured);
 
-  if (configured !== undefined)
-    describeCases(selectedCases(), s3Target(configured, env), framework);
+  if (configured !== undefined) {
+    describeCases(
+      withDivergences(selectedCases(options), endpointNameFrom(env)),
+      s3Target(configured, env),
+      framework,
+    );
+  }
 }

@@ -1,0 +1,186 @@
+name: Conformance (full)
+
+# ADR 0012: both tiers against a real AWS S3 bucket and a real R2 bucket, on a schedule, on
+# demand and before a release. A pull request never reaches this workflow: GitHub hands a
+# run from a fork no secret, so the real endpoints cannot be part of the pull request gate.
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+  # For a release workflow to call before it publishes.
+  workflow_call:
+
+concurrency:
+  group: conformance-full-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # ADR 0006: the scheduled run asks for both tiers; the per-commit run is the `fast` one.
+  STOWAGE_CONFORMANCE_INCLUDE_SLOW: "true"
+
+jobs:
+  real-endpoints:
+    name: ${{ matrix.runtime }} against ${{ matrix.provider }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # Each provider is an environment holding the same names, so that one set of steps
+    # serves both and a credential reaches the jobs of its own provider alone.
+    environment: ${{ matrix.provider }}
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: [aws-s3, r2]
+        runtime: [Node 24, Node 26, workerd]
+        include:
+          - runtime: Node 24
+            slug: node-24
+            node: "24"
+            command: pnpm exec vitest run harness/node harness/s3
+            copy-above-limit: "true"
+          - runtime: Node 26
+            slug: node-26
+            node: "26"
+            command: pnpm exec vitest run harness/node harness/s3
+          # Spec 2: Node and `workerd` are the pair that differ most in how they fetch, so
+          # they are the runtimes that meet TLS, latency and redirects of a real endpoint.
+          - runtime: workerd
+            slug: workerd
+            node: "24"
+            command: pnpm --filter @stowage/harness-workerd exec vitest run
+    env:
+      STOWAGE_S3_ENDPOINT_NAME: ${{ matrix.provider }}
+      STOWAGE_S3_ENDPOINT: ${{ vars.STOWAGE_S3_ENDPOINT }}
+      STOWAGE_S3_BUCKET: ${{ vars.STOWAGE_S3_BUCKET }}
+      STOWAGE_S3_REGION: ${{ vars.STOWAGE_S3_REGION }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.STOWAGE_S3_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.STOWAGE_S3_SECRET_ACCESS_KEY }}
+      STOWAGE_S3_DENIED_ACCESS_KEY_ID: ${{ secrets.STOWAGE_S3_DENIED_ACCESS_KEY_ID }}
+      STOWAGE_S3_DENIED_SECRET_ACCESS_KEY: ${{ secrets.STOWAGE_S3_DENIED_SECRET_ACCESS_KEY }}
+      STOWAGE_S3_COPY_ABOVE_LIMIT: ${{ matrix.copy-above-limit }}
+    steps:
+      # ADR 0012: the token is taken first, and the harness hands it to the `Expired` case
+      # once the expiration STS returned and a margin have passed. R2 has no such token,
+      # and the case reports itself skipped there.
+      - name: Take a 900-second STS token
+        if: matrix.provider == 'aws-s3'
+        run: |
+          token="$(aws sts get-session-token --duration-seconds 900 --region "$STOWAGE_S3_REGION" --output json)"
+          secret_access_key="$(jq --raw-output .Credentials.SecretAccessKey <<<"$token")"
+          session_token="$(jq --raw-output .Credentials.SessionToken <<<"$token")"
+          echo "::add-mask::$secret_access_key"
+          echo "::add-mask::$session_token"
+          {
+            echo "STOWAGE_S3_EXPIRED_ACCESS_KEY_ID=$(jq --raw-output .Credentials.AccessKeyId <<<"$token")"
+            echo "STOWAGE_S3_EXPIRED_SECRET_ACCESS_KEY=$secret_access_key"
+            echo "STOWAGE_S3_EXPIRED_SESSION_TOKEN=$session_token"
+            echo "STOWAGE_S3_EXPIRED_AT=$(jq --raw-output .Credentials.Expiration <<<"$token")"
+          } >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm run build
+
+      # A real endpoint answers in round trips over the internet, the 5 GiB copy of spec 12
+      # takes minutes, and the `Expired` case waits out the token: the per-commit timeouts
+      # measure none of that.
+      - name: Run both tiers
+        run: >-
+          ${{ matrix.command }}
+          --testTimeout=2400000
+          --hookTimeout=600000
+          --reporter=default
+          --reporter=json
+          --outputFile.json="$GITHUB_WORKSPACE/results.json"
+
+      # A job that died before Vitest wrote its report still gets its column, which then
+      # reads every point it was asked as not run rather than dropping out of the table.
+      - name: Keep a report for a run that wrote none
+        if: always()
+        run: test -f results.json || echo '{"testResults":[]}' > results.json
+
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.provider }}-${{ matrix.slug }}
+          path: results.json
+
+  # ADR 0012: Bun and Deno run against the emulator. Their columns are covered by the same
+  # suite, answered by the pinned image rather than by a provider.
+  emulator:
+    name: ${{ matrix.name }} against SeaweedFS
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # `bun test` stops a test after five seconds, which leaves the thousand-object
+          # cases of the slow tier little room on a shared runner.
+          - name: Bun
+            command: pnpm --filter @stowage/harness-bun exec bun test src --timeout 600000
+          - name: Deno
+            command: pnpm run test:deno
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - if: matrix.name == 'Bun'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - if: matrix.name == 'Deno'
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version-file: .dvmrc
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm run build
+
+      - name: Start the S3 endpoint
+        run: ./harness/s3/start.sh | sed 's/^export //' >> "$GITHUB_ENV"
+
+      - run: ${{ matrix.command }}
+
+      - name: Stop the S3 endpoint
+        if: always()
+        run: ./harness/s3/stop.sh
+
+  # Spec 12: the run reports on each point it settles, one column per endpoint and runtime.
+  report:
+    name: Report on spec 12
+    needs: real-endpoints
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # The report reads the JSON files and imports nothing it would need installed.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: results
+
+      - run: node harness/s3/src/first-run-report.ts results >> "$GITHUB_STEP_SUMMARY"

@@ -3,9 +3,9 @@ import type { S3AdapterOptions } from "../../../packages/adapter-s3/src/index.ts
 /**
  * The variables `start.sh` prints. A runtime hands over its own: Node, Bun and Deno their
  * `process.env`, the `workerd` harness the bindings of its worker, where no `process`
- * exists to read them from.
+ * exists to read them from and a binding whose variable is unset arrives as `null`.
  */
-export type Variables = Readonly<Record<string, string | undefined>>;
+export type Variables = Readonly<Record<string, string | null | undefined>>;
 
 /**
  * ADR 0012: the endpoint is configuration rather than a dependency, so the harness reads
@@ -16,12 +16,10 @@ export function storageOptionsFrom(
   variables: Variables,
   credentials: S3AdapterOptions["credentials"],
 ): S3AdapterOptions | undefined {
-  const endpoint = variables["STOWAGE_S3_ENDPOINT"];
-  const bucket = variables["STOWAGE_S3_BUCKET"];
+  const endpoint = filled(variables["STOWAGE_S3_ENDPOINT"]);
+  const bucket = filled(variables["STOWAGE_S3_BUCKET"]);
 
-  if (endpoint === undefined || endpoint === "" || bucket === undefined || bucket === "") {
-    return undefined;
-  }
+  if (endpoint === undefined || bucket === undefined) return undefined;
 
   return {
     bucket,
@@ -54,11 +52,64 @@ export function storageWithDeniedCredentials(
   configured: S3AdapterOptions,
   variables: Variables,
 ): S3AdapterOptions | undefined {
-  const accessKeyId = variables["STOWAGE_S3_DENIED_ACCESS_KEY_ID"];
-  const secretAccessKey = variables["STOWAGE_S3_DENIED_SECRET_ACCESS_KEY"];
+  const accessKeyId = filled(variables["STOWAGE_S3_DENIED_ACCESS_KEY_ID"]);
+  const secretAccessKey = filled(variables["STOWAGE_S3_DENIED_SECRET_ACCESS_KEY"]);
 
-  if (accessKeyId === undefined || accessKeyId === "") return undefined;
-  if (secretAccessKey === undefined || secretAccessKey === "") return undefined;
+  if (accessKeyId === undefined || secretAccessKey === undefined) return undefined;
 
   return { ...configured, credentials: { accessKeyId, secretAccessKey } };
+}
+
+/**
+ * The endpoints of ADR 0012, as `STOWAGE_S3_ENDPOINT_NAME` names them: the emulator by
+ * `start.sh`, the real ones by the scheduled run.
+ */
+export type Emulator = "seaweedfs";
+
+export const realEndpoints = ["aws-s3", "r2"] as const;
+
+export type RealEndpoint = (typeof realEndpoints)[number];
+
+/** Which server answers, for the harness alone: no case reads it (ADR 0012). */
+export function endpointNameFrom(variables: Variables): string | undefined {
+  return filled(variables["STOWAGE_S3_ENDPOINT_NAME"]);
+}
+
+export interface ExpiredCredentials {
+  readonly options: S3AdapterOptions;
+  /** The expiration STS returned with the token, after which the provider refuses it. */
+  readonly expiresAt: Date;
+}
+
+/**
+ * Spec 8.3: a credential that has already expired. ADR 0012 has the scheduled run take a
+ * 900-second STS token at its start and record the expiration; an endpoint without such
+ * a token leaves the case skipped, which is what R2 does.
+ */
+export function storageWithExpiredCredentials(
+  configured: S3AdapterOptions,
+  variables: Variables,
+): ExpiredCredentials | undefined {
+  const accessKeyId = filled(variables["STOWAGE_S3_EXPIRED_ACCESS_KEY_ID"]);
+  const secretAccessKey = filled(variables["STOWAGE_S3_EXPIRED_SECRET_ACCESS_KEY"]);
+  const sessionToken = filled(variables["STOWAGE_S3_EXPIRED_SESSION_TOKEN"]);
+  const expiration = filled(variables["STOWAGE_S3_EXPIRED_AT"]);
+
+  if (accessKeyId === undefined || secretAccessKey === undefined) return undefined;
+  if (sessionToken === undefined || expiration === undefined) return undefined;
+
+  const expiresAt = new Date(expiration);
+
+  if (Number.isNaN(expiresAt.getTime())) {
+    throw new Error(`STOWAGE_S3_EXPIRED_AT holds ${JSON.stringify(expiration)}, which is no time`);
+  }
+
+  return {
+    options: { ...configured, credentials: { accessKeyId, secretAccessKey, sessionToken } },
+    expiresAt,
+  };
+}
+
+function filled(value: string | null | undefined): string | undefined {
+  return value === undefined || value === null || value === "" ? undefined : value;
 }

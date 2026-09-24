@@ -5,7 +5,10 @@ import { platform } from "node:process";
 
 import { fsStorage } from "../../../packages/adapter-fs/src/index.ts";
 import type { ConformanceCaseSource } from "../../../packages/conformance/src/case.ts";
-import { selectedCases } from "../../../packages/conformance/src/run.ts";
+import {
+  type ConformanceRunOptions,
+  selectedCases,
+} from "../../../packages/conformance/src/run.ts";
 import type { ConformanceTarget } from "../../../packages/conformance/src/target.ts";
 
 /**
@@ -17,7 +20,7 @@ const pathByteLimit = platform === "darwin" ? 1024 : 4096;
 
 const boundaryKeyBytes = 1024;
 
-/** The whole `fast` tier, minus the one case no path below this root leaves room for. */
+/** The tiers the run asks for, minus the one case no path below this root leaves room for. */
 const runnable = (name: string): boolean =>
   name !== "put/accepted-keys" || tmpdir().length + boundaryKeyBytes < pathByteLimit;
 
@@ -25,8 +28,8 @@ const runnable = (name: string): boolean =>
 // reaches past `describeConformance` for the cases alone, so that the case the path limit
 // rules out is left unrun rather than red on a machine whose temporary directory is one
 // character too long.
-export const fsCases = (): readonly ConformanceCaseSource[] =>
-  selectedCases().filter((source) => runnable(source.name));
+export const fsCases = (options: ConformanceRunOptions): readonly ConformanceCaseSource[] =>
+  selectedCases(options).filter((source) => runnable(source.name));
 
 const roots: string[] = [];
 
