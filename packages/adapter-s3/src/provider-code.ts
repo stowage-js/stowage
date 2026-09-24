@@ -21,6 +21,9 @@ const providerCodes: ReadonlyMap<string, StorageErrorCode> = new Map([
   // keeps it out of the retry group without a rule of its own (ADR 0013).
   ["RequestTimeTooSkewed", "InvalidRequest"],
   ["InvalidRange", "InvalidRequest"],
+  // AWS's, answered among others to a `CopyObject` source above 5 GiB, which R2 answers
+  // with `EntityTooLarge`: one condition, one code for the caller to branch on.
+  ["InvalidRequest", "InvalidRequest"],
   ["InvalidArgument", "InvalidRequest"],
   ["MetadataTooLarge", "InvalidRequest"],
   ["EntityTooLarge", "InvalidRequest"],
