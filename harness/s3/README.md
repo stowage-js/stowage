@@ -49,8 +49,61 @@ the tier skipped (ADR 0012), and CI starts `compose.yml` itself before the harne
 The credentials in `s3.json` are this container's and nothing else's: they authenticate a
 local emulator holding a run's throwaway objects.
 
-## What is not here yet
+`start.sh` names the endpoint `seaweedfs` in `STOWAGE_S3_ENDPOINT_NAME`, which is what the
+divergence list below is read against.
 
-The divergence list of ADR 0012 — one entry per conformance case the endpoint answers
-differently from the provider it stands in for — arrives once the cases it would describe
-run.
+## The divergence list
+
+`src/divergences.ts` holds one entry per conformance case the emulator answers differently
+from AWS S3 (ADR 0012): the case, the endpoint, what differs, part of the message the case
+fails with, and the real endpoint that runs the same case in the `slow` tier. Against the
+endpoint an entry names, the case passes where it fails as the entry says and fails where
+it passes, so an upstream fix shows up as a red run that asks for the entry to go.
+
+## The real endpoints
+
+`.github/workflows/conformance-full.yml` runs both tiers on a schedule, on demand and for a
+release workflow to call: on Node 24, Node 26 and `workerd` against a real AWS S3 bucket and a
+real R2 bucket, and on Bun and Deno against the emulator. It never runs on a pull request.
+
+Each provider is a GitHub environment, `aws-s3` and `r2`, holding the same names:
+
+| Name                                  | Kind     | What it holds                                                                           |
+| ------------------------------------- | -------- | --------------------------------------------------------------------------------------- |
+| `STOWAGE_S3_ENDPOINT`                 | variable | `https://s3.<region>.amazonaws.com`, or `https://<account-id>.r2.cloudflarestorage.com` |
+| `STOWAGE_S3_BUCKET`                   | variable | The CI bucket, which holds nothing else                                                 |
+| `STOWAGE_S3_REGION`                   | variable | The bucket's region, `auto` on R2                                                       |
+| `STOWAGE_S3_ACCESS_KEY_ID`            | secret   | A credential that reads, writes, lists and deletes in that bucket alone                 |
+| `STOWAGE_S3_SECRET_ACCESS_KEY`        | secret   | Its secret                                                                              |
+| `STOWAGE_S3_DENIED_ACCESS_KEY_ID`     | secret   | A credential that reads and lists that bucket and may not write                         |
+| `STOWAGE_S3_DENIED_SECRET_ACCESS_KEY` | secret   | Its secret                                                                              |
+
+On AWS the first credential is an IAM user's access key, because `GetSessionToken` takes a
+user's long-lived key and no role's: the job asks STS for a 900-second token with it before
+anything else, and the harness hands that token to the `Expired` case once its expiration and a
+minute have passed. Its policy grants `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`,
+`s3:ListBucket`, `s3:ListBucketMultipartUploads` and `s3:AbortMultipartUpload` on the bucket.
+On R2 both are API tokens scoped to the bucket, `Object Read & Write` and `Object Read only`.
+R2 issues no token that could be let expire on purpose, so the `Expired` case reports itself
+skipped there.
+
+Both buckets carry the rule of `lifecycle.json`: objects expire after one day and a multipart
+upload left behind is aborted after one day, which removes what a run that died before its
+cleanup left. The CI credentials may not read bucket configuration, so the rule is set once
+with an administrator's credential and not checked by the run:
+
+```sh
+aws s3api put-bucket-lifecycle-configuration --bucket <bucket> \
+  --lifecycle-configuration file://harness/s3/lifecycle.json
+aws s3api put-bucket-lifecycle-configuration --bucket <bucket> \
+  --endpoint-url https://<account-id>.r2.cloudflarestorage.com \
+  --lifecycle-configuration file://harness/s3/lifecycle.json
+```
+
+## Settled by the first run
+
+`src/first-run.test.ts` asks the endpoint what spec 12 leaves open, beside the conformance
+cases that answer the rest, and the `workerd` harness measures the two cases it excludes. Both
+run only where `STOWAGE_CONFORMANCE_INCLUDE_SLOW` is `true`. The last job of the workflow
+writes a table of every point against every endpoint and runtime into the run's summary; a
+promise the table shows disproved is withdrawn from `docs/spec.md` in a minor release.
