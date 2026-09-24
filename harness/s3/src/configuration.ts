@@ -74,6 +74,41 @@ export function endpointNameFrom(variables: Variables): string | undefined {
   return filled(variables["STOWAGE_S3_ENDPOINT_NAME"]);
 }
 
+export interface ExpiredCredentials {
+  readonly options: S3AdapterOptions;
+  /** The expiration STS returned with the token, after which the provider refuses it. */
+  readonly expiresAt: Date;
+}
+
+/**
+ * Spec 8.3: a credential that has already expired. ADR 0012 has the scheduled run take a
+ * 900-second STS token at its start and record the expiration; an endpoint without such
+ * a token leaves the case skipped, which is what R2 does.
+ */
+export function storageWithExpiredCredentials(
+  configured: S3AdapterOptions,
+  variables: Variables,
+): ExpiredCredentials | undefined {
+  const accessKeyId = filled(variables["STOWAGE_S3_EXPIRED_ACCESS_KEY_ID"]);
+  const secretAccessKey = filled(variables["STOWAGE_S3_EXPIRED_SECRET_ACCESS_KEY"]);
+  const sessionToken = filled(variables["STOWAGE_S3_EXPIRED_SESSION_TOKEN"]);
+  const expiration = filled(variables["STOWAGE_S3_EXPIRED_AT"]);
+
+  if (accessKeyId === undefined || secretAccessKey === undefined) return undefined;
+  if (sessionToken === undefined || expiration === undefined) return undefined;
+
+  const expiresAt = new Date(expiration);
+
+  if (Number.isNaN(expiresAt.getTime())) {
+    throw new Error(`STOWAGE_S3_EXPIRED_AT holds ${JSON.stringify(expiration)}, which is no time`);
+  }
+
+  return {
+    options: { ...configured, credentials: { accessKeyId, secretAccessKey, sessionToken } },
+    expiresAt,
+  };
+}
+
 function filled(value: string | undefined): string | undefined {
   return value === undefined || value === "" ? undefined : value;
 }

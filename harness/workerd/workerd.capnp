@@ -30,5 +30,9 @@ const conformance :Workerd.Worker = (
     (name = "AWS_SECRET_ACCESS_KEY", fromEnvironment = "AWS_SECRET_ACCESS_KEY"),
     (name = "STOWAGE_S3_DENIED_ACCESS_KEY_ID", fromEnvironment = "STOWAGE_S3_DENIED_ACCESS_KEY_ID"),
     (name = "STOWAGE_S3_DENIED_SECRET_ACCESS_KEY", fromEnvironment = "STOWAGE_S3_DENIED_SECRET_ACCESS_KEY"),
+    (name = "STOWAGE_S3_EXPIRED_ACCESS_KEY_ID", fromEnvironment = "STOWAGE_S3_EXPIRED_ACCESS_KEY_ID"),
+    (name = "STOWAGE_S3_EXPIRED_SECRET_ACCESS_KEY", fromEnvironment = "STOWAGE_S3_EXPIRED_SECRET_ACCESS_KEY"),
+    (name = "STOWAGE_S3_EXPIRED_SESSION_TOKEN", fromEnvironment = "STOWAGE_S3_EXPIRED_SESSION_TOKEN"),
+    (name = "STOWAGE_S3_EXPIRED_AT", fromEnvironment = "STOWAGE_S3_EXPIRED_AT"),
   ],
 );
