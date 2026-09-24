@@ -1,34 +1,63 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
+import { readFile } from "node:fs/promises";
 import { get, type IncomingMessage } from "node:http";
 import { createRequire } from "node:module";
+import { env } from "node:process";
 import { createInterface } from "node:readline";
 import { Readable } from "node:stream";
 import { text } from "node:stream/consumers";
 import { fileURLToPath } from "node:url";
 
 import { build } from "tsdown";
+import type { describe, test } from "vitest";
 
-import type { ConformanceFramework } from "../../../packages/conformance/src/describe.ts";
 import type { ConformanceResult } from "../../../packages/conformance/src/result.ts";
 import { configuredStorage } from "../../s3/src/environment.ts";
+import { firstRunSuite, measuredOnWorkerd } from "../../s3/src/first-run.ts";
 import { describeEndpointCheck } from "../../s3/src/target.ts";
+import { runOptionsFrom } from "../../targets/src/run-options.ts";
+import { excludedCases } from "./excluded.ts";
 
 const harnessDirectory = fileURLToPath(new URL("..", import.meta.url));
+
+/**
+ * Vitest's own functions rather than the three frameworks' common shape: the results are
+ * reported on Node alone, and a measurement carries what it saw in the test's `meta`.
+ */
+export interface VitestFramework {
+  readonly describe: typeof describe;
+  readonly test: typeof test;
+}
+
+interface Workerd {
+  readonly origin: string;
+  readonly pid: number | undefined;
+}
+
+interface Measurement {
+  readonly name: string;
+  readonly result: ConformanceResult | undefined;
+  readonly seconds: number;
+  readonly cpuSeconds: number | undefined;
+}
 
 /**
  * ADR 0006: `workerd` has no test function to hand the cases to, so the worker runs them
  * and answers with the results, and the harness reports each one on Node as a test of its
  * own, named as `describeConformance` names the case.
  */
-export async function describeWorkerd(framework: ConformanceFramework): Promise<void> {
+export async function describeWorkerd(framework: VitestFramework): Promise<void> {
   await bundleWorker();
 
   const configured = configuredStorage();
+  // Spec 12 asks the scheduled run, and not every commit, what a multipart upload costs.
+  const measuring = configured !== undefined && runOptionsFrom(env).includeSlow === true;
 
-  const { memory, s3 } = await withWorkerd(async (origin) => ({
-    memory: await resultsOf(origin, "adapter-memory"),
-    s3: configured === undefined ? undefined : await resultsOf(origin, "adapter-s3"),
+  const { memory, s3, measured } = await withWorkerd(async (workerd) => ({
+    memory: await resultsOf(workerd.origin, "adapter-memory"),
+    s3: configured === undefined ? undefined : await resultsOf(workerd.origin, "adapter-s3"),
+    measured: measuring ? await measureExcluded(workerd) : [],
   }));
 
   describeResults(framework, "@stowage/adapter-memory", memory);
@@ -36,6 +65,8 @@ export async function describeWorkerd(framework: ConformanceFramework): Promise<
   describeEndpointCheck(framework, configured);
 
   if (s3 !== undefined) describeResults(framework, "@stowage/adapter-s3", s3);
+
+  if (measured.length > 0) describeMeasurements(framework, measured);
 }
 
 /** `src/worker.ts` as the one module `workerd.capnp` embeds. */
@@ -53,7 +84,7 @@ async function bundleWorker(): Promise<void> {
   });
 }
 
-async function withWorkerd<T>(use: (origin: string) => Promise<T>): Promise<T> {
+async function withWorkerd<T>(use: (workerd: Workerd) => Promise<T>): Promise<T> {
   // The package hands out the path of the binary built for this machine as its default
   // export.
   const workerd: { readonly default: string } = createRequire(import.meta.url)("workerd");
@@ -65,7 +96,7 @@ async function withWorkerd<T>(use: (origin: string) => Promise<T>): Promise<T> {
   const exited = once(child, "exit").catch(() => {});
 
   try {
-    return await use(`http://127.0.0.1:${await listeningPort(child)}`);
+    return await use({ origin: `http://127.0.0.1:${await listeningPort(child)}`, pid: child.pid });
   } finally {
     child.kill();
     await exited;
@@ -107,8 +138,88 @@ async function resultsOf(origin: string, path: string): Promise<readonly Conform
   return results;
 }
 
+/** Each excluded case alone, one after the other, so that no two share the CPU counted. */
+async function measureExcluded(workerd: Workerd): Promise<readonly Measurement[]> {
+  const measured: Measurement[] = [];
+
+  for (const name of excludedCases) {
+    // oxlint-disable-next-line no-await-in-loop -- one at a time is what makes the CPU theirs
+    measured.push(await measure(workerd, name));
+  }
+
+  return measured;
+}
+
+async function measure(workerd: Workerd, name: string): Promise<Measurement> {
+  const cpuBefore = await cpuSecondsOf(workerd.pid);
+  const started = performance.now();
+  const [result] = await resultsOf(
+    workerd.origin,
+    `adapter-s3?excluded=${encodeURIComponent(name)}`,
+  );
+  const seconds = (performance.now() - started) / 1000;
+  const cpuAfter = await cpuSecondsOf(workerd.pid);
+
+  return {
+    name,
+    result,
+    seconds,
+    cpuSeconds:
+      cpuBefore === undefined || cpuAfter === undefined ? undefined : cpuAfter - cpuBefore,
+  };
+}
+
+/**
+ * The CPU the `workerd` process spent, user and system, out of `/proc/<pid>/stat`, which
+ * counts in the fixed 100 ticks a second Linux reports there. Elsewhere there is none to
+ * read, and the measurement is the duration alone.
+ */
+async function cpuSecondsOf(pid: number | undefined): Promise<number | undefined> {
+  if (pid === undefined) return undefined;
+
+  try {
+    const stat = await readFile(`/proc/${pid}/stat`, "utf8");
+    // The fields after the command, whose name may hold spaces, start with the third.
+    const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+    const [userTicks, systemTicks] = [Number(fields[11]), Number(fields[12])];
+
+    return (userTicks + systemTicks) / 100;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * A measurement passes whatever the case did: spec 2 promises no flow 1 on `workerd`,
+ * and spec 12 asks what the upload costs there, which a failure answers as well.
+ */
+function describeMeasurements(framework: VitestFramework, measured: readonly Measurement[]): void {
+  framework.describe(firstRunSuite, () => {
+    for (const measurement of measured) {
+      framework.test(measuredOnWorkerd(measurement.name), ({ task }) => {
+        task.meta.observed = observationOf(measurement);
+      });
+    }
+  });
+}
+
+function observationOf(measurement: Measurement): string {
+  const cpu =
+    measurement.cpuSeconds === undefined
+      ? ""
+      : `, ${measurement.cpuSeconds.toFixed(1)} s of CPU in the \`workerd\` process`;
+  const duration = `${measurement.seconds.toFixed(1)} s${cpu}`;
+  const result = measurement.result;
+
+  if (result === undefined) return `no result after ${duration}`;
+  if (result.status === "failed") return `failed after ${duration}: ${result.error.message}`;
+  if (result.status === "skipped") return `skipped: ${result.reason}`;
+
+  return `passed in ${duration}`;
+}
+
 function describeResults(
-  framework: ConformanceFramework,
+  framework: VitestFramework,
   name: string,
   results: readonly ConformanceResult[],
 ): void {

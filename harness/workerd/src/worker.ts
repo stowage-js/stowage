@@ -27,7 +27,15 @@ export default {
 
     if (run === undefined) return new Response(null, { status: 404 });
 
-    const cases = run.cases.filter((source) => !excludedCases.includes(source.name));
+    // Spec 12: an excluded case still runs on its own where Node asks for it by name, so
+    // that the scheduled run can measure it without the cell counting it as covered.
+    const excluded = url.searchParams.get("excluded");
+    const cases =
+      excluded === null
+        ? run.cases.filter((source) => !excludedCases.includes(source.name))
+        : run.cases.filter(
+            (source) => source.name === excluded && excludedCases.includes(excluded),
+          );
 
     return Response.json(await runCases(cases, run.target));
   },
