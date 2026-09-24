@@ -13,6 +13,7 @@ export interface S3AdapterOptions {
    * host is a loopback address; anything else is `InvalidOption` at construction.
    */
   endpoint?: string;
+  /** Addresses the bucket in the path rather than in the host name, which is the default. */
   forcePathStyle?: boolean;
   credentials: Resolvable<S3Credentials>;
   /**
