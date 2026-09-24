@@ -7,8 +7,12 @@ const config :Workerd.Config = (
   services = [
     (name = "conformance", worker = .conformance),
     # The default outbound reaches public addresses alone, and the emulator of ADR 0012
-    # answers on the loopback one.
-    (name = "internet", network = (allow = ["public", "private", "local"])),
+    # answers on the loopback one. A network of one's own trusts no certificate authority
+    # unless told to, which the real buckets of the scheduled run need.
+    (
+      name = "internet",
+      network = (allow = ["public", "private", "local"], tlsOptions = (trustBrowserCas = true)),
+    ),
   ],
   sockets = [(name = "http", address = "127.0.0.1:0", http = (), service = "conformance")],
 );
