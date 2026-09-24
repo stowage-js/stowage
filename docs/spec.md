@@ -653,7 +653,7 @@ configured and is not promised.
 | Writes per key                     | R2 answers `429` above one write per second and key; the retry of section 7.5 may recover a single collision, but does not guarantee it |
 | Incomplete multipart uploads       | Removed by a lifecycle rule on AWS, after seven days by default on R2; stowage removes none                                             |
 | Presigned URL host                 | The endpoint that signed it; on R2 the `r2.cloudflarestorage.com` endpoint and not a custom domain                                      |
-| Response overrides on `presignGet` | Documented by AWS; provisional on R2 until the first scheduled run (section 12)                                                         |
+| Response overrides on `presignGet` | Answered as the four response headers, on AWS and on R2                                                                                 |
 
 ### 7.3 Credentials
 
@@ -745,6 +745,8 @@ provider until a lifecycle rule removes them.
 - `copy` sends `CopyObject` and succeeds where the provider accepts it. Where the provider refuses
   the source as too large for one request, `copy` rejects with the provider's error; v0.1 does not
   fall back to `UploadPartCopy`. `move` inherits that.
+- Both providers refuse a source above 5 GiB with `400`: AWS answers `InvalidRequest`, R2
+  `EntityTooLarge`, and either reaches the caller as `InvalidRequest`.
 - Copying a key onto itself is `InvalidRequest` before any request.
 
 ### 7.9 Provider codes
@@ -1177,13 +1179,10 @@ v0.1 does not have, and does not promise a path to:
 ## 12. Settled by the first run
 
 The following are promised here and have not yet been observed against a real endpoint. A promise
-the first scheduled run disproves is withdrawn in a minor release.
+a scheduled run disproves is withdrawn in a minor release. The first run, against AWS S3 and R2 on
+Node and `workerd`, disproved none of the points it settled; they are stated in the sections they
+belong to.
 
-- `EntityTooSmall` and `InvalidPart` are answered as this document maps them.
-- A presigned `PUT` enforces the `Content-Length` and `Content-Type` it signed.
-- `HEAD` is answered without a body.
-- R2 honors the four response overrides on `presignGet`.
 - R2 answers `ExpiredRequest` for an expired credential; the `Expired` case is skipped against R2
   until a way to provoke it exists.
 - The CPU and duration a multipart upload spends on `workerd`, which decides flow 1 on `workerd`.
-- The refusal of `copy` above the single-request limit against a real provider.
