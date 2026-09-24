@@ -104,12 +104,17 @@ jobs:
           --reporter=json
           --outputFile.json="$GITHUB_WORKSPACE/results.json"
 
+      # A job that died before Vitest wrote its report still gets its column, which then
+      # reads every point it was asked as not run rather than dropping out of the table.
+      - name: Keep a report for a run that wrote none
+        if: always()
+        run: test -f results.json || echo '{"testResults":[]}' > results.json
+
       - if: always()
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.provider }}-${{ matrix.slug }}
           path: results.json
-          if-no-files-found: ignore
 
   # ADR 0012: Bun and Deno run against the emulator. Their columns are covered by the same
   # suite, answered by the pinned image rather than by a provider.
