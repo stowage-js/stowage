@@ -96,7 +96,7 @@ export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
     };
   }
 
-  // Spec 8.7: a key above what the provider holds is `KeyTooLongError`, which a `HEAD`
+  // Spec 7.9: a key above what the provider holds is `KeyTooLongError`, which a `HEAD`
   // carries no body to name, so the `400` it arrives as is read as that code.
   if (
     answer.method === "HEAD" &&

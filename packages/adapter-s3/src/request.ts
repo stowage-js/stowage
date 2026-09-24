@@ -31,9 +31,9 @@ const emptyBody: Uint8Array<ArrayBuffer> = new Uint8Array(0);
 
 /**
  * Spec 4.4 reads `size` off `Content-Length`, and a provider that compresses on the offer
- * Node's `fetch` makes of its own drops that header: R2 does for a JSON or text body. It
- * is sent unsigned, because it concerns the transfer rather than what the provider acts
- * on, and a hop between the two ends that rewrites it would otherwise break the signature.
+ * `fetch` makes of its own on Node, Bun and Deno drops that header: R2 does for JSON and
+ * text. It is sent unsigned, because it concerns the transfer rather than what the
+ * provider acts on, and a hop that rewrites it would otherwise break the signature.
  */
 const identityEncoding: HeaderField = ["accept-encoding", "identity"];
 

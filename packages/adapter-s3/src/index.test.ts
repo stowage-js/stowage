@@ -215,14 +215,17 @@ test("every request is signed", async () => {
   expect(sent[0]?.headers.get("x-amz-date")).toMatch(/^\d{8}T\d{6}Z$/u);
 });
 
-// Node's `fetch` offers `gzip, deflate, br` of its own, and R2 compresses a JSON or text
-// body on that offer and drops its `Content-Length`, so `size` would have nothing to read.
-test("every request asks for the body as the provider stores it", async () => {
+test("`get` and `stat` ask for the object as the provider stores it", async () => {
   const sent = stubFetch(() => storedResponse("stored"));
+  const storage = s3Storage(options());
 
-  await s3Storage(options()).get("object.txt");
+  await storage.get("object.txt");
+  await storage.stat("object.txt");
 
-  expect(sent[0]?.headers.get("accept-encoding")).toBe("identity");
+  expect(sent.map((request) => request.headers.get("accept-encoding"))).toEqual([
+    "identity",
+    "identity",
+  ]);
 });
 
 test("the encoding asked for stays out of the signature", async () => {
@@ -573,9 +576,8 @@ test("`stat` reports the status of a `HEAD` without a provider code", async () =
   expect(failure.message).toContain("403");
 });
 
-// Spec 8.7: S3 and R2 answer a key above 1024 bytes with `KeyTooLongError`, which a
-// `HEAD` carries no body to name, so the `400` alone is what arrives for one.
-const tooLongKey = `${"k".repeat(1024)}.txt`;
+// Spec 7.9: 513 characters and 1026 bytes, so the limit is counted in UTF-8 bytes.
+const tooLongKey = "ü".repeat(513);
 
 test("`stat` of a key above 1024 bytes answered `400` is `InvalidKey`", async () => {
   stubFetch(() => new Response(null, { status: 400 }));
@@ -597,6 +599,14 @@ test("a `400` to a `HEAD` for a key within 1024 bytes stays `ProviderError`", as
   stubFetch(() => new Response(null, { status: 400 }));
 
   const failure = await rejection(async () => await s3Storage(options()).stat("object.txt"));
+
+  expect(failure.code).toBe("ProviderError");
+});
+
+test("a `400` without a document to a `GET` for a long key stays `ProviderError`", async () => {
+  stubFetch(() => new Response(null, { status: 400 }));
+
+  const failure = await rejection(async () => await s3Storage(options()).get(tooLongKey));
 
   expect(failure.code).toBe("ProviderError");
 });
