@@ -234,7 +234,9 @@ describe.skipIf(!scheduled)(firstRunSuite, () => {
         expect(copied.size).toBe(aboveTheCopyLimit);
         task.meta.observed = `copied ${aboveTheCopyLimit} bytes in one request`;
       } catch (thrown) {
-        if (!isStorageError(thrown) || thrown.status === undefined) throw thrown;
+        // Spec 7.8: AWS answers `InvalidRequest` and R2 `EntityTooLarge`, one code for both,
+        // so a refusal under any other code fails the probe with that refusal itself.
+        if (!isStorageError(thrown) || thrown.code !== "InvalidRequest") throw thrown;
 
         task.meta.observed =
           `refused as \`${thrown.code}\`, ${thrown.status} \`${thrown.providerCode}\`: ` +
