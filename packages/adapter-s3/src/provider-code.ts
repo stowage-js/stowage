@@ -48,6 +48,8 @@ export interface ProviderAnswer {
   readonly operation: string;
   /** The method, which says what a provider that sent no message answered to. */
   readonly method: string;
+  /** The key the request addressed, whose length tells what a bare `400` to `HEAD` means. */
+  readonly key?: string;
   /** Whether the request included the continuation token a `cursor` becomes. */
   readonly hasContinuationToken?: boolean;
   readonly providerCode?: string;
@@ -63,6 +65,13 @@ export interface ProviderFailure {
 
 // Spec 7.1: the bucket lives in another region than the one the request was signed for.
 const permanentRedirect = 301;
+
+const badRequest = 400;
+
+/** The longest key AWS S3 and R2 hold, in UTF-8 bytes, above which they answer `KeyTooLongError`. */
+const longestHeldKey = 1024;
+
+const utf8 = new TextEncoder();
 
 /**
  * What the provider's answer means, decided by its own code where the table recognizes
@@ -84,6 +93,20 @@ export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
     return {
       code: "InvalidOption",
       message: `The option \`region\` is not the bucket's${region}: ${said}`,
+    };
+  }
+
+  // Spec 8.7: a key above what the provider holds is `KeyTooLongError`, which a `HEAD`
+  // carries no body to name, so the `400` it arrives as is read as that code.
+  if (
+    answer.method === "HEAD" &&
+    answer.status === badRequest &&
+    answer.key !== undefined &&
+    utf8.encode(answer.key).byteLength > longestHeldKey
+  ) {
+    return {
+      code: "InvalidKey",
+      message: `The key is longer than the ${longestHeldKey} bytes the provider holds: ${said}`,
     };
   }
 

@@ -765,7 +765,8 @@ mapping of section 4.10. One table holds both vendors' strings.
 
 `status`, `providerCode`, `requestId` (from `x-amz-request-id`) and the provider's message are set
 on every error that carries a response. `HEAD` carries no body, so `stat` and `exists` report the
-status alone.
+status alone; a `400` for a key above 1024 bytes is `InvalidKey`, the `KeyTooLongError` the body
+would have named.
 
 ### 7.10 Presigned URLs
 

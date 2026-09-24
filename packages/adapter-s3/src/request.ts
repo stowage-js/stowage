@@ -207,6 +207,7 @@ async function failureOf(
     status: response.status,
     operation: request.operation,
     method: request.method,
+    key: request.key,
     hasContinuationToken: request.query?.some(([name]) => name === "continuation-token"),
     providerCode: document.code,
     providerMessage: document.message,

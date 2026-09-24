@@ -573,6 +573,34 @@ test("`stat` reports the status of a `HEAD` without a provider code", async () =
   expect(failure.message).toContain("403");
 });
 
+// Spec 8.7: S3 and R2 answer a key above 1024 bytes with `KeyTooLongError`, which a
+// `HEAD` carries no body to name, so the `400` alone is what arrives for one.
+const tooLongKey = `${"k".repeat(1024)}.txt`;
+
+test("`stat` of a key above 1024 bytes answered `400` is `InvalidKey`", async () => {
+  stubFetch(() => new Response(null, { status: 400 }));
+
+  const failure = await rejection(async () => await s3Storage(options()).stat(tooLongKey));
+
+  expect(failure).toMatchObject({ code: "InvalidKey", key: tooLongKey, status: 400, attempts: 1 });
+});
+
+test("`exists` of a key above 1024 bytes answered `400` rejects with `InvalidKey`", async () => {
+  stubFetch(() => new Response(null, { status: 400 }));
+
+  const failure = await rejection(async () => await s3Storage(options()).exists(tooLongKey));
+
+  expect(failure.code).toBe("InvalidKey");
+});
+
+test("a `400` to a `HEAD` for a key within 1024 bytes stays `ProviderError`", async () => {
+  stubFetch(() => new Response(null, { status: 400 }));
+
+  const failure = await rejection(async () => await s3Storage(options()).stat("object.txt"));
+
+  expect(failure.code).toBe("ProviderError");
+});
+
 // ADR 0013: a second request signed against the same wrong clock fails the same way.
 test("`RequestTimeTooSkewed` is `InvalidRequest` and is not repeated", async () => {
   const sent = stubFetch(() =>
