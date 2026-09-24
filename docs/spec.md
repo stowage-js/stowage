@@ -683,6 +683,8 @@ configured and is not promised.
 - `UNSIGNED-PAYLOAD` is sent by presigned URLs alone; there is no option to send it on a request the
   adapter makes, and no chunked signing.
 - Every attempt resolves the credential again and signs again. The payload hash is computed once.
+- Every request asks for the body as the provider stores it, `Accept-Encoding: identity`, so a
+  provider that compresses on request cannot take the `Content-Length` a description reads.
 - Listing responses go through an XML parser that accepts elements, text and named and numeric
   entities, and rejects CDATA and DTDs with `ProviderError`.
 - A key is percent-encoded segment by segment on the request path, so `#`, `%`, `?`, `+`, a space

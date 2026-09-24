@@ -215,6 +215,24 @@ test("every request is signed", async () => {
   expect(sent[0]?.headers.get("x-amz-date")).toMatch(/^\d{8}T\d{6}Z$/u);
 });
 
+// Node's `fetch` offers `gzip, deflate, br` of its own, and R2 compresses a JSON or text
+// body on that offer and drops its `Content-Length`, so `size` would have nothing to read.
+test("every request asks for the body as the provider stores it", async () => {
+  const sent = stubFetch(() => storedResponse("stored"));
+
+  await s3Storage(options()).get("object.txt");
+
+  expect(sent[0]?.headers.get("accept-encoding")).toBe("identity");
+});
+
+test("the encoding asked for stays out of the signature", async () => {
+  const sent = stubFetch(() => storedResponse("stored"));
+
+  await s3Storage(options()).stat("object.txt");
+
+  expect(sent[0]?.headers.get("authorization")).not.toContain("accept-encoding");
+});
+
 test("the resolver runs before every signed request and nothing is held between them", async () => {
   stubFetch(accepted);
 
