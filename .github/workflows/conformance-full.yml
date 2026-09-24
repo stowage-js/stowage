@@ -119,8 +119,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # `bun test` stops a test after five seconds, which the thousand-object cases of
-          # the slow tier take longer than.
+          # `bun test` stops a test after five seconds, which leaves the thousand-object
+          # cases of the slow tier little room on a shared runner.
           - name: Bun
             command: pnpm --filter @stowage/harness-bun exec bun test src --timeout 600000
           - name: Deno
