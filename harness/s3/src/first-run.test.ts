@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { connect as connectTcp } from "node:net";
+import { env } from "node:process";
 import { text } from "node:stream/consumers";
 import { connect as connectTls } from "node:tls";
 
@@ -217,8 +218,9 @@ describe.skipIf(!scheduled)(firstRunSuite, () => {
 
   // Spec 7.8: v0.1 does not fall back to `UploadPartCopy`, so above the provider's limit
   // `copy` rejects with the provider's error. A provider that copies it anyway breaks no
-  // promise, and the run says which of the two it met.
-  test(
+  // promise, and the run says which of the two it met. The limit is the provider's and no
+  // property of the Node line, so the scheduled run uploads the 5 GiB from one line alone.
+  test.skipIf(env["STOWAGE_S3_COPY_ABOVE_LIMIT"] !== "true")(
     probeNames.copyAboveLimit,
     async ({ task }) => {
       const storage = s3Storage({ ...endpointOrFail(), multipart: { partSize: largePartSize } });

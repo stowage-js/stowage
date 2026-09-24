@@ -39,6 +39,7 @@ jobs:
             slug: node-24
             node: "24"
             command: pnpm exec vitest run harness/node harness/s3
+            copy-above-limit: "true"
           - runtime: Node 26
             slug: node-26
             node: "26"
@@ -58,6 +59,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.STOWAGE_S3_SECRET_ACCESS_KEY }}
       STOWAGE_S3_DENIED_ACCESS_KEY_ID: ${{ secrets.STOWAGE_S3_DENIED_ACCESS_KEY_ID }}
       STOWAGE_S3_DENIED_SECRET_ACCESS_KEY: ${{ secrets.STOWAGE_S3_DENIED_SECRET_ACCESS_KEY }}
+      STOWAGE_S3_COPY_ABOVE_LIMIT: ${{ matrix.copy-above-limit }}
     steps:
       # ADR 0012: the token is taken first, and the harness hands it to the `Expired` case
       # once the expiration STS returned and a margin have passed. R2 has no such token,
