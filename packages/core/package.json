@@ -1,6 +1,6 @@
 {
   "name": "@stowage/core",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "One typed API for object storage: the types every stowage adapter implements, StorageError, and the utilities an adapter calls.",
   "keywords": [
     "adapter",
