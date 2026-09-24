@@ -2,6 +2,10 @@ import type { Resolvable, ResolverOptions, StorageError } from "@stowage/core";
 
 import { s3Error } from "./storage-error.ts";
 
+/**
+ * Checked before signing: `accessKeyId` and `secretAccessKey` are non-empty strings, and no
+ * key beyond these three is present. A violation is `InvalidCredentials` naming the field.
+ */
 export interface S3Credentials {
   accessKeyId: string;
   secretAccessKey: string;

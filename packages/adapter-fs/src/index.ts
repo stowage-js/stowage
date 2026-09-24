@@ -46,6 +46,10 @@ import { temporaryPathIn } from "./temporary.ts";
 import { walkObjects } from "./walk.ts";
 
 export interface FsAdapterOptions {
+  /**
+   * An absolute path to an existing directory. Construction performs no I/O, so an operation
+   * against a root that does not exist rejects with `NotFound`.
+   */
   root: string;
 }
 

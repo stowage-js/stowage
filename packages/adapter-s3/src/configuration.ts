@@ -5,12 +5,38 @@ import { optionError as refuseOption, requireKnownOptions } from "./options.ts";
 
 export interface S3AdapterOptions {
   bucket: string;
+  /** Sent as configured; nothing discovers it. R2 takes `"auto"`. */
   region: string;
+  /**
+   * AWS S3 at `https://<bucket>.s3.<region>.amazonaws.com` where absent. Given, an absolute
+   * URL with no userinfo, no query and no fragment, `https:` always and `http:` only where the
+   * host is a loopback address; anything else is `InvalidOption` at construction.
+   */
   endpoint?: string;
+  /** Addresses the bucket in the path rather than in the host name, which is the default. */
   forcePathStyle?: boolean;
   credentials: Resolvable<S3Credentials>;
-  retry?: false | { maxAttempts?: number };
-  multipart?: { partSize?: number; concurrency?: number };
+  /**
+   * How often one HTTP request is attempted while its failure is transient: a response of
+   * `408`, `429` or `5xx`, or none at all. `false` sends one attempt. Neither switches off
+   * the one repeat with a fresh credential after the provider answered `Expired`.
+   */
+  retry?:
+    | false
+    | {
+        /** 1 to 3, and 3 where absent. Outside that range it is `InvalidOption`. */
+        maxAttempts?: number;
+      };
+  /** How a stream that fills more than one part is uploaded. */
+  multipart?: {
+    /**
+     * Bytes per part, 5 MiB to 5 GiB, and 8 MiB where absent. Outside that range it is
+     * `InvalidOption`. A stream needing more than 10,000 parts is `InvalidRequest`.
+     */
+    partSize?: number;
+    /** Parts in flight, 1 to 16, and 4 where absent. Outside that range it is `InvalidOption`. */
+    concurrency?: number;
+  };
 }
 
 /** The options as the storage holds them, every default filled in and nothing to refuse. */
