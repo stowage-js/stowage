@@ -57,8 +57,9 @@ there is no facade and no manager, so an application that uses two adapters hold
   0006 asks for. ADR 0012 names the endpoints those cells run against.
 - Changesets keeps a version pull request open on `main`, and publishing runs from GitHub Actions
   through npm trusted publishing, so no npm token sits on a developer machine and every release
-  carries provenance. No workflow requires a changeset on a pull request, because a change to an
-  ADR has nothing to release.
+  carries provenance. `release.yml` does both, and calls `conformance-full.yml` before it
+  publishes. No workflow requires a changeset on a pull request, because a change to an ADR has
+  nothing to release.
 - Renovate is enabled with development dependencies grouped into one weekly pull request.
   `tsdown`, `oxfmt` and `oxlint-tsgolint` are all below 1.0 and release often.
 - `engines.node` is `>=24` and covers the Node floor alone. Bun and Deno ignore it and have no

@@ -1,0 +1,144 @@
+name: Release
+
+# ADR 0008: Changesets keeps a version pull request open on `main`, and merging it publishes
+# the five packages from here through npm trusted publishing, so no npm token exists anywhere.
+# npm matches this file's name, `release.yml`, against the trusted publisher of each package.
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# Each job asks for what it needs, so that `id-token: write` reaches the publish job alone.
+permissions: {}
+
+jobs:
+  select-mode:
+    name: Select mode
+    # A fork's `main` has no trusted publisher and nothing to version for this repository.
+    if: github.repository == 'stowage-js/stowage'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      mode: ${{ steps.select-mode.outputs.mode }}
+      publish-plan-artifact-id: ${{ steps.select-mode.outputs.publish-plan-artifact-id }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v6
+
+      # Every run on `main` writes the pnpm cache; a release installs without it, so that
+      # nothing reaches the tarballs that this run did not fetch itself.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - run: pnpm install --frozen-lockfile
+
+      # `version` while a changeset is waiting, `publish` once the version pull request is
+      # merged and npm lacks the versions it wrote, `none` otherwise.
+      - id: select-mode
+        uses: changesets/action/select-mode@v2
+
+  version:
+    name: Open the version pull request
+    needs: select-mode
+    if: needs.select-mode.outputs.mode == 'version'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v6
+
+      # Without the cache, as in select-mode.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: changesets/action/version@v2
+
+  # Spec 2: the `slow` tier runs before every release, and a release waits for it to pass.
+  slow-tier:
+    name: Slow tier
+    needs: select-mode
+    if: needs.select-mode.outputs.mode == 'publish'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/conformance-full.yml
+
+  pack:
+    name: Pack
+    needs: select-mode
+    if: needs.select-mode.outputs.mode == 'publish'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      pack-dir-artifact-id: ${{ steps.pack.outputs.pack-dir-artifact-id }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v6
+
+      # Without the cache, as in select-mode.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - run: pnpm install --frozen-lockfile
+
+      # ADR 0008: `publint` and `@arethetypeswrong/core` run inside the build, so the tarballs
+      # packed below come out of a checked `exports` map.
+      - run: pnpm run build
+
+      # pnpm packs, which replaces `workspace:^` with the version the fixed group carries.
+      - id: pack
+        uses: changesets/action/pack@v2
+        with:
+          publish-plan-artifact-id: ${{ needs.select-mode.outputs.publish-plan-artifact-id }}
+
+  # The job that holds `id-token: write` builds nothing and runs no install script: it
+  # installs for the Changesets CLI, publishes the tarballs the job above packed, then tags
+  # each package as `<name>@<version>`, the tag its README links the spec at.
+  publish:
+    name: Publish
+    needs: [pack, slow-tier]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v6
+
+      # Without the cache, as in select-mode.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - uses: changesets/action/publish@v2
+        with:
+          pack-dir-artifact-id: ${{ needs.pack.outputs.pack-dir-artifact-id }}
