@@ -79,6 +79,10 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/conformance-full.yml
+    # The credentials are secrets of the environments `aws-s3` and `r2`, and a called job
+    # that names its environment still reads them empty unless the caller inherits them;
+    # the environment's variables arrive either way.
+    secrets: inherit
 
   pack:
     name: Pack
