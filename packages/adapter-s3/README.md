@@ -11,8 +11,8 @@ npm install @stowage/adapter-s3
 
 ## Example
 
-A server signs a URL, and the browser uploads one body of the reported type and length to it with a
-plain `fetch`.
+A server signs a URL for one upload of the type and length the browser reported. The browser then
+calls it with a plain `fetch` and `PUT`, against AWS S3 or R2 alike.
 
 ```ts
 import { fromEnv, s3Storage } from "@stowage/adapter-s3";

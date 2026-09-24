@@ -55,7 +55,7 @@ the [runtime matrix](docs/spec.md#2-runtime-matrix).
 
 A server writes a stream of unknown length under a key, here the body of an incoming request. The
 stream travels to S3 in parts, so memory does not grow with the size of the object, and an upload
-that fails partway is aborted at the provider. This is
+that fails partway leaves no multipart upload behind, except in the one case spec 7.7 names. This is
 [reference flow 1](docs/spec.md#flow-1-large-upload-from-a-server).
 
 ```ts
