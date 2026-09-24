@@ -72,10 +72,12 @@ this repository happens to test against and nothing about the API a third-party 
 - A capability the endpoint lacks disqualifies it; a behavior it gets wrong goes on the divergence
   list. An endpoint without multipart or without presigning would leave reference flow 1 and
   reference flow 2 unchecked per commit, which is half of what v0.1 promises.
-- The list starts with the two divergences the spike found and the one closed SeaweedFS issue whose
-  divergence the pinned image still exhibits. Each entry names the upstream issue where one exists,
-  so the next person to read it can tell a bug that is being fixed from a difference that is
-  intended.
+- The list starts empty. The three differences the spike found, the `encoding-type=url` handling,
+  the XML element order and the `start-after` of issue 11321, show up in no conformance case
+  against the pinned image: `adapter-s3` sends neither parameter and reads the elements of a
+  listing by name. Both tiers ran green against it on Node, Bun, Deno and `workerd`, so none of
+  the three is admissible. An entry names the upstream issue where one exists, so the next person
+  to read it can tell a bug that is being fixed from a difference that is intended.
 - The CI bucket at each provider holds nothing else and carries a lifecycle rule that expires
   objects after one day and aborts incomplete multipart uploads after one day. ADR 0006 gives each
   run its own `keyPrefix` and a `cleanup()` that deletes below it; the lifecycle rule is what
