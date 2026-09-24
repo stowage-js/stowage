@@ -55,9 +55,11 @@ _Avoid_: content, payload, data
 
 **User metadata**:
 Named string values a caller stores with an object and reads back with its description. The
-provider keeps them beside the bytes and never looks at them. Whether a storage can hold them is a
-capability, and whether it takes names beyond identifiers is another; where it cannot, a write
-carrying them is refused and a read answers with none.
+provider keeps them beside the bytes and never looks at them. `userMetadata` says whether a
+storage can hold them; `userMetadataTokenKeys` says whether it takes names beyond identifiers.
+Without `userMetadata`, metadata writes are refused and reads return none. Without
+`userMetadataTokenKeys`, writes with names beyond identifiers are refused while identifier names
+remain supported.
 _Avoid_: metadata, tags, attributes, headers
 
 **Part**:
