@@ -3,9 +3,9 @@ import type { S3AdapterOptions } from "../../../packages/adapter-s3/src/index.ts
 /**
  * The variables `start.sh` prints. A runtime hands over its own: Node, Bun and Deno their
  * `process.env`, the `workerd` harness the bindings of its worker, where no `process`
- * exists to read them from.
+ * exists to read them from and a binding whose variable is unset arrives as `null`.
  */
-export type Variables = Readonly<Record<string, string | undefined>>;
+export type Variables = Readonly<Record<string, string | null | undefined>>;
 
 /**
  * ADR 0012: the endpoint is configuration rather than a dependency, so the harness reads
@@ -16,12 +16,10 @@ export function storageOptionsFrom(
   variables: Variables,
   credentials: S3AdapterOptions["credentials"],
 ): S3AdapterOptions | undefined {
-  const endpoint = variables["STOWAGE_S3_ENDPOINT"];
-  const bucket = variables["STOWAGE_S3_BUCKET"];
+  const endpoint = filled(variables["STOWAGE_S3_ENDPOINT"]);
+  const bucket = filled(variables["STOWAGE_S3_BUCKET"]);
 
-  if (endpoint === undefined || endpoint === "" || bucket === undefined || bucket === "") {
-    return undefined;
-  }
+  if (endpoint === undefined || bucket === undefined) return undefined;
 
   return {
     bucket,
@@ -54,11 +52,10 @@ export function storageWithDeniedCredentials(
   configured: S3AdapterOptions,
   variables: Variables,
 ): S3AdapterOptions | undefined {
-  const accessKeyId = variables["STOWAGE_S3_DENIED_ACCESS_KEY_ID"];
-  const secretAccessKey = variables["STOWAGE_S3_DENIED_SECRET_ACCESS_KEY"];
+  const accessKeyId = filled(variables["STOWAGE_S3_DENIED_ACCESS_KEY_ID"]);
+  const secretAccessKey = filled(variables["STOWAGE_S3_DENIED_SECRET_ACCESS_KEY"]);
 
-  if (accessKeyId === undefined || accessKeyId === "") return undefined;
-  if (secretAccessKey === undefined || secretAccessKey === "") return undefined;
+  if (accessKeyId === undefined || secretAccessKey === undefined) return undefined;
 
   return { ...configured, credentials: { accessKeyId, secretAccessKey } };
 }
@@ -109,6 +106,6 @@ export function storageWithExpiredCredentials(
   };
 }
 
-function filled(value: string | undefined): string | undefined {
-  return value === undefined || value === "" ? undefined : value;
+function filled(value: string | null | undefined): string | undefined {
+  return value === undefined || value === null || value === "" ? undefined : value;
 }

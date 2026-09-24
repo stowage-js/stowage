@@ -1,7 +1,11 @@
 import { describe, expect, test } from "vitest";
 
 import type { S3AdapterOptions } from "../../../packages/adapter-s3/src/index.ts";
-import { endpointNameFrom, storageWithExpiredCredentials } from "./configuration.ts";
+import {
+  endpointNameFrom,
+  storageWithDeniedCredentials,
+  storageWithExpiredCredentials,
+} from "./configuration.ts";
 
 const configured: S3AdapterOptions = {
   bucket: "stowage-conformance",
@@ -38,6 +42,16 @@ describe("storageWithExpiredCredentials", () => {
     );
   });
 
+  // `workerd` hands a binding whose variable is unset over as `null`.
+  test("supplies nothing where the bindings are unset", () => {
+    expect(
+      storageWithExpiredCredentials(
+        configured,
+        Object.fromEntries(Object.keys(expiredToken).map((name) => [name, null])),
+      ),
+    ).toBe(undefined);
+  });
+
   test("refuses an expiration that is no time", () => {
     expect(() =>
       storageWithExpiredCredentials(configured, { ...expiredToken, STOWAGE_S3_EXPIRED_AT: "soon" }),
@@ -52,5 +66,16 @@ describe("endpointNameFrom", () => {
 
   test("leaves an endpoint without a name unnamed", () => {
     expect(endpointNameFrom({ STOWAGE_S3_ENDPOINT_NAME: "" })).toBe(undefined);
+  });
+});
+
+describe("storageWithDeniedCredentials", () => {
+  test("supplies nothing where the bindings are unset", () => {
+    expect(
+      storageWithDeniedCredentials(configured, {
+        STOWAGE_S3_DENIED_ACCESS_KEY_ID: null,
+        STOWAGE_S3_DENIED_SECRET_ACCESS_KEY: null,
+      }),
+    ).toBe(undefined);
   });
 });
