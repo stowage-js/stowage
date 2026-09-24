@@ -34,12 +34,14 @@ export function storageOptionsFrom(
 
 /**
  * Spec 8.3: a credential the provider refuses. No identity is configured for it — a key
- * id no provider ever issued is refused by every one of them.
+ * id no provider ever issued is refused by every one of them. It is shaped like an R2
+ * key, 32 and 64 hex digits, because R2 answers a key of another shape with
+ * `InvalidArgument` before it looks the key up, which is no refusal of the credential.
  */
 export function storageWithBadCredentials(configured: S3AdapterOptions): S3AdapterOptions {
   return {
     ...configured,
-    credentials: { accessKeyId: "stowage-no-such-identity", secretAccessKey: "nor-this-secret" },
+    credentials: { accessKeyId: "0".repeat(32), secretAccessKey: "0".repeat(64) },
   };
 }
 

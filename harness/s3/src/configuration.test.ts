@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import type { S3AdapterOptions } from "../../../packages/adapter-s3/src/index.ts";
 import {
   endpointNameFrom,
+  storageWithBadCredentials,
   storageWithDeniedCredentials,
   storageWithExpiredCredentials,
 } from "./configuration.ts";
@@ -77,5 +78,18 @@ describe("storageWithDeniedCredentials", () => {
         STOWAGE_S3_DENIED_SECRET_ACCESS_KEY: null,
       }),
     ).toBe(undefined);
+  });
+});
+
+describe("storageWithBadCredentials", () => {
+  // R2 checks the shape of a key before it looks the key up, and answers a key of another
+  // length with `InvalidArgument` rather than with the refusal the case is about.
+  test("signs with a key shaped like one R2 issues", () => {
+    const { credentials } = storageWithBadCredentials(configured);
+
+    expect(credentials).toEqual({
+      accessKeyId: expect.stringMatching(/^[0-9a-f]{32}$/u),
+      secretAccessKey: expect.stringMatching(/^[0-9a-f]{64}$/u),
+    });
   });
 });
