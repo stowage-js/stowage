@@ -22,9 +22,10 @@ An implementation of the storage API for one provider.
 _Avoid_: driver, connector, client
 
 **Storage**:
-One adapter bound to one bucket, and the object an application holds. Another bucket is another
-storage. Which provider it faces is named where it is constructed, in code, and from named options
-rather than from one string that carries several of them.
+One adapter bound to one bucket, which Azure Blob calls a container, and the object an application
+holds. Another bucket is another storage. Which provider it faces is named where it is
+constructed, in code, and from named options rather than from one string that carries several of
+them.
 _Avoid_: disk, client, connection
 
 **Wire protocol**:
@@ -54,8 +55,11 @@ _Avoid_: content, payload, data
 
 **User metadata**:
 Named string values a caller stores with an object and reads back with its description. The
-provider keeps them beside the bytes and never looks at them. Whether a storage can hold them is a
-capability; where it cannot, a write carrying them is refused and a read answers with none.
+provider keeps them beside the bytes and never looks at them. `userMetadata` says whether a
+storage can hold them; `userMetadataTokenKeys` says whether it takes names beyond identifiers.
+Without `userMetadata`, metadata writes are refused and reads return none. Without
+`userMetadataTokenKeys`, writes with names beyond identifiers are refused while identifier names
+remain supported.
 _Avoid_: metadata, tags, attributes, headers
 
 **Part**:
