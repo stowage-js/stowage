@@ -183,8 +183,11 @@ jobs:
         with:
           node-version: "24"
 
+      # A called run shares its artifacts with the caller's jobs, such as the publish plan and
+      # the packed tarballs of a release, and the report reads every directory as a column.
       - uses: actions/download-artifact@v8
         with:
+          pattern: "{aws-s3,r2}-*"
           path: results
 
       - run: node harness/s3/src/first-run-report.ts results >> "$GITHUB_STEP_SUMMARY"
