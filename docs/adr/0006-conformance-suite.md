@@ -124,7 +124,7 @@ every adapter this repository did not write.
   explicit full-suite invocation is what ADR 0002 means by covered in CI, on all four runtimes,
   on a schedule and before every release. The slow cases may run less often; they may not run on
   fewer cells.
-- No case names a runtime, and no harness leaves one out. Flow 5 has no `adapter-fs` target on
+- No case names a runtime. Flow 5 has no `adapter-fs` target on
   `workerd`, because `adapter-fs` cannot be constructed there. A second copy of the matrix in code
   would drift from the one in ADR 0002 that carries the promise.
 - Resource requirements become benchmarks on Node alone. The suite covers the observable half of

@@ -1,18 +1,17 @@
 # The runtimes v0.1 promises
 
 v0.1 promises Node, Bun, Deno and `workerd`, cell by cell against the five reference flows
-rather than as one list, because `adapter-fs` cannot exist on `workerd`. The CPU and duration
-budget that Cloudflare's network puts on a long multipart upload kept flow 1 off `workerd` until
-the first scheduled run measured it (ADR 0012).
+rather than as one list, because `adapter-fs` cannot exist on `workerd`.
 Supported means one thing: the conformance suite covers that cell in CI. The alternative was a
 second, weaker level for runtimes tried by hand before a release, and on a project with one
 maintainer that is a promise which decays without anyone noticing.
 
 Hosts are not listed. Cloudflare's network, Deno Deploy, AWS Lambda and Vercel inherit a
 runtime and add limits this project cannot measure, so naming one would promise something the
-conformance suite never checks. A host limit bounds a cell without taking it away, as the
-10 milliseconds of CPU on Cloudflare's free plan bound flow 1: the matrix promises what the
-runtime does, and the spec names the limit where one is known.
+conformance suite never checks. A host limit can still take a cell away; Cloudflare's does not
+take flow 1, whose upload the first scheduled run measured within the CPU the paid Workers plans
+allow, and the spec says so beside the matrix. The matrix promises less than the runtime can do,
+never more.
 
 |                                            | Node                 | Bun                  | Deno                 | `workerd`      |
 | ------------------------------------------ | -------------------- | -------------------- | -------------------- | -------------- |

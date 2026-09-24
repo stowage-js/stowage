@@ -48,10 +48,11 @@ A cell is supported where the conformance suite covers it in CI. There is no wea
   image digest. The `slow` tier runs on a schedule, on demand and before every release; on Node and
   `workerd` it runs against a real AWS S3 bucket and a real R2 bucket, on Bun and Deno against the
   emulator (ADR 0012).
-- Hosts such as Cloudflare's network, Deno Deploy or AWS Lambda are not named and not promised.
-- Flow 1 on `workerd` is the runtime's cell and no host's. The first scheduled run measured a
-  17 MiB upload at under a second of CPU for the whole `workerd` process. Cloudflare's paid plans
-  allow a request 30 seconds of CPU by default; the free plan's 10 milliseconds do not hold one.
+- Hosts such as Cloudflare's network, Deno Deploy or AWS Lambda are not named in the matrix and
+  not promised.
+- Flow 1 on `workerd` is promised for the runtime and on no host. The first scheduled run measured
+  a 17 MiB upload at about five seconds and under a second of CPU for the whole `workerd` process,
+  which Cloudflare's paid plans allow by default and its free plan's 10 milliseconds do not.
 
 ## 3. Reference flows
 
@@ -755,16 +756,16 @@ provider until a lifecycle rule removes them.
 A recognized provider code decides the error code alone; an unrecognized one falls to the status
 mapping of section 4.10. One table holds both vendors' strings.
 
-| Provider code                                                                                                                                                                                                        | Error code           | Note                                                                             |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- | -------------------------------------------------------------------------------- |
-| `NoSuchKey`, `NoSuchBucket`                                                                                                                                                                                          | `NotFound`           |                                                                                  |
-| `AccessDenied`                                                                                                                                                                                                       | `AccessDenied`       |                                                                                  |
-| `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `Unauthorized`                                                                                                                                                        | `InvalidCredentials` | `Unauthorized` at `401` is R2's                                                  |
-| `ExpiredToken`, `ExpiredRequest`                                                                                                                                                                                     | `Expired`            | `ExpiredRequest` is R2's; provisional                                            |
-| `RequestTimeTooSkewed`, `InvalidRange`, `InvalidRequest`, `InvalidArgument`, `MetadataTooLarge`, `EntityTooLarge`, `EntityTooSmall`, `InvalidPart`, `InvalidPartOrder`, `BadDigest`, `MalformedXML`, `InvalidDigest` | `InvalidRequest`     | `InvalidArgument` answered to `ListObjectsV2` is `InvalidOption` naming `cursor` |
-| `InvalidObjectName`, `KeyTooLongError`                                                                                                                                                                               | `InvalidKey`         | Reached only for a key the core accepted                                         |
-| `PermanentRedirect`                                                                                                                                                                                                  | `InvalidOption`      | Names `region` and the region from the header                                    |
-| `NoSuchUpload`, `SlowDown`, `TooManyRequests`, `ServiceUnavailable`, `InternalError`, `RequestTimeout`                                                                                                               | `ProviderError`      | The last five are transient by status                                            |
+| Provider code                                                                                                                                                                                                        | Error code           | Note                                                                                                        |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `NoSuchKey`, `NoSuchBucket`                                                                                                                                                                                          | `NotFound`           |                                                                                                             |
+| `AccessDenied`                                                                                                                                                                                                       | `AccessDenied`       |                                                                                                             |
+| `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `Unauthorized`                                                                                                                                                        | `InvalidCredentials` | `Unauthorized` at `401` is R2's                                                                             |
+| `ExpiredToken`, `ExpiredRequest`                                                                                                                                                                                     | `Expired`            | `ExpiredRequest` is R2's; provisional                                                                       |
+| `RequestTimeTooSkewed`, `InvalidRange`, `InvalidRequest`, `InvalidArgument`, `MetadataTooLarge`, `EntityTooLarge`, `EntityTooSmall`, `InvalidPart`, `InvalidPartOrder`, `BadDigest`, `MalformedXML`, `InvalidDigest` | `InvalidRequest`     | `InvalidRequest` is AWS's; `InvalidArgument` answered to `ListObjectsV2` is `InvalidOption` naming `cursor` |
+| `InvalidObjectName`, `KeyTooLongError`                                                                                                                                                                               | `InvalidKey`         | Reached only for a key the core accepted                                                                    |
+| `PermanentRedirect`                                                                                                                                                                                                  | `InvalidOption`      | Names `region` and the region from the header                                                               |
+| `NoSuchUpload`, `SlowDown`, `TooManyRequests`, `ServiceUnavailable`, `InternalError`, `RequestTimeout`                                                                                                               | `ProviderError`      | The last five are transient by status                                                                       |
 
 `status`, `providerCode`, `requestId` (from `x-amz-request-id`) and the provider's message are set
 on every error that carries a response. `HEAD` carries no body, so `stat` and `exists` report the

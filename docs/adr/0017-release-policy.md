@@ -44,13 +44,15 @@ someone may have depended on it asks for knowledge about strangers that nobody h
 1.0 waits for six things:
 
 - The three points ADR 0012 leaves unverified against every candidate endpoint — `EntityTooSmall`,
-  what a presigned `PUT` binds, and `HEAD` without a body — have run against a real one.
+  what a presigned `PUT` binds, and `HEAD` without a body — have run against a real one. The
+  first scheduled run met this.
 - The four response overrides on `presignGet` have run against a real R2 bucket instead of staying
-  provisional (ADR 0014).
+  provisional (ADR 0014). The first scheduled run met this.
 - The `UploadPartCopy` fallback of ADR 0016 has run against a real endpoint rather than against
   stubbed `fetch`, which is the one promise of v0.1 no CI run checks.
 - The CPU and the duration a large upload spends on `workerd` are measured, so reference flow 1 on
-  Workers is promised or ruled out instead of left open (ADR 0002).
+  Workers is promised or ruled out instead of left open (ADR 0002). The first scheduled run met
+  this, and flow 1 is promised.
 - The `raw` escape hatch has a shape.
 - The author has used stowage in a project of their own, which is the one item no measurement
   settles.
