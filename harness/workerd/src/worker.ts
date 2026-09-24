@@ -2,7 +2,12 @@ import type { ConformanceCaseSource } from "../../../packages/conformance/src/ca
 import { runCases } from "../../../packages/conformance/src/run-all.ts";
 import { selectedCases } from "../../../packages/conformance/src/run.ts";
 import type { ConformanceTarget } from "../../../packages/conformance/src/target.ts";
-import { storageOptionsFrom, type Variables } from "../../s3/src/configuration.ts";
+import {
+  endpointNameFrom,
+  storageOptionsFrom,
+  type Variables,
+} from "../../s3/src/configuration.ts";
+import { withDivergences } from "../../s3/src/divergences.ts";
 import { s3Target } from "../../s3/src/target.ts";
 import { memoryTarget } from "../../targets/src/memory.ts";
 import { runOptionsFrom } from "../../targets/src/run-options.ts";
@@ -43,5 +48,8 @@ function runAt(pathname: string, variables: Variables): Run | undefined {
 
   if (configured === undefined) return undefined;
 
-  return { target: s3Target(configured, variables), cases };
+  return {
+    target: s3Target(configured, variables),
+    cases: withDivergences(cases, endpointNameFrom(variables)),
+  };
 }

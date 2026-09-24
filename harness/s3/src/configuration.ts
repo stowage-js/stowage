@@ -62,3 +62,18 @@ export function storageWithDeniedCredentials(
 
   return { ...configured, credentials: { accessKeyId, secretAccessKey } };
 }
+
+/**
+ * The real endpoints of ADR 0012, as `STOWAGE_S3_ENDPOINT_NAME` names them in the
+ * scheduled run. The emulator is named by `start.sh`, and a divergence names it.
+ */
+export const realEndpoints: readonly string[] = ["aws-s3", "r2"];
+
+/** Which server answers, for the harness alone: no case reads it (ADR 0012). */
+export function endpointNameFrom(variables: Variables): string | undefined {
+  return filled(variables["STOWAGE_S3_ENDPOINT_NAME"]);
+}
+
+function filled(value: string | undefined): string | undefined {
+  return value === undefined || value === "" ? undefined : value;
+}

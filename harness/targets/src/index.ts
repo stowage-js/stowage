@@ -1,5 +1,7 @@
 import { env } from "node:process";
 
+import { endpointNameFrom } from "../../s3/src/configuration.ts";
+import { withDivergences } from "../../s3/src/divergences.ts";
 import { configuredStorage } from "../../s3/src/environment.ts";
 import { describeEndpointCheck, s3Target } from "../../s3/src/target.ts";
 import {
@@ -31,6 +33,10 @@ export function describeAdapters(framework: ConformanceFramework): void {
   describeEndpointCheck(framework, configured);
 
   if (configured !== undefined) {
-    describeCases(selectedCases(options), s3Target(configured, env), framework);
+    describeCases(
+      withDivergences(selectedCases(options), endpointNameFrom(env)),
+      s3Target(configured, env),
+      framework,
+    );
   }
 }
