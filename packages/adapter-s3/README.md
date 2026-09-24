@@ -17,13 +17,20 @@ calls it with a plain `fetch` and `PUT`, against AWS S3 or R2 alike.
 ```ts
 import { fromEnv, s3Storage } from "@stowage/adapter-s3";
 
+declare const process: { readonly env: Readonly<Record<string, string | undefined>> };
+
 const aws = s3Storage({ bucket: "my-app-uploads", region: "eu-north-1", credentials: fromEnv });
+
+const fromR2Env = () => ({
+  accessKeyId: process.env.R2_ACCESS_KEY_ID ?? "",
+  secretAccessKey: process.env.R2_SECRET_ACCESS_KEY ?? "",
+});
 
 const r2 = s3Storage({
   bucket: "my-app-uploads",
   region: "auto",
   endpoint: "https://<account-id>.r2.cloudflarestorage.com",
-  credentials: fromEnv,
+  credentials: fromR2Env,
 });
 
 for (const storage of [aws, r2]) {

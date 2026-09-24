@@ -49,25 +49,92 @@ function codeBlocksOf(document: string, text: string): CodeBlock[] {
     const section = /^## (\d+)\./u.exec(lines[index] ?? "")?.[1];
 
     if (section !== undefined) specSection = section;
-    if (lines[index] !== "```ts") continue;
+    const opening = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(lines[index] ?? "");
+
+    if (opening === null) continue;
+
+    const fence = opening[1] ?? "";
+    const info = opening[2]?.trim() ?? "";
+
+    if (fence.startsWith("`") && info.includes("`")) continue;
+
+    const typescript = /^(?:ts|typescript)(?=\s|$)|^\{\.(?:ts|typescript)(?=\s|\})/u.test(info);
 
     const start = index + 1;
-    const end = lines.indexOf("```", start);
+    let end = start;
 
-    if (end === -1) throw new Error(`${document}:${start} opens a \`ts\` block it never closes`);
+    for (; end < lines.length; end += 1) {
+      const closing = /^ {0,3}(`+|~+)[ \t]*$/u.exec(lines[end] ?? "")?.[1];
 
-    blocks.push({
-      name: `${document}:${start + 1}`,
-      document,
-      firstCodeLine: start + 1,
-      source: lines.slice(start, end).join("\n"),
-      specSection: document === "docs/spec.md" ? specSection : undefined,
-    });
+      if (closing !== undefined && closing[0] === fence[0] && closing.length >= fence.length) break;
+    }
+
+    if (end === lines.length) {
+      if (typescript)
+        throw new Error(`${document}:${start} opens a TypeScript block it never closes`);
+      break;
+    }
+
+    if (typescript) {
+      blocks.push({
+        name: `${document}:${start + 1}`,
+        document,
+        firstCodeLine: start + 1,
+        source: lines.slice(start, end).join("\n"),
+        specSection: document === "docs/spec.md" ? specSection : undefined,
+      });
+    }
     index = end;
   }
 
   return blocks;
 }
+
+test("TypeScript fences accept indentation, longer markers, tildes and attributes", () => {
+  const source = [
+    "  ````typescript title=example.ts",
+    "const first = 1;",
+    "```",
+    "  ````",
+    " ~~~ts {.example}",
+    "const second = 2;",
+    " ~~~",
+    "```{.typescript}",
+    "const third = 3;",
+    "```",
+  ].join("\n");
+
+  expect(
+    codeBlocksOf("README.md", source).map(({ firstCodeLine, source: code }) => [
+      firstCodeLine,
+      code,
+    ]),
+  ).toEqual([
+    [2, "const first = 1;\n```"],
+    [6, "const second = 2;"],
+    [9, "const third = 3;"],
+  ]);
+});
+
+test("unsupported fences do not expose their contents or hide later TypeScript", () => {
+  const source = [
+    "````javascript",
+    "```ts",
+    "not TypeScript",
+    "```",
+    "````",
+    "~~~typescript",
+    "const present = true;",
+    "~~~",
+  ].join("\n");
+
+  expect(
+    codeBlocksOf("README.md", source).map(({ firstCodeLine, source: code }) => [
+      firstCodeLine,
+      code,
+    ]),
+  ).toEqual([[7, "const present = true;"]]);
+});
 
 const blocks: CodeBlock[] = (
   await Promise.all(documents.map(async (document) => codeBlocksOf(document, await read(document))))
@@ -126,6 +193,12 @@ async function importLineFor(block: CodeBlock): Promise<string> {
 // is a program and gets no pass.
 const signatureOnlyDiagnostics = new Set(["TS1155", "TS2390", "TS2391"]);
 
+interface Compilation {
+  readonly error: Error | null;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
 const diagnostics = new Map<string, string[]>();
 let directory = "";
 
@@ -168,43 +241,97 @@ beforeAll(async () => {
     }),
   );
 
-  const output = await compile(directory);
+  const found = diagnosticsOf(await compile(directory), blocks);
 
-  for (const line of output.split("\n").filter((entry) => entry.includes(": error TS"))) {
+  for (const [name, messages] of found) diagnostics.set(name, messages);
+});
+
+function diagnosticsOf(
+  output: Compilation,
+  codeBlocks: readonly CodeBlock[],
+): Map<string, string[]> {
+  const found = new Map<string, string[]>();
+  let recognized = 0;
+
+  for (const line of `${output.stdout}\n${output.stderr}`.split("\n")) {
+    if (!/(?:^|: )error TS\d+: /u.test(line)) continue;
+
+    recognized += 1;
     const match = /^block-(\d+)\.ts\((\d+),(\d+)\): error (TS\d+): (.*)$/u.exec(line);
-    const block = match === null ? undefined : blocks[Number(match[1])];
+    const block = match === null ? undefined : codeBlocks[Number(match[1])];
 
     if (match === null || block === undefined) {
-      diagnostics.set("outside", [...(diagnostics.get("outside") ?? []), line]);
+      found.set("outside", [...(found.get("outside") ?? []), line]);
       continue;
     }
     if (block.specSection !== undefined && signatureOnlyDiagnostics.has(match[4] ?? "")) continue;
 
     const documentLine = block.firstCodeLine + Number(match[2]) - 2;
 
-    diagnostics.set(block.name, [
-      ...(diagnostics.get(block.name) ?? []),
+    found.set(block.name, [
+      ...(found.get(block.name) ?? []),
       `${block.document}:${documentLine}:${match[3]} ${match[4]}: ${match[5]}`,
     ]);
   }
+
+  if (output.error !== null && recognized === 0) {
+    found.set("outside", [
+      ...(found.get("outside") ?? []),
+      `Compiler failed without a TypeScript diagnostic: ${output.error.message}`,
+    ]);
+  }
+
+  return found;
+}
+
+test("global TypeScript errors and compiler failures cannot pass unnoticed", () => {
+  expect(
+    diagnosticsOf(
+      { error: new Error("exited with code 2"), stdout: "error TS18003: No inputs", stderr: "" },
+      [],
+    ),
+  ).toEqual(new Map([["outside", ["error TS18003: No inputs"]]]));
+  expect(
+    diagnosticsOf({ error: new Error("spawn failed"), stdout: "", stderr: "failed to start" }, []),
+  ).toEqual(
+    new Map([["outside", ["Compiler failed without a TypeScript diagnostic: spawn failed"]]]),
+  );
+});
+
+test("file-scoped TypeScript errors are mapped back to documentation lines", () => {
+  const block: CodeBlock = {
+    name: "README.md:10",
+    document: "README.md",
+    firstCodeLine: 10,
+    source: "const value = missing;",
+  };
+
+  expect(
+    diagnosticsOf(
+      {
+        error: new Error("exited with code 2"),
+        stdout: "block-0.ts(2,15): error TS2304: Cannot find name 'missing'.",
+        stderr: "",
+      },
+      [block],
+    ),
+  ).toEqual(new Map([[block.name, ["README.md:10:15 TS2304: Cannot find name 'missing'."]]]));
 });
 
 afterAll(async () => {
   if (directory !== "") await rm(directory, { recursive: true, force: true });
 });
 
-async function compile(project: string): Promise<string> {
+async function compile(project: string): Promise<Compilation> {
   const tsc = join(repository, "node_modules/typescript/bin/tsc");
 
-  // `tsc` exits non-zero on the first error and reports every one on stdout regardless, and
-  // a compiler that fails to start says why on stderr, which lands outside every block.
   return await new Promise((resolve) => {
     execFile(
       process.execPath,
       [tsc, "--pretty", "false"],
       { cwd: project },
-      (_, stdout, stderr) => {
-        resolve(`${stdout}${stderr}`);
+      (error, stdout, stderr) => {
+        resolve({ error, stdout, stderr });
       },
     );
   });
