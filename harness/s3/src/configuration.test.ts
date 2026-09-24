@@ -82,9 +82,7 @@ describe("storageWithDeniedCredentials", () => {
 });
 
 describe("storageWithBadCredentials", () => {
-  // R2 checks the shape of a key before it looks the key up, and answers a key of another
-  // length with `InvalidArgument` rather than with the refusal the case is about.
-  test("signs with a key shaped like one R2 issues", () => {
+  test("signs with a credential shaped like one R2 issues", () => {
     const { credentials } = storageWithBadCredentials(configured);
 
     expect(credentials).toEqual({
