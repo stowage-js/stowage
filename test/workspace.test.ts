@@ -2,6 +2,7 @@ import { readdir } from "node:fs/promises";
 
 import { expect, test } from "vitest";
 
+import changesetConfig from "../.changeset/config.json" with { type: "json" };
 import adapterFs from "../packages/adapter-fs/package.json" with { type: "json" };
 import adapterMemory from "../packages/adapter-memory/package.json" with { type: "json" };
 import adapterS3 from "../packages/adapter-s3/package.json" with { type: "json" };
@@ -10,6 +11,7 @@ import core from "../packages/core/package.json" with { type: "json" };
 
 interface PackageManifest {
   readonly name: string;
+  readonly version: string;
   readonly type?: string;
   readonly files?: readonly string[];
   readonly exports?: Readonly<Record<string, unknown>>;
@@ -32,6 +34,16 @@ test("every package under `packages` is checked here", async () => {
   });
 
   expect(entries.filter((entry) => entry.isDirectory())).toHaveLength(published.length);
+});
+
+test("the five packages carry one version", () => {
+  expect(new Set(published.map((manifest) => manifest.version)).size).toBe(1);
+});
+
+// ADR 0008: the release keeps the one version through a `fixed` group, so a package left out
+// of it would be versioned on its own by the next `changeset version`.
+test("the five packages are released as one fixed group", () => {
+  expect(changesetConfig.fixed).toEqual([published.map((manifest) => manifest.name)]);
 });
 
 test.each(published)("$name is published as ESM alone", (manifest) => {
