@@ -2,7 +2,7 @@ import type { RealEndpoint } from "./configuration.ts";
 
 declare module "vitest" {
   interface TaskMeta {
-    /** What a probe of spec 12 saw where the point is a measurement and not a promise. */
+    /** What a probe saw beyond passing, where the provider may answer more than one way. */
     observed?: string;
   }
 }
@@ -27,7 +27,7 @@ export interface FirstRunTest {
 }
 
 export interface FirstRunPoint {
-  /** The point as spec 12 states it. */
+  /** The point as spec 12 stated it before the first run. */
   readonly promise: string;
   /** The tests of the scheduled run that answer it. */
   readonly tests: readonly FirstRunTest[];
@@ -41,7 +41,10 @@ export interface FirstRunPoint {
 const probe = (title: string): FirstRunTest => ({ suite: firstRunSuite, title });
 const conformanceCase = (title: string): FirstRunTest => ({ suite: s3Suite, title });
 
-/** Spec 12, point by point, with what the scheduled run reads each one off. */
+/**
+ * Spec 12 as it stood before the first run, point by point, with what the scheduled run reads
+ * each one off. The run keeps asking once a point moved into the section it belongs to.
+ */
 export const firstRunPoints: readonly FirstRunPoint[] = [
   {
     promise: "`EntityTooSmall` and `InvalidPart` are answered as this document maps them",

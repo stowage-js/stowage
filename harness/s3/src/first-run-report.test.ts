@@ -82,13 +82,13 @@ describe("firstRunReport", () => {
         "aws-s3-node-24",
         assertion({
           title: probeNames.copyAboveLimit,
-          meta: { observed: "refused as `InvalidRequest`" },
+          meta: { observed: "refused as `InvalidRequest`, 400 `InvalidRequest`: too large" },
         }),
       ),
     ]);
 
     expect(cellOf(report, "The refusal of `copy`", "aws-s3-node-24")).toBe(
-      "refused as `InvalidRequest`",
+      "refused as `InvalidRequest`, 400 `InvalidRequest`: too large",
     );
   });
 

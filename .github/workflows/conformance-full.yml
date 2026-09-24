@@ -92,7 +92,7 @@ jobs:
 
       - run: pnpm run build
 
-      # A real endpoint answers in round trips over the internet, the 5 GiB copy of spec 12
+      # A real endpoint answers in round trips over the internet, the 5 GiB copy of spec 7.8
       # takes minutes, and the `Expired` case waits out the token: the per-commit timeouts
       # measure none of that.
       - name: Run both tiers

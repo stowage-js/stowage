@@ -33,7 +33,7 @@ export interface FirstRunRun {
  * A promise it disproves is withdrawn by hand; the table is what that decision reads.
  */
 export function firstRunReport(runs: readonly FirstRunRun[]): string {
-  const header = ["Spec 12", ...runs.map((each) => each.label)];
+  const header = ["Point", ...runs.map((each) => each.label)];
   const rows = firstRunPoints.map((point) =>
     [point.promise].concat(
       runs.map((each) => (isAsked(point, each.label) ? cellFor(point, each.results) : "—")),
@@ -47,7 +47,7 @@ export function firstRunReport(runs: readonly FirstRunRun[]): string {
     tableRow(header.map(() => "---")),
     ...rows.map(tableRow),
     "",
-    "A promise this run disproves is withdrawn from `docs/spec.md` in a minor release (spec 12).",
+    "A promise this run disproves is withdrawn from `docs/spec.md` in a minor release (spec 9).",
     "",
   ].join("\n");
 }
