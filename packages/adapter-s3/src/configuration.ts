@@ -18,7 +18,8 @@ export interface S3AdapterOptions {
   credentials: Resolvable<S3Credentials>;
   /**
    * How often one HTTP request is attempted while its failure is transient: a response of
-   * `408`, `429` or `5xx`, or none at all. `false` sends one attempt.
+   * `408`, `429` or `5xx`, or none at all. `false` sends one attempt. Neither switches off
+   * the one repeat with a fresh credential after the provider answered `Expired`.
    */
   retry?:
     | false
