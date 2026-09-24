@@ -111,8 +111,8 @@ point: the case checks the promise, not the construction, which is the rule ADR 
 - A hundred megabytes handed over as a stream cost fifteen requests where one `PUT` was sent
   before. This is the price of the retry, and it is paid by streams alone.
 - On `workerd` four parts in flight sit under the six simultaneous connections Cloudflare documents,
-  and an upload spends two subrequests plus one per part. ADR 0002 leaves flow 1 off `workerd`
-  anyway, and nothing here takes a cell away.
+  and an upload spends two subrequests plus one per part. The first scheduled run measured a
+  17 MiB upload there at under a second of CPU, which gave flow 1 its cell (ADR 0002).
 - A multipart upload aborts itself on failure and on the caller's abort, with one exception:
   `CompleteMultipartUpload` that received no answer. ADR 0005 carries the exception.
 - `copy` first tries `CopyObject`. If the provider refuses because the source is too large, v0.1

@@ -36,7 +36,7 @@ A cell is supported where the conformance suite covers it in CI. There is no wea
 
 |                                            | Node                 | Bun                  | Deno                 | `workerd`      |
 | ------------------------------------------ | -------------------- | -------------------- | -------------------- | -------------- |
-| 1 large upload from a server               | yes                  | yes                  | yes                  | no             |
+| 1 large upload from a server               | yes                  | yes                  | yes                  | yes            |
 | 2 browser upload through a presigned `PUT` | yes                  | yes                  | yes                  | yes            |
 | 3 file browser listing one prefix          | yes                  | yes                  | yes                  | yes            |
 | 4 streaming download from an edge runtime  | yes                  | yes                  | yes                  | yes            |
@@ -49,8 +49,9 @@ A cell is supported where the conformance suite covers it in CI. There is no wea
   `workerd` it runs against a real AWS S3 bucket and a real R2 bucket, on Bun and Deno against the
   emulator (ADR 0012).
 - Hosts such as Cloudflare's network, Deno Deploy or AWS Lambda are not named and not promised.
-- Flow 1 on `workerd` is left open, not ruled out: the CPU and duration a multipart upload spends
-  there are unmeasured (section 12).
+- Flow 1 on `workerd` is the runtime's cell and no host's. The first scheduled run measured a
+  17 MiB upload at under a second of CPU for the whole `workerd` process. Cloudflare's paid plans
+  allow a request 30 seconds of CPU by default; the free plan's 10 milliseconds do not hold one.
 
 ## 3. Reference flows
 
@@ -1185,4 +1186,3 @@ belong to.
 
 - R2 answers `ExpiredRequest` for an expired credential; the `Expired` case is skipped against R2
   until a way to provoke it exists.
-- The CPU and duration a multipart upload spends on `workerd`, which decides flow 1 on `workerd`.

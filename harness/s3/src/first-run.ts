@@ -1,4 +1,3 @@
-import { excludedCases } from "../../workerd/src/excluded.ts";
 import type { RealEndpoint } from "./configuration.ts";
 
 declare module "vitest" {
@@ -8,7 +7,7 @@ declare module "vitest" {
   }
 }
 
-/** The block the probes of spec 12 are registered in, on Node and on `workerd` alike. */
+/** The block the probes of spec 12 are registered in. */
 export const firstRunSuite = "settled by the first run";
 
 /** The block `describeConformance` registers the cases against the endpoint in. */
@@ -21,9 +20,6 @@ export const probeNames = {
   responseOverrides: "a presigned `GET` answers with the four response overrides",
   copyAboveLimit: "`copy` above the single-request limit",
 } as const;
-
-/** The test the `workerd` harness reports an excluded case's measurement under. */
-export const measuredOnWorkerd = (name: string): string => `${name} measured on workerd`;
 
 export interface FirstRunTest {
   readonly suite: string;
@@ -73,11 +69,6 @@ export const firstRunPoints: readonly FirstRunPoint[] = [
     promise: "R2 answers `ExpiredRequest` for an expired credential",
     tests: [conformanceCase("errors/expired-credentials")],
     askedOf: { provider: "r2" },
-  },
-  {
-    promise: "The CPU and duration a multipart upload spends on `workerd`",
-    tests: excludedCases.map((name) => probe(measuredOnWorkerd(name))),
-    askedOf: { runtime: "workerd" },
   },
   {
     promise: "The refusal of `copy` above the single-request limit against a real provider",

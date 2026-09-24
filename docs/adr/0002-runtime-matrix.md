@@ -1,20 +1,22 @@
 # The runtimes v0.1 promises
 
 v0.1 promises Node, Bun, Deno and `workerd`, cell by cell against the five reference flows
-rather than as one list, because `adapter-fs` cannot exist on `workerd` and the CPU and
-duration budget that Cloudflare's network puts on a long multipart upload is unmeasured.
+rather than as one list, because `adapter-fs` cannot exist on `workerd`. The CPU and duration
+budget that Cloudflare's network puts on a long multipart upload kept flow 1 off `workerd` until
+the first scheduled run measured it (ADR 0012).
 Supported means one thing: the conformance suite covers that cell in CI. The alternative was a
 second, weaker level for runtimes tried by hand before a release, and on a project with one
 maintainer that is a promise which decays without anyone noticing.
 
 Hosts are not listed. Cloudflare's network, Deno Deploy, AWS Lambda and Vercel inherit a
 runtime and add limits this project cannot measure, so naming one would promise something the
-conformance suite never checks. A host limit can still take a cell away, as Cloudflare's does
-for flow 1: the matrix promises less than the runtime can do, never more.
+conformance suite never checks. A host limit bounds a cell without taking it away, as the
+10 milliseconds of CPU on Cloudflare's free plan bound flow 1: the matrix promises what the
+runtime does, and the spec names the limit where one is known.
 
 |                                            | Node                 | Bun                  | Deno                 | `workerd`      |
 | ------------------------------------------ | -------------------- | -------------------- | -------------------- | -------------- |
-| 1 large upload from a server               | yes                  | yes                  | yes                  | no             |
+| 1 large upload from a server               | yes                  | yes                  | yes                  | yes            |
 | 2 browser upload through a presigned `PUT` | yes                  | yes                  | yes                  | yes            |
 | 3 file browser listing one prefix          | yes                  | yes                  | yes                  | yes            |
 | 4 streaming download from an edge runtime  | yes                  | yes                  | yes                  | yes            |
