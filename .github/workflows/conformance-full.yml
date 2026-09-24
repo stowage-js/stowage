@@ -13,6 +13,10 @@ on:
 concurrency:
   group: conformance-full-${{ github.ref }}
   cancel-in-progress: false
+  # A called run takes the caller's `github.ref` and so shares this group with the schedule.
+  # Without a queue a later trigger cancels the one run waiting, and a release waiting on it
+  # would be skipped without a failure to show for it.
+  queue: max
 
 permissions:
   contents: read
