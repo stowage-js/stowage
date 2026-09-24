@@ -1,8 +1,10 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
+import { get, type IncomingMessage } from "node:http";
 import { createRequire } from "node:module";
 import { createInterface } from "node:readline";
 import { Readable } from "node:stream";
+import { text } from "node:stream/consumers";
 import { fileURLToPath } from "node:url";
 
 import { build } from "tsdown";
@@ -85,12 +87,22 @@ async function listeningPort(child: ChildProcess): Promise<number> {
   throw new Error("`workerd` exited before its socket listened");
 }
 
-async function resultsOf(origin: string, adapter: string): Promise<readonly ConformanceResult[]> {
-  const response = await fetch(`${origin}/${adapter}`);
+/**
+ * Through `node:http` rather than `fetch`: the worker answers once the last case ran, and
+ * Node's `fetch` gives up on a response whose headers take five minutes, which a run
+ * against a real bucket outlasts.
+ */
+async function resultsOf(origin: string, path: string): Promise<readonly ConformanceResult[]> {
+  const response = await new Promise<IncomingMessage>((resolve, reject) => {
+    get(`${origin}/${path}`, resolve).on("error", reject);
+  });
+  const body = await text(response);
 
-  if (!response.ok) throw new Error(`The worker answered ${response.status} for ${adapter}`);
+  if (response.statusCode !== 200) {
+    throw new Error(`The worker answered ${response.statusCode} for ${path}`);
+  }
 
-  const results: readonly ConformanceResult[] = await response.json();
+  const results: readonly ConformanceResult[] = JSON.parse(body);
 
   return results;
 }
