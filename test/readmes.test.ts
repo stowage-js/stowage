@@ -14,16 +14,21 @@ const read = async (path: string): Promise<string> =>
 const headingsOf = (text: string): string[] =>
   [...text.matchAll(/^## (.+)$/gmu)].map((match) => match[1] ?? "");
 
-const codeBlocksOf = (text: string): string[] =>
+const tsSourcesOf = (text: string): string[] =>
   [...text.matchAll(/^```ts\n([\s\S]*?)^```$/gmu)].map((match) => match[1] ?? "");
 
 const readmeOf = async (manifest: { readonly name: string }): Promise<string> =>
   await read(`packages/${manifest.name.replace("@stowage/", "")}/README.md`);
 
+const published = [core, adapterMemory, adapterFs, adapterS3, conformance];
+
+/** Spec 10 gives `@stowage/conformance` a shape of its own and these four the same sections. */
+const sectioned = [core, adapterMemory, adapterFs, adapterS3];
+
 /** Spec 10: the sections a README carries, in this order, before anything else it holds. */
 const packageSections = ["Install", "Example", "Runtimes", "Limits", "Notes", "Specification"];
 
-test.each([core, adapterMemory, adapterFs, adapterS3])(
+test.each(sectioned)(
   "the README of $name carries the sections of spec 10 in order",
   async (manifest) => {
     const headings = headingsOf(await readmeOf(manifest));
@@ -62,7 +67,7 @@ function compareVersions(left: string, right: string): number {
 // `<name>@<version>`. The version the tag names is the release the README goes out with, so
 // it is never older than the manifest's: a version bump that leaves the link behind fails
 // here instead of sending a caller to promises an older release made.
-test.each([core, adapterMemory, adapterFs, adapterS3, conformance])(
+test.each(published)(
   "the README of $name links the spec at the tag of its release",
   async (manifest) => {
     const text = await readmeOf(manifest);
@@ -83,26 +88,26 @@ test.each([core, adapterMemory, adapterFs, adapterS3, conformance])(
   },
 );
 
-/** What follows the construction of the storage in one of the root README's opening blocks. */
-const callsOf = (block: string): string => block.slice(block.indexOf("await storage.put"));
+const callsAfterConstruction = (block: string): string =>
+  block.slice(block.indexOf("await storage.put"));
 
 test("the root README opens with the same four calls against `fsStorage` and `s3Storage`", async () => {
-  const [onFs = "", onS3 = ""] = codeBlocksOf(await read("README.md"));
+  const [onFs = "", onS3 = ""] = tsSourcesOf(await read("README.md"));
 
   expect(onFs).toContain("fsStorage(");
   expect(onS3).toContain("s3Storage(");
 
   for (const call of ["put(", "get(", "list(", "delete("]) {
-    expect(callsOf(onFs)).toContain(`storage.${call}`);
+    expect(callsAfterConstruction(onFs)).toContain(`storage.${call}`);
   }
 
-  expect(callsOf(onS3)).toBe(callsOf(onFs));
+  expect(callsAfterConstruction(onS3)).toBe(callsAfterConstruction(onFs));
 });
 
 test("the root README shows the package family", async () => {
   const text = await read("README.md");
 
-  for (const manifest of [core, adapterMemory, adapterFs, adapterS3, conformance]) {
+  for (const manifest of published) {
     expect(text).toContain(manifest.name);
   }
 });

@@ -32,8 +32,7 @@ const packageOfSpecSection: Readonly<Record<string, string>> = {
 interface CodeBlock {
   readonly name: string;
   readonly document: string;
-  /** The line of the document the block's first line of code stands on. */
-  readonly line: number;
+  readonly firstCodeLine: number;
   readonly source: string;
   readonly specSection?: string;
 }
@@ -55,10 +54,12 @@ function codeBlocksOf(document: string, text: string): CodeBlock[] {
     const start = index + 1;
     const end = lines.indexOf("```", start);
 
+    if (end === -1) throw new Error(`${document}:${start} opens a \`ts\` block it never closes`);
+
     blocks.push({
       name: `${document}:${start + 1}`,
       document,
-      line: start + 1,
+      firstCodeLine: start + 1,
       source: lines.slice(start, end).join("\n"),
       specSection: document === "docs/spec.md" ? specSection : undefined,
     });
@@ -179,7 +180,7 @@ beforeAll(async () => {
     }
     if (block.specSection !== undefined && signatureOnlyDiagnostics.has(match[4] ?? "")) continue;
 
-    const documentLine = block.line + Number(match[2]) - 2;
+    const documentLine = block.firstCodeLine + Number(match[2]) - 2;
 
     diagnostics.set(block.name, [
       ...(diagnostics.get(block.name) ?? []),
