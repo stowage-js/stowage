@@ -30,7 +30,8 @@ export interface S3PresignPutOptions {
   contentType: string;
   /**
    * Bound exactly, so the client reports the length and the server signs that number: an
-   * upload of another length is refused, and there is no upper bound to sign instead.
+   * upload of another length is refused, and there is no upper bound to sign instead. A
+   * finite, non-negative integer; anything else is `InvalidOption` before signing.
    */
   contentLength: number;
 }

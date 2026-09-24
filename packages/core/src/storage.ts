@@ -9,12 +9,23 @@ export interface OperationOptions {
 
 export interface PutOptions extends OperationOptions {
   contentType?: string;
+  /**
+   * Stored where the storage declares `userMetadata`, and `Unsupported` elsewhere unless it is
+   * empty. Keys are non-empty ASCII HTTP tokens compared case-insensitively; values may hold
+   * any Unicode. Keys and values together hold at most 2 KB of encoded header bytes, and more
+   * is `InvalidRequest`.
+   */
   userMetadata?: Record<string, string>;
 }
 
 /** Both ends inclusive; `end` absent means to the end of the object. */
 export interface ByteRange {
+  /**
+   * A non-negative integer no greater than `end`, else `InvalidOption`. At or beyond the
+   * object's size it is `InvalidRequest`.
+   */
   start: number;
+  /** A non-negative integer, else `InvalidOption`. Beyond the object's size it is clipped. */
   end?: number;
 }
 
@@ -24,8 +35,14 @@ export interface GetOptions extends OperationOptions {
 
 export interface ListOptions extends OperationOptions {
   prefix?: string;
+  /** One or more characters; an empty string is `InvalidOption`. */
   delimiter?: string;
+  /** 1 to 1000, and 1000 where absent. Outside that range it is `InvalidOption`. */
   pageSize?: number;
+  /**
+   * The `cursor` of a page this storage produced, which a new listing in another process may
+   * continue from. Any other string is `InvalidOption`.
+   */
   cursor?: string;
 }
 
