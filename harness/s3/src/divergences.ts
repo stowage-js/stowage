@@ -1,5 +1,6 @@
 import type { ConformanceCaseSource } from "../../../packages/conformance/src/case.ts";
 import type { ConformanceContext } from "../../../packages/conformance/src/target.ts";
+import type { Emulator, RealEndpoint } from "./configuration.ts";
 
 /**
  * ADR 0012: one conformance case an emulator answers differently from the provider it
@@ -9,14 +10,13 @@ import type { ConformanceContext } from "../../../packages/conformance/src/targe
 export interface Divergence {
   /** The conformance case the difference shows up in. */
   readonly case: string;
-  /** The emulator, as `STOWAGE_S3_ENDPOINT_NAME` names it. */
-  readonly endpoint: string;
+  readonly endpoint: Emulator;
   /** What the emulator does differently. */
   readonly differs: string;
   /** Part of the message the case fails with, so that another failure still reads as one. */
-  readonly fails: string;
+  readonly failureMessagePart: string;
   /** The real endpoint that runs the same case. */
-  readonly settledBy: string;
+  readonly settledBy: RealEndpoint;
   /** Where the difference is tracked upstream, telling a bug being fixed from an intent. */
   readonly upstream?: string;
 }
@@ -62,7 +62,7 @@ function expectingFailure(
     try {
       await half(ctx);
     } catch (thrown) {
-      if (messageOf(thrown).includes(divergence.fails)) return;
+      if (messageOf(thrown).includes(divergence.failureMessagePart)) return;
 
       throw thrown;
     }

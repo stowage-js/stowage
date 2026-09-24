@@ -61,10 +61,14 @@ export function storageWithDeniedCredentials(
 }
 
 /**
- * The real endpoints of ADR 0012, as `STOWAGE_S3_ENDPOINT_NAME` names them in the
- * scheduled run. The emulator is named by `start.sh`, and a divergence names it.
+ * The endpoints of ADR 0012, as `STOWAGE_S3_ENDPOINT_NAME` names them: the emulator by
+ * `start.sh`, the real ones by the scheduled run.
  */
-export const realEndpoints: readonly string[] = ["aws-s3", "r2"];
+export type Emulator = "seaweedfs";
+
+export const realEndpoints = ["aws-s3", "r2"] as const;
+
+export type RealEndpoint = (typeof realEndpoints)[number];
 
 /** Which server answers, for the harness alone: no case reads it (ADR 0012). */
 export function endpointNameFrom(variables: Variables): string | undefined {

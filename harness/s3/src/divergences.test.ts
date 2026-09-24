@@ -5,7 +5,6 @@ import type { ConformanceCaseSource } from "../../../packages/conformance/src/ca
 import { conformanceCaseSources } from "../../../packages/conformance/src/cases/index.ts";
 import type { ConformanceContext } from "../../../packages/conformance/src/target.ts";
 import { memoryTarget } from "../../targets/src/memory.ts";
-import { realEndpoints } from "./configuration.ts";
 import { type Divergence, divergences, withDivergences } from "./divergences.ts";
 
 // The cases below read nothing off the context; a real one keeps the types honest.
@@ -36,7 +35,7 @@ const entry: Divergence = {
   case: "list/delimiter",
   endpoint: "seaweedfs",
   differs: "It lists a pseudo-directory twice",
-  fails: "twice",
+  failureMessagePart: "twice",
   settledBy: "aws-s3",
 };
 
@@ -92,17 +91,10 @@ describe("withDivergences", () => {
 });
 
 // ADR 0012: an entry is admissible only where the same case runs against a real endpoint,
-// which is what keeps the list from being the accepted failure ADR 0006 rules out.
+// which is what keeps the list from being the accepted failure ADR 0006 rules out. The
+// types hold the endpoints; the name of the case is what they cannot.
 describe.each(divergences)("the entry for $case against $endpoint", (divergence) => {
   test("names a case of the suite", () => {
     expect(conformanceCaseSources.map((source) => source.name)).toContain(divergence.case);
-  });
-
-  test("names the real endpoint that settles it", () => {
-    expect(realEndpoints).toContain(divergence.settledBy);
-  });
-
-  test("names an emulator and not a real endpoint", () => {
-    expect(realEndpoints).not.toContain(divergence.endpoint);
   });
 });
