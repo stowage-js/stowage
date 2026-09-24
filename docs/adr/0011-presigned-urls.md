@@ -85,8 +85,8 @@ something to check it against.
   `403` for an expired URL, so page JavaScript sees a network error where the status itself names
   the cause.
 - Flow 2 names two bucket preconditions rather than assuming them: the bucket policy must allow
-  `UNSIGNED-PAYLOAD` (ADR 0009), and the bucket needs a CORS configuration, because a signed content
-  type outside the CORS safelist makes the upload a preflighted cross-origin request. Bucket
+  `UNSIGNED-PAYLOAD` (ADR 0009), and the bucket needs a CORS configuration, because `PUT` is not a
+  CORS-safelisted method and every cross-origin upload is therefore a preflighted request. Bucket
   management is not in v0.1, so stowage can state both and configure neither.
 - POST policies become worth building once R2 implements `POST Object`. Until then they are an
   AWS-only capability, and the size of the thing is not what stands in the way: `s3-lite-client`
