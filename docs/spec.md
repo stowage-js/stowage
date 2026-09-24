@@ -683,6 +683,8 @@ configured and is not promised.
 - `UNSIGNED-PAYLOAD` is sent by presigned URLs alone; there is no option to send it on a request the
   adapter makes, and no chunked signing.
 - Every attempt resolves the credential again and signs again. The payload hash is computed once.
+- Every request asks for the bytes as the provider stores them, `Accept-Encoding: identity`, so
+  a provider that compresses on request cannot take the `Content-Length` a description reads.
 - Listing responses go through an XML parser that accepts elements, text and named and numeric
   entities, and rejects CDATA and DTDs with `ProviderError`.
 - A key is percent-encoded segment by segment on the request path, so `#`, `%`, `?`, `+`, a space
@@ -763,7 +765,8 @@ mapping of section 4.10. One table holds both vendors' strings.
 
 `status`, `providerCode`, `requestId` (from `x-amz-request-id`) and the provider's message are set
 on every error that carries a response. `HEAD` carries no body, so `stat` and `exists` report the
-status alone.
+status alone; a `400` for a key above 1024 bytes is `InvalidKey`, the `KeyTooLongError` the body
+would have named.
 
 ### 7.10 Presigned URLs
 
@@ -950,24 +953,24 @@ A case marked with a factory is skipped where the target does not supply it.
 
 **`put`**
 
-| Case                       | Requires       | Cost   | Asserts                                                                                                                                                                                |
-| -------------------------- | -------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `put/bytes-round-trip`     |                | `fast` | A `Uint8Array` reads back byte for byte through `bytes()`; the returned `ObjectStat` and a later `stat` agree on `key`, `size` and `contentType`                                       |
-| `put/string-round-trip`    |                | `fast` | A string with characters above ASCII reads back equal through `text()`; `size` is its UTF-8 length                                                                                     |
-| `put/stream-round-trip`    |                | `fast` | A 1 MiB stream reads back byte for byte                                                                                                                                                |
-| `put/multipart-round-trip` |                | `fast` | A 17 MiB stream of a generated pattern reads back byte for byte; `stat` reports the size                                                                                               |
-| `put/empty-body`           |                | `fast` | An empty `Uint8Array` and a stream that yields nothing both produce an object of size 0 that reads back empty                                                                          |
-| `put/overwrites`           |                | `fast` | A second `put` under the same key replaces bytes and content type                                                                                                                      |
-| `put/content-type-stored`  |                | `fast` | `contentType: "text/plain"` on a key ending in `.txt` is reported by `stat` and `get`                                                                                                  |
-| `put/content-type-default` |                | `fast` | Without `contentType`, a key without an extension reports `application/octet-stream`                                                                                                   |
-| `put/accepted-keys`        |                | `fast` | Each key of the accepted list (section 8.7) round-trips and is listed under its prefix                                                                                                 |
-| `put/refused-keys`         |                | `fast` | Each key of the refused writable list rejects with `InvalidKey`, `attempts: 0`, and `exists` afterwards is `false` where the key is addressable                                        |
-| `put/unknown-option`       |                | `fast` | An unknown option key rejects with `InvalidOption` whose message names the key; nothing was written                                                                                    |
-| `put/aborted-signal`       |                | `fast` | A signal already aborted rejects with `AbortError`; nothing was written                                                                                                                |
-| `put/abort-during-upload`  |                | `fast` | Aborting during a 17 MiB stream rejects with `err.name === "AbortError"` and not a `StorageError`                                                                                      |
-| `put/stream-consumed`      |                | `fast` | After `put`, the source stream is closed or canceled; reading it yields `done`                                                                                                         |
-| `put/user-metadata`        | `userMetadata` | `fast` | Two entries round-trip through `stat` and `get`, keys compared case-insensitively. Without: a non-empty object is `Unsupported` naming `userMetadata`; `{}` passes and reads back `{}` |
-| `put/user-metadata-limits` | `userMetadata` | `fast` | A key with a character above ASCII and a set over 2 KB each reject with `InvalidRequest`, `attempts: 0`. Without: both are `Unsupported`                                               |
+| Case                       | Requires       | Cost   | Asserts                                                                                                                                                                                                                        |
+| -------------------------- | -------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `put/bytes-round-trip`     |                | `fast` | A `Uint8Array` reads back byte for byte through `bytes()`; the returned `ObjectStat` and a later `stat` agree on `key`, `size` and `contentType`                                                                               |
+| `put/string-round-trip`    |                | `fast` | A string with characters above ASCII reads back equal through `text()`; `size` is its UTF-8 length                                                                                                                             |
+| `put/stream-round-trip`    |                | `fast` | A 1 MiB stream reads back byte for byte                                                                                                                                                                                        |
+| `put/multipart-round-trip` |                | `fast` | A 17 MiB stream of a generated pattern reads back byte for byte; `stat` reports the size                                                                                                                                       |
+| `put/empty-body`           |                | `fast` | An empty `Uint8Array` and a stream that yields nothing both produce an object of size 0 that reads back empty                                                                                                                  |
+| `put/overwrites`           |                | `fast` | A second `put` under the same key replaces bytes and content type                                                                                                                                                              |
+| `put/content-type-stored`  |                | `fast` | `contentType: "text/plain"` on a key ending in `.txt` is reported by `stat` and `get`                                                                                                                                          |
+| `put/content-type-default` |                | `fast` | Without `contentType`, a key without an extension reports `application/octet-stream`                                                                                                                                           |
+| `put/accepted-keys`        |                | `fast` | Each key of the accepted list (section 8.7) round-trips and is listed under its prefix                                                                                                                                         |
+| `put/refused-keys`         |                | `fast` | Each key of the refused writable list rejects with `InvalidKey`, `attempts: 0`, and `exists` afterwards is `false` where the key is addressable, or rejects with `InvalidKey` for a key the provider cannot hold (section 8.7) |
+| `put/unknown-option`       |                | `fast` | An unknown option key rejects with `InvalidOption` whose message names the key; nothing was written                                                                                                                            |
+| `put/aborted-signal`       |                | `fast` | A signal already aborted rejects with `AbortError`; nothing was written                                                                                                                                                        |
+| `put/abort-during-upload`  |                | `fast` | Aborting during a 17 MiB stream rejects with `err.name === "AbortError"` and not a `StorageError`                                                                                                                              |
+| `put/stream-consumed`      |                | `fast` | After `put`, the source stream is closed or canceled; reading it yields `done`                                                                                                                                                 |
+| `put/user-metadata`        | `userMetadata` | `fast` | Two entries round-trip through `stat` and `get`, keys compared case-insensitively. Without: a non-empty object is `Unsupported` naming `userMetadata`; `{}` passes and reads back `{}`                                         |
+| `put/user-metadata-limits` | `userMetadata` | `fast` | A key with a character above ASCII and a set over 2 KB each reject with `InvalidRequest`, `attempts: 0`. Without: both are `Unsupported`                                                                                       |
 
 **`get`**
 

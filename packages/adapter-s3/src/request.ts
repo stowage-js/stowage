@@ -29,6 +29,14 @@ export interface S3Request {
 
 const emptyBody: Uint8Array<ArrayBuffer> = new Uint8Array(0);
 
+/**
+ * Spec 4.4 reads `size` off `Content-Length`, and a provider that compresses on the offer
+ * `fetch` makes of its own on Node, Bun and Deno drops that header: R2 does for JSON and
+ * text. It is sent unsigned, because it concerns the transfer rather than what the
+ * provider acts on, and a hop that rewrites it would otherwise break the signature.
+ */
+const identityEncoding: HeaderField = ["accept-encoding", "identity"];
+
 const service = "s3";
 
 /**
@@ -139,7 +147,7 @@ async function attemptOnce(
   try {
     response = await fetch(url, {
       method: request.method,
-      headers: signed.headers.map(([name, value]) => [name, value]),
+      headers: [...signed.headers, identityEncoding].map(([name, value]) => [name, value]),
       body: request.body,
       signal: request.signal,
     });
@@ -199,6 +207,7 @@ async function failureOf(
     status: response.status,
     operation: request.operation,
     method: request.method,
+    key: request.key,
     hasContinuationToken: request.query?.some(([name]) => name === "continuation-token"),
     providerCode: document.code,
     providerMessage: document.message,
