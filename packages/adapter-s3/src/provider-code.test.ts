@@ -19,6 +19,7 @@ test.each([
   ["ExpiredRequest", 403, "Expired"],
   ["RequestTimeTooSkewed", 403, "InvalidRequest"],
   ["InvalidRange", 416, "InvalidRequest"],
+  ["InvalidRequest", 400, "InvalidRequest"],
   ["MetadataTooLarge", 400, "InvalidRequest"],
   ["EntityTooLarge", 400, "InvalidRequest"],
   ["EntityTooSmall", 400, "InvalidRequest"],

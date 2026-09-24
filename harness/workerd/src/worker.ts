@@ -11,7 +11,6 @@ import { withDivergences } from "../../s3/src/divergences.ts";
 import { s3Target } from "../../s3/src/target.ts";
 import { memoryTarget } from "../../targets/src/memory.ts";
 import { runOptionsFrom } from "../../targets/src/run-options.ts";
-import { excludedCases } from "./excluded.ts";
 
 interface Run {
   readonly target: ConformanceTarget;
@@ -19,7 +18,7 @@ interface Run {
 }
 
 // `workerd` has no test framework, so the worker runs one target per request through what
-// `runAll` runs, less the exclusion, and answers with the results for Node to report.
+// `runAll` runs and answers with the results for Node to report.
 export default {
   async fetch(request: Request, variables: Variables): Promise<Response> {
     const url = new URL(request.url);
@@ -27,17 +26,7 @@ export default {
 
     if (run === undefined) return new Response(null, { status: 404 });
 
-    // Spec 12: an excluded case still runs on its own where Node asks for it by name, so
-    // that the scheduled run can measure it without the cell counting it as covered.
-    const excluded = url.searchParams.get("excluded");
-    const cases =
-      excluded === null
-        ? run.cases.filter((source) => !excludedCases.includes(source.name))
-        : run.cases.filter(
-            (source) => source.name === excluded && excludedCases.includes(excluded),
-          );
-
-    return Response.json(await runCases(cases, run.target));
+    return Response.json(await runCases(run.cases, run.target));
   },
 };
 

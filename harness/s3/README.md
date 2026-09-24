@@ -102,8 +102,8 @@ aws s3api put-bucket-lifecycle-configuration --bucket <bucket> \
 
 ## Settled by the first run
 
-`src/first-run.test.ts` asks the endpoint what spec 12 leaves open, beside the conformance
-cases that answer the rest, and the `workerd` harness measures the two cases it excludes. Both
-run only where `STOWAGE_CONFORMANCE_INCLUDE_SLOW` is `true`. The last job of the workflow
+`src/first-run.test.ts` asks the endpoint what spec 12 left open, beside the conformance cases
+that answer the rest, and keeps asking it once the first run settled it. It runs only where
+`STOWAGE_CONFORMANCE_INCLUDE_SLOW` is `true`. The last job of the workflow
 writes a table of every point against every endpoint and runtime into the run's summary; a
 promise the table shows disproved is withdrawn from `docs/spec.md` in a minor release.

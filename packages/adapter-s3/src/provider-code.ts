@@ -15,12 +15,15 @@ const providerCodes: ReadonlyMap<string, StorageErrorCode> = new Map([
   // R2's, answered at `401`.
   ["Unauthorized", "InvalidCredentials"],
   ["ExpiredToken", "Expired"],
-  // R2's; provisional until the scheduled run of spec section 12 settles it.
+  // R2's; provisional, because no run can provoke it against R2 yet (spec 12).
   ["ExpiredRequest", "Expired"],
   // A clock that has drifted is the caller's own bug and arrives at `403`, which is what
   // keeps it out of the retry group without a rule of its own (ADR 0013).
   ["RequestTimeTooSkewed", "InvalidRequest"],
   ["InvalidRange", "InvalidRequest"],
+  // AWS's, answered among others to a `CopyObject` source above 5 GiB, which R2 answers
+  // with `EntityTooLarge`: one condition, one code for the caller to branch on.
+  ["InvalidRequest", "InvalidRequest"],
   ["InvalidArgument", "InvalidRequest"],
   ["MetadataTooLarge", "InvalidRequest"],
   ["EntityTooLarge", "InvalidRequest"],

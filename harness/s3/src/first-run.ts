@@ -1,14 +1,13 @@
-import { excludedCases } from "../../workerd/src/excluded.ts";
 import type { RealEndpoint } from "./configuration.ts";
 
 declare module "vitest" {
   interface TaskMeta {
-    /** What a probe of spec 12 saw where the point is a measurement and not a promise. */
+    /** What a probe saw beyond passing, where the provider may answer more than one way. */
     observed?: string;
   }
 }
 
-/** The block the probes of spec 12 are registered in, on Node and on `workerd` alike. */
+/** The block the probes of spec 12 are registered in. */
 export const firstRunSuite = "settled by the first run";
 
 /** The block `describeConformance` registers the cases against the endpoint in. */
@@ -22,16 +21,13 @@ export const probeNames = {
   copyAboveLimit: "`copy` above the single-request limit",
 } as const;
 
-/** The test the `workerd` harness reports an excluded case's measurement under. */
-export const measuredOnWorkerd = (name: string): string => `${name} measured on workerd`;
-
 export interface FirstRunTest {
   readonly suite: string;
   readonly title: string;
 }
 
 export interface FirstRunPoint {
-  /** The point as spec 12 states it. */
+  /** The point as spec 12 stated it before the first run. */
   readonly promise: string;
   /** The tests of the scheduled run that answer it. */
   readonly tests: readonly FirstRunTest[];
@@ -45,7 +41,10 @@ export interface FirstRunPoint {
 const probe = (title: string): FirstRunTest => ({ suite: firstRunSuite, title });
 const conformanceCase = (title: string): FirstRunTest => ({ suite: s3Suite, title });
 
-/** Spec 12, point by point, with what the scheduled run reads each one off. */
+/**
+ * Spec 12 as it stood before the first run, point by point, with what the scheduled run reads
+ * each one off. The run keeps asking once a point moved into the section it belongs to.
+ */
 export const firstRunPoints: readonly FirstRunPoint[] = [
   {
     promise: "`EntityTooSmall` and `InvalidPart` are answered as this document maps them",
@@ -73,11 +72,6 @@ export const firstRunPoints: readonly FirstRunPoint[] = [
     promise: "R2 answers `ExpiredRequest` for an expired credential",
     tests: [conformanceCase("errors/expired-credentials")],
     askedOf: { provider: "r2" },
-  },
-  {
-    promise: "The CPU and duration a multipart upload spends on `workerd`",
-    tests: excludedCases.map((name) => probe(measuredOnWorkerd(name))),
-    askedOf: { runtime: "workerd" },
   },
   {
     promise: "The refusal of `copy` above the single-request limit against a real provider",

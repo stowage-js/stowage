@@ -1609,7 +1609,7 @@ test("a source the provider refuses as too large rejects with its error and noth
   );
 
   expect(failure).toMatchObject({
-    code: "ProviderError",
+    code: "InvalidRequest",
     status: 400,
     providerCode: "InvalidRequest",
     message,

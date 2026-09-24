@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { type FirstRunRun, firstRunReport, type JsonAssertion } from "./first-run-report.ts";
-import { firstRunSuite, measuredOnWorkerd, probeNames } from "./first-run.ts";
+import { firstRunSuite, probeNames } from "./first-run.ts";
 
 const assertion = (overrides: Partial<JsonAssertion> & { title: string }): JsonAssertion => ({
   ancestorTitles: [firstRunSuite],
@@ -76,24 +76,19 @@ describe("firstRunReport", () => {
     );
   });
 
-  test("carries what a measurement observed", () => {
+  test("carries what a probe observed", () => {
     const report = firstRunReport([
       run(
-        "aws-s3-workerd",
+        "aws-s3-node-24",
         assertion({
-          title: measuredOnWorkerd("flow/1-large-upload"),
-          meta: { observed: "passed in 9.1 s" },
-        }),
-        assertion({
-          title: measuredOnWorkerd("put/multipart-round-trip"),
-          meta: { observed: "passed in 4.0 s" },
+          title: probeNames.copyAboveLimit,
+          meta: { observed: "refused as `InvalidRequest`, 400 `InvalidRequest`: too large" },
         }),
       ),
     ]);
 
-    expect(cellOf(report, "on `workerd`", "aws-s3-workerd")).toBe(
-      "flow/1-large-upload measured on workerd: passed in 9.1 s<br>" +
-        "put/multipart-round-trip measured on workerd: passed in 4.0 s",
+    expect(cellOf(report, "The refusal of `copy`", "aws-s3-node-24")).toBe(
+      "refused as `InvalidRequest`, 400 `InvalidRequest`: too large",
     );
   });
 
