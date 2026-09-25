@@ -1,11 +1,7 @@
 import { describe, expect, test } from "vitest";
 
-import {
-  type AzureBlobAdapterOptions,
-  azureBlobStorage,
-} from "../../../packages/adapter-azure-blob/src/index.ts";
-import { configuredStorage, storageUnderAccountKey } from "./environment.ts";
-import { endpointMissing } from "./target.ts";
+import { azureBlobStorage } from "../../../packages/adapter-azure-blob/src/index.ts";
+import { configuredStorage, endpointOrFail, storageUnderAccountKey } from "./environment.ts";
 
 // ADR 0023: the account key is promised as much as the access token, and the suite runs
 // under the token alone, so Shared Key is held against the endpoint here. Without one
@@ -13,12 +9,6 @@ import { endpointMissing } from "./target.ts";
 // failure ADR 0012 asks for.
 const underAccountKey = storageUnderAccountKey();
 const underAccessToken = configuredStorage();
-
-function orFail(configured: AzureBlobAdapterOptions | undefined): AzureBlobAdapterOptions {
-  if (configured === undefined) throw new Error(endpointMissing);
-
-  return configured;
-}
 
 const prefix = `stowage-harness/${crypto.randomUUID()}/`;
 
@@ -29,7 +19,7 @@ describe.skipIf(underAccountKey === undefined || underAccessToken === undefined)
   "adapter-azure-blob against the endpoint",
   () => {
     test("Shared Key signs a `put` of held bytes and a `get` the endpoint accepts", async () => {
-      const storage = azureBlobStorage(orFail(underAccountKey));
+      const storage = azureBlobStorage(endpointOrFail(underAccountKey));
       const body = new TextEncoder().encode("written under the account key");
 
       const written = await storage.put(encodedKey, body, { contentType: "text/plain" });
@@ -43,9 +33,9 @@ describe.skipIf(underAccountKey === undefined || underAccessToken === undefined)
     test("what one scheme wrote, the other reads", async () => {
       const key = `${prefix}between-schemes`;
 
-      await azureBlobStorage(orFail(underAccessToken)).put(key, "written under the token");
+      await azureBlobStorage(endpointOrFail(underAccessToken)).put(key, "written under the token");
 
-      const stored = await azureBlobStorage(orFail(underAccountKey)).get(key);
+      const stored = await azureBlobStorage(endpointOrFail(underAccountKey)).get(key);
 
       expect(await stored.text()).toBe("written under the token");
     });
