@@ -41,3 +41,8 @@ Worker created today does not run at. A new date is a change to the spec; Renova
 - Flow 1 names all four runtimes. Its text has named Node, Bun and Deno since v0.1 while the
   matrix and ADR 0002 marked `workerd` as `yes`; the matrix was right.
 - `flow/5-prefix-move` does not change. It never named a target provider.
+- The `workerd` harness runs the whole suite under `no_nodejs_compat` and `no_nodejs_compat_v2`,
+  which shows that no Node API is reached, and the `fast` tier a second time under the date's
+  default flags, because code that branches on `process` or `Buffer` behaves differently under
+  each, as the environment read of ADR 0021 does. The `slow` tier runs once, without the Node APIs.
+  The spec promises the cells in both flag states.
