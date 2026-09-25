@@ -42,8 +42,7 @@ const entityPattern = /&(?:#x([\da-fA-F]+)|#(\d+)|([A-Za-z]\w*));/uy;
  */
 function isReferableCharacter(codePoint: number): boolean {
   return (
-    (codePoint >= 0x1 && codePoint <= 0xd7_ff) ||
-    (codePoint >= 0xe0_00 && codePoint <= 0x10_ff_ff)
+    (codePoint >= 0x1 && codePoint <= 0xd7_ff) || (codePoint >= 0xe0_00 && codePoint <= 0x10_ff_ff)
   );
 }
 
