@@ -240,10 +240,9 @@ describe.skipIf(configured === undefined)("adapter-s3 against the endpoint", () 
     const before = `${below}before.txt`;
     const after = `${below}after.txt`;
 
-    for (const key of [before, noncharacter, after]) {
-      // oxlint-disable-next-line no-await-in-loop -- three writes, and the order is no matter
-      await storage().put(key, "to be deleted");
-    }
+    await Promise.all(
+      [before, noncharacter, after].map(async (key) => await storage().put(key, "to be deleted")),
+    );
 
     const endpoint = globalThis.fetch;
     const sent: string[] = [];
@@ -255,8 +254,6 @@ describe.skipIf(configured === undefined)("adapter-s3 against the endpoint", () 
     });
 
     const report = await storage().delete(before, noncharacter, after);
-
-    vi.unstubAllGlobals();
 
     expect(report).toEqual({ requested: 3, failed: [] });
     expect(sent).toEqual(["POST batch", "DELETE key"]);
