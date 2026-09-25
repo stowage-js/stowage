@@ -1,0 +1,2 @@
+# `start.sh` generates a certificate on every start, which nothing outside this machine trusts.
+certificate/

@@ -1,0 +1,40 @@
+# ADR 0023: the endpoint every commit runs against. The digest is what CI starts and what
+# green means, so the tag beside it is a label rather than what is resolved.
+services:
+  azure-blob:
+    image: mcr.microsoft.com/azure-storage/azurite:3.37.0@sha256:830430c1da1a2d537e08f3e6764dd1f5ae00cf0346bcaf625b968ec3f0971fd5
+    # The blob service alone, in memory, strict, and checking `x-ms-version`: no `--loose`
+    # and no `--skipApiVersionCheck`. Azurite takes a bearer token only with `--oauth basic`
+    # and only over HTTPS, which is what the certificate is for.
+    command:
+      - azurite-blob
+      - --blobHost
+      - 0.0.0.0
+      - --blobPort
+      - "10000"
+      - --inMemoryPersistence
+      - --oauth
+      - basic
+      - --cert
+      - /certificate/cert.pem
+      - --key
+      - /certificate/key.pem
+      - --disableTelemetry
+    ports:
+      - "127.0.0.1:10000:10000"
+    volumes:
+      - ./certificate:/certificate:ro
+    # The image carries no healthcheck and answers an unauthenticated request with `403`, so
+    # the check asks whether the port accepts a connection, with the Node the image runs on.
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('node:net').connect(10000, '127.0.0.1').on('connect', () => process.exit(0)).on('error', () => process.exit(1))",
+        ]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 2s
