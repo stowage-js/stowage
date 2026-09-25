@@ -1,5 +1,6 @@
 export interface XmlElement {
   readonly name: string;
+  readonly attributes: Readonly<Record<string, string>>;
   readonly children: readonly XmlElement[];
   /** The text directly inside the element, its children's left out. */
   readonly text: string;
@@ -89,8 +90,11 @@ class Scanner {
     this.#expect("<");
 
     const name = this.#readName();
+    const attributes: Record<string, string> = Object.create(null);
 
-    if (this.#readStartTagEnd() === "empty") return { name, children: [], text: "" };
+    if (this.#readStartTagEnd(attributes) === "empty") {
+      return { name, attributes, children: [], text: "" };
+    }
 
     const children: XmlElement[] = [];
     let text = "";
@@ -104,7 +108,7 @@ class Scanner {
         this.#position += 2;
         this.#closeElement(name);
 
-        return { name, children, text };
+        return { name, attributes, children, text };
       }
 
       if (this.#startsWith("<!--")) this.#skipComment();
@@ -123,7 +127,7 @@ class Scanner {
     this.#expect(">");
   }
 
-  #readStartTagEnd(): "empty" | "open" {
+  #readStartTagEnd(attributes: Record<string, string>): "empty" | "open" {
     for (;;) {
       const before = this.#position;
 
@@ -143,20 +147,53 @@ class Scanner {
 
       if (this.#position === before) throw this.#error("An attribute follows no whitespace");
 
-      this.#readName();
+      const attribute = this.#readName();
+
+      if (attribute in attributes) throw this.#error(`The attribute ${attribute} is given twice`);
+
       this.#skipWhitespace();
       this.#expect("=");
       this.#skipWhitespace();
-      this.#skipQuoted();
+      attributes[attribute] = this.#readAttributeValue();
     }
   }
 
-  #skipQuoted(): void {
+  /**
+   * XML 1.0, section 3.3.3: without a DTD every attribute is CDATA, so each whitespace
+   * character written into the value reads as a space, and a line break as one space. A
+   * reference to one stays the character it names.
+   */
+  #readAttributeValue(): string {
     const quote = this.#document[this.#position];
 
     if (quote !== '"' && quote !== "'") throw this.#error("An attribute value is not quoted");
 
-    this.#position = this.#positionPast(quote, "An attribute value is never closed", 1);
+    this.#position += 1;
+
+    let value = "";
+
+    for (;;) {
+      const character = this.#document[this.#position];
+
+      if (character === undefined) throw this.#error("An attribute value is never closed");
+
+      if (character === quote) {
+        this.#position += 1;
+
+        return value;
+      }
+
+      if (character === "<") throw this.#error("A `<` stands inside an attribute value");
+
+      if (character === "&") {
+        value += this.#readEntity();
+
+        continue;
+      }
+
+      this.#position += this.#startsWith("\r\n") ? 2 : 1;
+      value += character === "\t" || character === "\n" || character === "\r" ? " " : character;
+    }
   }
 
   /** Text up to the next markup, every `&` in it the start of an entity it decodes. */
