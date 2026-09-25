@@ -181,12 +181,12 @@ hosts.
 _Avoid_: platform, provider, deployment target
 
 **Reference flow**:
-One of the five call sequences that v0.1 is designed to support, each of which names the adapters
-and runtimes it covers and the conditions under which it counts as supported.
+One of the five call sequences that stowage is designed to support, each of which names the
+adapters and runtimes it covers and the conditions under which it counts as supported.
 _Avoid_: use case, user story, scenario
 
 **Runtime matrix**:
-The grid of reference flows against runtimes that fixes what v0.1 promises. A cell counts as
+The grid of reference flows against runtimes that fixes what a release promises. A cell counts as
 supported only where the conformance suite covers it, and there is no weaker level below that.
 _Avoid_: support matrix, compatibility table
 
