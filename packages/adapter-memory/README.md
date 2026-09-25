@@ -26,7 +26,7 @@ console.log(object.stat.contentType, object.stat.userMetadata, await object.text
 
 ## Runtimes
 
-Node 24 and later, Bun, Deno and `workerd` at the compatibility date `2026-09-01`, with or without `nodejs_compat`. CI last ran green on Bun 1.4.2 and Deno 2.9.6.
+Node 24 and later, Bun, Deno and `workerd` at the compatibility date `2026-09-01` without Node APIs. CI last ran green on Bun 1.4.2 and Deno 2.9.6.
 
 The bundle measures 3.3 kB minified and gzipped, `@stowage/core` included.
 
