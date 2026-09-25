@@ -71,14 +71,15 @@ _Avoid_: metadata, tags, attributes, headers
 One piece of an upload, sent as a request of its own and assembled by the provider into a single
 object. Its size is the memory cost of one in-flight part, because an adapter holds a part whole
 in order to sign it. Total upload memory is the part size multiplied by the number of parts in
-flight.
+flight. A provider may name it otherwise; Azure Blob calls it a block.
 _Avoid_: chunk, block, segment
 
 **Multipart upload**:
 An upload sent as several parts and committed in one final request. It belongs to the adapter:
 nothing about it reaches the API, so there is no upload to resume and no count of parts to read,
-and an upload that neither completes nor aborts leaves its parts with the provider, which charges
-for them.
+and an upload that does not complete leaves its parts with the provider, which charges for them
+until it or a lifecycle rule discards them. Whether an upload can abort itself is the provider's
+to offer, not part of the term.
 _Avoid_: chunked upload, resumable upload, streaming upload
 
 **Key**:
