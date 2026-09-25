@@ -1,0 +1,41 @@
+{
+  "name": "@stowage/adapter-azure-blob",
+  "version": "0.1.0",
+  "description": "stowage adapter for one container of Azure Blob Storage, speaking the Blob wire protocol without an SDK.",
+  "keywords": [
+    "adapter",
+    "azure",
+    "azure-blob",
+    "object-storage",
+    "storage",
+    "stowage"
+  ],
+  "homepage": "https://github.com/stowage-js/stowage/tree/main/packages/adapter-azure-blob#readme",
+  "bugs": "https://github.com/stowage-js/stowage/issues",
+  "license": "MIT",
+  "author": "Alexander Kaufmann",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stowage-js/stowage.git",
+    "directory": "packages/adapter-azure-blob"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "dependencies": {
+    "@stowage/core": "workspace:^"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

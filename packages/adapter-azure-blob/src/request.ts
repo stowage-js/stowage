@@ -1,0 +1,182 @@
+import { errorCodeForStatus, isTransientStatus, type StorageError } from "@stowage/core";
+
+import type { AzureBlobConfiguration } from "./configuration.ts";
+import { type AzureBlobCredentials, resolveCredentials } from "./credentials.ts";
+import { type HeaderField, type QueryParameter, signSharedKey } from "./sign.ts";
+import { azureBlobError, inStorage } from "./storage-error.ts";
+
+export interface AzureBlobRequest {
+  readonly method: string;
+  readonly operation: string;
+  /** The key the request addresses, absent for a request about the container itself. */
+  readonly key?: string;
+  readonly query?: readonly QueryParameter[];
+  readonly headers?: readonly HeaderField[];
+  /** Held whole: Azure refuses a chunked `Put Blob`, and Shared Key signs the length. */
+  readonly body?: Uint8Array<ArrayBuffer>;
+  readonly signal?: AbortSignal;
+}
+
+/** Spec 8.4: the one version every request is sent under. */
+export const serviceVersion = "2026-04-06";
+
+/**
+ * Spec 4.4 reads `size` off `Content-Length`, which a response compressed on the offer
+ * `fetch` makes of its own would drop. It is sent unsigned, as Shared Key signs no header
+ * outside its twelve and `x-ms-`.
+ */
+const identityEncoding: HeaderField = ["accept-encoding", "identity"];
+
+/** What `encodeURIComponent` leaves alone and RFC 3986 counts as reserved. */
+const reservedByEncodeUriComponent = /[!'()*]/gu;
+
+/** One Azure request, answered by the response the provider sent or rejected with its failure. */
+export async function send(
+  configuration: AzureBlobConfiguration,
+  request: AzureBlobRequest,
+): Promise<Response> {
+  const path = encodePath(pathOf(configuration, request.key));
+  const query = request.query ?? [];
+  const credentials = await resolveCredentials(configuration.credentials, {
+    forceRefresh: false,
+  }).catch((failure: unknown) => {
+    throw inStorage(failure, configuration.container, request.operation, request.key);
+  });
+  const headers = await authorize(configuration, request, path, credentials);
+  let response: Response;
+
+  try {
+    response = await fetch(urlOf(configuration, path, query), {
+      method: request.method,
+      headers: [...headers, identityEncoding].map(([name, value]) => [name, value]),
+      body: request.body,
+      signal: request.signal,
+    });
+  } catch (failure) {
+    throw transportFailure(configuration, request, failure);
+  }
+
+  if (response.ok) return response;
+
+  throw await failureOf(configuration, request, response);
+}
+
+/**
+ * Spec 8.3 and 8.4: the field the resolver answered decides the scheme of this request
+ * alone, so a resolver may move from one to the other between two calls.
+ */
+async function authorize(
+  configuration: AzureBlobConfiguration,
+  request: AzureBlobRequest,
+  path: string,
+  credentials: AzureBlobCredentials,
+): Promise<readonly HeaderField[]> {
+  const headers: readonly HeaderField[] = [
+    ...(request.headers ?? []),
+    ["x-ms-version", serviceVersion],
+  ];
+
+  if ("accessToken" in credentials) {
+    return [...headers, ["authorization", `Bearer ${credentials.accessToken}`]];
+  }
+
+  const signed = await signSharedKey(
+    {
+      method: request.method,
+      account: configuration.account,
+      path,
+      query: request.query ?? [],
+      headers,
+      contentLength: request.body?.byteLength ?? 0,
+      date: new Date(),
+    },
+    credentials.accountKey,
+  );
+
+  return signed.headers;
+}
+
+/** The endpoint's path, the container and the key, as they stand and not yet encoded. */
+function pathOf(configuration: AzureBlobConfiguration, key: string | undefined): string {
+  const container = `${configuration.basePath}/${configuration.container}`;
+
+  return key === undefined ? container : `${container}/${key}`;
+}
+
+/**
+ * Spec 8.4: the path percent-encoded segment by segment, so that a slash stays a slash and
+ * `#`, `%`, `?`, `+`, a space and everything above ASCII travel encoded. No `URL` is built
+ * from it: the constructor folds a `..` segment away and decodes what it was handed, and
+ * Shared Key signs the path exactly as the request line carries it.
+ */
+function encodePath(path: string): string {
+  return path.split("/").map(encodeRfc3986).join("/");
+}
+
+function encodeRfc3986(value: string): string {
+  return encodeURIComponent(value).replace(
+    reservedByEncodeUriComponent,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
+function urlOf(
+  configuration: AzureBlobConfiguration,
+  path: string,
+  query: readonly QueryParameter[],
+): string {
+  const search =
+    query.length === 0
+      ? ""
+      : `?${query.map(([name, value]) => `${encodeRfc3986(name)}=${encodeRfc3986(value)}`).join("&")}`;
+
+  return `${configuration.protocol}//${configuration.host}${path}${search}`;
+}
+
+/**
+ * The status of spec 4.10 decides the code, and the status alone whether the condition is
+ * transient. Azure names its code in `x-ms-error-code` on every failure, a `HEAD`
+ * included, so the body is released unread.
+ */
+async function failureOf(
+  configuration: AzureBlobConfiguration,
+  request: AzureBlobRequest,
+  response: Response,
+): Promise<StorageError> {
+  await response.body?.cancel();
+
+  const providerCode = response.headers.get("x-ms-error-code") ?? undefined;
+
+  return azureBlobError(configuration.container, {
+    code: errorCodeForStatus(response.status) ?? "ProviderError",
+    message: `The provider answered ${response.status}${providerCode === undefined ? "" : ` ${providerCode}`}`,
+    operation: request.operation,
+    key: request.key,
+    attempts: 1,
+    status: response.status,
+    providerCode,
+    requestId: response.headers.get("x-ms-request-id") ?? undefined,
+    retryable: isTransientStatus(response.status),
+  });
+}
+
+// Spec 4.10: an aborted signal produces the runtime's `AbortError` and never a
+// `StorageError`, so the one failure `fetch` throws that is not a transport failure
+// travels on untouched.
+function transportFailure(
+  configuration: AzureBlobConfiguration,
+  request: AzureBlobRequest,
+  failure: unknown,
+): unknown {
+  if (failure instanceof Error && failure.name === "AbortError") return failure;
+
+  return azureBlobError(configuration.container, {
+    code: "NetworkError",
+    message: `The request received no response: ${String(failure)}`,
+    operation: request.operation,
+    key: request.key,
+    attempts: 1,
+    retryable: true,
+    cause: failure,
+  });
+}
