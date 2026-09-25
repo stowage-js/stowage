@@ -1,4 +1,7 @@
-/** The five entities XML defines without a DTD, for the failure read around the parser. */
+/**
+ * The five entities XML defines without a DTD. The core's parser keeps its table to itself,
+ * and `readErrorDocument` decodes a failure's message without the parser.
+ */
 export const predefinedEntities: ReadonlyMap<string, string> = new Map([
   ["amp", "&"],
   ["lt", "<"],
