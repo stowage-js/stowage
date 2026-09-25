@@ -32,7 +32,9 @@ positions the payload hashing decision still has to weigh.
 - Listing responses go through an XML parser that covers the subset S3 sends — elements, text,
   named and numeric entities — and rejects CDATA and DTDs. The spike's 52-line scanner returns
   a wrong value instead of an error when a document surprises it, keys are user controlled and
-  arrive escaped, and the scanner held the only defect the whole spike had.
+  arrive escaped, and the scanner held the only defect the whole spike had. ADR 0027 has every
+  answer document go through it and widens a numeric reference to any Unicode scalar value
+  except `U+0000`, since S3 writes a key XML cannot carry as such a reference.
 - Region and endpoint are configuration. Nothing is discovered at runtime: a `301` becomes an
   error that names the region from `x-amz-bucket-region`, which costs one round trip once
   during development instead of a per-bucket cache in production. Addressing is virtual-hosted
