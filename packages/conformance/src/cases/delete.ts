@@ -1,10 +1,14 @@
-import type { DeleteReport } from "@stowage/core";
-
 import { assert } from "../assertions.ts";
 import type { ConformanceCaseSource } from "../case.ts";
 import { patternOf } from "./bytes.ts";
 import { keyFor, prefixFor } from "./keys.ts";
-import { assertNothingBelow, keysBelow, pastOneThousand, putEach } from "./objects.ts";
+import {
+  assertAccepted,
+  assertNothingBelow,
+  keysBelow,
+  pastOneThousand,
+  putEach,
+} from "./objects.ts";
 
 export const deleteCases: readonly ConformanceCaseSource[] = [
   {
@@ -173,15 +177,3 @@ export const deleteCases: readonly ConformanceCaseSource[] = [
     },
   },
 ];
-
-/** A report of spec 4.7 over keys the provider took: the count it covered, and no failure. */
-function assertAccepted(report: DeleteReport, requested: number, what: string): void {
-  assert(
-    report.requested === requested,
-    `${what} reports \`requested: ${report.requested}\` and not ${requested}`,
-  );
-  assert(
-    report.failed.length === 0,
-    `${what} reports the failure ${JSON.stringify(report.failed[0]?.message)}`,
-  );
-}

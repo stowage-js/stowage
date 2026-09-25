@@ -1,4 +1,4 @@
-import type { ObjectEntry, ObjectListing } from "@stowage/core";
+import type { DeleteReport, ObjectEntry, ObjectListing } from "@stowage/core";
 
 import { assert } from "../assertions.ts";
 import type { ConformanceContext } from "../target.ts";
@@ -90,5 +90,17 @@ export async function assertNothingBelow(ctx: ConformanceContext, prefix: string
   assert(
     left.length === 0,
     `${left.length} objects are left below ${JSON.stringify(prefix)}, the first of them ${JSON.stringify(left[0]?.key)}`,
+  );
+}
+
+/** A report of spec 4.7 over keys the provider took: the count it covered, and no failure. */
+export function assertAccepted(report: DeleteReport, requested: number, what: string): void {
+  assert(
+    report.requested === requested,
+    `${what} reports \`requested: ${report.requested}\` and not ${requested}`,
+  );
+  assert(
+    report.failed.length === 0,
+    `${what} reports the failure ${JSON.stringify(report.failed[0]?.message)}`,
   );
 }
