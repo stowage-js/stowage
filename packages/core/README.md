@@ -39,7 +39,7 @@ The bundle measures 1.3 kB minified and gzipped.
 ## Limits
 
 This section is empty. `@stowage/core` declares no capability; each storage declares its own, out
-of the four names of [spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/core@0.1.0/docs/spec.md#49-capabilities).
+of the five names of [spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/core@0.1.0/docs/spec.md#49-capabilities).
 
 ## Notes
 

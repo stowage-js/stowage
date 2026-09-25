@@ -44,8 +44,8 @@ is fixed when it is constructed
 ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.1.0/docs/spec.md#49-capabilities)).
 Every storage the target creates in one run declares the same; two configurations are two targets.
 
-A case whose `requires` the storage declares runs its `run` half. A case it does not declare runs
-the `runWithout` half, which checks what the storage does without the capability: most refuse the
+A case whose `requires` the storage declares runs its `run` half. A case missing a name of its
+`requires` runs the `runWithout` half, which checks what the storage does without the capability: most refuse the
 call with `Unsupported` naming it, `presignedUrls` has `presignGet` and `presignPut` absent from the
 storage, and a few check the weaker behavior, such as a copy whose destination reads `{}`
 ([spec 8.5](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.1.0/docs/spec.md#85-cases)).
@@ -158,7 +158,7 @@ A failed result carries the error as `name`, `message`, `stack` and, for a `Stor
 
 [`@stowage/adapter-memory`](https://github.com/stowage-js/stowage/tree/@stowage/adapter-memory@0.1.0/packages/adapter-memory/src)
 is the implementation a third-party adapter is read against. It enforces the key rule exactly,
-declares three of the four capabilities, and has no network in the way. The cases themselves are
+declares four of the five capabilities, and has no network in the way. The cases themselves are
 written against the behavior of S3, not against it.
 
 What the suite leaves to an adapter's own tests, such as flat memory during a large upload or the
