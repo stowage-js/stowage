@@ -43,6 +43,19 @@ const requestWideCodes: ReadonlySet<StorageErrorCode> = new Set([
   "InvalidOption",
 ]);
 
+/**
+ * Spec 7.9 files a skewed clock under `InvalidRequest`, which otherwise concerns what one
+ * request asked for, and every request after it would be signed against the same clock.
+ */
+const requestWideProviderCodes: ReadonlySet<string> = new Set(["RequestTimeTooSkewed"]);
+
+function failsTheRequestAsAWhole(failure: StorageError): boolean {
+  return (
+    requestWideCodes.has(failure.code) ||
+    (failure.providerCode !== undefined && requestWideProviderCodes.has(failure.providerCode))
+  );
+}
+
 const utf8 = new TextEncoder();
 
 interface DeleteCall {
@@ -198,7 +211,7 @@ async function deleteAlone(
 
     return undefined;
   } catch (failure) {
-    if (isStorageError(failure) && !requestWideCodes.has(failure.code)) return failure;
+    if (isStorageError(failure) && !failsTheRequestAsAWhole(failure)) return failure;
 
     throw failure;
   }

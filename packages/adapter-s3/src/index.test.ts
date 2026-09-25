@@ -1653,6 +1653,10 @@ test.each([
   ["a credential the provider refuses", () => refused(403, "InvalidAccessKeyId", "No such key id")],
   ["a bucket that is not there", () => refused(404, "NoSuchBucket", "The bucket does not exist")],
   [
+    "a clock the provider refuses",
+    () => refused(403, "RequestTimeTooSkewed", "The difference between the times is too large"),
+  ],
+  [
     "no response",
     () => {
       throw new TypeError("fetch failed");
