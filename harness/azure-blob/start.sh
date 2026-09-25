@@ -27,7 +27,8 @@ base64url() {
 }
 
 # Azurite reads the token's times, issuer and audience and checks no signature, so the
-# token the container is created with is minted here, unsigned (ADR 0023).
+# token the container is created with is minted here, unsigned (ADR 0023), with the claims
+# `src/token.ts` mints for the run. The version is the one the adapter pins (spec 8.4).
 now="$(date +%s)"
 header="$(printf '{"alg":"none","typ":"JWT"}' | base64url)"
 claims="$(printf '{"aud":"https://storage.azure.com","iss":"https://sts.windows.net/00000000-0000-0000-0000-000000000000/","iat":%s,"nbf":%s,"exp":%s}' \
