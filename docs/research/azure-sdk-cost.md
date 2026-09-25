@@ -233,10 +233,14 @@ supported in non-Node.js environments.` (`storage-common/dist/browser/BufferSche
   (`ts-http-runtime/dist/browser/fetchHttpClient.js`), and nothing in the storage packages sets it.
 
 The side finding matters beyond Azure: `workerd` now enables `nodejs_compat` by default from
-compatibility date 2026-08-04, and `no_nodejs_compat` switches it off (**Measured**, both rows
-above). `harness/workerd/workerd.capnp` pins 2026-09-01 with no flags, and its comment says the cell
-shows that `adapter-memory` and `adapter-s3` "reach no Node API". At that date the cell no longer
-shows that.
+compatibility date 2026-08-04 (**Measured**, both rows above). `no_nodejs_compat` alone does not
+restore the earlier state: `nodejs_compat_v2`, also on by default, keeps `process`, `Buffer` and
+about 14 `node:` modules such as `node:buffer`, `node:crypto` and `node:stream` reachable. Only
+`no_nodejs_compat` together with `no_nodejs_compat_v2` matches 2026-08-03 with no flags
+(**Measured**, see [#118](https://github.com/stowage-js/stowage/issues/118)).
+`harness/workerd/workerd.capnp` pins 2026-09-01 with no flags, and its comment says the cell shows
+that `adapter-memory` and `adapter-s3` "reach no Node API". At that date the cell no longer shows
+that.
 
 ### Install size and dependency tree
 
@@ -482,8 +486,8 @@ also buffers 20 of them.
    of the matrix except Node 24, and Node 26 only from 2026-10-28.
 5. **Fog patch: runtime matrix for the Azure adapter.** `workerd` has enabled `nodejs_compat` by
    default since compatibility date 2026-08-04, measured. The v0.1 `workerd` harness pins
-   2026-09-01 without `no_nodejs_compat`, so it no longer proves that `adapter-s3` reaches no Node
-   API. An Azure adapter's `workerd` cell needs `no_nodejs_compat` to prove it.
+   2026-09-01 with no flags, so it no longer proves that `adapter-s3` reaches no Node API. An Azure
+   adapter's `workerd` cell needs `no_nodejs_compat` and `no_nodejs_compat_v2` to prove it.
 
 ## Explicitly not verified
 
