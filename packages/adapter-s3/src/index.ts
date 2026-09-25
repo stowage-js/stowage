@@ -7,6 +7,7 @@ import {
   type ObjectListing,
   type ObjectStat,
   type OperationOptions,
+  type PresignedPut,
   type PutBody,
   type PutOptions,
   type Storage,
@@ -62,9 +63,10 @@ export interface S3Storage extends Storage {
    * key until it expires. `contentType` and `contentLength` bind exactly: the provider
    * refuses a body of another type or another length, so a body of unknown length cannot
    * be uploaded through it. It signs `UNSIGNED-PAYLOAD` and no checksum, so the upload
-   * carries no integrity check. Sends no request.
+   * carries no integrity check. Resolves with the URL and the `content-type` the `PUT`
+   * sends beside the body. Sends no request.
    */
-  presignPut(key: string, options: S3PresignPutOptions): Promise<string>;
+  presignPut(key: string, options: S3PresignPutOptions): Promise<PresignedPut>;
 }
 
 export function s3Storage(options: S3AdapterOptions): S3Storage {
@@ -223,7 +225,7 @@ class SimpleStorageServiceStorage implements S3Storage {
     return await presignGet(this.#configuration, key, options);
   }
 
-  async presignPut(key: string, options: S3PresignPutOptions): Promise<string> {
+  async presignPut(key: string, options: S3PresignPutOptions): Promise<PresignedPut> {
     return await presignPut(this.#configuration, key, options);
   }
 

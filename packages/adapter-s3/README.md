@@ -12,7 +12,7 @@ npm install @stowage/adapter-s3
 ## Example
 
 A server signs a URL for one upload of the type and length the browser reported. The browser then
-calls it with a plain `fetch` and `PUT`, against AWS S3 or R2 alike.
+calls it with a plain `fetch`, `PUT` and the `headers` that came with it, against AWS S3 or R2 alike.
 
 ```ts
 import { fromEnv, s3Storage } from "@stowage/adapter-s3";
@@ -34,13 +34,13 @@ const r2 = s3Storage({
 });
 
 for (const storage of [aws, r2]) {
-  const url = await storage.presignPut("avatars/alice.png", {
+  const { url, headers } = await storage.presignPut("avatars/alice.png", {
     expiresIn: 300,
     contentType: "image/png",
     contentLength: 48_213,
   });
 
-  console.log(url);
+  console.log(url, headers);
 }
 ```
 
