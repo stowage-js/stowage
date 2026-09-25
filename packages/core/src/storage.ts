@@ -13,7 +13,8 @@ export interface PutOptions extends OperationOptions {
    * Stored where the storage declares `userMetadata`, and `Unsupported` elsewhere unless it is
    * empty. Keys are non-empty ASCII HTTP tokens compared case-insensitively; values may hold
    * any Unicode. Keys and values together hold at most 2 KB of encoded header bytes, and more
-   * is `InvalidRequest`.
+   * is `InvalidRequest`. A key outside ASCII identifiers, such as `content-hash`, is
+   * `Unsupported` where the storage does not declare `userMetadataTokenKeys`.
    */
   userMetadata?: Record<string, string>;
 }
