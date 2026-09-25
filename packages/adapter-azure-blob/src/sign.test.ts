@@ -7,8 +7,6 @@ const emulatorAccount = "devstoreaccount1";
 const emulatorKey =
   "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==";
 
-const date = new Date("2026-08-30T12:36:00Z");
-
 // RFC 4231, test case 2: the key "Jefe", here as the base64 an account key is written in.
 test("the signature is HMAC-SHA256 under the decoded key, written as base64", async () => {
   expect(await hmacSha256Base64("SmVmZQ==", "what do ya want for nothing?")).toBe(
@@ -27,9 +25,9 @@ test("a `Put Blob` signs its length, its type, the `x-ms-` headers and the resou
         ["content-type", "text/plain"],
         ["x-ms-version", "2026-04-06"],
         ["x-ms-blob-type", "BlockBlob"],
+        ["x-ms-date", "Sun, 30 Aug 2026 12:36:00 GMT"],
       ],
       contentLength: 11,
-      date,
     },
     emulatorKey,
   );
@@ -61,7 +59,6 @@ test("a `Put Blob` signs its length, its type, the `x-ms-` headers and the resou
     "authorization",
     "SharedKey devstoreaccount1:Pndxzik4sFtIfCmOShKiBI70PtJoRfeAKvhszVWCT3U=",
   ]);
-  expect(signed.headers).toContainEqual(["x-ms-date", "Sun, 30 Aug 2026 12:36:00 GMT"]);
 });
 
 test("a body of zero bytes signs an empty length", () => {

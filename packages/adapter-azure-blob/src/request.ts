@@ -71,9 +71,12 @@ async function authorize(
   path: string,
   credentials: AzureBlobCredentials,
 ): Promise<readonly HeaderField[]> {
+  // Shared Key needs a date to sign, and `fetch` forbids setting `Date`. Azure lists the
+  // date among what every authorized request carries, so the bearer sends it too.
   const headers: readonly HeaderField[] = [
     ...(request.headers ?? []),
     ["x-ms-version", serviceVersion],
+    ["x-ms-date", new Date().toUTCString()],
   ];
 
   if ("accessToken" in credentials) {
@@ -88,7 +91,6 @@ async function authorize(
       query: request.query ?? [],
       headers,
       contentLength: request.body?.byteLength ?? 0,
-      date: new Date(),
     },
     credentials.accountKey,
   );

@@ -199,6 +199,14 @@ test("an escape in the endpoint's path travels once, not encoded a second time",
   expect(sent[0]?.url).toBe("https://blob.example.com/my%20base/conformance/object");
 });
 
+test("a request under the access token is dated as well", async () => {
+  const sent = stubFetch(() => created());
+
+  await storage().put("object", "body");
+
+  expect(Date.parse(sent[0]?.headers.get("x-ms-date") ?? "")).not.toBeNaN();
+});
+
 test("a `..` inside a segment reaches the provider as written, never folded by a `URL`", async () => {
   const sent = stubFetch(() => created());
 

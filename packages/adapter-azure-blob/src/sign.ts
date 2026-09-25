@@ -10,15 +10,14 @@ export interface SignableRequest {
   readonly path: string;
   /** Decoded, as the canonicalized resource carries it. */
   readonly query: readonly QueryParameter[];
-  /** What the request carries; `x-ms-date` is added here. */
+  /** What the request carries, `x-ms-date` among it. */
   readonly headers: readonly HeaderField[];
   /** `fetch` sets `Content-Length` from the body and refuses to be handed one. */
   readonly contentLength: number;
-  readonly date: Date;
 }
 
 export interface SignedRequest {
-  /** What to send, `x-ms-date` and `authorization` among it. */
+  /** What to send, `authorization` added. */
   readonly headers: readonly HeaderField[];
   /** Nothing sends it; a fixture that fails on it says which line went wrong. */
   readonly stringToSign: string;
@@ -52,21 +51,17 @@ export async function signSharedKey(
   request: SignableRequest,
   accountKey: string,
 ): Promise<SignedRequest> {
-  const headers: readonly HeaderField[] = [
-    ...request.headers,
-    ["x-ms-date", request.date.toUTCString()],
-  ];
-  const signed = stringToSign({ ...request, headers });
+  const signed = stringToSign(request);
   const signature = await hmacSha256Base64(accountKey, signed);
 
   return {
-    headers: [...headers, ["authorization", `SharedKey ${request.account}:${signature}`]],
+    headers: [...request.headers, ["authorization", `SharedKey ${request.account}:${signature}`]],
     stringToSign: signed,
   };
 }
 
 /** The Shared Key string to sign for Blob, unchanged in shape since `2016-05-31`. */
-export function stringToSign(request: Omit<SignableRequest, "date">): string {
+export function stringToSign(request: SignableRequest): string {
   const fields = new Map<string, string>();
 
   for (const [name, value] of request.headers) fields.set(name.toLowerCase(), value);
@@ -134,7 +129,7 @@ function weightOf(code: number): number {
  * `/<account><path>`, then one line per query parameter: the name lower-cased, the values
  * of one name sorted and joined by commas, every name in code point order.
  */
-function canonicalResource(request: Omit<SignableRequest, "date">): string {
+function canonicalResource(request: SignableRequest): string {
   const values = new Map<string, string[]>();
 
   for (const [name, value] of request.query) {
