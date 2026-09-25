@@ -126,12 +126,12 @@ for the `type` of the file the browser will send, and a client that sends the he
 | `PUT`, 12 bytes                                                 | `403`  | `https://conformance.stowage.invalid` | none                                                                 |
 | `PUT` to a URL whose `se` passed a minute ago                   | `403`  | `https://conformance.stowage.invalid` | none                                                                 |
 
-**Derived.** A cross-origin page can read the status of a refused upload on Azure, where on R2 it
-cannot. It cannot read `x-ms-error-code` or the body's detail: no `Access-Control-Expose-Headers`
-comes back, and `x-ms-error-code` is not a CORS-safelisted response header, so reading it would take
-`ExposedHeaders` in the account's rule. The answer to an expired URL keeps the error code of a wrong
-one and differs only in its detail, "Signature not valid in the specified time frame", which a page
-cannot read either.
+**Derived.** A cross-origin page whose origin matches `Access-Control-Allow-Origin` can read the
+status and body of a refused upload on Azure, including the detail of an expired URL: "Signature not
+valid in the specified time frame". On R2 it cannot read the refused response. The page cannot
+read `x-ms-error-code`, because it is not a CORS-safelisted response header and no
+`Access-Control-Expose-Headers` comes back; reading it would take `ExposedHeaders` in the account's
+rule. The expired URL keeps the same error code as a wrong signature and differs in its body detail.
 
 ## What this settles and what it leaves
 
