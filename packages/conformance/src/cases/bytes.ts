@@ -45,8 +45,9 @@ export function streamOf(
 /**
  * The bodies of `put/concurrent-writers` as streams that each hold back their end until
  * every one was read to its last byte. An adapter cannot complete an upload before its
- * stream ends, so each writer has sent the parts it filled before either completes,
- * whatever the part size, and the pacing names no adapter.
+ * stream ends, so before either completes, each writer has read every byte and started
+ * every full part, whatever the part size, and the pacing names no adapter. Whether a
+ * started part was answered yet is the adapter's timing, which no stream can see.
  */
 export function streamsEndingTogether(
   bodies: readonly Uint8Array[],
