@@ -13,22 +13,31 @@ import type { ConformanceFramework } from "../../../packages/conformance/src/des
 import type { ConformanceResult } from "../../../packages/conformance/src/result.ts";
 import { configuredStorage } from "../../s3/src/environment.ts";
 import { describeEndpointCheck } from "../../s3/src/target.ts";
+import type { FromEnvOutcome } from "./from-env.ts";
+import type { NodeApiReach } from "./node-api.ts";
 
 const harnessDirectory = fileURLToPath(new URL("..", import.meta.url));
 
 /**
  * ADR 0006: `workerd` has no test function to hand the cases to, so the worker runs them
  * and answers with the results, and the harness reports each one on Node as a test of its
- * own, named as `describeConformance` names the case.
+ * own, named as `describeConformance` names the case. What each worker reports about
+ * itself beside the cases is handed back for the caller to assert on.
  */
-export async function describeWorkerd(framework: ConformanceFramework): Promise<void> {
+export async function describeWorkerd(
+  framework: ConformanceFramework,
+): Promise<Record<Socket, Probes>> {
   await bundleWorker();
 
   const configured = configuredStorage();
 
-  const { memory, s3 } = await withWorkerd(async (origin) => ({
-    memory: await resultsOf(origin, "adapter-memory"),
-    s3: configured === undefined ? undefined : await resultsOf(origin, "adapter-s3"),
+  const { memory, s3, probes } = await withWorkerd(async (origins) => ({
+    memory: await resultsOf(origins.harness, "adapter-memory"),
+    s3: configured === undefined ? undefined : await resultsOf(origins.harness, "adapter-s3"),
+    probes: {
+      harness: await probesOf(origins.harness),
+      defaults: await probesOf(origins.defaults),
+    },
   }));
 
   describeResults(framework, "@stowage/adapter-memory", memory);
@@ -36,6 +45,22 @@ export async function describeWorkerd(framework: ConformanceFramework): Promise<
   describeEndpointCheck(framework, configured);
 
   if (s3 !== undefined) describeResults(framework, "@stowage/adapter-s3", s3);
+
+  return probes;
+}
+
+/**
+ * The sockets of `workerd.capnp`: `harness` reaches the worker at the flags of spec 1,
+ * `defaults` the same module at the defaults its compatibility date turns on.
+ */
+const sockets = ["harness", "defaults"] as const;
+
+export type Socket = (typeof sockets)[number];
+
+/** What one worker answers about itself beside the cases. */
+export interface Probes {
+  readonly nodeApi: NodeApiReach;
+  readonly fromEnv: FromEnvOutcome;
 }
 
 /** `src/worker.ts` as the one module `workerd.capnp` embeds. */
@@ -53,7 +78,7 @@ async function bundleWorker(): Promise<void> {
   });
 }
 
-async function withWorkerd<T>(use: (origin: string) => Promise<T>): Promise<T> {
+async function withWorkerd<T>(use: (origins: Record<Socket, string>) => Promise<T>): Promise<T> {
   // The package hands out the path of the binary built for this machine as its default
   // export.
   const workerd: { readonly default: string } = createRequire(import.meta.url)("workerd");
@@ -65,26 +90,52 @@ async function withWorkerd<T>(use: (origin: string) => Promise<T>): Promise<T> {
   const exited = once(child, "exit").catch(() => {});
 
   try {
-    return await use(`http://127.0.0.1:${await listeningPort(child)}`);
+    const ports = await listeningPorts(child);
+
+    return await use({
+      harness: `http://127.0.0.1:${ports.harness}`,
+      defaults: `http://127.0.0.1:${ports.defaults}`,
+    });
   } finally {
     child.kill();
     await exited;
   }
 }
 
-/** The port `workerd` reports on the control descriptor once its socket listens. */
-async function listeningPort(child: ChildProcess): Promise<number> {
+/** The ports `workerd` reports on the control descriptor once both sockets listen. */
+async function listeningPorts(child: ChildProcess): Promise<Record<Socket, number>> {
   const [, , , control] = child.stdio;
 
   if (!(control instanceof Readable)) throw new Error("`workerd` has no control descriptor");
 
-  for await (const line of createInterface({ input: control })) {
-    const message: { readonly event?: unknown; readonly port?: unknown } = JSON.parse(line);
+  const ports = new Map<Socket, number>();
 
-    if (message.event === "listen" && typeof message.port === "number") return message.port;
+  for await (const line of createInterface({ input: control })) {
+    const message: {
+      readonly event?: unknown;
+      readonly socket?: unknown;
+      readonly port?: unknown;
+    } = JSON.parse(line);
+
+    if (
+      message.event === "listen" &&
+      isSocket(message.socket) &&
+      typeof message.port === "number"
+    ) {
+      ports.set(message.socket, message.port);
+    }
+
+    const harness = ports.get("harness");
+    const defaults = ports.get("defaults");
+
+    if (harness !== undefined && defaults !== undefined) return { harness, defaults };
   }
 
-  throw new Error("`workerd` exited before its socket listened");
+  throw new Error("`workerd` exited before its sockets listened");
+}
+
+function isSocket(value: unknown): value is Socket {
+  return sockets.some((socket) => socket === value);
 }
 
 /**
@@ -105,6 +156,23 @@ async function resultsOf(origin: string, path: string): Promise<readonly Conform
   const results: readonly ConformanceResult[] = JSON.parse(body);
 
   return results;
+}
+
+async function probesOf(origin: string): Promise<Probes> {
+  return {
+    nodeApi: await answerOf<NodeApiReach>(origin, "node-api"),
+    fromEnv: await answerOf<FromEnvOutcome>(origin, "from-env"),
+  };
+}
+
+async function answerOf<T>(origin: string, path: string): Promise<T> {
+  const response = await fetch(`${origin}/${path}`);
+
+  if (!response.ok) throw new Error(`The worker answered ${response.status} for ${path}`);
+
+  const answer: T = await response.json();
+
+  return answer;
 }
 
 function describeResults(

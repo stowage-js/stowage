@@ -167,7 +167,7 @@ retry curve, is listed in
 
 ## Runtimes
 
-Node 24 and later, Bun, Deno and `workerd` at the compatibility date `2026-09-01`. CI last ran green on Bun 1.4.2 and Deno 2.9.6.
+Node 24 and later, Bun, Deno and `workerd` at the compatibility date `2026-09-01` without Node APIs. CI last ran green on Bun 1.4.2 and Deno 2.9.6.
 
 The bundle measures 10.7 kB minified and gzipped, `@stowage/core` included.
 

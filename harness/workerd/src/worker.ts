@@ -11,6 +11,8 @@ import { withDivergences } from "../../s3/src/divergences.ts";
 import { s3Target } from "../../s3/src/target.ts";
 import { memoryTarget } from "../../targets/src/memory.ts";
 import { runOptionsFrom } from "../../targets/src/run-options.ts";
+import { fromEnvOutcome } from "./from-env.ts";
+import { nodeApiReach } from "./node-api.ts";
 
 interface Run {
   readonly target: ConformanceTarget;
@@ -22,6 +24,10 @@ interface Run {
 export default {
   async fetch(request: Request, variables: Variables): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname === "/node-api") return Response.json(await nodeApiReach());
+    if (url.pathname === "/from-env") return Response.json(fromEnvOutcome());
+
     const run = runAt(url.pathname, variables);
 
     if (run === undefined) return new Response(null, { status: 404 });
@@ -36,8 +42,8 @@ function runAt(pathname: string, variables: Variables): Run | undefined {
   if (pathname === "/adapter-memory") return { target: memoryTarget, cases };
   if (pathname !== "/adapter-s3") return undefined;
 
-  // The worker runs without `nodejs_compat`, where `fromEnv` finds no `process` to read,
-  // so the credential arrives as two bindings like the rest of the endpoint.
+  // The flags of spec 1 take `process` away, so `fromEnv` finds nothing to read here and
+  // the credential arrives as two bindings like the rest of the endpoint.
   const configured = storageOptionsFrom(variables, {
     accessKeyId: variables["AWS_ACCESS_KEY_ID"] ?? "",
     secretAccessKey: variables["AWS_SECRET_ACCESS_KEY"] ?? "",

@@ -1,11 +1,12 @@
 # The `workerd` cell of spec 2. `worker.js` is `src/worker.ts`, bundled on Node by
-# `src/describe-workerd.ts`, which starts this config and reads the port from the control
+# `src/describe-workerd.ts`, which starts this config and reads the ports from the control
 # descriptor.
 using Workerd = import "/workerd/workerd.capnp";
 
 const config :Workerd.Config = (
   services = [
     (name = "conformance", worker = .conformance),
+    (name = "defaults", worker = .defaults),
     # The default outbound reaches public addresses alone, and the emulator of ADR 0012
     # answers on the loopback one. A network of one's own trusts no certificate authority
     # unless told to, which the real buckets of the scheduled run need.
@@ -14,14 +15,19 @@ const config :Workerd.Config = (
       network = (allow = ["public", "private", "local"], tlsOptions = (trustBrowserCas = true)),
     ),
   ],
-  sockets = [(name = "http", address = "127.0.0.1:0", http = (), service = "conformance")],
+  sockets = [
+    (name = "harness", address = "127.0.0.1:0", http = (), service = "conformance"),
+    (name = "defaults", address = "127.0.0.1:0", http = (), service = "defaults"),
+  ],
 );
 
 const conformance :Workerd.Worker = (
   modules = [(name = "worker.js", esModule = embed "dist/worker.js")],
-  # Spec 1: the date `workerd` runs at. No `nodejs_compat` beside it, so the cell shows
-  # that `adapter-memory` and `adapter-s3` reach no Node API.
+  # Spec 1: the date and the flags `workerd` runs at, so the cell shows that
+  # `adapter-memory` and `adapter-s3` need no Node API. ADR 0002 says why one flag is not
+  # enough.
   compatibilityDate = "2026-09-01",
+  compatibilityFlags = ["no_nodejs_compat", "no_nodejs_compat_v2"],
   globalOutbound = "internet",
   bindings = [
     (name = "STOWAGE_CONFORMANCE_INCLUDE_SLOW", fromEnvironment = "STOWAGE_CONFORMANCE_INCLUDE_SLOW"),
@@ -38,5 +44,19 @@ const conformance :Workerd.Worker = (
     (name = "STOWAGE_S3_EXPIRED_SECRET_ACCESS_KEY", fromEnvironment = "STOWAGE_S3_EXPIRED_SECRET_ACCESS_KEY"),
     (name = "STOWAGE_S3_EXPIRED_SESSION_TOKEN", fromEnvironment = "STOWAGE_S3_EXPIRED_SESSION_TOKEN"),
     (name = "STOWAGE_S3_EXPIRED_AT", fromEnvironment = "STOWAGE_S3_EXPIRED_AT"),
+  ],
+);
+
+# The same module at the defaults of the pinned date, which a Worker gets unless it opts
+# out. It runs no cases: it shows that the probe of `src/node-api.ts` would see a Node
+# API, and that `fromEnv` reads bindings through `process.env` as spec 7.3 promises. The
+# values are fixed, so the run needs no credential of its own.
+const defaults :Workerd.Worker = (
+  modules = [(name = "worker.js", esModule = embed "dist/worker.js")],
+  compatibilityDate = "2026-09-01",
+  bindings = [
+    (name = "AWS_ACCESS_KEY_ID", text = "access-key-from-binding"),
+    (name = "AWS_SECRET_ACCESS_KEY", text = "secret-from-binding"),
+    (name = "AWS_SESSION_TOKEN", text = "session-token-from-binding"),
   ],
 );

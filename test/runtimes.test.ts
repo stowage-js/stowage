@@ -22,3 +22,9 @@ test.each(packages)("the README of %s names the Bun and Deno versions CI runs", 
 test("the `workerd` harness pins the compatibility date of spec 1", async () => {
   expect(await read("harness/workerd/workerd.capnp")).toContain('compatibilityDate = "2026-09-01"');
 });
+
+test("the `workerd` harness switches off both flags that bring Node APIs", async () => {
+  expect(await read("harness/workerd/workerd.capnp")).toContain(
+    'compatibilityFlags = ["no_nodejs_compat", "no_nodejs_compat_v2"]',
+  );
+});
