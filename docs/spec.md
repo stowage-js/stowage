@@ -1486,7 +1486,8 @@ system's path limit does not hold it below the root, which section 6 states.
 - Tightening a key rule is a minor release below 1.0 and a major above it. Loosening one is neither.
 - A provider promised later does not narrow the parity core: what it cannot hold becomes a
   capability its adapter does not declare. Where a difference refuses that shape, as a batch size
-  does, the change names its conflict with ADR 0017 and is a withdrawal like any other.
+  does or a published capability name narrowed to what the new provider holds, the change names
+  its conflict with ADR 0017 and is a withdrawal like any other.
 - Dropping a runtime or a Node line that reached end of life leads the changelog entry and is not
   a breaking change, before or after 1.0.
 - Nothing is deprecated before it is removed below 1.0. There is no pre-release channel.

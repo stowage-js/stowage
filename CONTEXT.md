@@ -129,12 +129,19 @@ is current rather than the one it was written for, so a reader follows the link 
 carries and reaches the wording that belongs to it.
 _Avoid_: documentation, reference, contract
 
+**Withdrawal**:
+A change after which the spec promises a caller less than it did, whether or not code moves,
+including a published name whose meaning narrows. Below 1.0 it is a minor release whose changeset
+is marked breaking.
+_Avoid_: removal, deprecation
+
 **Parity core**:
 The operations every adapter supports alike: `put`, `get`, `stat`, `exists`, `list`, `delete`,
 `deleteAll`, `copy` and `move`. An application that stays inside the parity core changes its
 adapter without changing its code. Where promised providers answer differently, the parity core
 promises what all of them hold. Promising a further provider does not take a promise away: what
-that provider cannot hold becomes a capability its adapter does not declare.
+that provider cannot hold becomes a capability its adapter does not declare, unless a difference
+refuses that shape, which is then a withdrawal.
 _Avoid_: basic operations, common API, lowest common denominator
 
 **Capability**:
