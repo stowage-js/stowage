@@ -19,9 +19,13 @@ const config :Workerd.Config = (
 
 const conformance :Workerd.Worker = (
   modules = [(name = "worker.js", esModule = embed "dist/worker.js")],
-  # Spec 1: the date `workerd` runs at. No `nodejs_compat` beside it, so the cell shows
-  # that `adapter-memory` and `adapter-s3` reach no Node API.
+  # Spec 1: the date and flags `workerd` runs at, so the cell shows that `adapter-memory`
+  # and `adapter-s3` need no Node API. From 2026-08-04 the date alone turns on
+  # `nodejs_compat` and `nodejs_compat_v2`; `no_nodejs_compat` alone still leaves
+  # `process`, `Buffer` and most `node:` modules, and only both flags together restore
+  # what the date gave before (#118).
   compatibilityDate = "2026-09-01",
+  compatibilityFlags = ["no_nodejs_compat", "no_nodejs_compat_v2"],
   globalOutbound = "internet",
   bindings = [
     (name = "STOWAGE_CONFORMANCE_INCLUDE_SLOW", fromEnvironment = "STOWAGE_CONFORMANCE_INCLUDE_SLOW"),
