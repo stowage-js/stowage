@@ -28,6 +28,11 @@ constructed, in code, and from named options rather than from one string that ca
 them.
 _Avoid_: disk, client, connection
 
+**Account**:
+The Azure Blob namespace a container belongs to. A storage names it where it is constructed,
+beside the container, and it is not part of the credential. S3 has no counterpart.
+_Avoid_: tenant, subscription, storage account
+
 **Wire protocol**:
 The HTTP API a provider publishes, which an adapter implements directly rather than through
 the provider's own SDK.
