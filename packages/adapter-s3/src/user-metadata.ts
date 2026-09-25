@@ -1,4 +1,5 @@
 import {
+  type CapabilityName,
   decodeUserMetadataValue,
   encodeUserMetadataValue,
   isUserMetadataKey,
@@ -21,21 +22,35 @@ export interface UserMetadataHeaders {
   readonly held: Readonly<Record<string, string>>;
 }
 
+const noUserMetadata: UserMetadataHeaders = {
+  headers: [],
+  held: Object.freeze(Object.create(null)),
+};
+
 /**
- * The header fields `userMetadata` travels in, refused with `InvalidRequest` before the
- * request is signed where a key is no ASCII HTTP token or the whole set is above 2 KB of
- * encoded header bytes (spec 4.3). A key outside ASCII is refused rather than sent,
- * because R2 strips it on the way out and a write would lose it silently (ADR 0014).
+ * The header fields `userMetadata` travels in, refused before the request is signed in the
+ * order of spec 4.3, which reads the refusals off what the storage declares. A key outside
+ * ASCII is refused rather than sent, because R2 strips it on the way out and a write would
+ * lose it silently (ADR 0014).
  */
 export function userMetadataHeaders(
   bucket: string,
   userMetadata: Record<string, string> | undefined,
   key: string,
+  capabilities: readonly CapabilityName[],
 ): UserMetadataHeaders {
+  const entries = Object.entries(userMetadata ?? {});
+
+  if (entries.length === 0) return noUserMetadata;
+
+  if (!capabilities.includes("userMetadata")) {
+    throw unsupported(bucket, "userMetadata", "This storage holds no user metadata", key);
+  }
+
   const headers: HeaderField[] = [];
   const held: Record<string, string> = Object.create(null);
 
-  for (const [name, value] of Object.entries(userMetadata ?? {})) {
+  for (const [name, value] of entries) {
     if (!isUserMetadataKey(name, "token")) {
       throw refusal(
         bucket,
@@ -70,6 +85,17 @@ export function userMetadataHeaders(
     );
   }
 
+  const beyondIdentifiers = entries.find(([name]) => !isUserMetadataKey(name, "identifier"));
+
+  if (beyondIdentifiers !== undefined && !capabilities.includes("userMetadataTokenKeys")) {
+    throw unsupported(
+      bucket,
+      "userMetadataTokenKeys",
+      `This storage holds no user metadata key beyond identifiers, such as ${JSON.stringify(beyondIdentifiers[0])}`,
+      key,
+    );
+  }
+
   return { headers, held: Object.freeze(held) };
 }
 
@@ -92,4 +118,20 @@ export function readUserMetadata(headers: Headers): Readonly<Record<string, stri
 
 function refusal(bucket: string, message: string, key: string): StorageError {
   return s3Error(bucket, { code: "InvalidRequest", message, operation: "put", key, attempts: 0 });
+}
+
+function unsupported(
+  bucket: string,
+  capability: CapabilityName,
+  message: string,
+  key: string,
+): StorageError {
+  return s3Error(bucket, {
+    code: "Unsupported",
+    message,
+    operation: "put",
+    key,
+    attempts: 0,
+    capability,
+  });
 }

@@ -1,7 +1,9 @@
-import { isStorageError } from "@stowage/core";
+import { type CapabilityName, isStorageError } from "@stowage/core";
 import { expect, test } from "vitest";
 
 import { readUserMetadata, userMetadataHeaders } from "./user-metadata.ts";
+
+const declared: readonly CapabilityName[] = ["userMetadata", "userMetadataTokenKeys"];
 
 function refusal(act: () => unknown): unknown {
   try {
@@ -14,7 +16,7 @@ function refusal(act: () => unknown): unknown {
 }
 
 function roundTrip(userMetadata: Record<string, string>): Readonly<Record<string, string>> {
-  const { headers } = userMetadataHeaders("stowage", userMetadata, "object.txt");
+  const { headers } = userMetadataHeaders("stowage", userMetadata, "object.txt", declared);
 
   return readUserMetadata(new Headers(headers.map(([name, value]) => [name, value])));
 }
@@ -24,6 +26,7 @@ test("a key travels folded to lower case under the `x-amz-meta-` prefix", () => 
     "stowage",
     { "Written-By": "stowage", run: "conformance" },
     "object.txt",
+    declared,
   );
 
   expect(headers).toEqual([
@@ -34,7 +37,7 @@ test("a key travels folded to lower case under the `x-amz-meta-` prefix", () => 
 });
 
 test("a value above ASCII travels as RFC 2047 encoded words of UTF-8", () => {
-  const { headers } = userMetadataHeaders("stowage", { greeting: "grüße" }, "object.txt");
+  const { headers } = userMetadataHeaders("stowage", { greeting: "grüße" }, "object.txt", declared);
 
   expect(headers).toEqual([["x-amz-meta-greeting", "=?UTF-8?B?Z3LDvMOfZQ==?="]]);
   expect(roundTrip({ greeting: "grüße" })).toEqual({ greeting: "grüße" });
@@ -53,7 +56,7 @@ test.each([
 
 test("a long value is split into encoded words that each stay within RFC 2047's 75", () => {
   const value = "ü".repeat(200);
-  const { headers } = userMetadataHeaders("stowage", { note: value }, "object.txt");
+  const { headers } = userMetadataHeaders("stowage", { note: value }, "object.txt", declared);
   const words = headers[0]?.[1].split(" ") ?? [];
 
   expect(words.length).toBeGreaterThan(1);
@@ -72,7 +75,9 @@ test("a split never falls inside the bytes of one character", () => {
 test.each([["grüße"], ["with space"], ["colon:"], ["slash/"], ["question?"], ["[bracket]"], [""]])(
   "the key %j is no ASCII HTTP token and is `InvalidRequest` before signing",
   (key) => {
-    const failure = refusal(() => userMetadataHeaders("stowage", { [key]: "x" }, "object.txt"));
+    const failure = refusal(() =>
+      userMetadataHeaders("stowage", { [key]: "x" }, "object.txt", declared),
+    );
 
     expect(isStorageError(failure) && failure.code).toBe("InvalidRequest");
     expect(isStorageError(failure) && failure.attempts).toBe(0);
@@ -82,7 +87,7 @@ test.each([["grüße"], ["with space"], ["colon:"], ["slash/"], ["question?"], [
 
 test("two keys equal but for case are refused rather than folded into one", () => {
   const failure = refusal(() =>
-    userMetadataHeaders("stowage", { Note: "one", note: "two" }, "object.txt"),
+    userMetadataHeaders("stowage", { Note: "one", note: "two" }, "object.txt", declared),
   );
 
   expect(isStorageError(failure) && failure.code).toBe("InvalidRequest");
@@ -91,11 +96,11 @@ test("two keys equal but for case are refused rather than folded into one", () =
 test("the set is measured as encoded header bytes and refused above 2 KB", () => {
   // Four bytes of key and 2044 of value fill the limit exactly.
   expect(() =>
-    userMetadataHeaders("stowage", { note: "x".repeat(2044) }, "object.txt"),
+    userMetadataHeaders("stowage", { note: "x".repeat(2044) }, "object.txt", declared),
   ).not.toThrow();
 
   const failure = refusal(() =>
-    userMetadataHeaders("stowage", { note: "x".repeat(2045) }, "object.txt"),
+    userMetadataHeaders("stowage", { note: "x".repeat(2045) }, "object.txt", declared),
   );
 
   expect(isStorageError(failure) && failure.code).toBe("InvalidRequest");
@@ -105,7 +110,7 @@ test("the set is measured as encoded header bytes and refused above 2 KB", () =>
 test("a value above ASCII costs its encoded bytes rather than its characters", () => {
   // 800 characters of `ü` are 1600 UTF-8 bytes, which stay below 2 KB and pass it in base64.
   const failure = refusal(() =>
-    userMetadataHeaders("stowage", { note: "ü".repeat(800) }, "object.txt"),
+    userMetadataHeaders("stowage", { note: "ü".repeat(800) }, "object.txt", declared),
   );
 
   expect(isStorageError(failure) && failure.code).toBe("InvalidRequest");
