@@ -66,3 +66,7 @@ test("an empty element, whitespace and comments read as nothing", () => {
     ["Key", "ab"],
   ]);
 });
+
+test("`XmlSyntaxError` names itself", () => {
+  expect(() => parseXml("")).toThrow(expect.objectContaining({ name: "XmlSyntaxError" }));
+});

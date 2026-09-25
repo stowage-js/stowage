@@ -1,8 +1,7 @@
-import type { StorageError } from "@stowage/core";
+import { parseXml, type StorageError, type XmlElement, XmlSyntaxError } from "@stowage/core";
 
 import { readEmbeddedFailure } from "./provider-code.ts";
 import { s3Error } from "./storage-error.ts";
-import { parseXml, type XmlElement, XmlSyntaxError } from "./xml.ts";
 
 /** The request a document answered, which a failure read out of it is told against. */
 export interface AnsweredRequest {

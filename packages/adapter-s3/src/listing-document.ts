@@ -1,9 +1,14 @@
-import type { ObjectEntry, StorageError } from "@stowage/core";
+import {
+  type ObjectEntry,
+  parseXml,
+  type StorageError,
+  type XmlElement,
+  XmlSyntaxError,
+} from "@stowage/core";
 
 import { textOf } from "./answer-document.ts";
 import { unquotedEtag } from "./description.ts";
 import { s3Error } from "./storage-error.ts";
-import { parseXml, type XmlElement, XmlSyntaxError } from "./xml.ts";
 
 /** The response a listing document came in, which a failure to read it is told against. */
 export interface ListingAnswer {

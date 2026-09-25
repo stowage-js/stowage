@@ -24,3 +24,4 @@ export type {
   Storage,
   StoredObject,
 } from "./storage.ts";
+export { parseXml, type XmlElement, XmlSyntaxError } from "./xml.ts";
