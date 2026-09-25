@@ -26,7 +26,7 @@ reasoning. Where a section names an ADR, that ADR holds the alternatives that we
   version CI last ran green. `workerd` runs with the compatibility date `2026-09-01` and the flags
   `no_nodejs_compat` and `no_nodejs_compat_v2`, which the `workerd` harness pins as well; no package
   needs a Node API there (ADR 0002). Every `workerd` cell holds under the default flags of that
-  date as well, which turn `nodejs_compat` on (ADR 0026).
+  date as well, which turn `nodejs_compat` on.
 - Nothing detects the runtime at import time. A runtime not listed above is neither blocked nor
   supported.
 - The tarballs hold `dist/`, `LICENSE` and the README. This document is not in them.
@@ -53,7 +53,7 @@ A cell is supported where the conformance suite covers it in CI. There is no wea
   runs against a real AWS S3 bucket, a real R2 bucket and a real Azure Blob Storage account, on Bun
   and Deno against the emulators (ADR 0012, ADR 0023, ADR 0026).
 - On `workerd` the whole suite runs under `no_nodejs_compat` and `no_nodejs_compat_v2`, and the
-  `fast` tier runs a second time under the date's default flags (ADR 0026).
+  `fast` tier runs a second time under the date's default flags.
 - Hosts such as Cloudflare's network, Deno Deploy or AWS Lambda are not named in the matrix and
   not promised.
 - Flow 1 on `workerd` is promised for the runtime and on no host. The first scheduled run measured
@@ -446,18 +446,18 @@ Every failure stowage reports is a `StorageError`. There are no subclasses; call
 `code`. `isStorageError` tests a brand under `Symbol.for("stowage.error")` and holds across two
 copies of `@stowage/core` in one dependency tree, where `instanceof` does not (ADR 0005).
 
-| Code                 | Meaning                                                                                                                                                                                               |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NotFound`           | No object under the key, or no bucket. `stat` on S3 cannot tell the two apart, so one code names both                                                                                                 |
-| `AccessDenied`       | The credential is valid and may not do this                                                                                                                                                           |
-| `InvalidCredentials` | The provider does not accept the credential, or a required credential field is empty or unknown                                                                                                       |
-| `Expired`            | The credential or session token has expired                                                                                                                                                           |
-| `InvalidRequest`     | The provider or stowage refused the request for what it asked: metadata over the limit, an unsatisfiable range, a copy onto itself, a second read of a body, a request timestamp the provider refused |
-| `NetworkError`       | The request received no response: DNS, connection, TLS, a broken connection                                                                                                                           |
-| `ProviderError`      | The provider answered with a failure stowage has no other name for; `providerCode` carries its string                                                                                                 |
-| `InvalidKey`         | The key violates the rule of section 4.8, or a rule the adapter adds to it                                                                                                                            |
-| `InvalidOption`      | An option or configuration value stowage refused: an unknown key, a value out of range, a cursor it did not produce                                                                                   |
-| `Unsupported`        | The call needs a capability the storage does not declare; `capability` names it                                                                                                                       |
+| Code                 | Meaning                                                                                                                                                                                                                                       |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NotFound`           | No object under the key, or no bucket. `stat` on S3 cannot tell the two apart, so one code names both                                                                                                                                         |
+| `AccessDenied`       | The credential is valid and may not do this                                                                                                                                                                                                   |
+| `InvalidCredentials` | The provider does not accept the credential, or a required credential field is empty or unknown                                                                                                                                               |
+| `Expired`            | The credential or session token has expired                                                                                                                                                                                                   |
+| `InvalidRequest`     | The provider or stowage refused the request for what it asked: metadata over the limit, an unsatisfiable range, a copy onto itself, a second read of a body, a request timestamp the provider refused where it names that apart (section 8.8) |
+| `NetworkError`       | The request received no response: DNS, connection, TLS, a broken connection                                                                                                                                                                   |
+| `ProviderError`      | The provider answered with a failure stowage has no other name for; `providerCode` carries its string                                                                                                                                         |
+| `InvalidKey`         | The key violates the rule of section 4.8, or a rule the adapter adds to it                                                                                                                                                                    |
+| `InvalidOption`      | An option or configuration value stowage refused: an unknown key, a value out of range, a cursor it did not produce                                                                                                                           |
+| `Unsupported`        | The call needs a capability the storage does not declare; `capability` names it                                                                                                                                                               |
 
 - `operation` names the operation the caller invoked, also for a failure inside a compound
   operation such as `move`. `key` is set where the failure concerns one key. `bucket` and
@@ -1033,7 +1033,8 @@ another endpoint that speaks the Blob wire protocol can be configured and are no
   group already holds.
 - `Put Block List` names every block as `<Latest>` and is repeated like every other request, after
   a transport failure that received no response too: a repeat commits the same blocks in the same
-  order. Section 7.7 is S3's alone, and a `put` of any size is answered with certainty.
+  order. Section 7.7 is S3's alone, and a `put` of any size is answered with certainty, except
+  where another writer replaced the key between a lost commit and its repeat (section 8.6).
 - The repeat after `401 InvalidAuthenticationInfo` of section 8.3 doubles an attempt as the
   `Expired` repeat does on S3, so one request costs at most six HTTP requests.
 - A per-key failure in `delete` is reported, not repeated. A body stream that breaks during `get` is
@@ -1093,16 +1094,16 @@ mapping of section 4.10. `status`, `providerCode` from `x-ms-error-code`, `reque
 `x-ms-request-id`, and the provider's message where a body carries one are set on every error that
 carries a response.
 
-| Provider code                                                                                                            | Error code           | Note                                                                                                                                |
-| ------------------------------------------------------------------------------------------------------------------------ | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `BlobNotFound`, `ContainerNotFound`, `ResourceNotFound`                                                                  | `NotFound`           | `BlobNotFound` on `delete` counts as deleted                                                                                        |
-| `AuthorizationPermissionMismatch`, `InsufficientAccountPermissions`, `AccountIsDisabled`, `UnauthorizedBlobOverwrite`    | `AccessDenied`       | The principal is authenticated and lacks the role                                                                                   |
-| `InvalidAuthenticationInfo`, `NoAuthenticationInformation`, `AuthenticationFailed`, `KeyBasedAuthenticationNotPermitted` | `InvalidCredentials` | `InvalidAuthenticationInfo` under an access token after the one repeat of section 8.3; `AuthenticationFailed` includes a clock skew |
-| `InvalidRange`, `RequestBodyTooLarge`, `BlockCountExceedsLimit`, `MetadataTooLarge`, `InvalidMetadata`                   | `InvalidRequest`     | The metadata codes are reached only for metadata the core accepted                                                                  |
-| `InvalidBlockList`, `InvalidBlobOrBlock`                                                                                 | `ProviderError`      | `retryable: false`; on a block upload, usually another writer won (section 8.6)                                                     |
-| `PendingCopyOperation`, `BlobArchived`, `SnapshotsPresent`, `LeaseIdMissing`, `BlobImmutableDueToPolicy`                 | `ProviderError`      | A state of the blob stowage does not create                                                                                         |
-| `ServerBusy`, `InternalError`, `OperationTimedOut`                                                                       | `ProviderError`      | Transient by status                                                                                                                 |
-| `CannotVerifyCopySource`                                                                                                 | By the source        | Mapped through `x-ms-copy-source-status-code` where present, else the response's status, with `key` set to `from`                   |
+| Provider code                                                                                                            | Error code           | Note                                                                                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------ | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BlobNotFound`, `ContainerNotFound`, `ResourceNotFound`                                                                  | `NotFound`           | `BlobNotFound` on `delete` counts as deleted                                                                                                                                          |
+| `AuthorizationPermissionMismatch`, `InsufficientAccountPermissions`, `AccountIsDisabled`, `UnauthorizedBlobOverwrite`    | `AccessDenied`       | The principal is authenticated and lacks the role                                                                                                                                     |
+| `InvalidAuthenticationInfo`, `NoAuthenticationInformation`, `AuthenticationFailed`, `KeyBasedAuthenticationNotPermitted` | `InvalidCredentials` | `InvalidAuthenticationInfo` under an access token after the one repeat of section 8.3; `AuthenticationFailed` includes a clock skew, which Azure does not tell apart from a wrong key |
+| `InvalidRange`, `RequestBodyTooLarge`, `BlockCountExceedsLimit`, `MetadataTooLarge`, `InvalidMetadata`                   | `InvalidRequest`     | The metadata codes are reached only for metadata the core accepted                                                                                                                    |
+| `InvalidBlockList`, `InvalidBlobOrBlock`                                                                                 | `ProviderError`      | `retryable: false`; on a block upload, usually another writer won (section 8.6)                                                                                                       |
+| `PendingCopyOperation`, `BlobArchived`, `SnapshotsPresent`, `LeaseIdMissing`, `BlobImmutableDueToPolicy`                 | `ProviderError`      | A state of the blob stowage does not create                                                                                                                                           |
+| `ServerBusy`, `InternalError`, `OperationTimedOut`                                                                       | `ProviderError`      | Transient by status                                                                                                                                                                   |
+| `CannotVerifyCopySource`                                                                                                 | By the source        | Mapped through `x-ms-copy-source-status-code` where present, else the response's status, with `key` set to `from`                                                                     |
 
 - On `Put Blob From URL`, a `409` whose code the table does not name is `InvalidRequest` (section
   8.7).
@@ -1406,16 +1407,16 @@ A case marked with a factory is skipped where the target does not supply it.
 
 **`copy` and `move`**
 
-| Case                  | Requires       | Cost   | Asserts                                                                                                            |
-| --------------------- | -------------- | ------ | ------------------------------------------------------------------------------------------------------------------ |
-| `copy/round-trip`     |                | `fast` | Destination has the bytes and content type; source is unchanged; the returned `ObjectStat` names the destination   |
-| `copy/overwrites`     |                | `fast` | A destination that exists is replaced                                                                              |
-| `copy/missing-source` |                | `fast` | Rejects with `NotFound`; no destination is created                                                                 |
-| `copy/onto-itself`    |                | `fast` | `from === to` rejects with `InvalidRequest`, `attempts: 0`; the object is unchanged                                |
-| `copy/invalid-keys`   |                | `fast` | A destination ending in `/` and a source with a `..` segment each reject with `InvalidKey` before anything changes |
-| `copy/user-metadata`  | `userMetadata` | `fast` | The destination carries the source's metadata. Without: the copy succeeds and the destination reads `{}`           |
-| `move/round-trip`     |                | `fast` | Destination has the bytes and content type; source is gone; the result names the destination                       |
-| `move/missing-source` |                | `fast` | Rejects with `NotFound`, `operation: "move"`; no destination is created                                            |
+| Case                  | Requires       | Cost   | Asserts                                                                                                                        |
+| --------------------- | -------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `copy/round-trip`     |                | `fast` | Destination has the bytes and content type; source is unchanged; the returned `ObjectStat` names the destination               |
+| `copy/overwrites`     |                | `fast` | A destination that exists is replaced                                                                                          |
+| `copy/missing-source` |                | `fast` | Rejects with `NotFound`; no destination is created                                                                             |
+| `copy/onto-itself`    |                | `fast` | `from === to` rejects with `InvalidRequest`, `attempts: 0`; the object is unchanged                                            |
+| `copy/invalid-keys`   |                | `fast` | A destination ending in `/` and a source with a `..` segment each reject with `InvalidKey` before anything changes             |
+| `copy/user-metadata`  | `userMetadata` | `fast` | The destination carries the source's metadata under identifier keys. Without: the copy succeeds and the destination reads `{}` |
+| `move/round-trip`     |                | `fast` | Destination has the bytes and content type; source is gone; the result names the destination                                   |
+| `move/missing-source` |                | `fast` | Rejects with `NotFound`, `operation: "move"`; no destination is created                                                        |
 
 **Errors**
 
@@ -1598,6 +1599,8 @@ The first run of `adapter-azure-blob` against the account settles:
 - That `Put Blob From URL` copies the user metadata by default, that the bearer header authorizes
   the source under an access token, and that the service SAS does under an account key; and which
   code the `409` for a source above 5,000 MiB carries, which then joins the table of section 8.8.
+- That the three response overrides on `presignGet` are answered as the response headers, which
+  Azurite applies to any `GET` and so cannot show.
 - That a `Put Block List` sent twice answers `201` both times with the same bytes, and that a
   `Put Blob` discards the uncommitted blocks of its name.
 - Which code Azure answers for a `marker` it no longer continues from, and for a name above 1,024
