@@ -26,7 +26,8 @@ const packageOfSpecSection: Readonly<Record<string, string>> = {
   "5": "adapter-memory",
   "6": "adapter-fs",
   "7": "adapter-s3",
-  "8": "conformance",
+  "8": "adapter-azure-blob",
+  "9": "conformance",
 };
 
 interface CodeBlock {
