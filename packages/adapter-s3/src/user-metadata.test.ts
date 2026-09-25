@@ -4,6 +4,7 @@ import { expect, test } from "vitest";
 import { readUserMetadata, userMetadataHeaders } from "./user-metadata.ts";
 
 const declared: readonly CapabilityName[] = ["userMetadata", "userMetadataTokenKeys"];
+const identifierKeysAlone: readonly CapabilityName[] = ["userMetadata"];
 
 function refusal(act: () => unknown): unknown {
   try {
@@ -114,6 +115,45 @@ test("a value above ASCII costs its encoded bytes rather than its characters", (
   );
 
   expect(isStorageError(failure) && failure.code).toBe("InvalidRequest");
+});
+
+test("no metadata sends no header on a storage declaring none", () => {
+  expect(userMetadataHeaders("stowage", {}, "object.txt", []).headers).toEqual([]);
+});
+
+test("metadata on a storage declaring none is `Unsupported` before a key is read", () => {
+  const failure = refusal(() =>
+    userMetadataHeaders("stowage", { "with space": "x" }, "object.txt", []),
+  );
+
+  expect(isStorageError(failure) && failure.code).toBe("Unsupported");
+  expect(isStorageError(failure) && failure.capability).toBe("userMetadata");
+  expect(isStorageError(failure) && failure.attempts).toBe(0);
+});
+
+test.each([["content-hash"], ["x.y"], ["1st"]])(
+  "the key %j beyond identifiers is `Unsupported` where `userMetadataTokenKeys` is not declared",
+  (key) => {
+    const failure = refusal(() =>
+      userMetadataHeaders("stowage", { [key]: "x" }, "object.txt", identifierKeysAlone),
+    );
+
+    expect(isStorageError(failure) && failure.code).toBe("Unsupported");
+    expect(isStorageError(failure) && failure.capability).toBe("userMetadataTokenKeys");
+    expect(isStorageError(failure) && failure.attempts).toBe(0);
+  },
+);
+
+test.each([
+  ["a key that is no HTTP token", { grüße: "x" }],
+  ["a set above 2 KB", { "content-hash": "x".repeat(2048) }],
+])("%s is `InvalidRequest` before the identifier rule is reached", (_name, userMetadata) => {
+  const failure = refusal(() =>
+    userMetadataHeaders("stowage", userMetadata, "object.txt", identifierKeysAlone),
+  );
+
+  expect(isStorageError(failure) && failure.code).toBe("InvalidRequest");
+  expect(isStorageError(failure) && failure.attempts).toBe(0);
 });
 
 test("reading takes the `x-amz-meta-` fields alone", () => {
