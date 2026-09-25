@@ -27,7 +27,7 @@ const keysPerRequest = 1000;
  * The characters of a key XML 1.0 carries neither raw nor as a reference, which is what
  * is left of those outside its `Char` once spec 4.8 refused the controls (ADR 0027).
  */
-const outsideXml = /[\uFFFE\uFFFF]/u;
+const outsideXmlChar = /[\uFFFE\uFFFF]/u;
 
 /**
  * Spec 4.7 rejects the call for a failure that says nothing about the key: no response, a
@@ -45,7 +45,7 @@ const requestWideCodes: ReadonlySet<StorageErrorCode> = new Set([
 
 const utf8 = new TextEncoder();
 
-interface DeleteBatch {
+interface DeleteCall {
   /** The operation the caller invoked: `delete`, or `deleteAll` for the page it listed. */
   readonly operation: string;
   readonly signal?: AbortSignal;
@@ -58,17 +58,17 @@ interface DeleteBatch {
 export async function deleteKeys(
   configuration: S3Configuration,
   keys: readonly string[],
-  batch: DeleteBatch,
+  call: DeleteCall,
 ): Promise<DeleteReport> {
   const failed: StorageError[] = [];
   const batched: string[] = [];
   const alone: string[] = [];
 
   for (const key of keys) {
-    const refusal = refusalOf(configuration.bucket, key, batch.operation);
+    const refusal = refusalOf(configuration.bucket, key, call.operation);
 
     if (refusal !== undefined) failed.push(refusal);
-    else if (outsideXml.test(key)) alone.push(key);
+    else if (outsideXmlChar.test(key)) alone.push(key);
     else batched.push(key);
   }
 
@@ -76,12 +76,12 @@ export async function deleteKeys(
     const slice = batched.slice(offset, offset + keysPerRequest);
 
     // oxlint-disable-next-line no-await-in-loop -- one batch in flight bounds the request rate
-    failed.push(...(await deleteBatch(configuration, slice, batch)));
+    failed.push(...(await deleteBatch(configuration, slice, call)));
   }
 
   for (const key of alone) {
     // oxlint-disable-next-line no-await-in-loop -- a request-wide failure stops the ones after it
-    const failure = await deleteAlone(configuration, key, batch);
+    const failure = await deleteAlone(configuration, key, call);
 
     if (failure !== undefined) failed.push(failure);
   }
@@ -142,16 +142,16 @@ function refusalOf(bucket: string, key: string, operation: string): StorageError
 async function deleteBatch(
   configuration: S3Configuration,
   keys: readonly string[],
-  batch: DeleteBatch,
+  call: DeleteCall,
 ): Promise<readonly StorageError[]> {
   if (keys.length === 0) return [];
 
-  batch.signal?.throwIfAborted();
+  call.signal?.throwIfAborted();
 
   const body = utf8.encode(deleteDocument(keys));
   const response = await send(configuration, {
     method: "POST",
-    operation: batch.operation,
+    operation: call.operation,
     query: [["delete", ""]],
     headers: [
       ["content-type", "application/xml"],
@@ -160,12 +160,12 @@ async function deleteBatch(
       ["content-md5", md5Base64(body)],
     ],
     body,
-    signal: batch.signal,
+    signal: call.signal,
   });
   const requestId = response.headers.get("x-amz-request-id") ?? undefined;
   const answered: AnsweredRequest = {
     bucket: configuration.bucket,
-    operation: batch.operation,
+    operation: call.operation,
     subject: "the deletion",
   };
   const document = await readAnswerDocument(answered, response, "DeleteResult");
@@ -182,16 +182,16 @@ async function deleteBatch(
 async function deleteAlone(
   configuration: S3Configuration,
   key: string,
-  batch: DeleteBatch,
+  call: DeleteCall,
 ): Promise<StorageError | undefined> {
-  batch.signal?.throwIfAborted();
+  call.signal?.throwIfAborted();
 
   try {
     const response = await send(configuration, {
       method: "DELETE",
-      operation: batch.operation,
+      operation: call.operation,
       key,
-      signal: batch.signal,
+      signal: call.signal,
     });
 
     await response.body?.cancel();
