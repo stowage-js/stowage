@@ -30,7 +30,8 @@ never more.
 - Node's floor is 24, and CI runs 24 and 26. Node 22 reaches end of life on 2027-04-30, inside
   the timeframe of this release, and adding a line back later costs less than taking one away.
 - Bun and Deno have no floor: the README names the version CI last ran green. `workerd` is
-  pinned to a compatibility date that the spec names.
+  pinned to a compatibility date that the spec names. ADR 0026 takes the Azure adapter into the
+  matrix.
 - The `workerd` cell promises that no package needs a Node API, so that a Worker at an older
   date or one that opts out runs it too. A guarded read such as `fromEnv` looking for `process`
   keeps that promise. From 2026-08-04 the date alone turns on `nodejs_compat` and
