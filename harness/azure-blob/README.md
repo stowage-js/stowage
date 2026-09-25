@@ -18,6 +18,9 @@ beside it. Docker and `openssl` are required. Without `STOWAGE_AZURE_BLOB_ENDPOI
 rather than passing with the tier skipped (ADR 0012), and CI starts `compose.yml` itself before the
 harnesses run.
 
+Azurite listens on `127.0.0.1:10000`. Where that port is taken, `STOWAGE_AZURE_BLOB_PORT` names
+another one, and the printed endpoint follows it.
+
 `start.sh` generates a self-signed certificate for `127.0.0.1` on every start, because Azurite
 takes a bearer token over HTTPS alone, recreates the container with it, creates the container the
 suite writes to and prints the environment the run reads:

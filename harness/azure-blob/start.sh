@@ -8,7 +8,8 @@ cd "$(dirname "$0")"
 
 container="${STOWAGE_AZURE_BLOB_CONTAINER:-stowage-conformance}"
 account=devstoreaccount1
-endpoint="https://127.0.0.1:10000/${account}"
+port="${STOWAGE_AZURE_BLOB_PORT:-10000}"
+endpoint="https://127.0.0.1:${port}/${account}"
 
 # ADR 0023: a certificate of its own on every start, for the loopback address alone. The
 # key is readable by the container's user whatever this machine's user is; it signs for
@@ -20,7 +21,7 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=127.0.0.1" \
 chmod 644 certificate/key.pem
 
 # A container that outlived its run still serves the certificate it started with.
-docker compose up --detach --wait --force-recreate >&2
+STOWAGE_AZURE_BLOB_PORT="${port}" docker compose up --detach --wait --force-recreate >&2
 
 base64url() {
   base64 | tr '+/' '-_' | tr -d '=\n'

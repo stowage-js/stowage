@@ -20,8 +20,10 @@ services:
       - --key
       - /certificate/key.pem
       - --disableTelemetry
+    # Azurite's own port inside, and on the host whatever `start.sh` hands over, since
+    # 10000 may already be taken on a developer's machine.
     ports:
-      - "127.0.0.1:10000:10000"
+      - "127.0.0.1:${STOWAGE_AZURE_BLOB_PORT:-10000}:10000"
     volumes:
       - ./certificate:/certificate:ro
     # The image carries no healthcheck and answers an unauthenticated request with `403`, so
