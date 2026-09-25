@@ -147,20 +147,22 @@ export function runCoreChecks(): readonly CoreCheckResult[] {
   });
 }
 
-type Framework = Pick<ConformanceFramework, "describe" | "test">;
+type DescribeAndTest = Pick<ConformanceFramework, "describe" | "test">;
 
-export function describeCore(framework: Framework): void {
-  framework.describe("@stowage/core", () => {
+const suiteName = "@stowage/core";
+
+export function describeCore(framework: DescribeAndTest): void {
+  framework.describe(suiteName, () => {
     for (const { name, run } of coreChecks) framework.test(name, async () => run());
   });
 }
 
 /** What `runCoreChecks` answered inside a worker, reported as `describeCore` names it. */
 export function describeCoreResults(
-  framework: Framework,
+  framework: DescribeAndTest,
   results: readonly CoreCheckResult[],
 ): void {
-  framework.describe("@stowage/core", () => {
+  framework.describe(suiteName, () => {
     for (const { name, error } of results) {
       framework.test(name, async () => {
         if (error !== undefined) throw Object.assign(new Error(), error);
