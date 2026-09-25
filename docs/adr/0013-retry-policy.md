@@ -94,9 +94,10 @@ No reference flow asks for it. The failure arrives as ADR 0005 promises, with `a
 
 What the conformance suite can say about any of this is what the core API shows, which is
 `retryable` and `attempts` on failures the suite provokes anyway. Three cases carry it. In the
-fast tier, `get` on an absent key and a storage from `createStorageWithBadCredentials()` both have
-to report `retryable: false` and `attempts: 1`, which is the evidence that a condition that will
-not pass is not repeated. In the slow tier, a storage from `createStorageWithExpiredCredentials()`
+fast tier, `get` on an absent key has to report `retryable: false` and `attempts: 1`. A storage
+from `createStorageWithBadCredentials()` normally reports the same, but provider-specific
+credential handling may report `attempts: 2`, as Azure does under ADR 0021. In the slow tier, a
+storage from `createStorageWithExpiredCredentials()`
 has to report `Expired` with `attempts: 2`: ADR 0012 waits past the expiration returned for a static
 900-second STS token plus a safety margin before supplying it, so a resolver that answers the same
 thing to `forceRefresh` produces exactly two requests, and the rule of ADR 0007 becomes visible
@@ -104,8 +105,7 @@ through the public API. That case stays out against R2, where ADR 0012 already s
 the group itself, the two exceptions and the stream rule are none of them reachable from the API —
 no endpoint of ADR 0012 returns a `503` on request — so they become tests of this repository against
 a stubbed `fetch`, which is where ADR 0006 put flat memory and the broken body stream for the same
-reason. ADR 0021 lets `errors/bad-credentials` accept `attempts: 2`, which a refused access token
-costs on Azure.
+reason.
 
 ## Consequences
 
