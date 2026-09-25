@@ -61,6 +61,7 @@ test.each([
   ["https://user:pass@blob.example.com", "userinfo"],
   ["https://blob.example.com?x=1", "a query"],
   ["https://blob.example.com#part", "a fragment"],
+  ["https://blob.example.com/a%zz", "a malformed escape in its path"],
 ])("%s is refused as an endpoint: %s", (endpoint) => {
   const failure = refusal({ endpoint });
 

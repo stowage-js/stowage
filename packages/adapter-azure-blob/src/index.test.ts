@@ -191,6 +191,14 @@ test("a key is percent-encoded segment by segment behind the endpoint's path", a
   );
 });
 
+test("an escape in the endpoint's path travels once, not encoded a second time", async () => {
+  const sent = stubFetch(() => created());
+
+  await storage({ endpoint: "https://blob.example.com/my%20base" }).put("object", "body");
+
+  expect(sent[0]?.url).toBe("https://blob.example.com/my%20base/conformance/object");
+});
+
 test("a `..` inside a segment reaches the provider as written, never folded by a `URL`", async () => {
   const sent = stubFetch(() => created());
 

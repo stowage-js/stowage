@@ -150,8 +150,20 @@ function readEndpoint(container: string, options: AzureBlobAdapterOptions): Endp
   return {
     protocol: parsed.protocol,
     host: parsed.host,
-    basePath: parsed.pathname.replace(/\/$/u, ""),
+    basePath: readBasePath(container, parsed.pathname.replace(/\/$/u, "")),
   };
+}
+
+/**
+ * The path as it stands before encoding: `URL` hands it back percent-encoded, and every
+ * request path is encoded once on its way out, the prefix included.
+ */
+function readBasePath(container: string, pathname: string): string {
+  try {
+    return pathname.split("/").map(decodeURIComponent).join("/");
+  } catch {
+    throw optionError(container, "endpoint", "holds a malformed escape in its path");
+  }
 }
 
 function isLoopbackHttp(endpoint: URL): boolean {
