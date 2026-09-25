@@ -1,9 +1,11 @@
 import {
   type CapabilityName,
+  isUserMetadataKey,
   type ObjectStat,
   type Storage,
   StorageError,
   type StoredObject,
+  userMetadataByteLength,
 } from "@stowage/core";
 import { expect, test } from "vitest";
 
@@ -80,6 +82,67 @@ const undeclaring = (behavior: UndeclaredBehavior = {}): Storage => {
   });
 };
 
+interface IdentifierKeysBehavior {
+  /** Stores a key beyond identifiers although it declares `userMetadata` alone, as v0.1 allowed. */
+  readonly storesTokenKeys?: boolean;
+}
+
+/**
+ * A storage declaring `userMetadata` without `userMetadataTokenKeys`, as the Azure adapter
+ * does (ADR 0020): it holds identifier keys, refuses the other HTTP tokens and checks in the
+ * order of spec 4.3.
+ */
+const identifierKeysOnly = (behavior: IdentifierKeysBehavior = {}): Storage => {
+  const held = new Map<string, Readonly<Record<string, string>>>();
+
+  const describe = (key: string): ObjectStat => ({
+    key,
+    size: 0,
+    lastModified: new Date(),
+    contentType: "application/octet-stream",
+    userMetadata: held.get(key) ?? {},
+  });
+
+  return stubStorage({
+    capabilities: ["userMetadata"],
+    put: async (key, _body, options) => {
+      const userMetadata = options?.userMetadata ?? {};
+      const names = Object.keys(userMetadata);
+
+      if (names.some((name) => !isUserMetadataKey(name, "token"))) throw invalidRequest("put");
+      if (userMetadataByteLength(userMetadata) > 2048) throw invalidRequest("put");
+
+      if (
+        behavior.storesTokenKeys !== true &&
+        names.some((name) => !isUserMetadataKey(name, "identifier"))
+      ) {
+        throw unsupported("userMetadataTokenKeys", "put");
+      }
+
+      held.set(key, userMetadata);
+
+      return describe(key);
+    },
+    get: async (key) => storedObject(describe(key)),
+    stat: async (key) => describe(key),
+    copy: async (from, to) => {
+      held.set(to, held.get(from) ?? {});
+
+      return describe(to);
+    },
+  });
+};
+
+const invalidRequest = (operation: string): StorageError =>
+  new StorageError({
+    code: "InvalidRequest",
+    message: "This storage refuses the user metadata",
+    operation,
+    bucket: "stub",
+    provider: "stub",
+    attempts: 0,
+  });
+
 const unsupported = (capability: CapabilityName, operation: string): StorageError =>
   new StorageError({
     code: "Unsupported",
@@ -140,6 +203,29 @@ test.each(["put/user-metadata", "put/user-metadata-limits", "copy/user-metadata"
     await expect(runWithout(name, undeclaring())).resolves.toBe("without");
   },
 );
+
+test("`put/user-metadata-token-keys` holds where the storage declares no `userMetadata`", async () => {
+  await expect(runWithout("put/user-metadata-token-keys", undeclaring())).resolves.toBe("without");
+});
+
+test("`put/user-metadata-token-keys` holds where the storage declares `userMetadata` alone", async () => {
+  await expect(runWithout("put/user-metadata-token-keys", identifierKeysOnly())).resolves.toBe(
+    "without",
+  );
+});
+
+test.each(["put/user-metadata", "put/user-metadata-limits", "copy/user-metadata"])(
+  "`%s` holds where the storage declares `userMetadata` alone",
+  async (name) => {
+    await expect(runWithout(name, identifierKeysOnly())).resolves.toBe("declared");
+  },
+);
+
+test("the `put/user-metadata-token-keys` half refuses a storage holding a key it declared nothing for", async () => {
+  await expect(
+    runWithout("put/user-metadata-token-keys", identifierKeysOnly({ storesTokenKeys: true })),
+  ).rejects.toThrow('`code: "Unsupported"` for a user metadata key beyond identifiers');
+});
 
 test("`list/key-bytes` holds where the storage declares no `keyBytesPreserved`", async () => {
   await expect(runWithout("list/key-bytes", undeclaring())).resolves.toBe("without");

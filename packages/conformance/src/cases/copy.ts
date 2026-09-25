@@ -114,7 +114,7 @@ export const copyAndMoveCases: readonly ConformanceCaseSource[] = [
 
       await ctx.storage.put(from, "the body to copy", {
         contentType: textContentType,
-        userMetadata: { "Written-By": "stowage" },
+        userMetadata: { WrittenBy: "stowage" },
       });
       await ctx.storage.copy(from, to);
 
@@ -124,7 +124,7 @@ export const copyAndMoveCases: readonly ConformanceCaseSource[] = [
       );
 
       assert(
-        held.get("written-by") === "stowage",
+        held.get("writtenby") === "stowage",
         `The destination carries the user metadata ${JSON.stringify(described.userMetadata)} and not the source's`,
       );
     },
