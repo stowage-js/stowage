@@ -1,4 +1,10 @@
-import type { DeleteReport, StorageError, XmlElement } from "@stowage/core";
+import {
+  type DeleteReport,
+  isStorageError,
+  type StorageError,
+  type StorageErrorCode,
+  type XmlElement,
+} from "@stowage/core";
 
 import {
   type AnsweredRequest,
@@ -14,8 +20,28 @@ import { send } from "./request.ts";
 import { s3Error } from "./storage-error.ts";
 import { escapeXml } from "./xml.ts";
 
-/** What one `DeleteObjects` names at most, and so what spec 4.1 sends one request per. */
+/** What one `DeleteObjects` names at most, and so what spec 7.1 sends one request per. */
 const keysPerRequest = 1000;
+
+/**
+ * The characters of a key XML 1.0 carries neither raw nor as a reference, which is what
+ * is left of those outside its `Char` once spec 4.8 refused the controls (ADR 0027).
+ */
+const outsideXml = /[\uFFFE\uFFFF]/u;
+
+/**
+ * Spec 4.7 rejects the call for a failure that says nothing about the key: no response, a
+ * credential the provider refuses, a bucket that is absent or lives in another region. A
+ * missing key answers `204`, so `NotFound` names the bucket. What remains is what
+ * `DeleteObjects` reports per key, `AccessDenied` among it.
+ */
+const requestWideCodes: ReadonlySet<StorageErrorCode> = new Set([
+  "NetworkError",
+  "InvalidCredentials",
+  "Expired",
+  "NotFound",
+  "InvalidOption",
+]);
 
 const utf8 = new TextEncoder();
 
@@ -35,20 +61,29 @@ export async function deleteKeys(
   batch: DeleteBatch,
 ): Promise<DeleteReport> {
   const failed: StorageError[] = [];
-  const sendable: string[] = [];
+  const batched: string[] = [];
+  const alone: string[] = [];
 
   for (const key of keys) {
     const refusal = refusalOf(configuration.bucket, key, batch.operation);
 
-    if (refusal === undefined) sendable.push(key);
-    else failed.push(refusal);
+    if (refusal !== undefined) failed.push(refusal);
+    else if (outsideXml.test(key)) alone.push(key);
+    else batched.push(key);
   }
 
-  for (let offset = 0; offset < sendable.length; offset += keysPerRequest) {
-    const slice = sendable.slice(offset, offset + keysPerRequest);
+  for (let offset = 0; offset < batched.length; offset += keysPerRequest) {
+    const slice = batched.slice(offset, offset + keysPerRequest);
 
     // oxlint-disable-next-line no-await-in-loop -- one batch in flight bounds the request rate
     failed.push(...(await deleteBatch(configuration, slice, batch)));
+  }
+
+  for (const key of alone) {
+    // oxlint-disable-next-line no-await-in-loop -- a request-wide failure stops the ones after it
+    const failure = await deleteAlone(configuration, key, batch);
+
+    if (failure !== undefined) failed.push(failure);
   }
 
   return { requested: keys.length, failed };
@@ -138,6 +173,35 @@ async function deleteBatch(
   return document.children
     .filter((child) => child.name === "Error")
     .map((entry) => keyFailure(answered, entry, requestId));
+}
+
+/**
+ * Spec 7.4: a key no `DeleteObjects` body can carry travels percent-encoded in the path,
+ * where no XML parser at the provider sees it, on the budget of a request of its own.
+ */
+async function deleteAlone(
+  configuration: S3Configuration,
+  key: string,
+  batch: DeleteBatch,
+): Promise<StorageError | undefined> {
+  batch.signal?.throwIfAborted();
+
+  try {
+    const response = await send(configuration, {
+      method: "DELETE",
+      operation: batch.operation,
+      key,
+      signal: batch.signal,
+    });
+
+    await response.body?.cancel();
+
+    return undefined;
+  } catch (failure) {
+    if (isStorageError(failure) && !requestWideCodes.has(failure.code)) return failure;
+
+    throw failure;
+  }
 }
 
 /** `Quiet` has the provider answer with the keys it failed alone. */

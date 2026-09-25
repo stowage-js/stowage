@@ -1548,6 +1548,151 @@ test("an answer that is no `DeleteResult` is a `ProviderError`", async () => {
   expect(failure.operation).toBe("delete");
 });
 
+/** What the adapter sent, told as the step of a `delete` each request is. */
+function deleteSteps(sent: readonly SentRequest[]): string[] {
+  return sent.map((request) => `${request.method} ${new URL(request.url).pathname}`);
+}
+
+/** The error document S3 answers a `DELETE` with, naming the key as `spelled`. */
+function refusedKey(status: number, code: string, spelled: string): Response {
+  return new Response(
+    `<?xml version="1.0" encoding="UTF-8"?>\n<Error><Code>${code}</Code><Message>Access Denied</Message><Key>${spelled}</Key><RequestId>key-request</RequestId></Error>`,
+    {
+      status,
+      headers: { "content-type": "application/xml", "x-amz-request-id": "key-request" },
+    },
+  );
+}
+
+const noContent = (): Response => new Response(null, { status: 204 });
+
+// Spec 7.4: a `DeleteObjects` body holding U+FFFE is no well-formed XML, raw or as a
+// reference, and SeaweedFS answers it with `MalformedXML` (ADR 0027).
+test("a key holding U+FFFE or U+FFFF goes as a `DELETE` of its own after the batch", async () => {
+  const sent = stubFetch((request) => (request.method === "POST" ? deleteResult() : noContent()));
+
+  const report = await s3Storage(options()).delete(
+    "a/\uFFFE.txt",
+    "before.txt",
+    "a/\uFFFF.txt",
+    "after.txt",
+  );
+
+  expect(report).toEqual({ requested: 4, failed: [] });
+  expect(deleteSteps(sent)).toEqual([
+    "POST /",
+    "DELETE /a/%EF%BF%BE.txt",
+    "DELETE /a/%EF%BF%BF.txt",
+  ]);
+  expect(await deletedKeys(sent[0])).toEqual(["before.txt", "after.txt"]);
+});
+
+test("a call holding keys outside XML alone sends no `DeleteObjects`", async () => {
+  const sent = stubFetch(noContent);
+
+  const report = await s3Storage(options()).delete("\uFFFE", "\uFFFF");
+
+  expect(report).toEqual({ requested: 2, failed: [] });
+  expect(deleteSteps(sent)).toEqual(["DELETE /%EF%BF%BE", "DELETE /%EF%BF%BF"]);
+});
+
+// Error documents are read by a reader of their own that decodes any reference, and the
+// entry names the key the caller passed, whatever spelling the provider chose for it.
+test.each(["&#xfffe;", "&#xffff;", "&#65534;"])(
+  "a key the provider refused as `<Key>%s</Key>` is reported and the next one still sent",
+  async (spelled) => {
+    const answers = [refusedKey(403, "AccessDenied", `a${spelled}`), noContent()];
+    const sent = stubFetch(() => answers.shift() ?? noContent());
+
+    const report = await s3Storage(options()).delete("a\uFFFE", "b\uFFFE");
+
+    expect(sent).toHaveLength(2);
+    expect(report.requested).toBe(2);
+    expect(report.failed).toHaveLength(1);
+    expect(report.failed[0]).toMatchObject({
+      code: "AccessDenied",
+      key: "a\uFFFE",
+      operation: "delete",
+      providerCode: "AccessDenied",
+      message: "Access Denied",
+      status: 403,
+      requestId: "key-request",
+      retryable: false,
+      attempts: 1,
+    });
+  },
+);
+
+test("a `DELETE` of its own is repeated on the budget of a request", async () => {
+  recordedDelays();
+  const answers = [refused(503, "SlowDown", "Reduce your request rate"), noContent()];
+  const sent = stubFetch(() => answers.shift() ?? noContent());
+
+  expect(await s3Storage(options()).delete("\uFFFE")).toEqual({ requested: 1, failed: [] });
+  expect(deleteSteps(sent)).toEqual(["DELETE /%EF%BF%BE", "DELETE /%EF%BF%BE"]);
+});
+
+test("a `DELETE` of its own that spent its budget is the key's entry, `retryable`", async () => {
+  recordedDelays();
+  const sent = stubFetch(() => refused(500, "InternalError", "We encountered an internal error"));
+
+  const report = await s3Storage(options()).delete("\uFFFE");
+
+  expect(sent).toHaveLength(3);
+  expect(report.failed[0]).toMatchObject({
+    code: "ProviderError",
+    key: "\uFFFE",
+    retryable: true,
+    attempts: 3,
+  });
+});
+
+// Spec 4.7: a failure that says nothing about the key rejects the call, and the requests
+// after it are not sent, as the batches after a failed one are not.
+test.each([
+  ["a credential the provider refuses", () => refused(403, "InvalidAccessKeyId", "No such key id")],
+  ["a bucket that is not there", () => refused(404, "NoSuchBucket", "The bucket does not exist")],
+  [
+    "no response",
+    () => {
+      throw new TypeError("fetch failed");
+    },
+  ],
+])("%s on a `DELETE` of its own rejects and stops the rest", async (_case, answer) => {
+  recordedDelays();
+  const sent = stubFetch((request) => (request.method === "POST" ? deleteResult() : answer()));
+
+  const failure = await rejection(
+    async () => await s3Storage(options()).delete("\uFFFE", "fine.txt", "\uFFFF"),
+  );
+
+  expect(failure.operation).toBe("delete");
+  expect(failure.key).toBe("\uFFFE");
+  expect(
+    sent.filter((request) => request.method === "DELETE").map((request) => request.url),
+  ).toEqual(
+    Array.from(
+      { length: failure.attempts },
+      () => "https://stowage.s3.eu-central-1.amazonaws.com/%EF%BF%BE",
+    ),
+  );
+});
+
+test("`deleteAll` sends a listed key holding U+FFFE as a `DELETE` of its own", async () => {
+  const sent = stubFetch((request) => {
+    if (request.method === "POST") return deleteResult();
+    if (request.method === "DELETE") return noContent();
+
+    return listed(["a/%EF%BF%BE", "a/one.txt"], { encodingType: "url" });
+  });
+
+  const report = await s3Storage(options()).deleteAll("a/");
+
+  expect(report).toEqual({ requested: 2, failed: [] });
+  expect(deleteSteps(sent)).toEqual(["GET /", "POST /", "DELETE /a/%EF%BF%BE"]);
+  expect(await deletedKeys(sent[1])).toEqual(["a/one.txt"]);
+});
+
 test("`deleteAll` lists below the prefix and deletes each page as it arrives", async () => {
   const sent = stubFetch((request) => {
     if (request.method === "POST") return deleteResult();
