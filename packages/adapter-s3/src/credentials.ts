@@ -1,4 +1,9 @@
-import type { Resolvable, ResolverOptions, StorageError } from "@stowage/core";
+import {
+  readEnvironment,
+  type Resolvable,
+  type ResolverOptions,
+  type StorageError,
+} from "@stowage/core";
 
 import { s3Error } from "./storage-error.ts";
 
@@ -53,25 +58,6 @@ export function fromEnv(_options?: ResolverOptions): S3Credentials {
     ? { accessKeyId, secretAccessKey }
     : { accessKeyId, secretAccessKey, sessionToken };
 }
-
-/**
- * ADR 0007: `process.env` is the one route through Node, Bun, Deno's compatibility layer
- * and a Worker under `nodejs_compat`. A Worker without it has no `process` at all, and
- * Deno without `--allow-env` throws `NotCapable` rather than answering `undefined`, so
- * both leave the value empty. The three names are read one at a time, because
- * enumerating `process.env` needs the unscoped permission in Deno.
- */
-function readEnvironment(name: string): string {
-  try {
-    if (typeof process === "undefined") return "";
-
-    return process?.env?.[name] ?? "";
-  } catch {
-    return "";
-  }
-}
-
-declare const process: { readonly env?: Readonly<Record<string, string | undefined>> } | undefined;
 
 /**
  * Spec 7.3: both required fields are non-empty strings and every key of the resolved

@@ -1,4 +1,4 @@
-import { isStorageError, type ObjectStat, type StorageError } from "@stowage/core";
+import { isStorageError, type ObjectStat, type StorageError, type XmlElement } from "@stowage/core";
 
 import { type AnsweredRequest, readAnswerDocument, textOf } from "./answer-document.ts";
 import type { HeaderField } from "./canonical.ts";
@@ -8,7 +8,7 @@ import { type Part, PartReader } from "./part-reader.ts";
 import { send } from "./request.ts";
 import { s3Error } from "./storage-error.ts";
 import type { UserMetadataHeaders } from "./user-metadata.ts";
-import { escapeXml, type XmlElement } from "./xml.ts";
+import { escapeXml } from "./xml.ts";
 
 /** What `put` writes, apart from the body. */
 export interface ObjectWrite {

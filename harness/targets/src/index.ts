@@ -10,17 +10,21 @@ import {
   describeConformance,
 } from "../../../packages/conformance/src/describe.ts";
 import { selectedCases } from "../../../packages/conformance/src/run.ts";
+import { describeCore } from "./core.ts";
 import { fsCases, fsTarget } from "./fs.ts";
 import { memoryTarget } from "./memory.ts";
 import { runOptionsFrom } from "./run-options.ts";
 
 /**
- * The tiers the run asks for against the three adapters spec 2 names for Node, Bun and
- * Deno. The columns share them whole, and a harness differs from the next in the framework
- * it hands over and nothing else, which is what keeps runtime detection out of the cases.
+ * The core's checks, then the tiers the run asks for against the three adapters spec 2
+ * names for Node, Bun and Deno. The columns share them whole, and a harness differs from
+ * the next in the framework it hands over and nothing else, which is what keeps runtime
+ * detection out of the cases.
  */
 export function describeAdapters(framework: ConformanceFramework): void {
   const options = runOptionsFrom(env);
+
+  describeCore(framework);
 
   // ADR 0006: `adapter-memory` is read against the suite like any other adapter, through
   // the same entry point a third-party harness calls.

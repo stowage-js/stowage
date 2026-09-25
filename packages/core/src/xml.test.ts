@@ -66,3 +66,46 @@ test("an empty element, whitespace and comments read as nothing", () => {
     ["Key", "ab"],
   ]);
 });
+
+test("an element holds its attributes by name, and a namespace declaration among them", () => {
+  const root = parseXml(
+    '<EnumerationResults xmlns="urn:example" ServiceEndpoint="https://example.test/" ContainerName=\'stowage\'><Name Encoded="true">a</Name><Prefix/></EnumerationResults>',
+  );
+
+  expect(root.attributes).toEqual({
+    xmlns: "urn:example",
+    ServiceEndpoint: "https://example.test/",
+    ContainerName: "stowage",
+  });
+  expect(root.children[0]?.attributes).toEqual({ Encoded: "true" });
+  expect(root.children[1]?.attributes).toEqual({});
+});
+
+test("an attribute value decodes the entities text does", () => {
+  const root = parseXml(`<Key note="a&amp;b&#x2F;&quot;" other='&apos;'/>`);
+
+  expect(root.attributes).toEqual({ note: 'a&b/"', other: "'" });
+});
+
+// XML 1.0, section 3.3.3: without a DTD every attribute is CDATA, and each whitespace
+// character written into its value reads as a space, a line break as one space.
+test("a line break or tab inside an attribute value reads as a space", () => {
+  expect(parseXml('<Key note="a\tb\nc\r\nd"/>').attributes).toEqual({ note: "a b c d" });
+});
+
+test("a reference to a line break inside an attribute value keeps the line break", () => {
+  expect(parseXml('<Key note="a&#10;b"/>').attributes).toEqual({ note: "a\nb" });
+});
+
+test.each([
+  ["an attribute given twice", '<Key a="1" a="2"/>'],
+  ["a `<` inside an attribute value", '<Key a="<"/>'],
+  ["an attribute value holding an undefined entity", '<Key a="&nbsp;"/>'],
+  ["an attribute on a closing tag", '<Key>a</Key a="1">'],
+])("%s is refused", (_case, document) => {
+  expect(() => parseXml(document)).toThrow(XmlSyntaxError);
+});
+
+test("`XmlSyntaxError` names itself", () => {
+  expect(() => parseXml("")).toThrow(expect.objectContaining({ name: "XmlSyntaxError" }));
+});

@@ -9,6 +9,7 @@ import {
 } from "../../s3/src/configuration.ts";
 import { withDivergences } from "../../s3/src/divergences.ts";
 import { s3Target } from "../../s3/src/target.ts";
+import { runCoreChecks } from "../../targets/src/core.ts";
 import { memoryTarget } from "../../targets/src/memory.ts";
 import { runOptionsFrom } from "../../targets/src/run-options.ts";
 import { fromEnvOutcome } from "./from-env.ts";
@@ -25,6 +26,7 @@ export default {
   async fetch(request: Request, variables: Variables): Promise<Response> {
     const url = new URL(request.url);
 
+    if (url.pathname === "/core") return Response.json(runCoreChecks());
     if (url.pathname === "/node-api") return Response.json(await nodeApiReach());
     if (url.pathname === "/from-env") return Response.json(fromEnvOutcome());
 

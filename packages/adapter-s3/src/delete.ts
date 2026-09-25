@@ -1,4 +1,4 @@
-import type { DeleteReport, StorageError } from "@stowage/core";
+import type { DeleteReport, StorageError, XmlElement } from "@stowage/core";
 
 import {
   type AnsweredRequest,
@@ -12,7 +12,7 @@ import { maxPageSize, walkPages } from "./listing.ts";
 import { md5Base64 } from "./md5.ts";
 import { send } from "./request.ts";
 import { s3Error } from "./storage-error.ts";
-import { escapeXml, type XmlElement } from "./xml.ts";
+import { escapeXml } from "./xml.ts";
 
 /** What one `DeleteObjects` names at most, and so what spec 4.1 sends one request per. */
 const keysPerRequest = 1000;
