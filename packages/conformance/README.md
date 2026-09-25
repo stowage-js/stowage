@@ -45,9 +45,10 @@ is fixed when it is constructed
 Every storage the target creates in one run declares the same; two configurations are two targets.
 
 A case whose `requires` the storage declares runs its `run` half. A case missing a name of its
-`requires` runs the `runWithout` half, which checks what the storage does without the capability: most refuse the
-call with `Unsupported` naming it, `presignedUrls` has `presignGet` and `presignPut` absent from the
-storage, and a few check the weaker behavior, such as a copy whose destination reads `{}`
+`requires` runs the `runWithout` half, which checks what the storage does without the capability:
+most refuse the call with `Unsupported` naming it, `presignedUrls` has `presignGet` and
+`presignPut` absent from the storage, and a few check the weaker behavior, such as a copy whose
+destination reads `{}`
 ([spec 8.5](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.1.0/docs/spec.md#85-cases)).
 An adapter refuses such a call like this:
 
