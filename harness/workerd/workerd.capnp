@@ -23,11 +23,9 @@ const config :Workerd.Config = (
 
 const conformance :Workerd.Worker = (
   modules = [(name = "worker.js", esModule = embed "dist/worker.js")],
-  # Spec 1: the date and flags `workerd` runs at, so the cell shows that `adapter-memory`
-  # and `adapter-s3` need no Node API. From 2026-08-04 the date alone turns on
-  # `nodejs_compat` and `nodejs_compat_v2`; `no_nodejs_compat` alone still leaves
-  # `process`, `Buffer` and most `node:` modules, and only both flags together restore
-  # what the date gave before (#118).
+  # Spec 1: the date and the flags `workerd` runs at, so the cell shows that
+  # `adapter-memory` and `adapter-s3` need no Node API. ADR 0002 says why one flag is not
+  # enough.
   compatibilityDate = "2026-09-01",
   compatibilityFlags = ["no_nodejs_compat", "no_nodejs_compat_v2"],
   globalOutbound = "internet",
@@ -50,9 +48,9 @@ const conformance :Workerd.Worker = (
 );
 
 # The same module at the defaults of the pinned date, which a Worker gets unless it opts
-# out. It runs no cases: it shows that the probe of `src/node-api.ts` sees the Node APIs
-# the flags above take away, and that `fromEnv` reads bindings through `process.env` as
-# spec 7.3 promises. The values are fixed, so the run needs no credential of its own.
+# out. It runs no cases: it shows that the probe of `src/node-api.ts` would see a Node
+# API, and that `fromEnv` reads bindings through `process.env` as spec 7.3 promises. The
+# values are fixed, so the run needs no credential of its own.
 const defaults :Workerd.Worker = (
   modules = [(name = "worker.js", esModule = embed "dist/worker.js")],
   compatibilityDate = "2026-09-01",

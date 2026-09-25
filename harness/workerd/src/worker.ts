@@ -42,8 +42,8 @@ function runAt(pathname: string, variables: Variables): Run | undefined {
   if (pathname === "/adapter-memory") return { target: memoryTarget, cases };
   if (pathname !== "/adapter-s3") return undefined;
 
-  // The worker runs without `nodejs_compat`, where `fromEnv` finds no `process` to read,
-  // so the credential arrives as two bindings like the rest of the endpoint.
+  // The flags of spec 1 take `process` away, so `fromEnv` finds nothing to read here and
+  // the credential arrives as two bindings like the rest of the endpoint.
   const configured = storageOptionsFrom(variables, {
     accessKeyId: variables["AWS_ACCESS_KEY_ID"] ?? "",
     secretAccessKey: variables["AWS_SECRET_ACCESS_KEY"] ?? "",

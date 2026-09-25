@@ -26,8 +26,9 @@ describe("the flags of spec 1", () => {
 });
 
 describe("`fromEnv` on `workerd`", () => {
-  // ADR 0007: the `typeof process` guard. The worker has an `AWS_ACCESS_KEY_ID` binding,
-  // and without `process` nothing reaches it.
+  // ADR 0007: a missing `process` is a refusal naming the variable, not a
+  // `ReferenceError`. Where an S3 endpoint is configured the worker also has an
+  // `AWS_ACCESS_KEY_ID` binding, and without `process` it does not reach `fromEnv`.
   test("finds no `process` at the flags of spec 1 and names the missing variable", () => {
     expect(probes.harness.fromEnv).toEqual({
       refusal: {

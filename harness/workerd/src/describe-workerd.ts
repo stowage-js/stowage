@@ -21,9 +21,12 @@ const harnessDirectory = fileURLToPath(new URL("..", import.meta.url));
 /**
  * ADR 0006: `workerd` has no test function to hand the cases to, so the worker runs them
  * and answers with the results, and the harness reports each one on Node as a test of its
- * own, named as `describeConformance` names the case.
+ * own, named as `describeConformance` names the case. What each worker reports about
+ * itself beside the cases is handed back for the caller to assert on.
  */
-export async function describeWorkerd(framework: ConformanceFramework): Promise<WorkerdProbes> {
+export async function describeWorkerd(
+  framework: ConformanceFramework,
+): Promise<Record<Socket, Probes>> {
   await bundleWorker();
 
   const configured = configuredStorage();
@@ -46,13 +49,16 @@ export async function describeWorkerd(framework: ConformanceFramework): Promise<
   return probes;
 }
 
-/** What the worker answers about itself beside the cases, for Node to assert on. */
-export interface WorkerdProbes {
-  readonly harness: WorkerProbes;
-  readonly defaults: WorkerProbes;
-}
+/**
+ * The sockets of `workerd.capnp`: `harness` reaches the worker at the flags of spec 1,
+ * `defaults` the same module at the defaults its compatibility date turns on.
+ */
+const sockets = ["harness", "defaults"] as const;
 
-export interface WorkerProbes {
+export type Socket = (typeof sockets)[number];
+
+/** What one worker answers about itself beside the cases. */
+export interface Probes {
   readonly nodeApi: NodeApiReach;
   readonly fromEnv: FromEnvOutcome;
 }
@@ -72,16 +78,7 @@ async function bundleWorker(): Promise<void> {
   });
 }
 
-/**
- * The sockets of `workerd.capnp`: `harness` reaches the worker at the flags of spec 1,
- * `defaults` the same module at the defaults its compatibility date turns on.
- */
-interface Origins {
-  readonly harness: string;
-  readonly defaults: string;
-}
-
-async function withWorkerd<T>(use: (origins: Origins) => Promise<T>): Promise<T> {
+async function withWorkerd<T>(use: (origins: Record<Socket, string>) => Promise<T>): Promise<T> {
   // The package hands out the path of the binary built for this machine as its default
   // export.
   const workerd: { readonly default: string } = createRequire(import.meta.url)("workerd");
@@ -93,11 +90,11 @@ async function withWorkerd<T>(use: (origins: Origins) => Promise<T>): Promise<T>
   const exited = once(child, "exit").catch(() => {});
 
   try {
-    const ports = await listeningPorts(child, ["harness", "defaults"]);
+    const ports = await listeningPorts(child);
 
     return await use({
-      harness: `http://127.0.0.1:${ports.get("harness")}`,
-      defaults: `http://127.0.0.1:${ports.get("defaults")}`,
+      harness: `http://127.0.0.1:${ports.harness}`,
+      defaults: `http://127.0.0.1:${ports.defaults}`,
     });
   } finally {
     child.kill();
@@ -105,16 +102,13 @@ async function withWorkerd<T>(use: (origins: Origins) => Promise<T>): Promise<T>
   }
 }
 
-/** The ports `workerd` reports on the control descriptor once the named sockets listen. */
-async function listeningPorts(
-  child: ChildProcess,
-  sockets: readonly string[],
-): Promise<ReadonlyMap<string, number>> {
+/** The ports `workerd` reports on the control descriptor once both sockets listen. */
+async function listeningPorts(child: ChildProcess): Promise<Record<Socket, number>> {
   const [, , , control] = child.stdio;
 
   if (!(control instanceof Readable)) throw new Error("`workerd` has no control descriptor");
 
-  const ports = new Map<string, number>();
+  const ports = new Map<Socket, number>();
 
   for await (const line of createInterface({ input: control })) {
     const message: {
@@ -125,16 +119,23 @@ async function listeningPorts(
 
     if (
       message.event === "listen" &&
-      typeof message.socket === "string" &&
+      isSocket(message.socket) &&
       typeof message.port === "number"
     ) {
       ports.set(message.socket, message.port);
     }
 
-    if (sockets.every((socket) => ports.has(socket))) return ports;
+    const harness = ports.get("harness");
+    const defaults = ports.get("defaults");
+
+    if (harness !== undefined && defaults !== undefined) return { harness, defaults };
   }
 
   throw new Error("`workerd` exited before its sockets listened");
+}
+
+function isSocket(value: unknown): value is Socket {
+  return sockets.some((socket) => socket === value);
 }
 
 /**
@@ -157,7 +158,7 @@ async function resultsOf(origin: string, path: string): Promise<readonly Conform
   return results;
 }
 
-async function probesOf(origin: string): Promise<WorkerProbes> {
+async function probesOf(origin: string): Promise<Probes> {
   return {
     nodeApi: await answerOf<NodeApiReach>(origin, "node-api"),
     fromEnv: await answerOf<FromEnvOutcome>(origin, "from-env"),
