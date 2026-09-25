@@ -59,9 +59,9 @@ which every adapter satisfies and which would take the same promise from S3's ca
   withdrawal. It names `userMetadataTokenKeys` as what a third-party adapter adds to keep passing
   the metadata case.
 - The Azure adapter declares `rangeReads` and `userMetadata`. Whether it declares `presignedUrls`
-  is decided with SAS. `keyBytesPreserved` is not declared, because the reference is silent on
-  Unicode normalization; if the first run shows NFC and NFD as two blobs, declaring it later adds a
-  promise and costs a minor release.
+  is decided with SAS, in ADR 0022, which declares it. `keyBytesPreserved` is not declared, because
+  the reference is silent on Unicode normalization; if the first run shows NFC and NFD as two
+  blobs, declaring it later adds a promise and costs a minor release.
 - `provider` is `"azure-blob"`. `bucket` is the container name, and the account belongs to how the
   storage is constructed rather than to `bucket`.
 - The conformance suite splits the metadata key case: a hyphenated key round-trips where

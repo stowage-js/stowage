@@ -31,7 +31,8 @@ Worker created today does not run at. A new date is a change to the spec; Renova
   `x-ms-blob-type` and a storage built with `{ accessToken }` on the signing side. Azure is listed
   under the condition that the real account binds `Content-Type` and `Content-Length` through
   `srh`, which is checked before the v0.2 spec is written. If it does not, `azure-blob` leaves flow
-  2's adapters and no cell changes, since `s3` carries them.
+  2's adapters and no cell changes, since `s3` carries them. The account showed on 2026-09-25 that
+  both headers are bound (`docs/research/azure-srh-binding.md`), so `azure-blob` stays listed.
 - No host limit takes an Azure cell away. Under an access token a block upload signs nothing and
   hashes nothing, ADR 0009 being S3's, and it holds 8 MiB × 4 as S3 does, so flow 1 costs less CPU
   on `workerd` than it does against S3. A presigned URL under an access token costs one subrequest
