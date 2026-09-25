@@ -18,6 +18,7 @@ import {
   patternOf,
   streamAbortedMidway,
   streamOf,
+  streamsEndingTogether,
 } from "./bytes.ts";
 import { acceptedKeys, keyFor, prefixFor, type RefusedKey, refusedWritableKeys } from "./keys.ts";
 
@@ -415,7 +416,38 @@ export const putCases: readonly ConformanceCaseSource[] = [
       );
     },
   },
+  {
+    name: "put/concurrent-writers",
+    requires: [],
+    cost: "fast",
+    async run(ctx) {
+      const key = keyFor(ctx, "put/concurrent-writers");
+      const writers = [patternOf(multipartSize), patternOf(multipartSize, 1)];
+      const bodies = streamsEndingTogether(writers, mebibyte);
+      const outcomes = await Promise.allSettled(bodies.map((body) => ctx.storage.put(key, body)));
+
+      assert(
+        outcomes.some((outcome) => outcome.status === "fulfilled"),
+        `Both writers rejected: ${outcomes.map(describeOutcome).join("; ")}`,
+      );
+
+      const held = await collect((await ctx.storage.get(key)).stream());
+
+      assert(
+        writers.some((bytes) => sameBytes(held, bytes)),
+        `The key holds ${held.byteLength} bytes that are neither writer's object whole`,
+      );
+    },
+  },
 ];
+
+function describeOutcome(outcome: PromiseSettledResult<unknown>): string {
+  return outcome.status === "fulfilled" ? "resolved" : String(outcome.reason);
+}
+
+function sameBytes(one: Uint8Array, other: Uint8Array): boolean {
+  return one.byteLength === other.byteLength && one.every((byte, index) => byte === other[index]);
+}
 
 function assertContentType(described: ObjectStat, expected: string, where: string): void {
   assert(
