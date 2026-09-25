@@ -25,4 +25,11 @@ export type {
   Storage,
   StoredObject,
 } from "./storage.ts";
+export {
+  decodeUserMetadataValue,
+  encodeUserMetadataValue,
+  isUserMetadataKey,
+  userMetadataByteLength,
+  type UserMetadataKeyRule,
+} from "./user-metadata.ts";
 export { parseXml, type XmlElement, XmlSyntaxError } from "./xml.ts";
