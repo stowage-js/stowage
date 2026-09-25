@@ -74,10 +74,18 @@ function refused(
   );
 }
 
-/** A `ListObjectsV2` answer holding `entries`, as AWS writes one. */
+/**
+ * A `ListObjectsV2` answer holding `entries`, as AWS writes one. `echo` stands for the
+ * elements the answer repeats of the request, which `encoding-type=url` encodes too.
+ */
 function listed(
   entries: readonly string[],
-  page: { prefixes?: readonly string[]; nextToken?: string } = {},
+  page: {
+    prefixes?: readonly string[];
+    nextToken?: string;
+    encodingType?: string;
+    echo?: string;
+  } = {},
 ): Response {
   const contents = entries
     .map(
@@ -93,8 +101,11 @@ function listed(
       ? "<IsTruncated>false</IsTruncated>"
       : `<IsTruncated>true</IsTruncated><NextContinuationToken>${page.nextToken}</NextContinuationToken>`;
 
+  const encoding =
+    page.encodingType === undefined ? "" : `<EncodingType>${page.encodingType}</EncodingType>`;
+
   return new Response(
-    `<?xml version="1.0" encoding="UTF-8"?>\n<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Name>stowage</Name><MaxKeys>1000</MaxKeys>${next}${contents}${prefixes}</ListBucketResult>`,
+    `<?xml version="1.0" encoding="UTF-8"?>\n<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Name>stowage</Name>${page.echo ?? ""}<MaxKeys>1000</MaxKeys>${encoding}${next}${contents}${prefixes}</ListBucketResult>`,
     { status: 200, headers: { "content-type": "application/xml" } },
   );
 }
@@ -1001,6 +1012,7 @@ test("`page()` sends one `ListObjectsV2` for the prefix, the delimiter and the p
     prefix: "photos/",
     delimiter: "/",
     "max-keys": "5",
+    "encoding-type": "url",
   });
   expect(page).toEqual({
     objects: [
@@ -1038,6 +1050,7 @@ test("the iteration walks every page and yields the objects alone", async () => 
     prefix: "a/",
     delimiter: "/",
     "max-keys": "1000",
+    "encoding-type": "url",
     "continuation-token": "token+1/=",
   });
 });
@@ -1152,6 +1165,78 @@ test("keys holding `#`, `%`, `?`, `+`, a space and characters above ASCII round-
     "/a%26b%3Cc%3E",
     "/Gr%C3%BC%C3%9Fe/%E6%97%A5%E6%9C%AC%E8%AA%9E/%D0%BA%D0%BB%D1%8E%D1%87.txt",
   ]);
+});
+
+// Spec 7.4: S3 percent-encodes the UTF-8 bytes of a listed key under `encoding-type=url`,
+// which keeps a character XML cannot carry, such as U+FFFE, out of the document. SeaweedFS
+// writes a space in the last segment as `+`, and S3 a `+` as `%2B`.
+test("a listing answered with `EncodingType` `url` decodes its keys and prefixes", async () => {
+  stubFetch(() =>
+    listed(["a/%EF%BF%BE%EF%BF%BF.txt", "a/hello+world%2B1.txt", "a/100%25"], {
+      prefixes: ["a/Gr%C3%BC%C3%9Fe%20b/"],
+      encodingType: "url",
+    }),
+  );
+
+  const page = await s3Storage(options()).list({ prefix: "a/", delimiter: "/" }).page();
+
+  expect(page.objects.map((entry) => entry.key)).toEqual([
+    "a/\uFFFE\uFFFF.txt",
+    "a/hello world+1.txt",
+    "a/100%",
+  ]);
+  expect(page.prefixes).toEqual(["a/Grüße b/"]);
+});
+
+test("a listing answered without `EncodingType` reads its keys as written", async () => {
+  stubFetch(() => listed(["a/hello+world%2B1.txt"]));
+
+  const page = await s3Storage(options()).list().page();
+
+  expect(page.objects.map((entry) => entry.key)).toEqual(["a/hello+world%2B1.txt"]);
+});
+
+// The continuation token is the provider's own and not a key: no SDK decodes it, and
+// SeaweedFS hands the raw last key back in it.
+test("the continuation token of an encoded listing is sent back untouched", async () => {
+  const sent = stubFetch((request) =>
+    queryOf(request)["continuation-token"] === undefined
+      ? listed(["a"], { nextToken: "a%2B+b", encodingType: "url" })
+      : listed(["b"], { encodingType: "url" }),
+  );
+  const keys: string[] = [];
+
+  for await (const entry of s3Storage(options()).list()) keys.push(entry.key);
+
+  expect(keys).toEqual(["a", "b"]);
+  expect(queryOf(sent[1])["continuation-token"]).toBe("a%2B+b");
+});
+
+test("the prefix, delimiter and start the encoded listing echoes are not read", async () => {
+  stubFetch(() =>
+    listed(["a"], {
+      encodingType: "url",
+      echo: "<Prefix>%E0%A4%A</Prefix><Delimiter>%ZZ</Delimiter><StartAfter>%FF</StartAfter>",
+    }),
+  );
+
+  const page = await s3Storage(options()).list().page();
+
+  expect(page.objects.map((entry) => entry.key)).toEqual(["a"]);
+});
+
+test.each([
+  ["a key cut inside an escape", ["a%E0%A4%A"], []],
+  ["a key whose bytes are no UTF-8", ["a%FF"], []],
+  ["a pseudo-directory holding no escape after its `%`", [], ["b%ZZ/"]],
+])("an encoded listing naming %s is a `ProviderError`", async (_case, entries, prefixes) => {
+  stubFetch(() => listed(entries, { prefixes, encodingType: "url" }));
+
+  const failure = await rejection(async () => await s3Storage(options()).list().page());
+
+  expect(failure.code).toBe("ProviderError");
+  expect(failure.operation).toBe("list");
+  expect(failure.status).toBe(200);
 });
 
 // Spec 4.6: keys written by another tool appear as they are, including a key ending in
@@ -1476,7 +1561,12 @@ test("`deleteAll` lists below the prefix and deletes each page as it arrives", a
 
   expect(report).toEqual({ requested: 3, failed: [] });
   expect(sent.map((request) => request.method)).toEqual(["GET", "POST", "GET", "POST"]);
-  expect(queryOf(sent[0])).toMatchObject({ "list-type": "2", prefix: "a/", "max-keys": "1000" });
+  expect(queryOf(sent[0])).toMatchObject({
+    "list-type": "2",
+    prefix: "a/",
+    "max-keys": "1000",
+    "encoding-type": "url",
+  });
   expect(await deletedKeys(sent[1])).toEqual(["a/one.txt", "a/two.txt"]);
   expect(queryOf(sent[2])["continuation-token"]).toBe("page-2");
   expect(await deletedKeys(sent[3])).toEqual(["a/three.txt"]);

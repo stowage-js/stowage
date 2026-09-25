@@ -139,6 +139,9 @@ async function requestPage(
   const query: QueryParameter[] = [
     ["list-type", "2"],
     ["max-keys", String(request.pageSize)],
+    // Spec 7.4: XML carries a key holding U+FFFE neither raw nor as a reference, and a
+    // percent-encoded key keeps every character out of the document (ADR 0027).
+    ["encoding-type", "url"],
   ];
 
   if (request.prefix !== "") query.push(["prefix", request.prefix]);

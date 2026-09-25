@@ -40,8 +40,10 @@ export function readListingDocument(answer: ListingAnswer, body: string): Listin
     throw malformed(answer, `a <${root.name}> where a <ListBucketResult> belongs`);
   }
 
+  const readName = nameReader(answer, textOf(root, "EncodingType"));
+
   return {
-    objects: childrenNamed(root, "Contents").map((entry) => readEntry(answer, entry)),
+    objects: childrenNamed(root, "Contents").map((entry) => readEntry(answer, entry, readName)),
     prefixes: childrenNamed(root, "CommonPrefixes").map((prefix) => {
       const text = textOf(prefix, "Prefix");
 
@@ -49,9 +51,30 @@ export function readListingDocument(answer: ListingAnswer, body: string): Listin
         throw malformed(answer, "a pseudo-directory with no prefix");
       }
 
-      return text;
+      return readName(text);
     }),
     continuationToken: continuationOf(answer, root),
+  };
+}
+
+type NameReader = (text: string) => string;
+
+/**
+ * Spec 7.4: under `EncodingType` `url` a key and a prefix arrive as percent-encoded UTF-8,
+ * a space in them possibly as `+`, which S3 never sends for a `+` of the key itself. The
+ * continuation token and the elements the answer echoes are not names this reads.
+ */
+function nameReader(answer: ListingAnswer, encodingType: string | undefined): NameReader {
+  if (encodingType !== "url") return (text) => text;
+
+  return (text) => {
+    try {
+      return decodeURIComponent(text.replaceAll("+", " "));
+    } catch (failure) {
+      if (!(failure instanceof URIError)) throw failure;
+
+      throw malformed(answer, `the name ${JSON.stringify(text)}, which does not decode`, failure);
+    }
   };
 }
 
@@ -71,10 +94,12 @@ function parse(answer: ListingAnswer, body: string): XmlElement {
   }
 }
 
-function readEntry(answer: ListingAnswer, entry: XmlElement): ObjectEntry {
-  const key = textOf(entry, "Key");
+function readEntry(answer: ListingAnswer, entry: XmlElement, readName: NameReader): ObjectEntry {
+  const text = textOf(entry, "Key");
 
-  if (key === undefined || key === "") throw malformed(answer, "an object with no key");
+  if (text === undefined || text === "") throw malformed(answer, "an object with no key");
+
+  const key = readName(text);
 
   const size = sizeOf(textOf(entry, "Size"));
 
