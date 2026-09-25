@@ -37,6 +37,9 @@ The bundle measures 5.7 kB minified and gzipped, `@stowage/core` included.
 - `userMetadata` is not declared: `put` with a non-empty `userMetadata` is `Unsupported`, and reads
   return `{}`
   ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.1.0/docs/spec.md#49-capabilities)).
+- `userMetadataTokenKeys` is not declared: without `userMetadata`, a key beyond identifiers is
+  `Unsupported` naming `userMetadata` like any other
+  ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.1.0/docs/spec.md#49-capabilities)).
 - A key segment longer than 255 bytes is `InvalidKey`, and so is a key whose whole path is longer
   than the file system holds. macOS bounds one path at 1024 bytes with the root counted in
   ([spec 6](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.1.0/docs/spec.md#6-stowageadapter-fs)).
