@@ -51,8 +51,14 @@ const conformance :Workerd.Worker = (
 
 # The same module at the defaults of the pinned date, which a Worker gets unless it opts
 # out. It runs no cases: it shows that the probe of `src/node-api.ts` sees the Node APIs
-# the flags above take away.
+# the flags above take away, and that `fromEnv` reads bindings through `process.env` as
+# spec 7.3 promises. The values are fixed, so the run needs no credential of its own.
 const defaults :Workerd.Worker = (
   modules = [(name = "worker.js", esModule = embed "dist/worker.js")],
   compatibilityDate = "2026-09-01",
+  bindings = [
+    (name = "AWS_ACCESS_KEY_ID", text = "access-key-from-binding"),
+    (name = "AWS_SECRET_ACCESS_KEY", text = "secret-from-binding"),
+    (name = "AWS_SESSION_TOKEN", text = "session-token-from-binding"),
+  ],
 );

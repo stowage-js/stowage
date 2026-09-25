@@ -24,3 +24,28 @@ describe("the flags of spec 1", () => {
     });
   });
 });
+
+describe("`fromEnv` on `workerd`", () => {
+  // ADR 0007: the `typeof process` guard. The worker has an `AWS_ACCESS_KEY_ID` binding,
+  // and without `process` nothing reaches it.
+  test("finds no `process` at the flags of spec 1 and names the missing variable", () => {
+    expect(probes.harness.fromEnv).toEqual({
+      refusal: {
+        code: "InvalidCredentials",
+        message: expect.stringContaining("AWS_ACCESS_KEY_ID"),
+      },
+    });
+  });
+
+  // Spec 7.3: under `nodejs_compat`, which the pinned date turns on by default, the
+  // bindings of `workerd.capnp` reach `process.env`.
+  test("reads the three variables from the bindings at the defaults", () => {
+    expect(probes.defaults.fromEnv).toEqual({
+      credentials: {
+        accessKeyId: "access-key-from-binding",
+        secretAccessKey: "secret-from-binding",
+        sessionToken: "session-token-from-binding",
+      },
+    });
+  });
+});

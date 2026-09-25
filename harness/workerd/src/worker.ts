@@ -11,6 +11,7 @@ import { withDivergences } from "../../s3/src/divergences.ts";
 import { s3Target } from "../../s3/src/target.ts";
 import { memoryTarget } from "../../targets/src/memory.ts";
 import { runOptionsFrom } from "../../targets/src/run-options.ts";
+import { fromEnvOutcome } from "./from-env.ts";
 import { nodeApiReach } from "./node-api.ts";
 
 interface Run {
@@ -25,6 +26,7 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/node-api") return Response.json(await nodeApiReach());
+    if (url.pathname === "/from-env") return Response.json(fromEnvOutcome());
 
     const run = runAt(url.pathname, variables);
 

@@ -13,6 +13,7 @@ import type { ConformanceFramework } from "../../../packages/conformance/src/des
 import type { ConformanceResult } from "../../../packages/conformance/src/result.ts";
 import { configuredStorage } from "../../s3/src/environment.ts";
 import { describeEndpointCheck } from "../../s3/src/target.ts";
+import type { FromEnvOutcome } from "./from-env.ts";
 import type { NodeApiReach } from "./node-api.ts";
 
 const harnessDirectory = fileURLToPath(new URL("..", import.meta.url));
@@ -53,6 +54,7 @@ export interface WorkerdProbes {
 
 export interface WorkerProbes {
   readonly nodeApi: NodeApiReach;
+  readonly fromEnv: FromEnvOutcome;
 }
 
 /** `src/worker.ts` as the one module `workerd.capnp` embeds. */
@@ -156,7 +158,10 @@ async function resultsOf(origin: string, path: string): Promise<readonly Conform
 }
 
 async function probesOf(origin: string): Promise<WorkerProbes> {
-  return { nodeApi: await answerOf<NodeApiReach>(origin, "node-api") };
+  return {
+    nodeApi: await answerOf<NodeApiReach>(origin, "node-api"),
+    fromEnv: await answerOf<FromEnvOutcome>(origin, "from-env"),
+  };
 }
 
 async function answerOf<T>(origin: string, path: string): Promise<T> {
