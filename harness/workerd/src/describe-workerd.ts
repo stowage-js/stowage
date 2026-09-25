@@ -13,6 +13,7 @@ import type { ConformanceFramework } from "../../../packages/conformance/src/des
 import type { ConformanceResult } from "../../../packages/conformance/src/result.ts";
 import { configuredStorage } from "../../s3/src/environment.ts";
 import { describeEndpointCheck } from "../../s3/src/target.ts";
+import { type CoreCheckResult, describeCoreResults } from "../../targets/src/core.ts";
 import type { FromEnvOutcome } from "./from-env.ts";
 import type { NodeApiReach } from "./node-api.ts";
 
@@ -31,7 +32,8 @@ export async function describeWorkerd(
 
   const configured = configuredStorage();
 
-  const { memory, s3, probes } = await withWorkerd(async (origins) => ({
+  const { core, memory, s3, probes } = await withWorkerd(async (origins) => ({
+    core: await answerOf<readonly CoreCheckResult[]>(origins.harness, "core"),
     memory: await resultsOf(origins.harness, "adapter-memory"),
     s3: configured === undefined ? undefined : await resultsOf(origins.harness, "adapter-s3"),
     probes: {
@@ -39,6 +41,8 @@ export async function describeWorkerd(
       defaults: await probesOf(origins.defaults),
     },
   }));
+
+  describeCoreResults(framework, core);
 
   describeResults(framework, "@stowage/adapter-memory", memory);
 
