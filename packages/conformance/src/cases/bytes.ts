@@ -54,7 +54,7 @@ export function streamsEndingTogether(
   chunkSize: number,
 ): ReadableStream<Uint8Array>[] {
   const { promise: everyEndReached, resolve } = Promise.withResolvers<void>();
-  let unread = bodies.length;
+  let unended = bodies.length;
 
   return bodies.map((bytes) => {
     let sent = 0;
@@ -65,8 +65,8 @@ export function streamsEndingTogether(
       if (reachedEnd) return;
 
       reachedEnd = true;
-      unread -= 1;
-      if (unread === 0) resolve();
+      unended -= 1;
+      if (unended === 0) resolve();
     };
 
     return new ReadableStream(

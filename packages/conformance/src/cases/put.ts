@@ -422,8 +422,8 @@ export const putCases: readonly ConformanceCaseSource[] = [
     cost: "fast",
     async run(ctx) {
       const key = keyFor(ctx, "put/concurrent-writers");
-      const writers = [patternOf(multipartSize), patternOf(multipartSize, 1)];
-      const bodies = streamsEndingTogether(writers, mebibyte);
+      const patterns = [patternOf(multipartSize), patternOf(multipartSize, 1)];
+      const bodies = streamsEndingTogether(patterns, mebibyte);
       const outcomes = await Promise.allSettled(bodies.map((body) => ctx.storage.put(key, body)));
 
       assert(
@@ -434,7 +434,7 @@ export const putCases: readonly ConformanceCaseSource[] = [
       const held = await collect((await ctx.storage.get(key)).stream());
 
       assert(
-        writers.some((bytes) => sameBytes(held, bytes)),
+        patterns.some((pattern) => sameBytes(held, pattern)),
         `The key holds ${held.byteLength} bytes that are neither writer's object whole`,
       );
     },
