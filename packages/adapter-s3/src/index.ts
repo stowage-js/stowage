@@ -46,6 +46,12 @@ export type { S3PresignGetOptions, S3PresignPutOptions } from "./presign.ts";
 export interface S3Storage extends Storage {
   readonly provider: "s3";
   /**
+   * Sends at most one `DeleteObjects` per 1000 keys, plus at most one `DELETE` per key
+   * holding `U+FFFE` or `U+FFFF`, which XML carries neither raw nor as a reference. Those
+   * go after the batches, one after another.
+   */
+  delete(...keys: readonly string[]): Promise<DeleteReport>;
+  /**
    * A URL a client holding no credential calls with a plain `GET` for this one key until
    * it expires. Whoever holds it may read the object: it is a bearer token. Sends no
    * request, and works against the endpoint that signed it only.

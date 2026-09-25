@@ -61,6 +61,9 @@ The bundle measures 13.4 kB minified and gzipped, `@stowage/core` included.
   ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-s3@0.1.0/docs/spec.md#49-capabilities)).
   R2 normalizes a key to NFC, so two Unicode-equivalent keys name one object there and two on AWS
   S3.
+- `delete` sends at most one `DeleteObjects` per 1000 keys, plus at most one `DELETE` per key
+  holding `U+FFFE` or `U+FFFF`, which XML carries neither raw nor as a reference
+  ([spec 7.4](https://github.com/stowage-js/stowage/blob/@stowage/adapter-s3@0.1.0/docs/spec.md#74-requests)).
 - Where AWS S3 and R2 answer differently, the adapter is written to the stricter side
   ([spec 7.2](https://github.com/stowage-js/stowage/blob/@stowage/adapter-s3@0.1.0/docs/spec.md#72-promised-providers)):
 
