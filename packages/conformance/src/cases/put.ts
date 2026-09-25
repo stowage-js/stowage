@@ -26,6 +26,9 @@ const utf8 = new TextEncoder();
 /** Spec 4.3 takes an ASCII HTTP token as a user metadata key, which this is not. */
 const metadataKeyAboveAscii: Record<string, string> = { grüße: "hallo" };
 
+/** An ASCII HTTP token and no identifier, which spec 4.9 promises under `userMetadataTokenKeys`. */
+const metadataTokenKey: Record<string, string> = { "content-hash": "sha256-conformance" };
+
 /** Over the 2 KB of encoded header bytes spec 4.3 allows a whole user metadata set. */
 const metadataOverTheLimit: Record<string, string> = { note: "x".repeat(2 * kibibyte) };
 
@@ -328,7 +331,7 @@ export const putCases: readonly ConformanceCaseSource[] = [
     cost: "fast",
     async run(ctx) {
       const key = keyFor(ctx, "put/user-metadata");
-      const userMetadata = { "Written-By": "stowage", run: "conformance" };
+      const userMetadata = { WrittenBy: "stowage", run: "conformance" };
 
       await ctx.storage.put(key, patternOf(16), { userMetadata });
 
@@ -340,8 +343,7 @@ export const putCases: readonly ConformanceCaseSource[] = [
       const empty = keyFor(ctx, "put/user-metadata", "empty");
 
       await expectUnsupported(
-        () =>
-          ctx.storage.put(refused, patternOf(16), { userMetadata: { "Written-By": "stowage" } }),
+        () => ctx.storage.put(refused, patternOf(16), { userMetadata: { WrittenBy: "stowage" } }),
         "userMetadata",
       );
 
@@ -381,6 +383,35 @@ export const putCases: readonly ConformanceCaseSource[] = [
       await expectUnsupported(
         () => ctx.storage.put(key, bytes, { userMetadata: metadataOverTheLimit }),
         "userMetadata",
+      );
+    },
+  },
+  {
+    name: "put/user-metadata-token-keys",
+    requires: ["userMetadata", "userMetadataTokenKeys"],
+    cost: "fast",
+    async run(ctx) {
+      const key = keyFor(ctx, "put/user-metadata-token-keys");
+
+      await ctx.storage.put(key, patternOf(16), { userMetadata: metadataTokenKey });
+
+      assertHoldsMetadata((await ctx.storage.stat(key)).userMetadata, metadataTokenKey, "`stat`");
+      assertHoldsMetadata(
+        (await ctx.storage.get(key)).stat.userMetadata,
+        metadataTokenKey,
+        "`get`",
+      );
+    },
+    async runWithout(ctx) {
+      const key = keyFor(ctx, "put/user-metadata-token-keys");
+      // Spec 4.3 checks `userMetadata` before it reaches the key rule, so a storage
+      // declaring neither name refuses for the first.
+      const missing = ctx.declares("userMetadata") ? "userMetadataTokenKeys" : "userMetadata";
+
+      await expectStorageError(
+        () => ctx.storage.put(key, patternOf(16), { userMetadata: metadataTokenKey }),
+        { code: "Unsupported", attempts: 0, capability: missing },
+        "a user metadata key beyond identifiers",
       );
     },
   },

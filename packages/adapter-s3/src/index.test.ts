@@ -153,7 +153,12 @@ test("it names the provider, the bucket and what it declares", () => {
 
   expect(storage.provider).toBe("s3");
   expect(storage.bucket).toBe("stowage");
-  expect(storage.capabilities).toEqual(["presignedUrls", "rangeReads", "userMetadata"]);
+  expect(storage.capabilities).toEqual([
+    "presignedUrls",
+    "rangeReads",
+    "userMetadata",
+    "userMetadataTokenKeys",
+  ]);
 });
 
 test("`put` addresses the bucket virtual-hosted over https", async () => {

@@ -84,6 +84,7 @@ test("declares the capabilities it implements", () => {
     "keyBytesPreserved",
     "rangeReads",
     "userMetadata",
+    "userMetadataTokenKeys",
   ]);
 });
 
@@ -456,6 +457,30 @@ test("counts a metadata value above ASCII as the bytes its encoding costs", asyn
   const error = await storageErrorOf(storage.put("greeting", "hello", { userMetadata }));
 
   expect(error.code).toBe("InvalidRequest");
+});
+
+test.each([
+  ["a space at its end", "a ".repeat(760)],
+  ["the start of an encoded word", "=?".repeat(760)],
+])("counts a metadata value holding %s as the encoded words it travels in", async (_name, note) => {
+  const storage = memoryStorage();
+
+  // Key and value are 1524 bytes of printable ASCII, which fit under the limit as written;
+  // spec 4.13 writes the value as encoded words, which cost more than 2 KB.
+  const error = await storageErrorOf(storage.put("greeting", "hello", { userMetadata: { note } }));
+
+  expect(error.code).toBe("InvalidRequest");
+  expect(error.attempts).toBe(0);
+});
+
+test("takes a metadata key that is an HTTP token beyond identifiers", async () => {
+  const storage = memoryStorage();
+
+  const written = await storage.put("greeting", "hello", {
+    userMetadata: { "content-hash": "abc", "x.y": "z", "1st": "one" },
+  });
+
+  expect(written.userMetadata).toEqual({ "content-hash": "abc", "x.y": "z", "1st": "one" });
 });
 
 test.each([

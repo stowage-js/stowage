@@ -24,6 +24,7 @@ const specified: readonly SpecifiedCase[] = [
   ["put/stream-consumed", [], "fast"],
   ["put/user-metadata", ["userMetadata"], "fast"],
   ["put/user-metadata-limits", ["userMetadata"], "fast"],
+  ["put/user-metadata-token-keys", ["userMetadata", "userMetadataTokenKeys"], "fast"],
   ["get/missing-key", [], "fast"],
   ["get/stream", [], "fast"],
   ["get/text-and-json", [], "fast"],

@@ -84,6 +84,7 @@ export interface StorageErrorExpectation {
   readonly key?: string;
   readonly attempts?: number;
   readonly retryable?: boolean;
+  readonly capability?: CapabilityName;
 }
 
 /**

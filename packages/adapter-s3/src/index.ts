@@ -70,6 +70,7 @@ const s3Capabilities: readonly CapabilityName[] = Object.freeze([
   "presignedUrls",
   "rangeReads",
   "userMetadata",
+  "userMetadataTokenKeys",
 ]);
 
 const utf8 = new TextEncoder();
@@ -104,7 +105,7 @@ class SimpleStorageServiceStorage implements S3Storage {
 
     const write: ObjectWrite = {
       key,
-      userMetadata: userMetadataHeaders(this.bucket, options?.userMetadata, key),
+      userMetadata: userMetadataHeaders(this.bucket, options?.userMetadata, key, this.capabilities),
       contentType: this.#readContentType(options?.contentType),
       signal: options?.signal,
     };

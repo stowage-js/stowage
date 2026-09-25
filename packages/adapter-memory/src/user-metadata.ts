@@ -1,34 +1,39 @@
-import type { StorageError } from "@stowage/core";
+import {
+  type CapabilityName,
+  isUserMetadataKey,
+  type StorageError,
+  userMetadataByteLength,
+} from "@stowage/core";
 
 import { memoryError } from "./storage-error.ts";
 
 /** Spec 4.3 bounds the set at 2 KB of the header bytes it costs once it is encoded. */
 const headerByteLimit = 2048;
 
-/** The characters RFC 9110 allows in a field name, which is what a metadata key is. */
-const httpToken = /^[!#$%&'*+.^_`|~\dA-Za-z-]+$/;
-
-/** What travels in a header field as it stands, so it costs one byte per character. */
-const printableAscii = /^[\x20-\x7e]*$/;
-
-/** `=?UTF-8?B?` and the `?=` that closes it. */
-const encodedWordOverhead = 12;
-
-const utf8 = new TextEncoder();
+const noUserMetadata: Readonly<Record<string, string>> = Object.freeze(Object.create(null));
 
 /**
  * The metadata as it is held: keys folded to lower case, as a header field name is.
- * Rejects with `InvalidRequest` before anything is written (spec 4.3).
+ * Rejects before anything is written, in the order of spec 4.3, which reads the refusals
+ * off what the storage declares.
  */
 export function readUserMetadata(
   userMetadata: Record<string, string> | undefined,
   key: string,
+  capabilities: readonly CapabilityName[],
 ): Readonly<Record<string, string>> {
-  const held: Record<string, string> = Object.create(null);
-  let headerBytes = 0;
+  const entries = Object.entries(userMetadata ?? {});
 
-  for (const [name, value] of Object.entries(userMetadata ?? {})) {
-    if (!httpToken.test(name)) {
+  if (entries.length === 0) return noUserMetadata;
+
+  if (!capabilities.includes("userMetadata")) {
+    throw unsupported("userMetadata", "This storage holds no user metadata", key);
+  }
+
+  const held: Record<string, string> = Object.create(null);
+
+  for (const [name, value] of entries) {
+    if (!isUserMetadataKey(name, "token")) {
       throw refusal(`The user metadata key ${JSON.stringify(name)} is no ASCII HTTP token`, key);
     }
 
@@ -41,8 +46,9 @@ export function readUserMetadata(
     }
 
     held[folded] = value;
-    headerBytes += folded.length + encodedValueBytes(value);
   }
+
+  const headerBytes = userMetadataByteLength(held);
 
   if (headerBytes > headerByteLimit) {
     throw refusal(
@@ -51,17 +57,30 @@ export function readUserMetadata(
     );
   }
 
+  const beyondIdentifiers = entries.find(([name]) => !isUserMetadataKey(name, "identifier"));
+
+  if (beyondIdentifiers !== undefined && !capabilities.includes("userMetadataTokenKeys")) {
+    throw unsupported(
+      "userMetadataTokenKeys",
+      `This storage holds no user metadata key beyond identifiers, such as ${JSON.stringify(beyondIdentifiers[0])}`,
+      key,
+    );
+  }
+
   return Object.freeze(held);
-}
-
-// A value above ASCII reaches the provider as an RFC 2047 encoded word, so it costs the
-// base64 of its UTF-8 bytes rather than those bytes (spec 4.3).
-function encodedValueBytes(value: string): number {
-  if (printableAscii.test(value)) return value.length;
-
-  return encodedWordOverhead + 4 * Math.ceil(utf8.encode(value).length / 3);
 }
 
 function refusal(message: string, key: string): StorageError {
   return memoryError({ code: "InvalidRequest", message, operation: "put", key, attempts: 0 });
+}
+
+function unsupported(capability: CapabilityName, message: string, key: string): StorageError {
+  return memoryError({
+    code: "Unsupported",
+    message,
+    operation: "put",
+    key,
+    attempts: 0,
+    capability,
+  });
 }
