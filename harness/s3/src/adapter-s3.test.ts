@@ -230,4 +230,38 @@ describe.skipIf(configured === undefined)("adapter-s3 against the endpoint", () 
     await expect((await storage().get(slashEnded)).bytes()).resolves.toHaveLength(0);
     await expect((await storage().get(long)).text()).resolves.toBe("written elsewhere");
   });
+
+  // Spec 7.4: the endpoint answers a `DeleteObjects` body holding U+FFFE with
+  // `MalformedXML`, so the key goes as a `DELETE` of its own and its neighbours stay in the
+  // batch (ADR 0027).
+  test("a `delete` sends a key holding U+FFFE as a `DELETE` of its own", async () => {
+    const below = `${prefix}noncharacter/`;
+    const noncharacter = `${below}${String.fromCodePoint(0xff_fe)}.txt`;
+    const before = `${below}before.txt`;
+    const after = `${below}after.txt`;
+
+    await Promise.all(
+      [before, noncharacter, after].map(async (key) => await storage().put(key, "to be deleted")),
+    );
+
+    const endpoint = globalThis.fetch;
+    const sent: string[] = [];
+
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit): Promise<Response> => {
+      sent.push(`${init?.method ?? "GET"} ${new URL(url).search === "?delete=" ? "batch" : "key"}`);
+
+      return await endpoint(url, init);
+    });
+
+    const report = await storage().delete(before, noncharacter, after);
+
+    expect(report).toEqual({ requested: 3, failed: [] });
+    expect(sent).toEqual(["POST batch", "DELETE key"]);
+
+    const left: string[] = [];
+
+    for await (const entry of storage().list({ prefix: below })) left.push(entry.key);
+
+    expect(left).toEqual([]);
+  });
 });

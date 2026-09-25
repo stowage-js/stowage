@@ -13,7 +13,8 @@ export class XmlSyntaxError extends Error {
 
 /**
  * The root element of an XML document of the subset the providers answer with: elements,
- * attributes, text and comments under one optional declaration (spec 4.13).
+ * attributes, text, comments, the five named entities and a numeric character reference to
+ * any Unicode scalar value but `U+0000`, under one optional declaration (spec 4.13).
  */
 export function parseXml(document: string): XmlElement {
   const scanner = new Scanner(document);
@@ -33,15 +34,15 @@ const namePattern = /[:A-Z_a-z\u00C0-\uFFFF][:A-Z_a-z\u00C0-\uFFFF.\d-]*/uy;
 const whitespacePattern = /[ \t\r\n]*/y;
 const entityPattern = /&(?:#x([\da-fA-F]+)|#(\d+)|([A-Za-z]\w*));/uy;
 
-/** `Char` of XML 1.0, section 2.2: what a character reference may name. */
-function isXmlCharacter(codePoint: number): boolean {
+/**
+ * What a character reference may name: any Unicode scalar value but `U+0000`. That is
+ * wider than `Char` of XML 1.0 on purpose, because S3 writes a key character XML cannot
+ * carry, such as `U+FFFE`, as a reference, and the key has to read back byte for byte
+ * (ADR 0027).
+ */
+function isReferableCharacter(codePoint: number): boolean {
   return (
-    codePoint === 0x9 ||
-    codePoint === 0xa ||
-    codePoint === 0xd ||
-    (codePoint >= 0x20 && codePoint <= 0xd7_ff) ||
-    (codePoint >= 0xe0_00 && codePoint <= 0xff_fd) ||
-    (codePoint >= 0x1_00_00 && codePoint <= 0x10_ff_ff)
+    (codePoint >= 0x1 && codePoint <= 0xd7_ff) || (codePoint >= 0xe0_00 && codePoint <= 0x10_ff_ff)
   );
 }
 
@@ -241,8 +242,10 @@ class Scanner {
 
     const codePoint = hex === undefined ? Number(decimal) : Number.parseInt(hex, 16);
 
-    if (!isXmlCharacter(codePoint)) {
-      throw this.#error(`The reference ${entity} names no character XML carries`);
+    if (!isReferableCharacter(codePoint)) {
+      throw this.#error(
+        `The reference ${entity} names U+0000, a surrogate or no Unicode scalar value at all`,
+      );
     }
 
     this.#position = entityPattern.lastIndex;

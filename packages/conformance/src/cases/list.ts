@@ -7,7 +7,9 @@ import type { ConformanceContext } from "../target.ts";
 import { patternOf } from "./bytes.ts";
 import { prefixFor } from "./keys.ts";
 import {
+  assertAccepted,
   assertNamesEachOnce,
+  assertNothingBelow,
   collectEntries,
   keysBelow,
   pastOneThousand,
@@ -382,6 +384,38 @@ export const listCases: readonly ConformanceCaseSource[] = [
           );
         }),
       );
+    },
+  },
+  {
+    name: "list/noncharacter-key",
+    requires: [],
+    cost: "fast",
+    async run(ctx) {
+      const prefix = prefixFor(ctx, "list/noncharacter-key");
+      // Spec 4.8 lets a writable key hold U+FFFE, which XML carries neither raw nor as a
+      // reference, and which an editor may save as anything: it is built from its code point.
+      const key = `${prefix}noncharacter-${String.fromCodePoint(0xff_fe)}.txt`;
+      const body = patternOf(16);
+
+      await ctx.storage.put(key, body);
+
+      const iterated = await collectEntries(ctx.storage.list({ prefix }));
+
+      assertNamesEachOnce(
+        iterated.map((entry) => entry.key),
+        [key],
+        "The iteration below the prefix",
+      );
+
+      const stored = await ctx.storage.get(key);
+
+      assert(
+        stored.stat.key === key,
+        `\`get\` describes the object as ${JSON.stringify(stored.stat.key)} and not as the key it was asked for`,
+      );
+      assertSameBytes(await stored.bytes(), body, "the object under the key holding U+FFFE");
+      assertAccepted(await ctx.storage.delete(key), 1, "Deleting the key holding U+FFFE");
+      await assertNothingBelow(ctx, prefix);
     },
   },
 ];

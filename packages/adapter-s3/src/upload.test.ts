@@ -308,6 +308,34 @@ test("a stream that fills more than one part becomes a multipart upload", async 
   });
 });
 
+// ADR 0027: S3 writes a key character XML 1.0 cannot carry into an answer as a reference,
+// and a commit it answered that way is the success it reports, not an unreadable answer.
+test("a multipart upload of a key holding U+FFFE reads both answers spelling it `&#xfffe;`", async () => {
+  const key = "noncharacter-\uFFFE.bin";
+  const spelled = "noncharacter-&#xfffe;.bin";
+  const sent = stubFetch(
+    multipartProvider({
+      create: () =>
+        xmlAnswer(
+          `<InitiateMultipartUploadResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Bucket>stowage</Bucket><Key>${spelled}</Key><UploadId>${uploadId}</UploadId></InitiateMultipartUploadResult>`,
+        ),
+      complete: () =>
+        xmlAnswer(
+          `<CompleteMultipartUploadResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Location>https://stowage.s3.eu-central-1.amazonaws.com/noncharacter-%EF%BF%BE.bin</Location><Bucket>stowage</Bucket><Key>${spelled}</Key><ETag>&quot;assembled-2&quot;</ETag></CompleteMultipartUploadResult>`,
+        ),
+    }),
+  );
+  const storage = s3Storage(options({ multipart: { partSize: smallestPart } }));
+
+  const written = await storage.put(key, streamOf(patternOf(smallestPart + 1), mebibyte));
+
+  expect(written).toMatchObject({ key, etag: "assembled-2" });
+  expect(sent.map((request) => request.url.pathname)).toEqual(
+    Array.from({ length: 4 }, () => "/noncharacter-%EF%BF%BE.bin"),
+  );
+  expect(sent.map(stepOf).at(-1)).toBe("complete");
+});
+
 interface HeldParts {
   readonly answer: Answer;
   /** The most part requests that were in flight at once. */

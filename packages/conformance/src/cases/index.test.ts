@@ -51,6 +51,7 @@ const specified: readonly SpecifiedCase[] = [
   ["list/invalid-delimiter", [], "fast"],
   ["list/past-one-thousand", [], "slow"],
   ["list/key-bytes", ["keyBytesPreserved"], "fast"],
+  ["list/noncharacter-key", [], "fast"],
   ["delete/single", [], "fast"],
   ["delete/many", [], "fast"],
   ["delete/absent-key-succeeds", [], "fast"],
