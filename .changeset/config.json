@@ -12,6 +12,7 @@
       "@stowage/adapter-memory",
       "@stowage/adapter-fs",
       "@stowage/adapter-s3",
+      "@stowage/adapter-azure-blob",
       "@stowage/conformance"
     ]
   ],

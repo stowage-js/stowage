@@ -3,6 +3,7 @@ import { readdir } from "node:fs/promises";
 import { expect, test } from "vitest";
 
 import changesetConfig from "../.changeset/config.json" with { type: "json" };
+import adapterAzureBlob from "../packages/adapter-azure-blob/package.json" with { type: "json" };
 import adapterFs from "../packages/adapter-fs/package.json" with { type: "json" };
 import adapterMemory from "../packages/adapter-memory/package.json" with { type: "json" };
 import adapterS3 from "../packages/adapter-s3/package.json" with { type: "json" };
@@ -25,6 +26,7 @@ const published: readonly PackageManifest[] = [
   adapterMemory,
   adapterFs,
   adapterS3,
+  adapterAzureBlob,
   conformance,
 ];
 
@@ -36,13 +38,13 @@ test("every package under `packages` is checked here", async () => {
   expect(entries.filter((entry) => entry.isDirectory())).toHaveLength(published.length);
 });
 
-test("the five packages carry one version", () => {
+test("the six packages carry one version", () => {
   expect(new Set(published.map((manifest) => manifest.version)).size).toBe(1);
 });
 
 // ADR 0008: the release keeps the one version through a `fixed` group, so a package left out
 // of it would be versioned on its own by the next `changeset version`.
-test("the five packages are released as one fixed group", () => {
+test("the six packages are released as one fixed group", () => {
   expect(changesetConfig.fixed).toEqual([published.map((manifest) => manifest.name)]);
 });
 
