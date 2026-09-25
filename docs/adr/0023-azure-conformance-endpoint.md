@@ -66,8 +66,8 @@ the environment when a federated one serves.
   `createStorageWithDeniedCredentials` uses a second managed identity, federated the same way,
   holding Storage Blob Data Reader alone, and expects `AuthorizationPermissionMismatch` as
   `AccessDenied`. `createStorageWithBadCredentials` hands over a token that is not a JWT, which
-  costs one refresh and ends in `InvalidCredentials`. The account key is an environment secret read
-  as `AZURE_STORAGE_KEY`.
+  costs one refresh and ends in `InvalidCredentials` with `attempts: 2` (ADR 0021). The account
+  key is an environment secret read as `AZURE_STORAGE_KEY`.
 - Against Azurite, `createStorageWithDeniedCredentials` is not supplied, because Azurite checks no
   role, and the `AccessDenied` case reports itself skipped with that reason. The bad credential is
   a JWT for a foreign audience. What code Azurite answers for it is for the first run to show, and

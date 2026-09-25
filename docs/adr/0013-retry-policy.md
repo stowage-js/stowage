@@ -104,7 +104,8 @@ through the public API. That case stays out against R2, where ADR 0012 already s
 the group itself, the two exceptions and the stream rule are none of them reachable from the API —
 no endpoint of ADR 0012 returns a `503` on request — so they become tests of this repository against
 a stubbed `fetch`, which is where ADR 0006 put flat memory and the broken body stream for the same
-reason.
+reason. ADR 0021 lets `errors/bad-credentials` accept `attempts: 2`, which a refused access token
+costs on Azure.
 
 ## Consequences
 

@@ -980,8 +980,8 @@ another endpoint that speaks the Blob wire protocol can be configured and are no
   after the provider answered `401 InvalidAuthenticationInfo` to a request under an access token,
   which is the one answer an expired token hides behind; that repeat has no delay and is not
   switched off by `retry: false`. Where the repeat is refused too, the failure is
-  `InvalidCredentials`, and its message says that the token expired or is not accepted. The
-  adapter never reports `Expired`.
+  `InvalidCredentials` with `attempts: 2`, and its message says that the token expired or is not
+  accepted. The adapter never reports `Expired`.
 - Before signing, the resolved object is checked to hold exactly one of the two fields, as a
   non-empty string, and no other field, and an `accountKey` to decode as base64 to at least one
   byte; a violation is `InvalidCredentials` naming the field, with `attempts: 0`. An access token is
@@ -1420,13 +1420,13 @@ A case marked with a factory is skipped where the target does not supply it.
 
 **Errors**
 
-| Case                         | Requires | Cost   | Asserts                                                                                                                                                                                         |
-| ---------------------------- | -------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `errors/shape`               |          | `fast` | Every error the run provokes passes `isStorageError`, has a `code` out of the union, `operation`, `bucket` and `provider` matching the storage, a boolean `retryable` and an integer `attempts` |
-| `errors/not-a-storage-error` |          | `fast` | `AbortError` and `SyntaxError` from the cases above fail `isStorageError`                                                                                                                       |
-| `errors/bad-credentials`     |          | `fast` | Factory `createStorageWithBadCredentials`: `get` rejects with `InvalidCredentials`, `retryable: false`, `attempts: 1`; `exists` rejects rather than answering `false`; `list` rejects           |
-| `errors/denied-credentials`  |          | `fast` | Factory `createStorageWithDeniedCredentials`: `put` rejects with `AccessDenied`, `retryable: false`, `attempts: 1`                                                                              |
-| `errors/expired-credentials` |          | `slow` | Factory `createStorageWithExpiredCredentials`: `get` rejects with `Expired` and `attempts: 2`                                                                                                   |
+| Case                         | Requires | Cost   | Asserts                                                                                                                                                                                             |
+| ---------------------------- | -------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `errors/shape`               |          | `fast` | Every error the run provokes passes `isStorageError`, has a `code` out of the union, `operation`, `bucket` and `provider` matching the storage, a boolean `retryable` and an integer `attempts`     |
+| `errors/not-a-storage-error` |          | `fast` | `AbortError` and `SyntaxError` from the cases above fail `isStorageError`                                                                                                                           |
+| `errors/bad-credentials`     |          | `fast` | Factory `createStorageWithBadCredentials`: `get` rejects with `InvalidCredentials`, `retryable: false` and `attempts` of `1` or `2`; `exists` rejects rather than answering `false`; `list` rejects |
+| `errors/denied-credentials`  |          | `fast` | Factory `createStorageWithDeniedCredentials`: `put` rejects with `AccessDenied`, `retryable: false`, `attempts: 1`                                                                                  |
+| `errors/expired-credentials` |          | `slow` | Factory `createStorageWithExpiredCredentials`: `get` rejects with `Expired` and `attempts: 2`                                                                                                       |
 
 **Presigned URLs**
 
