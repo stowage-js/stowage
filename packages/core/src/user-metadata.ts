@@ -1,8 +1,10 @@
-export type UserMetadataKeyRule = "token";
+export type UserMetadataKeyRule = "token" | "identifier";
 
 const keyPatterns: Readonly<Record<UserMetadataKeyRule, RegExp>> = {
   /** The characters RFC 9110 allows in a field name, which is what a header carries. */
   token: /^[!#$%&'*+.^_`|~\dA-Za-z-]+$/u,
+  /** An ASCII identifier, which Azure requires of a metadata name (ADR 0020). */
+  identifier: /^[A-Za-z_][A-Za-z\d_]*$/u,
 };
 
 export function isUserMetadataKey(name: string, rule: UserMetadataKeyRule): boolean {
@@ -28,8 +30,11 @@ const bytesPerEncodedWord = 45;
 const utf8 = new TextEncoder();
 
 /** The value as a header carries it: as written where it travels so, else as encoded words. */
-export function encodeUserMetadataValue(value: string): string {
-  if (travelsAsWritten.test(value) && !value.includes("=?")) return value;
+export function encodeUserMetadataValue(value: string, options?: { always?: boolean }): string {
+  if (value === "") return value;
+  if (options?.always !== true && travelsAsWritten.test(value) && !value.includes("=?")) {
+    return value;
+  }
 
   return utf8PiecesOf(value)
     .map((piece) => `${encodedWordStart}${btoa(String.fromCharCode(...piece))}${encodedWordEnd}`)
@@ -38,7 +43,7 @@ export function encodeUserMetadataValue(value: string): string {
 
 /**
  * What spec 4.3 bounds at 2 KB: every key and its value as `encodeUserMetadataValue` writes
- * it.
+ * it, without `always`, so the bound does not depend on what an adapter encodes beyond the rule.
  */
 export function userMetadataByteLength(userMetadata: Readonly<Record<string, string>>): number {
   let bytes = 0;

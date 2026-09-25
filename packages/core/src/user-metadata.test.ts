@@ -21,6 +21,20 @@ test.each([["grüße"], ["with space"], ["colon:"], ["slash/"], ["question?"], [
   },
 );
 
+test.each([["a1"], ["a_"], ["_leading"], ["Note"], ["ALL_CAPS_2"]])(
+  "%j is an identifier key",
+  (name) => {
+    expect(isUserMetadataKey(name, "identifier")).toBe(true);
+  },
+);
+
+test.each([["content-hash"], ["x.y"], ["1st"], ["grüße"], ["with space"], [""]])(
+  "%j is no identifier key",
+  (name) => {
+    expect(isUserMetadataKey(name, "identifier")).toBe(false);
+  },
+);
+
 test.each([["stowage"], ["with inner  spaces"], ["a=b?c"], ["~!@#$%^&*()"], [""]])(
   "the value %j travels as written",
   (value) => {
@@ -45,6 +59,17 @@ test.each([
 
 test("a value above ASCII travels as UTF-8 base64", () => {
   expect(encodeUserMetadataValue("grüße")).toBe("=?UTF-8?B?Z3LDvMOfZQ==?=");
+});
+
+test("`always` writes a value as encoded words where it would travel as written", () => {
+  expect(encodeUserMetadataValue("stowage", { always: true })).toBe("=?UTF-8?B?c3Rvd2FnZQ==?=");
+  expect(decodeUserMetadataValue(encodeUserMetadataValue("a  b", { always: true }))).toBe("a  b");
+});
+
+// RFC 2047 gives an encoded word at least one character of text, so an empty value is no
+// word at all.
+test("`always` leaves an empty value empty", () => {
+  expect(encodeUserMetadataValue("", { always: true })).toBe("");
 });
 
 test("a long value is split into encoded words that each stay within RFC 2047's 75", () => {
@@ -105,4 +130,9 @@ test("the byte length counts each key and its value as they travel", () => {
   expect(userMetadataByteLength({ a: "b", greeting: "grüße" })).toBe(
     2 + "greeting".length + "=?UTF-8?B?Z3LDvMOfZQ==?=".length,
   );
+});
+
+// Spec 4.13: the 2 KB of spec 4.3 do not depend on what an adapter encodes beyond the rule.
+test("the byte length measures a value as it travels without `always`", () => {
+  expect(userMetadataByteLength({ note: "a  b" })).toBe("note".length + "a  b".length);
 });
