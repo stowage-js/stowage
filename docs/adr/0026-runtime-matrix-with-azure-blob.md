@@ -1,4 +1,4 @@
-# The runtime matrix takes in the Azure adapter, and `workerd` runs the suite with and without `nodejs_compat`
+# The runtime matrix takes in the Azure adapter
 
 ADR 0019 has `@stowage/adapter-azure-blob` speak the wire protocol on `fetch` and Web Crypto with
 nothing that needs a Node API, so Azure takes no cell of ADR 0002's matrix away. The matrix keeps
@@ -11,35 +11,17 @@ within each flow, was the alternative. It would have repeated the same cells, be
 that the suite covers a flow on a runtime, and which adapters carry the flow is already the flow's
 to say.
 
-`workerd` has enabled `nodejs_compat` by default since compatibility date 2026-08-04, which issue
-107 measured: a Node-API bundle loads at 2026-09-01 without flags and fails with
-`No such module "node:os"` once `no_nodejs_compat` is set. The v0.1 harness pins 2026-09-01 with
-no flags, so its `workerd` cell no longer shows that an adapter reaches no Node API, for
-`adapter-s3` as much as for Azure. The harness therefore runs the whole suite under
-`no_nodejs_compat`, which proves the module graph, and runs the `fast` tier a second time under the
-default flags, which is what a Worker at that date gets unless it opts out. The second run is there
-because code that branches on `globalThis.process` or `Buffer` behaves differently under the two,
-and the environment read ADR 0021 moves into `@stowage/core` is such code. The `slow` tier runs
-once, under `no_nodejs_compat`: what the flag changes does not depend on the endpoint that answers.
-The spec promises the `workerd` cells in both states, and CI covers both. Moving the date back
-before 2026-08-04 would have pinned the runtime to a date that a Worker created today does not
-run at, so the promise would describe a configuration few callers have. A static check of the
-bundle for `node:` imports would have seen the imports and missed the globals, and proves less than
-loading the bundle does.
+On `workerd` the Azure adapter runs in the harness worker of ADR 0002, at compatibility date
+`2026-09-01` with `no_nodejs_compat` and `no_nodejs_compat_v2`, where no Node API is reachable, so
+its cell shows that it needs none, as `adapter-s3`'s does.
 
-The compatibility date stays `2026-09-01`. Nothing in v0.2 needs a later one, and the spec now
-names the flags beside the date. A new date is a change to the spec; Renovate lifts the `workerd`
-binary and leaves the date alone.
+The compatibility date stays `2026-09-01`. Nothing in v0.2 needs a later one, and moving it back
+before 2026-08-04, where the Node APIs are off without flags, would pin the runtime to a date that a
+Worker created today does not run at. A new date is a change to the spec; Renovate lifts the
+`workerd` binary and leaves the date alone.
 
 ## Consequences
 
-- Measured on 2026-09-25: the v0.1 worker bundle, `adapter-s3` included, loads under
-  `no_nodejs_compat` at 2026-09-01, and every `adapter-memory` case passes. Adding the flag breaks
-  nothing that exists today.
-- `workerd.capnp` gains a second worker service with the same module and date and no flag, and the
-  harness reports its results apart from those of the first. The comment claiming that the pinned
-  date alone shows "no Node API" goes, and `worker.ts`'s remark that `fromEnv` finds no `process`
-  holds for the `no_nodejs_compat` service alone.
 - Node 24, Node 26 and `workerd` run the Azure adapter's `slow` tier against the real account, Bun
   and Deno against Azurite, the split ADR 0023 proposed after ADR 0012. The copy cases that diverge
   on Azurite stay admissible because the same cases run against the real account on Node and
