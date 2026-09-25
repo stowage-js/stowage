@@ -28,9 +28,11 @@ so `presign` would have nothing to sign with, and its signed permissions may be 
 capabilities the storage declares, which would make ADR 0015's declarations depend on the
 credential rather than the adapter. It can join the union later without taking anything from a
 caller, which ADR 0017 makes a minor release. Token acquisition ships in no form. A client-secret
-flow is one `fetch`, but managed identity runs only on Azure compute and cannot be exercised
-without it, and workload identity on Kubernetes reads a projected token file that `workerd` cannot
-reach: the same walls ADR 0007 met with IMDSv2 and `AssumeRoleWithWebIdentity`.
+flow is one `fetch`; Azure Arc exposes a host-provided identity endpoint on non-Azure machines,
+together with its challenge-token file, but the adapter acquires tokens from neither. Callers can
+provide externally acquired tokens through the existing `accessToken` resolver. Workload identity
+on Kubernetes reads a projected token file that `workerd` cannot reach: the same walls ADR 0007
+met with IMDSv2 and `AssumeRoleWithWebIdentity`.
 `@stowage/credentials-azure` is the named place for those resolvers, beside
 `@stowage/credentials-aws`, once writing them twice becomes the common case.
 
