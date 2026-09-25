@@ -169,9 +169,9 @@ jobs:
         if: always()
         run: ./harness/s3/stop.sh
 
-  # Spec 12: the run reports on each point it settles, one column per endpoint and runtime.
+  # Spec 13: the run reports on each point it settles, one column per endpoint and runtime.
   report:
-    name: Report on spec 12
+    name: Report on spec 13
     needs: real-endpoints
     if: always()
     runs-on: ubuntu-latest

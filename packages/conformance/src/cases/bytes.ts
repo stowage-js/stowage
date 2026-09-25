@@ -1,6 +1,6 @@
 export const kibibyte: number = 1024;
 
-/** The bytes a body is measured in, where a case names a size spec 8.5 or 8.6 states. */
+/** The bytes a body is measured in, where a case names a size spec 9.5 or 9.6 states. */
 export const mebibyte: number = 1024 * kibibyte;
 
 /** ADR 0016 makes one part the threshold for a stream, so 17 MiB provokes a multipart upload. */

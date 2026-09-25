@@ -7,7 +7,7 @@ declare module "vitest" {
   }
 }
 
-/** The block the probes of spec 12 are registered in. */
+/** The block the probes of spec 13 are registered in. */
 export const firstRunSuite = "settled by the first run";
 
 /** The block `describeConformance` registers the cases against the endpoint in. */
@@ -27,7 +27,7 @@ export interface FirstRunTest {
 }
 
 export interface FirstRunPoint {
-  /** The point as spec 12 stated it before the first run. */
+  /** The point as spec 13 stated it before the first run. */
   readonly promise: string;
   /** The tests of the scheduled run that answer it. */
   readonly tests: readonly FirstRunTest[];
@@ -42,7 +42,7 @@ const probe = (title: string): FirstRunTest => ({ suite: firstRunSuite, title })
 const conformanceCase = (title: string): FirstRunTest => ({ suite: s3Suite, title });
 
 /**
- * Spec 12 as it stood before the first run, point by point, with what the scheduled run reads
+ * Spec 13 as it stood before the first run, point by point, with what the scheduled run reads
  * each one off. The run keeps asking once a point moved into the section it belongs to.
  */
 export const firstRunPoints: readonly FirstRunPoint[] = [

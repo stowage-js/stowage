@@ -11,7 +11,7 @@ const utf8 = new TextEncoder();
 /** Long enough for the case to call the URL, and far below the ceiling of spec 7.10. */
 export const presignLifetime: number = 300;
 
-/** Past the second `presign/expired-url` signs for, which is what spec 8.5 waits out. */
+/** Past the second `presign/expired-url` signs for, which is what spec 9.5 waits out. */
 const pastTheLifetime = 2000;
 
 /** The seconds spec 7.10 allows `expiresIn`, which the two refused values sit outside. */

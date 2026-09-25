@@ -13,7 +13,7 @@ import type { ConformanceTarget } from "../../../packages/conformance/src/target
 
 /**
  * What one path may measure, the root counted in. macOS bounds it at 1024 bytes, and the
- * boundary key of spec 8.2 measures 1024 on its own, so no root leaves room for it there
+ * boundary key of spec 9.2 measures 1024 on its own, so no root leaves room for it there
  * and spec 6 has the adapter refuse it. Linux, where CI runs this cell, holds it.
  */
 const pathByteLimit = platform === "darwin" ? 1024 : 4096;
@@ -44,7 +44,7 @@ export const fsTarget: ConformanceTarget = {
     return fsStorage({ root });
   },
 
-  // The default of spec 8.2 deletes below the prefix on a storage of its own, and a
+  // The default of spec 9.2 deletes below the prefix on a storage of its own, and a
   // storage of its own is a root of its own here, which holds nothing the run wrote. What
   // the run leaves behind are the roots themselves, so each of them is removed whole.
   async cleanup() {

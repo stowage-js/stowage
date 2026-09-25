@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { afterAll, beforeAll, expect, test } from "vitest";
 
-// Spec 10: every `ts` block in a README and in the spec compiles against the built
+// Spec 11: every `ts` block in a README and in the spec compiles against the built
 // declarations, so this test reads `packages/*/dist` and needs `pnpm build` in front of it.
 const repository = fileURLToPath(new URL("../", import.meta.url));
 

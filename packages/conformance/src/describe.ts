@@ -56,7 +56,7 @@ export function describeCases(
       });
     }
 
-    // The cleanup of spec 8.2 is a test of its own for the same reason: `describe` and
+    // The cleanup of spec 9.2 is a test of its own for the same reason: `describe` and
     // `test` are all three frameworks share, and an `afterAll` is not among them.
     framework.test("cleanup", async () => await cleanUp(target, keyPrefix));
   });

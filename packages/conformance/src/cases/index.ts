@@ -25,5 +25,5 @@ export const conformanceCaseSources: readonly ConformanceCaseSource[] = [
   ...flowCases,
 ];
 
-/** The same cases as the package publishes them, without the factory of spec 8.3. */
+/** The same cases as the package publishes them, without the factory of spec 9.3. */
 export const conformanceCases: readonly ConformanceCase[] = conformanceCaseSources;

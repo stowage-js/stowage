@@ -19,7 +19,7 @@ test("a run puts every key below one prefix short enough for the boundary key", 
 
   expect(invalidKeyReason(keyPrefix, "prefix")).toBeUndefined();
   expect(keyPrefix.endsWith("/")).toBe(true);
-  // Spec 8.2 counts the prefix into the 1024 UTF-8 bytes of the boundary key, which spec
+  // Spec 9.2 counts the prefix into the 1024 UTF-8 bytes of the boundary key, which spec
   // 8.7 builds in segments of at most 255, so what the prefix leaves has to hold several
   // whole segments.
   expect(1024 - utf8.encode(keyPrefix).length).toBeGreaterThan(3 * 256);
@@ -33,7 +33,7 @@ test("the `fast` tier runs by default and both tiers run with `includeSlow`", ()
   expect(costs(selectedCases())).toEqual(["fast"]);
   expect(costs(selectedCases({ includeSlow: false }))).toEqual(["fast"]);
   expect(selectedCases({ includeSlow: true })).toEqual(conformanceCaseSources);
-  // Which case carries which cost is asserted against the rows of spec 8.5 elsewhere.
+  // Which case carries which cost is asserted against the rows of spec 9.5 elsewhere.
   // What this needs of the suite is a `slow` case at all: without one the two tiers hold
   // the same cases and the three expectations above pass on a filter that does nothing.
   expect(costs(conformanceCaseSources)).toContain("slow");

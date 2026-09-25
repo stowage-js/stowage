@@ -11,7 +11,7 @@ import { type FsStorage, fsStorage } from "../packages/adapter-fs/src/index.ts";
 import { memoryStorage } from "../packages/adapter-memory/src/index.ts";
 import { type S3AdapterOptions, s3Storage } from "../packages/adapter-s3/src/index.ts";
 
-// Spec 8.4: flows 1 and 4 promise that memory does not grow with the size of the object,
+// Spec 9.4: flows 1 and 4 promise that memory does not grow with the size of the object,
 // which no call of the core API can observe. What these tests measure is the memory held
 // in buffers once everything unreachable is collected: without a collection first, the
 // chunks already passed on stay counted until the collector happens to run, and the

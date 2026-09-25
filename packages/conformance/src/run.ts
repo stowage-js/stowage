@@ -9,16 +9,16 @@ export interface ConformanceRunOptions {
   includeSlow?: boolean;
 }
 
-/** The cases a run performs: the `fast` tier alone unless it asks for both (spec 8.2). */
+/** The cases a run performs: the `fast` tier alone unless it asks for both (spec 9.2). */
 export function selectedCases(options?: ConformanceRunOptions): readonly ConformanceCaseSource[] {
   if (options?.includeSlow === true) return conformanceCaseSources;
 
   return conformanceCaseSources.filter((source) => source.cost === "fast");
 }
 
-// Spec 8.2 puts every final key below one prefix and asks a case for a boundary key of
+// Spec 9.2 puts every final key below one prefix and asks a case for a boundary key of
 // exactly 1024 UTF-8 bytes, so the prefix stays ASCII and short enough to leave room for
-// one, in segments the 255 bytes of spec 8.7 hold.
+// one, in segments the 255 bytes of spec 9.7 hold.
 const keyPrefixRoot = "stowage-conformance";
 
 export function createKeyPrefix(): string {
@@ -26,7 +26,7 @@ export function createKeyPrefix(): string {
 }
 
 /**
- * Spec 8.2: the declaration is read once per run, before the first case, because every
+ * Spec 9.2: the declaration is read once per run, before the first case, because every
  * storage the target creates in one run declares the same.
  */
 export async function startRun(
@@ -40,7 +40,7 @@ export async function startRun(
 }
 
 /**
- * Spec 8.2: the default deletes below the prefix on a storage of its own, so that a run
+ * Spec 9.2: the default deletes below the prefix on a storage of its own, so that a run
  * whose storage broke on the way still clears what it wrote.
  */
 export async function cleanUp(target: ConformanceTarget, keyPrefix: string): Promise<void> {
@@ -53,7 +53,7 @@ export async function cleanUp(target: ConformanceTarget, keyPrefix: string): Pro
   if (failure !== undefined) throw failure;
 }
 
-/** The factory the case needs and the target left out, which spec 8.2 skips it for. */
+/** The factory the case needs and the target left out, which spec 9.2 skips it for. */
 export function skipReasonFor(
   source: ConformanceCaseSource,
   target: ConformanceTarget,
@@ -69,7 +69,7 @@ export interface ConformanceHalf {
 }
 
 /**
- * Spec 8.2: a case whose requirements are all declared runs `run`, and one missing a
+ * Spec 9.2: a case whose requirements are all declared runs `run`, and one missing a
  * name runs `runWithout`.
  */
 export function selectHalf(source: ConformanceCase, context: ConformanceContext): ConformanceHalf {

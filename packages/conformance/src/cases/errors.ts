@@ -219,7 +219,7 @@ function assertField(
   );
 }
 
-/** The storage of a credential factory, which spec 8.2 has kept the case out of a run without. */
+/** The storage of a credential factory, which spec 9.2 has kept the case out of a run without. */
 async function storageFrom(
   ctx: ConformanceContext,
   factory: ConformanceFactoryName,

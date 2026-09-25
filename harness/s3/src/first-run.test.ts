@@ -26,10 +26,10 @@ import { escapeXml } from "../../../packages/adapter-s3/src/xml.ts";
 import { endpointOrFail, scheduledStorage } from "./environment.ts";
 import { firstRunSuite, probeNames } from "./first-run.ts";
 
-/* oxlint-disable vitest/valid-title -- the titles are the names the spec 12 report reads,
+/* oxlint-disable vitest/valid-title -- the titles are the names the spec 13 report reads,
    kept once in `first-run.ts` for both */
 
-// Spec 12: what no documentation settled, asked of the endpoint by the scheduled run. The
+// Spec 13: what no documentation settled, asked of the endpoint by the scheduled run. The
 // requests go through the adapter's own signing and failure mapping wherever the adapter
 // can send them, so that what is observed is what a caller of `adapter-s3` meets.
 const scheduled = scheduledStorage() !== undefined;

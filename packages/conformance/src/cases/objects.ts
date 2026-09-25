@@ -18,7 +18,7 @@ export const textContentType: string = "text/plain";
 const inFlight = 32;
 
 /**
- * What the `slow` cases of spec 8.5 write: one past the thousand objects a provider
+ * What the `slow` cases of spec 9.5 write: one past the thousand objects a provider
  * answers a listing with and takes in a delete at the most, so that the case reaches
  * past the one page and the one batch rather than filling them.
  */

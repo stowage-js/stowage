@@ -11,7 +11,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { fromEnv, type S3Storage, s3Storage } from "../../../packages/adapter-s3/src/index.ts";
 import { configuredStorage, endpointOrFail } from "./environment.ts";
 
-// Spec 8.4: promises of `adapter-s3` that the core API cannot observe, held against the
+// Spec 9.4: promises of `adapter-s3` that the core API cannot observe, held against the
 // endpoint of ADR 0012. Without one these are skipped: `conformance.test.ts` already
 // fails that run once, which is the failure ADR 0012 asks for.
 const configured = configuredStorage();
@@ -28,7 +28,7 @@ const longestKey = 1024;
 
 const storage = (): S3Storage => s3Storage({ ...endpointOrFail(), multipart: { partSize } });
 
-/** The writer spec 8.4 names: another tool, holding its own idea of what a key may be. */
+/** The writer spec 9.4 names: another tool, holding its own idea of what a key may be. */
 function sdkClient(): S3Client {
   const { endpoint: url, region, forcePathStyle } = endpointOrFail();
 
