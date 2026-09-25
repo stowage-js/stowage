@@ -93,6 +93,10 @@ export interface Storage {
   stat(key: string, options?: OperationOptions): Promise<ObjectStat>;
   exists(key: string, options?: OperationOptions): Promise<boolean>;
   list(options?: ListOptions): ObjectListing;
+  /**
+   * Sends the keys in batches, one request per batch, and each adapter states its batch
+   * size. A per-key failure fills the report; a failure of a request as a whole rejects.
+   */
   delete(...keys: readonly string[]): Promise<DeleteReport>;
   deleteAll(prefix: string, options?: OperationOptions): Promise<DeleteReport>;
   copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat>;
