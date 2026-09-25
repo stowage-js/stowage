@@ -45,6 +45,7 @@ const memoryCapabilities: readonly CapabilityName[] = Object.freeze([
   "keyBytesPreserved",
   "rangeReads",
   "userMetadata",
+  "userMetadataTokenKeys",
 ] as const);
 
 interface MemoryObject {
@@ -94,7 +95,7 @@ class InMemoryStorage implements MemoryStorage {
       requireKey(key, "writable", "put");
       requireKnownOptions(options, putOptionKeys, "put");
 
-      return readUserMetadata(options?.userMetadata, key);
+      return readUserMetadata(options?.userMetadata, key, this.capabilities);
     } catch (refusal) {
       try {
         await cancelBody(body, refusal);
