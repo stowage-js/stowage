@@ -29,6 +29,17 @@ test.each([
   expect(parseXml(`<Key>a${entity}b</Key>`).text).toBe(`a${character}b`);
 });
 
+// ADR 0027: S3 writes a key character XML 1.0 cannot carry as a reference, and the key is
+// read back byte for byte rather than refused, although XML 1.0's `Char` excludes it.
+test.each([
+  ["&#xFFFE;", "\uFFFE"],
+  ["&#xffff;", "\uFFFF"],
+  ["&#65534;", "\uFFFE"],
+  ["&#x7;", "\u0007"],
+])("the reference %s outside XML 1.0 is read as the character it names", (entity, character) => {
+  expect(parseXml(`<Key>a${entity}b</Key>`).text).toBe(`a${character}b`);
+});
+
 test.each([
   ["CDATA", "<Key><![CDATA[a<b]]></Key>"],
   ["DTD", '<?xml version="1.0"?><!DOCTYPE Key [<!ENTITY e "x">]><Key>&e;</Key>'],
@@ -43,7 +54,9 @@ test.each([
   ["an entity never closed", "<Key>&amp</Key>"],
   ["a hexadecimal reference with a capital X", "<Key>&#X2f;</Key>"],
   ["a reference to U+0000", "<Key>&#0;</Key>"],
+  ["a hexadecimal reference to U+0000", "<Key>&#x0;</Key>"],
   ["a reference to a surrogate", "<Key>&#xD800;</Key>"],
+  ["a reference to a trailing surrogate", "<Key>&#57343;</Key>"],
   ["a reference past U+10FFFF", "<Key>&#x110000;</Key>"],
   ["an element closed by another", "<Key>a</Name>"],
   ["an element never closed", "<ListBucketResult><Key>a</Key>"],
