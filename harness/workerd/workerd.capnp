@@ -1,11 +1,12 @@
 # The `workerd` cell of spec 2. `worker.js` is `src/worker.ts`, bundled on Node by
-# `src/describe-workerd.ts`, which starts this config and reads the port from the control
+# `src/describe-workerd.ts`, which starts this config and reads the ports from the control
 # descriptor.
 using Workerd = import "/workerd/workerd.capnp";
 
 const config :Workerd.Config = (
   services = [
     (name = "conformance", worker = .conformance),
+    (name = "defaults", worker = .defaults),
     # The default outbound reaches public addresses alone, and the emulator of ADR 0012
     # answers on the loopback one. A network of one's own trusts no certificate authority
     # unless told to, which the real buckets of the scheduled run need.
@@ -14,7 +15,10 @@ const config :Workerd.Config = (
       network = (allow = ["public", "private", "local"], tlsOptions = (trustBrowserCas = true)),
     ),
   ],
-  sockets = [(name = "http", address = "127.0.0.1:0", http = (), service = "conformance")],
+  sockets = [
+    (name = "harness", address = "127.0.0.1:0", http = (), service = "conformance"),
+    (name = "defaults", address = "127.0.0.1:0", http = (), service = "defaults"),
+  ],
 );
 
 const conformance :Workerd.Worker = (
@@ -43,4 +47,12 @@ const conformance :Workerd.Worker = (
     (name = "STOWAGE_S3_EXPIRED_SESSION_TOKEN", fromEnvironment = "STOWAGE_S3_EXPIRED_SESSION_TOKEN"),
     (name = "STOWAGE_S3_EXPIRED_AT", fromEnvironment = "STOWAGE_S3_EXPIRED_AT"),
   ],
+);
+
+# The same module at the defaults of the pinned date, which a Worker gets unless it opts
+# out. It runs no cases: it shows that the probe of `src/node-api.ts` sees the Node APIs
+# the flags above take away.
+const defaults :Workerd.Worker = (
+  modules = [(name = "worker.js", esModule = embed "dist/worker.js")],
+  compatibilityDate = "2026-09-01",
 );

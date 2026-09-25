@@ -11,6 +11,7 @@ import { withDivergences } from "../../s3/src/divergences.ts";
 import { s3Target } from "../../s3/src/target.ts";
 import { memoryTarget } from "../../targets/src/memory.ts";
 import { runOptionsFrom } from "../../targets/src/run-options.ts";
+import { nodeApiReach } from "./node-api.ts";
 
 interface Run {
   readonly target: ConformanceTarget;
@@ -22,6 +23,9 @@ interface Run {
 export default {
   async fetch(request: Request, variables: Variables): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname === "/node-api") return Response.json(await nodeApiReach());
+
     const run = runAt(url.pathname, variables);
 
     if (run === undefined) return new Response(null, { status: 404 });
