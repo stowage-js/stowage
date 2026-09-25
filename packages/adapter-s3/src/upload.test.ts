@@ -311,7 +311,7 @@ test("a stream that fills more than one part becomes a multipart upload", async 
 // ADR 0027: S3 writes a key character XML 1.0 cannot carry into an answer as a reference,
 // and a commit it answered that way is the success it reports, not an unreadable answer.
 test("a multipart upload of a key holding U+FFFE reads both answers spelling it `&#xfffe;`", async () => {
-  const key = "noncharacter-￾.bin";
+  const key = "noncharacter-\uFFFE.bin";
   const spelled = "noncharacter-&#xfffe;.bin";
   const sent = stubFetch(
     multipartProvider({
