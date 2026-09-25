@@ -33,9 +33,11 @@ long as the adapter exists: changing it would make two versions of the adapter c
 for the week the service keeps uncommitted blocks.
 
 With those ids, two writers to one key still end with one whole object of one of them, but the one
-that loses may be told. Whoever commits first discards the other's uncommitted blocks, and the other
-commit fails with `400 InvalidBlockList`; a `Put Blob` in between has the same effect. On S3 both
-writers resolve and the last commit wins. The spec's sentence was never that both resolve, so it is
+that loses may be told. Whoever commits first discards the other's uncommitted blocks that were
+staged before that commit. The other commit fails with `400 InvalidBlockList` only when its blocks
+were staged before the first commit discarded them. Blocks staged afterward are not discarded by that
+commit, so the second commit may also succeed; a `Put Blob` in between has the same effect. On S3
+both writers resolve and the last commit wins. The spec's sentence was never that both resolve, so it is
 made exact for every adapter rather than narrowed for one: each writer may resolve or reject, and
 the key ends with one whole object written by one of them. That does not narrow the parity core
 and so does not touch ADR 0017. The losing writer gets `ProviderError` with `retryable: false`,
