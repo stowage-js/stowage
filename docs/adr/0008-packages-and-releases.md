@@ -16,7 +16,8 @@ Bun, Deno and `workerd` read nothing else. A dual build would also give `Storage
 identities whenever both outputs end up in one graph: ADR 0005 branded the error under
 `Symbol.for`, so matching on `code` survives that, but `instanceof` does not.
 
-The five carry one version, as a `fixed` group in Changesets. ADR 0006 requires
+The five carry one version, as a `fixed` group in Changesets, and ADR 0019 adds
+`@stowage/adapter-azure-blob` as the sixth. ADR 0006 requires
 `@stowage/conformance` to carry the version of `@stowage/core`, and extending that to the
 adapters removes the question of whether `adapter-s3@0.4` runs against `core@0.6`. The price is a
 release of `adapter-fs` that changed nothing, paid in 0.x against a compatibility matrix that

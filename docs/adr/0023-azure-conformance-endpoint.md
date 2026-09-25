@@ -81,8 +81,8 @@ the environment when a federated one serves.
 - After the Azure workflow and `harness/azure-blob/` are implemented, `conformance-full.yml` is
   planned to add `azure-blob` as a provider and an environment restricted to `main`. The real-account
   coverage would then run on a schedule, on demand and for the release gate, never for a pull request;
-  Azurite coverage would provide the remaining runtime coverage. The final runtime matrix is still to
-  be decided.
+  Azurite coverage would provide the remaining runtime coverage. ADR 0026 decides the runtime
+  matrix, and ADR 0025 moves the Azurite pin to the first release that carries `Put Blob From URL`.
 - The account holds one CORS rule, for the origin `https://conformance.stowage.invalid`, with `GET`
   and `PUT` and the headers `content-type` and `x-ms-blob-type`. A test in the `slow` tier sends a
   preflight from that origin and a `PUT` to an expired presigned URL, which settles the question

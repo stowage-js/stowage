@@ -73,7 +73,7 @@ per adapter, and R2 speaking S3's wire protocol makes that key a question of its
   from the stored object it reads, not from the listing entry.
 - `delete` is the one operation without an `AbortSignal`. Its variadic parameter leaves no room for
   an options object, and it sends at most one request per 1000 keys, so the budget ADR 0013 leaves
-  to the caller's signal costs little here.
+  to the caller's signal costs little here. ADR 0020 moves the batch size into each adapter.
 - The stub the decision came from is on the branch `spike/core-api`, commit `cfc771c`: four
   shapes, the five reference flows written against each, and the type errors each shape does and
   does not produce.

@@ -116,7 +116,8 @@ a conformance suite that can only match on a message is the most fragile suite t
   that cannot carry the signal that just fired. The exception is a `CompleteMultipartUpload` left
   without an answer, where a commit may still be travelling and ADR 0016 sends no abort. If an
   abort fails too, the parts stay and the provider charges for them, and v0.1 says so rather than
-  working around it: the remedy is a lifecycle rule for incomplete uploads on the bucket.
+  working around it: the remedy is a lifecycle rule for incomplete uploads on the bucket. ADR 0024
+  states per adapter what a failed upload leaves: on Azure Blob nothing aborts, and the blocks stay.
 - `retryable` states that the condition is transient, not that stowage will try again. An error can
   arrive with `retryable` set and its retries already spent, and a failure in a stream that cannot
   be replayed arrives without having been retried at all. `attempts` counts the requests that went

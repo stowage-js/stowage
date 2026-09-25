@@ -89,7 +89,8 @@ would pass because its calls all fail correctly.
 ## Consequences
 
 - v0.1 declares: `adapter-s3` `presignedUrls`, `rangeReads` and `userMetadata`; `adapter-fs`
-  `rangeReads`; `adapter-memory` `rangeReads`, `userMetadata` and `keyBytesPreserved`.
+  `rangeReads`; `adapter-memory` `rangeReads`, `userMetadata` and `keyBytesPreserved`. ADR 0020
+  adds `userMetadataTokenKeys` and narrows the keys `userMetadata` promises to identifiers.
 - An application can ask any storage what it supports, and for `presignedUrls` the answer does not
   give it a method. Reaching the presign methods means naming the concrete adapter type, which
   ADR 0004 already makes the visible act at the call site.
