@@ -12,9 +12,10 @@ file system.
 _Avoid_: cloud, backend, service
 
 **Promised provider**:
-A provider v0.1 keeps its promises against: AWS S3 and Cloudflare R2. Another endpoint speaking the
-same wire protocol can be configured and is not promised. An adapter is not told which promised
-provider it faces.
+A provider stowage keeps its promises against: AWS S3, Cloudflare R2 and Azure Blob Storage, the
+last as a general-purpose v2 account without hierarchical namespace in the public cloud. Another
+endpoint speaking the same wire protocol can be configured and is not promised. An adapter is not
+told which promised provider it faces.
 _Avoid_: supported provider, tested provider, official provider
 
 **Adapter**:
@@ -39,8 +40,9 @@ the provider's own SDK.
 _Avoid_: protocol, transport, REST API
 
 **Credential**:
-What an adapter authenticates a request with, such as an access key and its secret. Its form
-belongs to the adapter rather than to the parity core, and differs from one provider to the next.
+What an adapter authenticates a request with, such as an access key and its secret, an Azure
+account key, or an access token the caller obtained. Its form belongs to the adapter rather than to
+the parity core, and differs from one provider to the next.
 _Avoid_: secret, key, token
 
 **Object**:
@@ -127,12 +129,19 @@ is current rather than the one it was written for, so a reader follows the link 
 carries and reaches the wording that belongs to it.
 _Avoid_: documentation, reference, contract
 
+**Withdrawal**:
+A change after which the spec promises a caller less than it did, whether or not code moves,
+including a published name whose meaning narrows. Below 1.0 it is a minor release whose changeset
+is marked breaking.
+_Avoid_: removal, deprecation
+
 **Parity core**:
 The operations every adapter supports alike: `put`, `get`, `stat`, `exists`, `list`, `delete`,
 `deleteAll`, `copy` and `move`. An application that stays inside the parity core changes its
-adapter without changing its code. Where two promised providers answer differently, the parity core
-promises what both of them hold. Promising a further provider does not take a promise away: what
-that provider cannot hold becomes a capability its adapter does not declare.
+adapter without changing its code. Where promised providers answer differently, the parity core
+promises what all of them hold. Promising a further provider does not take a promise away: what
+that provider cannot hold becomes a capability its adapter does not declare, unless a difference
+refuses that shape, which is then a withdrawal.
 _Avoid_: basic operations, common API, lowest common denominator
 
 **Capability**:
@@ -145,7 +154,8 @@ _Avoid_: feature, feature flag, extension
 **Presigned URL**:
 A URL that carries its own authorization, so a client holding no credential can call it. It is bound
 to one operation on one key, to the content it may carry, and to a moment it stops working — at the
-latest when the credential that signed it expires.
+latest when the credential that signed it expires. A client may have to send headers beside it
+that the signature names. Azure Blob calls its form a shared access signature.
 _Avoid_: signed URL, temporary link, upload URL
 
 **Error code**:

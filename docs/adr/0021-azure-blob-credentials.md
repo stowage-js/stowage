@@ -74,7 +74,13 @@ minor release. Parsing the message prose was never open, because it is not a pro
   lacks the role.
 - The repeat after `401 InvalidAuthenticationInfo` has the budget ADR 0013 gives the `Expired`
   repeat, outside the one `retry: false` switches off. A genuinely wrong access token costs one
-  request more than it would on S3.
+  request more than it would on S3, and its `InvalidCredentials` carries `attempts: 2`.
+- `errors/bad-credentials` therefore accepts `attempts` of `1` or `2`, which amends the `1` ADR
+  0013 gave it. The suite cannot see whether a target's adapter refreshed, so the bound is two for
+  every target, and the case still shows what ADR 0013 wants from it: the retry budget spent on a
+  refused credential would give three. Counting the repeat inside one attempt would contradict what
+  `attempts` counts, and a wrong account key in the factory would take the token path the suite
+  runs under out of the case and meet Azurite's `AuthorizationFailure` on every commit.
 - The `Expired` conformance case reports itself skipped against Azure, as it does against R2. A
   unit test with a fake `fetch` asserts the repeat instead: one `401` under an access token, one
   resolver call with `forceRefresh: true`, then success, or `InvalidCredentials` after a second

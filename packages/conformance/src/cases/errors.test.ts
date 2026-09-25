@@ -13,7 +13,7 @@ import type { ConformanceFactoryName } from "../target.ts";
 
 /**
  * A storage that refuses every request the way a provider refuses a credential, which is
- * what the three cases of spec 8.3 run against. No adapter of this repository supplies a
+ * what the three cases of spec 9.3 run against. No adapter of this repository supplies a
  * credential factory, so their halves would otherwise be the part of the suite nothing
  * here runs.
  */

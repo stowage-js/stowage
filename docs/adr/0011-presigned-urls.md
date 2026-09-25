@@ -43,7 +43,8 @@ something to check it against.
 
 - `presignPut` requires `expiresIn`, `contentType` and `contentLength`. An optional binding would
   hand out a URL that writes any number of bytes of any type without the caller having decided that,
-  which is the hole a POST policy would be asked to close.
+  which is the hole a POST policy would be asked to close. ADR 0022 has it return the URL with the
+  headers the client sends, on every adapter.
 - The TSDoc on `presignPut` says the length binds exactly. A caller who knows only an upper bound
   cannot express it, and there is no option that relaxes the binding to a range.
 - Reference flow 2 therefore costs one round trip before the signature: the client reports the size,

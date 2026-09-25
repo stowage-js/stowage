@@ -32,7 +32,8 @@ secrets rather than a machine environment. Two guards make it one function on al
 `typeof process` check for a Worker without `nodejs_compat`, and `try`/`catch` around each read,
 because Deno throws `NotCapable` without `--allow-env` instead of answering `undefined`. It
 reads the three names one at a time and never enumerates, since `Object.keys(process.env)`
-requires the unscoped permission in Deno.
+requires the unscoped permission in Deno. ADR 0021 moves the read and its guards into
+`@stowage/core`, where the Azure adapter's `fromEnv` reads through it as well.
 
 A credential never travels inside a configuration string, which is why v0.1 has no connection URL.
 `@tweedegolf/storage-abstraction` takes one, `protocol://username:password@host:port/path?region=x`,

@@ -47,7 +47,7 @@ export function assertDate(value: unknown, what: string): asserts value is Date 
 export type ComparedStatField = "key" | "size" | "contentType" | "etag";
 
 /**
- * Two descriptions of one object, on the fields the row of spec 8.5 names. Spec 4.4
+ * Two descriptions of one object, on the fields the row of spec 9.5 names. Spec 4.4
  * leaves `lastModified` free to differ between a write and a later read by the
  * provider's rounding, so a row names its fields rather than the whole description.
  */
@@ -66,7 +66,7 @@ export function assertSameDescription(
 }
 
 /**
- * A header of the answer a case read, which is how spec 8.5 and 8.6 have the two cases
+ * A header of the answer a case read, which is how spec 9.5 and 9.6 have the two cases
  * that leave the API — a signed URL and the `Response` of flow 4 — read a content type.
  */
 export function assertHeader(response: Response, name: string, expected: string): void {
@@ -88,7 +88,7 @@ export interface StorageErrorExpectation {
 
 /**
  * The `StorageError` the call is expected to reject with, handed back so that a case can
- * read it for what its row of spec 8.5 states beyond the fields it named here. A case
+ * read it for what its row of spec 9.5 states beyond the fields it named here. A case
  * running the same call over a list of keys names the one it is at in `what`.
  */
 export async function expectStorageError(
@@ -151,7 +151,7 @@ export async function expectRuntimeError(
 
 /**
  * Spec 4.9 leaves a call needing a capability the storage does not declare with an
- * `Unsupported` error naming it, and spec 8.2 has most of the `runWithout` halves assert
+ * `Unsupported` error naming it, and spec 9.2 has most of the `runWithout` halves assert
  * that through this.
  */
 export async function expectUnsupported(

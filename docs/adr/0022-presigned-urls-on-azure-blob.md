@@ -67,7 +67,8 @@ signature, and the key request falls inside it, between the server and Azure.
   cannot settle the question. A real account settles it before the v0.2 spec is written. If either
   header cannot be bound, ADR 0011 holds and the Azure adapter declares no `presignedUrls` and
   carries neither method. A `presignGet` without the declaration would be half a capability that
-  the inverted case of ADR 0015 cannot check.
+  the inverted case of ADR 0015 cannot check. The account showed on 2026-09-25 that all three
+  headers are bound (`docs/research/azure-srh-binding.md`), so the declaration stands.
 - A URL signed under an access token outlives the token and dies with its key, at `se`. It is
   revoked by revoking the account's user delegation keys or the role assignment behind it, and
   Azure caches both for a while. A URL signed under an account key lives until `se` or until the
@@ -80,7 +81,7 @@ signature, and the key request falls inside it, between the server and Azure.
   adapter: ADR 0013 retries it, and ADR 0021 repeats it once after `401 InvalidAuthenticationInfo`.
   Validation of the key and the options still happens before it, so `presign/expires-in-bounds`
   makes no request on Azure either.
-- `AzurePresignGetOptions` carries `responseContentType`, `responseContentDisposition` and
+- `AzureBlobPresignGetOptions` carries `responseContentType`, `responseContentDisposition` and
   `responseCacheControl`, sent as `rsct`, `rscd` and `rscc`. Azure has no override for `Expires`,
   so `responseExpires` is not on the type, and `rsce` and `rscl`, which Azure has, are not either,
   because `S3Storage` carries neither. The three are asserted by a test of the Azure adapter in the

@@ -24,7 +24,7 @@ export function endpointOrFail(): S3AdapterOptions {
 }
 
 /**
- * The endpoint where the scheduled run asks for both tiers, which is where spec 12 is
+ * The endpoint where the scheduled run asks for both tiers, which is where spec 13 is
  * asked of it, and nothing on every commit.
  */
 export function scheduledStorage(): S3AdapterOptions | undefined {

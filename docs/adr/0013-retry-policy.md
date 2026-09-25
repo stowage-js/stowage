@@ -18,6 +18,7 @@ abort follows it either, is ADR 0016's. `CreateMultipartUpload` is repeated, and
 request may have created is left behind. ADR 0005 already says that parts stay and are charged for
 when a failed upload cannot abort itself, and the remedy is the same one: a lifecycle rule for
 incomplete uploads on the bucket, which ADR 0012 requires on the conformance buckets anyway.
+ADR 0024 keeps the exception to S3: Azure's `Put Block List` is repeated like any other request.
 
 What may be repeated at all is decided by the body. A part is held whole in memory in order to be
 signed (ADR 0009), so it goes out again from that buffer. A body the caller supplied as a stream
@@ -93,9 +94,10 @@ No reference flow asks for it. The failure arrives as ADR 0005 promises, with `a
 
 What the conformance suite can say about any of this is what the core API shows, which is
 `retryable` and `attempts` on failures the suite provokes anyway. Three cases carry it. In the
-fast tier, `get` on an absent key and a storage from `createStorageWithBadCredentials()` both have
-to report `retryable: false` and `attempts: 1`, which is the evidence that a condition that will
-not pass is not repeated. In the slow tier, a storage from `createStorageWithExpiredCredentials()`
+fast tier, `get` on an absent key has to report `retryable: false` and `attempts: 1`. A storage
+from `createStorageWithBadCredentials()` normally reports the same, but provider-specific
+credential handling may report `attempts: 2`, as Azure does under ADR 0021. In the slow tier, a
+storage from `createStorageWithExpiredCredentials()`
 has to report `Expired` with `attempts: 2`: ADR 0012 waits past the expiration returned for a static
 900-second STS token plus a safety margin before supplying it, so a resolver that answers the same
 thing to `forceRefresh` produces exactly two requests, and the rule of ADR 0007 becomes visible

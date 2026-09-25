@@ -31,7 +31,7 @@ const recorder = (options: { includeSlow?: boolean } = {}): Recorder => {
   };
 };
 
-/** One storage for every factory of spec 8.3, so that a target supplies all of them. */
+/** One storage for every factory of spec 9.3, so that a target supplies all of them. */
 const createStorage = (): Storage => stubStorage({ provider: "memory", bucket: "memory" });
 
 const runEach = async (recorded: Recorder): Promise<void> => {
@@ -130,7 +130,7 @@ test("`describeConformance` maps the suite's own `fast` cases onto the framework
 
   // The bodies stay unrun here: the cases need a storage to write to, and reading them
   // against a real adapter is what `test/conformance-memory.test.ts` does. The target
-  // supplies every factory of spec 8.3, so that no case is skipped and each one arrives
+  // supplies every factory of spec 9.3, so that no case is skipped and each one arrives
   // under its own name.
   describeConformance(
     stubTarget({

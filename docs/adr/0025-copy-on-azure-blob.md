@@ -56,8 +56,9 @@ is a `ProviderError` with `retryable: true`.
 
 Above 5,000 MiB the service answers `409`, and the reference names no code for it. This amends
 ADR 0016 for the Azure adapter. An unrecognized `409` on `Put Blob From URL` is `InvalidRequest`,
-saying that the source is above 5,000 MiB or returned no valid length; the codes section 7.9
-already recognizes, such as `PendingCopyOperation` or `BlobArchived`, decide first. That keeps
+saying that the source is above 5,000 MiB or returned no valid length; the codes the adapter's
+table in section 8.8 of the spec recognizes, such as `PendingCopyOperation` or `BlobArchived`,
+decide first. That keeps
 ADR 0016's rule of reacting to the provider's refusal rather than checking a size up front. The
 fallback ADR 0016 declines on S3 for want of a pinned source version is declined on Azure for the
 same want: it would be ranges of `Put Block From URL` and one `Put Block List`, and that operation

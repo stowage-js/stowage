@@ -18,7 +18,7 @@ export type ConformanceCase =
     };
 
 /**
- * A case as the suite writes it down: the published shape plus the factory of spec 8.3 it
+ * A case as the suite writes it down: the published shape plus the factory of spec 9.3 it
  * needs. `ConformanceCase` leaves the factory out because it says what a target supplies
  * and nothing a harness decides from.
  */

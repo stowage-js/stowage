@@ -9,7 +9,7 @@ export interface ConformanceTarget {
   createStorageWithDeniedCredentials?(): Storage | Promise<Storage>;
 }
 
-/** The credential factories of spec 8.3, each of which a target may leave out. */
+/** The credential factories of spec 9.3, each of which a target may leave out. */
 export type ConformanceFactoryName =
   | "createStorageWithBadCredentials"
   | "createStorageWithDeniedCredentials"

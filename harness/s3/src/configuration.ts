@@ -33,7 +33,7 @@ export function storageOptionsFrom(
 }
 
 /**
- * Spec 8.3: a credential the provider refuses. No identity is configured for it — an
+ * Spec 9.3: a credential the provider refuses. No identity is configured for it — an
  * access key id no provider ever issued is refused by every one of them. It is shaped
  * like an R2 credential, because R2 answers one of another shape with `InvalidArgument`
  * before it looks the access key id up, which is no refusal of the credential.
@@ -46,7 +46,7 @@ export function storageWithBadCredentials(configured: S3AdapterOptions): S3Adapt
 }
 
 /**
- * Spec 8.3: a credential the provider accepts and refuses the write to. It reads and
+ * Spec 9.3: a credential the provider accepts and refuses the write to. It reads and
  * lists and may not write, which is what tells the `403` that means this caller may not
  * do this from the two that fail to authenticate.
  */
@@ -84,7 +84,7 @@ export interface ExpiredCredentials {
 }
 
 /**
- * Spec 8.3: a credential that has already expired. ADR 0012 has the scheduled run take a
+ * Spec 9.3: a credential that has already expired. ADR 0012 has the scheduled run take a
  * 900-second STS token at its start and record the expiration; an endpoint without such
  * a token leaves the case skipped, which is what R2 does.
  */

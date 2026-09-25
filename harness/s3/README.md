@@ -34,7 +34,7 @@ reads:
 | `AWS_ACCESS_KEY_ID`           | Read by `fromEnv`                                      |
 | `AWS_SECRET_ACCESS_KEY`       | Read by `fromEnv`                                      |
 
-The credential the provider accepts and refuses a write to, which spec 8.3 asks a target
+The credential the provider accepts and refuses a write to, which spec 9.3 asks a target
 for, is the second identity of `s3.json` and reaches the run through two more variables.
 Without them the case that needs it reports as skipped.
 
@@ -102,7 +102,7 @@ aws s3api put-bucket-lifecycle-configuration --bucket <bucket> \
 
 ## Settled by the first run
 
-`src/first-run.test.ts` asks the endpoint what spec 12 left open, beside the conformance cases
+`src/first-run.test.ts` asks the endpoint what spec 13 left open, beside the conformance cases
 that answer the rest, and keeps asking it once the first run settled it. It runs only where
 `STOWAGE_CONFORMANCE_INCLUDE_SLOW` is `true`. The last job of the workflow
 writes a table of every point against every endpoint and runtime into the run's summary; a

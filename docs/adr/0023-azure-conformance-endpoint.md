@@ -66,8 +66,8 @@ the environment when a federated one serves.
   `createStorageWithDeniedCredentials` uses a second managed identity, federated the same way,
   holding Storage Blob Data Reader alone, and expects `AuthorizationPermissionMismatch` as
   `AccessDenied`. `createStorageWithBadCredentials` hands over a token that is not a JWT, which
-  costs one refresh and ends in `InvalidCredentials`. The account key is an environment secret read
-  as `AZURE_STORAGE_KEY`.
+  costs one refresh and ends in `InvalidCredentials` with `attempts: 2` (ADR 0021). The account
+  key is an environment secret read as `AZURE_STORAGE_KEY`.
 - Against Azurite, `createStorageWithDeniedCredentials` is not supplied, because Azurite checks no
   role, and the `AccessDenied` case reports itself skipped with that reason. The bad credential is
   a JWT for a foreign audience. What code Azurite answers for it is for the first run to show, and
@@ -81,8 +81,8 @@ the environment when a federated one serves.
 - After the Azure workflow and `harness/azure-blob/` are implemented, `conformance-full.yml` is
   planned to add `azure-blob` as a provider and an environment restricted to `main`. The real-account
   coverage would then run on a schedule, on demand and for the release gate, never for a pull request;
-  Azurite coverage would provide the remaining runtime coverage. The final runtime matrix is still to
-  be decided.
+  Azurite coverage would provide the remaining runtime coverage. ADR 0026 decides the runtime
+  matrix, and ADR 0025 moves the Azurite pin to the first release that carries `Put Blob From URL`.
 - The account holds one CORS rule, for the origin `https://conformance.stowage.invalid`, with `GET`
   and `PUT` and the headers `content-type` and `x-ms-blob-type`. A test in the `slow` tier sends a
   preflight from that origin and a `PUT` to an expired presigned URL, which settles the question

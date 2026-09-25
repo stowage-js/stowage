@@ -106,3 +106,5 @@ this repository happens to test against and nothing about the API a third-party 
   local R2 bucket over a SigV4-authenticated S3 API. A second emulator is not worth two start paths
   and two digests while the field carries its `experimental` prefix. When the prefix goes, this is
   worth deciding again.
+- ADR 0023 carries this over to Azure Blob, with Azurite per commit and a real account in the
+  `slow` tier.

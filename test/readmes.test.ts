@@ -22,14 +22,14 @@ const readmeOf = async (manifest: { readonly name: string }): Promise<string> =>
 
 const published = [core, adapterMemory, adapterFs, adapterS3, conformance];
 
-/** Spec 10 gives `@stowage/conformance` a shape of its own and these four the same sections. */
+/** Spec 11 gives `@stowage/conformance` a shape of its own and these four the same sections. */
 const sectioned = [core, adapterMemory, adapterFs, adapterS3];
 
-/** Spec 10: the sections a README carries, in this order, before anything else it holds. */
+/** Spec 11: the sections a README carries, in this order, before anything else it holds. */
 const packageSections = ["Install", "Example", "Runtimes", "Limits", "Notes", "Specification"];
 
 test.each(sectioned)(
-  "the README of $name carries the sections of spec 10 in order",
+  "the README of $name carries the sections of spec 11 in order",
   async (manifest) => {
     const headings = headingsOf(await readmeOf(manifest));
 
@@ -37,7 +37,7 @@ test.each(sectioned)(
   },
 );
 
-test("the README of @stowage/conformance carries the shape spec 10 gives it", async () => {
+test("the README of @stowage/conformance carries the shape spec 11 gives it", async () => {
   const text = await readmeOf(conformance);
 
   expect(text).toContain("describeConformance");
@@ -63,7 +63,7 @@ function compareVersions(left: string, right: string): number {
   return 0;
 }
 
-// Spec 10 links the spec at the tag of the package's release, which changesets names
+// Spec 11 links the spec at the tag of the package's release, which changesets names
 // `<name>@<version>`. The version the tag names is the release the README goes out with, so
 // it is never older than the manifest's: a version bump that leaves the link behind fails
 // here instead of sending a caller to promises an older release made.

@@ -44,14 +44,17 @@ That conflicts with ADR 0017. Section 4.1 of v0.1 promised at most one request p
 1000 such keys now cost 1000 requests. ADR 0020 already took the batch size out of the core, which
 promises batches with one request each, so the core promise holds word for word; the number moves
 in `adapter-s3`'s own statement, which reads "at most one request per 1000 keys, plus at most one
-per key holding `U+FFFE` or `U+FFFF`". It is withdrawn in the v0.2 minor without a `**Breaking:**`
-marker. A v0.1 call that met such a key sent a body that is not well-formed, which SeaweedFS
-refuses, so no caller loses a call that worked. The statement says "at most" on purpose: it states
-a cost, as ADR 0020 has the batch size do, and leaves room to batch these keys again without a
-change to the spec.
+per key holding `U+FFFE` or `U+FFFF`". A caller whose keys hold them is promised less than v0.1
+promised, so this is a withdrawal, and it joins the `**Breaking:**` changeset ADR 0020 requires for
+v0.2. That a v0.1 batch holding such a key could not succeed does not exempt it: SeaweedFS refuses
+that body, but AWS and R2 were never measured with it, and a withdrawal does not depend on whether
+code moves. The statement says "at most" on purpose: it states a cost, as ADR 0020 has the batch
+size do, and leaves room to batch these keys again without a change to the spec.
 
 ## Consequences
 
+- The `**Breaking:**` changeset of v0.2 states `delete`'s request count for `adapter-s3` in one
+  entry: the batch size leaving the core under ADR 0020, and the added `DELETE` per such key.
 - Section 7.4 says that every answer document goes through the parser, not only a listing, and
   that it accepts named entities and numeric character references to any Unicode scalar value
   except `U+0000`.
