@@ -1495,8 +1495,9 @@ system's path limit does not hold it below the root, which section 6 states.
   `@deprecated` what a later major removes. It promises no support window and no fixes for an older
   line. `SECURITY.md` states how to report a vulnerability and that a fix lands in the current line
   alone.
-- 1.0 waits for the points of section 13, for a shape for the `raw` escape hatch, and for the author
-  having used stowage in a project of their own.
+- 1.0 waits until section 13 lists no promise a real endpoint has not answered, for a shape for the
+  `raw` escape hatch, and for the author having used stowage in a project of their own. A promise
+  leaves section 13 when a scheduled run observes it or when it is withdrawn.
 
 ## 11. Documentation
 
@@ -1573,38 +1574,44 @@ v0.2 does not have, and does not promise a path to:
 
 ## 13. Settled by the first run
 
-The following are promised here and have not yet been observed against a real endpoint. A promise
-a scheduled run disproves is withdrawn in a minor release. The first run, against AWS S3 and R2 on
-Node and `workerd`, disproved none of the points it settled; they are stated in the sections they
-belong to.
+The following have not yet been observed against a real endpoint. A promise a scheduled run
+disproves is withdrawn in a minor release, and 1.0 waits until the first list below is empty
+(section 10). The first run, against AWS S3 and R2 on Node and `workerd`, disproved none of the
+points it settled; they are stated in the sections they belong to.
+
+Promises:
 
 - R2 answers `ExpiredRequest` for an expired credential; the `Expired` case is skipped against R2
   until a way to provoke it exists.
+- `adapter-s3`, against AWS S3 and R2 after v0.2: a `DELETE` of a key holding `U+FFFE` answers
+  `204` and removes the object. Where a provider refuses it, no route deletes such a key there, and
+  `adapter-s3` refuses `U+FFFE` and `U+FFFF` in a writable key while `list/noncharacter-key`
+  narrows to the listing for S3 (ADR 0027).
+- `adapter-azure-blob`, against the account:
+  - A writable key holding `U+FFFE` is stored and listed as written.
+  - `Put Blob From URL` copies the user metadata by default, the bearer header authorizes the
+    source under an access token, and the service SAS does under an account key.
+  - The three response overrides on `presignGet` are answered as the response headers, which
+    Azurite applies to any `GET` and so cannot show.
+  - A `Put Block List` sent twice answers `201` both times with the same bytes, and a `Put Blob`
+    discards the uncommitted blocks of its name.
+  - A name above 1,024 characters is answered with `400` on a `HEAD` too, so `stat` and `exists`
+    report `InvalidKey` (section 8.8).
+  - The 17 MiB upload of flow 1 on `workerd` stays within a paid plan's duration and CPU limits. A
+    result beyond them changes the host note of section 2 and no cell.
 
-The first run of `adapter-s3` after v0.2 settles, against AWS S3 and R2:
+Recorded only, since this document already states what follows from any answer:
 
-- A `DELETE` of a key holding `U+FFFE` answers `204` and removes the object. Where a provider
-  refuses it, no route deletes such a key there, and `adapter-s3` refuses `U+FFFE` and `U+FFFF` in
-  a writable key while `list/noncharacter-key` narrows to the listing for S3 (ADR 0027).
-- Whether a `DeleteObjects` body holding `&#xFFFE;` or `&#65534;` deletes the object on both. If one
-  spelling does, these keys go back into the batch without a change to this document.
-- How the multipart answers and `<Deleted><Key>` spell such a key, how R2 encodes a space under
-  `encoding-type=url`, and whether R2's continuation token is ASCII. These are recorded only.
+- `adapter-s3`: how the multipart answers and `<Deleted><Key>` spell a key holding `U+FFFE`, how
+  R2 encodes a space under `encoding-type=url`, and whether R2's continuation token is ASCII.
+- `adapter-azure-blob`: which code the `409` for a copy source above 5,000 MiB carries, which then
+  joins the table of section 8.8, and which code answers a `marker` Azure no longer continues from.
 
-The first run of `adapter-azure-blob` against the account settles:
+What a run may add or loosen, in a minor release and without a withdrawal:
 
-- Whether an NFC and an NFD name are one blob or two, and so whether `keyBytesPreserved` can be
-  declared, which would add a promise in a minor release.
-- That a writable key holding `U+FFFE` is stored and listed as written, and whether the three kinds
-  of writable key section 8.1 refuses need refusing. A refusal shown needless is loosened.
-- That `Put Blob From URL` copies the user metadata by default, that the bearer header authorizes
-  the source under an access token, and that the service SAS does under an account key; and which
-  code the `409` for a source above 5,000 MiB carries, which then joins the table of section 8.8.
-- That the three response overrides on `presignGet` are answered as the response headers, which
-  Azurite applies to any `GET` and so cannot show.
-- That a `Put Block List` sent twice answers `201` both times with the same bytes, and that a
-  `Put Blob` discards the uncommitted blocks of its name.
-- Which code Azure answers for a `marker` it no longer continues from, and for a name above 1,024
-  characters on a `HEAD`.
-- How long and how much CPU the 17 MiB upload of flow 1 takes on `workerd`. A result beyond a paid
-  plan's limit changes the host note of section 2 and no cell.
+- `adapter-s3`: whether a `DeleteObjects` body holding `&#xFFFE;` or `&#65534;` deletes the object
+  on AWS S3 and R2. If one spelling does on both, these keys go back into the batch without a
+  change to this document.
+- `adapter-azure-blob`: whether an NFC and an NFD name are one blob or two, and so whether
+  `keyBytesPreserved` can be declared; and whether the three kinds of writable key section 8.1
+  refuses need refusing. A refusal shown needless is loosened.

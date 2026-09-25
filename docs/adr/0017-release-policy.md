@@ -87,3 +87,6 @@ the first time a month fills up is worse than no promise.
 - `docs/spec.md` states the rule without the reasoning, so a caller learns what a version
   number means without reading this. It is the only text of this project the contract covers: ADR
   0018 keeps the READMEs outside it, where a correction costs no changeset.
+- ADR 0028 amends the list of six things 1.0 waits for: in place of the four measured points, 1.0
+  waits until section 13 of the spec holds no promise a real endpoint has not answered. The
+  `raw` escape hatch and the author's own use stay.
