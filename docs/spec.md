@@ -22,8 +22,9 @@ reasoning. Where a section names an ADR, that ADR holds the alternatives that we
 - Every package is published as ESM only. No package has a runtime dependency outside `@stowage/*`
   (ADR 0003, ADR 0008).
 - Node's floor is 24, declared through `engines`. Bun and Deno have no floor; each README names the
-  version CI last ran green. `workerd` runs with the compatibility date `2026-09-01`, which the
-  `workerd` harness pins as well (ADR 0002).
+  version CI last ran green. `workerd` runs with the compatibility date `2026-09-01` and the flags
+  `no_nodejs_compat` and `no_nodejs_compat_v2`, which the `workerd` harness pins as well; no package
+  needs a Node API there (ADR 0002).
 - Nothing detects the runtime at import time. A runtime not listed above is neither blocked nor
   supported.
 - The tarballs hold `dist/`, `LICENSE` and the README. This document is not in them.

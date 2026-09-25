@@ -31,6 +31,13 @@ never more.
   the timeframe of this release, and adding a line back later costs less than taking one away.
 - Bun and Deno have no floor: the README names the version CI last ran green. `workerd` is
   pinned to a compatibility date that the spec names.
+- The `workerd` cell promises that no package needs a Node API, so that a Worker at an older
+  date or one that opts out runs it too. A guarded read such as `fromEnv` looking for `process`
+  keeps that promise. From 2026-08-04 the date alone turns on `nodejs_compat` and
+  `nodejs_compat_v2`, and `no_nodejs_compat` alone still leaves `process`, `Buffer` and most
+  `node:` modules reachable, so the harness runs with `no_nodejs_compat` and
+  `no_nodejs_compat_v2` beside the date. A second worker at the date's defaults shows that the
+  probe of the harness would see a Node API, and that `fromEnv` reads the bindings there.
 - `adapter-fs` declares Node, Bun and Deno, while `@stowage/core`, `adapter-memory` and
   `adapter-s3` declare all four. Each package declares its own runtimes in the spec and the
   README, and through `engines` for the Node floor alone, which Bun and Deno ignore.
