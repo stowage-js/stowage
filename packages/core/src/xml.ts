@@ -243,7 +243,9 @@ class Scanner {
     const codePoint = hex === undefined ? Number(decimal) : Number.parseInt(hex, 16);
 
     if (!isReferableCharacter(codePoint)) {
-      throw this.#error(`The reference ${entity} names no character a key may hold`);
+      throw this.#error(
+        `The reference ${entity} names U+0000, a surrogate or no Unicode scalar value at all`,
+      );
     }
 
     this.#position = entityPattern.lastIndex;
