@@ -1,5 +1,6 @@
 export { type CapabilityName, capabilityNames } from "./capabilities.ts";
 export type { Resolvable, ResolverOptions } from "./credentials.ts";
+export { readEnvironment } from "./environment.ts";
 export {
   isStorageError,
   StorageError,
