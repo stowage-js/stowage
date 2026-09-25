@@ -78,11 +78,11 @@ the environment when a federated one serves.
   `localeCompare` order of canonical headers, the range at the end of a blob, the overrides on
   unsigned requests and the unenforced size limits, reach it one by one as a conformance case shows
   them.
-- `conformance-full.yml` gains `azure-blob` as a provider and an environment restricted to `main`,
-  so the real account is part of the scheduled run, the run on demand and the release gate, and
-  never of a pull request. Node 24, Node 26 and `workerd` run against the real account, Bun and Deno
-  against Azurite, the split ADR 0012 made for S3. The matrix of cells is the runtime matrix's to
-  decide and may revise this.
+- After the Azure workflow and `harness/azure-blob/` are implemented, `conformance-full.yml` is
+  planned to add `azure-blob` as a provider and an environment restricted to `main`. The real-account
+  coverage would then run on a schedule, on demand and for the release gate, never for a pull request;
+  Azurite coverage would provide the remaining runtime coverage. The final runtime matrix is still to
+  be decided.
 - The account holds one CORS rule, for the origin `https://conformance.stowage.invalid`, with `GET`
   and `PUT` and the headers `content-type` and `x-ms-blob-type`. A test in the `slow` tier sends a
   preflight from that origin and a `PUT` to an expired presigned URL, which settles the question
