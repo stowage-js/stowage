@@ -1356,6 +1356,50 @@ test("`copy` rejects a signal that already fired before any request", async () =
   expect(sent).toHaveLength(0);
 });
 
+test("`move` copies, then deletes the source without a condition, and describes the destination", async () => {
+  const sent = stubFetch((request) =>
+    request.method === "DELETE" ? new Response(null, { status: 202 }) : copied()(request),
+  );
+
+  const moved = await storage().move("from.txt", "to.txt");
+
+  expect(sent.map((request) => request.method)).toEqual(["PUT", "HEAD", "DELETE"]);
+  expect(sent[2]?.url).toBe("https://stowage.blob.core.windows.net/conformance/from.txt");
+  expect(sent[2]?.headers.has("if-match")).toBe(false);
+  expect(moved.key).toBe("to.txt");
+});
+
+test("a source already gone when `move` deletes it is deleted", async () => {
+  stubFetch((request) =>
+    request.method === "DELETE" ? refused(404, "BlobNotFound") : copied()(request),
+  );
+
+  expect((await storage().move("from.txt", "to.txt")).key).toBe("to.txt");
+});
+
+test("`move` rejects with the error of the step that failed, named as `move`", async () => {
+  const copyRefused = stubFetch(() => sourceUnverified(404, 404));
+
+  expect(await failureOf(() => storage().move("from.txt", "to.txt"))).toMatchObject({
+    code: "NotFound",
+    operation: "move",
+    key: "from.txt",
+  });
+  expect(copyRefused).toHaveLength(1);
+
+  stubFetch((request) =>
+    request.method === "DELETE"
+      ? refused(403, "AuthorizationPermissionMismatch", "Not authorized.")
+      : copied()(request),
+  );
+
+  expect(await failureOf(() => storage().move("from.txt", "to.txt"))).toMatchObject({
+    code: "AccessDenied",
+    operation: "move",
+    key: "from.txt",
+  });
+});
+
 interface ListedName {
   readonly name: string;
   readonly encoded?: boolean;

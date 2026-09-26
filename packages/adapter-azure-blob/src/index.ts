@@ -191,10 +191,30 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
     return await copyBlob(this.#configuration, from, to, "copy", options?.signal);
   }
 
+  /**
+   * Spec 8.7: the copy and then `Delete Blob` on `from`, sent without a condition. The copy
+   * has finished when it resolves, so no pending copy is there for the delete to break, and
+   * a source already gone counts as deleted, as it does for `delete` (spec 4.7).
+   */
   async move(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
     this.#requireCopyKeys(from, to, options, "move");
 
-    throw notYetImplemented("`move`");
+    const written = await copyBlob(this.#configuration, from, to, "move", options?.signal);
+
+    try {
+      const response = await send(this.#configuration, {
+        method: "DELETE",
+        operation: "move",
+        key: from,
+        signal: options?.signal,
+      });
+
+      await response.body?.cancel();
+    } catch (failure) {
+      if (!isStorageError(failure) || failure.providerCode !== "BlobNotFound") throw failure;
+    }
+
+    return written;
   }
 
   /** `Get Blob Properties`, whose failure spec 8.4 reads the code off `x-ms-error-code`. */
