@@ -20,7 +20,7 @@ import {
 } from "./configuration.ts";
 import { defaultContentType, describeResponse, describeWrite } from "./description.ts";
 import { requireKey } from "./key.ts";
-import { readListRequest } from "./listing.ts";
+import { createListing } from "./listing.ts";
 import {
   getOptionKeys,
   operationOptionKeys,
@@ -141,19 +141,8 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
     }
   }
 
-  // Spec 4.6: a listing sends no request until it is read, so an option it refuses
-  // reaches the caller from `page()` and from the iteration and not from `list`.
   list(options?: ListOptions): ObjectListing {
-    const refuseOrStop = async (): Promise<never> => {
-      readListRequest(this.bucket, options);
-
-      throw notYetImplemented("`list`");
-    };
-
-    return {
-      page: refuseOrStop,
-      [Symbol.asyncIterator]: () => ({ next: refuseOrStop }),
-    };
+    return createListing(this.#configuration, options);
   }
 
   async delete(): Promise<DeleteReport> {

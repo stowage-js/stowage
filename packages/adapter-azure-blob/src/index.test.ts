@@ -957,6 +957,8 @@ test.each([
   ["a `pageSize` of 0", { pageSize: 0 }, "pageSize"],
   ["a `pageSize` above 1000", { pageSize: 1001 }, "pageSize"],
   ["an empty `delimiter`", { delimiter: "" }, "delimiter"],
+  ["a `cursor` no storage handed out", { cursor: "this-is-no-cursor" }, "cursor"],
+  ["a `cursor` of `adapter-s3`", { cursor: btoa("stowage-s3-1:0061") }, "cursor"],
 ])("`list` refuses %s before any request", async (_label, options, option) => {
   const sent = stubFetch(() => described());
   const listing = storage().list(options);
@@ -997,4 +999,274 @@ test("`copy` refuses a destination Azure does not take before any request", asyn
 
   expect(failure.code).toBe("InvalidKey");
   expect(failure.key).toBe("dir./object");
+});
+
+interface ListedName {
+  readonly name: string;
+  readonly encoded?: boolean;
+}
+
+interface ListedBlob extends ListedName {
+  readonly size?: string;
+  readonly lastModified?: string;
+  readonly etag?: string;
+}
+
+function nameElement({ name, encoded }: ListedName): string {
+  return encoded === true ? `<Name Encoded="true">${name}</Name>` : `<Name>${name}</Name>`;
+}
+
+/** What Azure answers `List Blobs` with: blobs and pseudo-directories, and the next marker. */
+function enumeration(
+  blobs: readonly ListedBlob[],
+  {
+    prefixes = [],
+    nextMarker = "",
+  }: { prefixes?: readonly (string | ListedName)[]; nextMarker?: string } = {},
+): Response {
+  const blobElements = blobs.map(
+    (listed) =>
+      `<Blob>${nameElement(listed)}<Properties>` +
+      (listed.lastModified === undefined
+        ? ""
+        : `<Last-Modified>${listed.lastModified}</Last-Modified>`) +
+      (listed.etag === undefined ? "" : `<Etag>${listed.etag}</Etag>`) +
+      (listed.size === undefined ? "" : `<Content-Length>${listed.size}</Content-Length>`) +
+      `<Content-Type>text/plain</Content-Type><BlobType>BlockBlob</BlobType></Properties></Blob>`,
+  );
+  const prefixElements = prefixes.map(
+    (prefix) =>
+      `<BlobPrefix>${nameElement(typeof prefix === "string" ? { name: prefix } : prefix)}</BlobPrefix>`,
+  );
+
+  return listingAnswer(
+    `\uFEFF<?xml version="1.0" encoding="utf-8"?><EnumerationResults ServiceEndpoint="https://stowage.blob.core.windows.net/" ContainerName="conformance"><Blobs>${blobElements.join("")}${prefixElements.join("")}</Blobs><NextMarker>${nextMarker}</NextMarker></EnumerationResults>`,
+  );
+}
+
+async function iteratedKeys(listing: AsyncIterable<{ readonly key: string }>): Promise<string[]> {
+  const keys: string[] = [];
+
+  for await (const entry of listing) keys.push(entry.key);
+
+  return keys;
+}
+
+function listedBlob(name: string, size = "11"): ListedBlob {
+  return { name, size, lastModified: "Sun, 30 Aug 2026 12:36:00 GMT", etag: "0x8DCA1B2C3D4E5F6" };
+}
+
+test("`page()` sends one `List Blobs` below the prefix and describes each object", async () => {
+  const sent = stubFetch(() =>
+    enumeration([listedBlob("notes/a.txt"), listedBlob("notes/b.txt", "0")]),
+  );
+
+  const page = await storage().list({ prefix: "notes/", pageSize: 2 }).page();
+
+  expect(sent).toHaveLength(1);
+
+  const url = new URL(sent[0]?.url ?? "");
+
+  expect(sent[0]?.method).toBe("GET");
+  expect(url.pathname).toBe("/conformance");
+  expect(url.searchParams.get("restype")).toBe("container");
+  expect(url.searchParams.get("comp")).toBe("list");
+  expect(url.searchParams.get("prefix")).toBe("notes/");
+  expect(url.searchParams.get("maxresults")).toBe("2");
+  expect(url.searchParams.has("delimiter")).toBe(false);
+  expect(url.searchParams.has("marker")).toBe(false);
+  expect(page).toEqual({
+    objects: [
+      {
+        key: "notes/a.txt",
+        size: 11,
+        lastModified: new Date("2026-08-30T12:36:00Z"),
+        etag: "0x8DCA1B2C3D4E5F6",
+      },
+      {
+        key: "notes/b.txt",
+        size: 0,
+        lastModified: new Date("2026-08-30T12:36:00Z"),
+        etag: "0x8DCA1B2C3D4E5F6",
+      },
+    ],
+    prefixes: [],
+    cursor: undefined,
+  });
+});
+
+test("a cursor continues the listing from a `list` of its own, and the last page carries none", async () => {
+  const nextMarker =
+    "2!80!MDAwMDE2IW5vdGVzL2IudHh0ITAwMDAyOCE5OTk5LTEyLTMxVDIzOjU5OjU5Ljk5OTk5OTlaIQ--";
+  const sent = stubFetch((request) =>
+    new URL(request.url).searchParams.has("marker")
+      ? enumeration([listedBlob("notes/b.txt")])
+      : enumeration([listedBlob("notes/a.txt")], { nextMarker }),
+  );
+
+  const first = await storage().list({ prefix: "notes/", pageSize: 1 }).page();
+
+  expect(first.cursor).toEqual(expect.any(String));
+  expect(first.cursor).not.toContain(nextMarker);
+
+  const rest = await storage().list({ prefix: "notes/", pageSize: 1, cursor: first.cursor }).page();
+
+  expect(new URL(sent[1]?.url ?? "").searchParams.get("marker")).toBe(nextMarker);
+  expect(rest.objects.map((entry) => entry.key)).toEqual(["notes/b.txt"]);
+  expect(rest.cursor).toBeUndefined();
+});
+
+test("the iteration walks every page, each continuing from the marker before it", async () => {
+  const sent = stubFetch((request) => {
+    const marker = new URL(request.url).searchParams.get("marker");
+
+    if (marker === null) return enumeration([listedBlob("a")], { nextMarker: "after-a" });
+    if (marker === "after-a") return enumeration([listedBlob("b")], { nextMarker: "after-b" });
+
+    return enumeration([listedBlob("c")]);
+  });
+
+  expect(await iteratedKeys(storage().list({ pageSize: 1 }))).toEqual(["a", "b", "c"]);
+  expect(sent.map((request) => new URL(request.url).searchParams.get("marker"))).toEqual([
+    null,
+    "after-a",
+    "after-b",
+  ]);
+});
+
+test("with a delimiter the pseudo-directories reach `prefixes`, and the iteration yields the objects alone", async () => {
+  const sent = stubFetch(() =>
+    enumeration([listedBlob("notes/a.txt")], { prefixes: ["notes/one/", "notes/two/"] }),
+  );
+  const options = { prefix: "notes/", delimiter: "/" };
+
+  const page = await storage().list(options).page();
+  const iterated = await iteratedKeys(storage().list(options));
+
+  expect(new URL(sent[0]?.url ?? "").searchParams.get("delimiter")).toBe("/");
+  expect(page.objects.map((entry) => entry.key)).toEqual(["notes/a.txt"]);
+  expect(page.prefixes).toEqual(["notes/one/", "notes/two/"]);
+  expect(iterated).toEqual(["notes/a.txt"]);
+});
+
+test("a name marked `Encoded` is decoded as percent-encoded UTF-8, a pseudo-directory's too", async () => {
+  stubFetch(() =>
+    enumeration([{ ...listedBlob("notes/%EF%BF%BE%2B%20.txt"), encoded: true }], {
+      prefixes: [{ name: "notes/%EF%BF%BF/", encoded: true }, "notes/%41/"],
+    }),
+  );
+
+  const page = await storage().list({ prefix: "notes/", delimiter: "/" }).page();
+
+  expect(page.objects.map((entry) => entry.key)).toEqual(["notes/\uFFFE+ .txt"]);
+  expect(page.prefixes).toEqual(["notes/\uFFFF/", "notes/%41/"]);
+});
+
+function listingAnswer(document: string): Response {
+  return new Response(document, {
+    status: 200,
+    headers: { "content-type": "application/xml", "x-ms-request-id": "request-1" },
+  });
+}
+
+const properties =
+  "<Properties><Last-Modified>Sun, 30 Aug 2026 12:36:00 GMT</Last-Modified><Content-Length>11</Content-Length></Properties>";
+
+function listingOf(blobs: string): Response {
+  return listingAnswer(
+    `<EnumerationResults><Blobs>${blobs}</Blobs><NextMarker/></EnumerationResults>`,
+  );
+}
+
+// Spec 4.6: an entry without one of its three parts is reported, never filled in.
+test.each([
+  ["an entry without a key", () => listingOf(`<Blob>${properties}</Blob>`), "no key"],
+  ["an entry with an empty key", () => listingOf(`<Blob><Name/>${properties}</Blob>`), "no key"],
+  [
+    "an entry without a size",
+    () => enumeration([{ ...listedBlob("a"), size: undefined }]),
+    "no size",
+  ],
+  ["an entry with a size that is no number", () => enumeration([listedBlob("a", "-1")]), "no size"],
+  [
+    "an entry without a last-modified time",
+    () => enumeration([{ ...listedBlob("a"), lastModified: undefined }]),
+    "no last-modified time",
+  ],
+  [
+    "a pseudo-directory without a name",
+    () => listingOf("<BlobPrefix></BlobPrefix>"),
+    "a pseudo-directory with no name",
+  ],
+  [
+    "an encoded name that does not decode",
+    () => enumeration([{ ...listedBlob("a%E0"), encoded: true }]),
+    "does not decode",
+  ],
+  ["a document the parser refuses", () => listingAnswer("<EnumerationResults>"), "outside the XML"],
+  ["another root", () => listingAnswer("<Error><Code>x</Code></Error>"), "<Error>"],
+])("%s is `ProviderError`", async (_label, answer, said) => {
+  stubFetch(answer);
+
+  const failure = await failureOf(() => storage().list({ prefix: "notes/" }).page());
+
+  expect(failure.code).toBe("ProviderError");
+  expect(failure.message).toContain(said);
+  expect(failure.operation).toBe("list");
+  expect(failure.attempts).toBe(1);
+  expect(failure.status).toBe(200);
+  expect(failure.requestId).toBe("request-1");
+  expect(failure.retryable).toBe(false);
+});
+
+test("a listing whose body breaks while it is read is a `NetworkError`", async () => {
+  stubFetch(
+    () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("<EnumerationResults>"));
+            controller.error(new TypeError("terminated"));
+          },
+        }),
+        { status: 200, headers: { "x-ms-request-id": "request-1" } },
+      ),
+  );
+
+  const failure = await failureOf(() => storage().list().page());
+
+  expect(failure.code).toBe("NetworkError");
+  expect(failure.operation).toBe("list");
+  expect(failure.retryable).toBe(true);
+  expect(failure.requestId).toBe("request-1");
+});
+
+test("a provider that hands back the marker it was sent is `ProviderError`, not a loop", async () => {
+  // A listing that went on would end after three pages rather than hang the run.
+  const sent = stubFetch((request) =>
+    enumeration([listedBlob("a")], {
+      nextMarker:
+        sent.length > 3 ? "" : (new URL(request.url).searchParams.get("marker") ?? "after-a"),
+    }),
+  );
+
+  const failure = await failureOf(async () => await iteratedKeys(storage().list()));
+
+  expect(failure.code).toBe("ProviderError");
+  expect(failure.message).toContain("marker");
+  expect(failure.status).toBe(200);
+  expect(failure.requestId).toBe("request-1");
+  expect(sent).toHaveLength(2);
+});
+
+test("`list` sends nothing until the listing is read", async () => {
+  const sent = stubFetch(() => enumeration([]));
+
+  const listing = storage().list({ prefix: "notes/" });
+
+  expect(sent).toHaveLength(0);
+
+  await listing.page();
+
+  expect(sent).toHaveLength(1);
 });

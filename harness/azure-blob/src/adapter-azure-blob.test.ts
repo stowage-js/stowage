@@ -13,7 +13,8 @@ const underAccessToken = configuredStorage();
 const prefix = `stowage-harness/${crypto.randomUUID()}/`;
 
 /** Characters a key may hold that travel encoded, each of which the signature covers. */
-const encodedKey = `${prefix}a b#c?d%e+f'(g)*!/grüße/日本.txt`;
+const encodedPrefix = `${prefix}a b#c?d%e+f'(g)*!/`;
+const encodedKey = `${encodedPrefix}grüße/日本.txt`;
 
 describe.skipIf(underAccountKey === undefined || underAccessToken === undefined)(
   "adapter-azure-blob against the endpoint",
@@ -38,6 +39,19 @@ describe.skipIf(underAccountKey === undefined || underAccessToken === undefined)
       const stored = await azureBlobStorage(endpointOrFail(underAccountKey)).get(key);
 
       expect(await stored.text()).toBe("written under the token");
+    });
+
+    // `List Blobs` is the first request whose query Shared Key signs, and the prefix in it
+    // travels encoded.
+    test("Shared Key signs a listing below a prefix of characters that travel encoded", async () => {
+      const storage = azureBlobStorage(endpointOrFail(underAccountKey));
+      const key = `${encodedPrefix}listed`;
+
+      await storage.put(key, "listed under the account key");
+
+      const page = await storage.list({ prefix: encodedPrefix, delimiter: "/" }).page();
+
+      expect(page.objects.map((entry) => entry.key)).toEqual([key]);
     });
   },
 );
