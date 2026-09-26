@@ -40,9 +40,10 @@ The key is the one Microsoft publishes for the emulator and authenticates nothin
 
 Every conformance case runs under an access token (ADR 0023). Azurite checks a token's times,
 issuer and audience and no signature, so `src/token.ts` mints an unsigned JWT for the audience
-`https://storage.azure.com`, fresh for every request the resolver is asked for. The account key
-reaches the endpoint through `src/adapter-azure-blob.test.ts`, which holds Shared Key against the
-same container.
+`https://storage.azure.com`, fresh for every request the resolver is asked for. It names a
+principal in `oid` and its tenant in `tid`, without which Azurite answers the user delegation key
+the presign cases request with an empty `500`. The account key reaches the endpoint through
+`src/adapter-azure-blob.test.ts`, which holds Shared Key against the same container.
 
 ## The cases run so far
 
@@ -56,4 +57,6 @@ account (ADR 0012, ADR 0023), read against `STOWAGE_AZURE_BLOB_ENDPOINT_NAME`, w
 sets to `azurite`. The mechanism is the S3 harness's: against the endpoint an entry names, the
 case passes where it fails as the entry says and fails where it passes. The six cases that send
 a copy are on it while the pinned Azurite lacks `Put Blob From URL` and ignores
-`x-ms-copy-source-authorization` (ADR 0025).
+`x-ms-copy-source-authorization` (ADR 0025). `presign/put` and `flow/2-presigned-put` are on it
+because Azurite leaves the headers `srh` names out of the string to sign of a user delegation SAS,
+and so refuses the upload the real account accepts (ADR 0022).

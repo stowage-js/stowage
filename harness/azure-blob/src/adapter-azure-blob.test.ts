@@ -95,5 +95,31 @@ describe.skipIf(underAccountKey === undefined || underAccessToken === undefined)
       expect(stored.stat.contentType).toBe("text/plain");
       expect(await stored.text()).toBe("copied under the account key");
     });
+
+    // ADR 0023: the presign cases run under the token, so the service SAS an account key
+    // signs for `presignGet` is held against the endpoint here.
+    test("under the account key `presignGet` is a service SAS the endpoint answers", async () => {
+      const storage = azureBlobStorage(endpointOrFail(underAccountKey));
+      const key = `${encodedPrefix}presigned`;
+
+      await storage.put(key, "read through a service SAS", { contentType: "text/plain" });
+
+      const response = await fetch(await storage.presignGet(key, { expiresIn: 300 }));
+
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe("read through a service SAS");
+    });
+
+    test("under the account key `presignPut` is refused with `InvalidCredentials`", async () => {
+      const storage = azureBlobStorage(endpointOrFail(underAccountKey));
+      const key = `${prefix}presign-put-under-account-key`;
+
+      const failure = await storage
+        .presignPut(key, { expiresIn: 300, contentType: "text/plain", contentLength: 1 })
+        .catch((reason: unknown) => reason);
+
+      expect(failure).toMatchObject({ code: "InvalidCredentials", attempts: 0 });
+      expect(await storage.exists(key)).toBe(false);
+    });
   },
 );
