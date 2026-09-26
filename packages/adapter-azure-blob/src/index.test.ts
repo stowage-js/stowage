@@ -749,3 +749,136 @@ test("an account that takes no account key is `InvalidCredentials` naming the ac
   expect(failure.attempts).toBe(1);
   expect(sent).toHaveLength(1);
 });
+
+/** What Azure answers `Get Blob Properties` with: the description, and no body. */
+function described(headers: Record<string, string> = {}): Response {
+  return new Response(null, {
+    status: 200,
+    headers: {
+      "content-length": "11",
+      "content-type": "text/plain",
+      "last-modified": "Sun, 30 Aug 2026 12:36:00 GMT",
+      etag: '"0x8DCA1B2C3D4E5F6"',
+      "x-ms-blob-type": "BlockBlob",
+      ...headers,
+    },
+  });
+}
+
+/** What Azure answers a `HEAD` that failed with: the code in a header, and no body. */
+function headRefused(status: number, code?: string): Response {
+  return new Response(null, {
+    status,
+    headers: {
+      "x-ms-request-id": "request-1",
+      ...(code === undefined ? {} : { "x-ms-error-code": code }),
+    },
+  });
+}
+
+test("`stat` sends one `HEAD` and describes the blob from its headers", async () => {
+  const sent = stubFetch(() => described());
+
+  const stat = await storage().stat("notes/a.txt");
+
+  expect(sent).toHaveLength(1);
+  expect(sent[0]?.method).toBe("HEAD");
+  expect(sent[0]?.url).toBe("https://stowage.blob.core.windows.net/conformance/notes/a.txt");
+  expect(sent[0]?.headers.get("accept-encoding")).toBe("identity");
+  expect(stat).toEqual({
+    key: "notes/a.txt",
+    size: 11,
+    lastModified: new Date("2026-08-30T12:36:00Z"),
+    etag: "0x8DCA1B2C3D4E5F6",
+    contentType: "text/plain",
+    userMetadata: {},
+  });
+});
+
+test.each(["BlobNotFound", "ContainerNotFound"])(
+  "`stat` reads `%s` off the header of a `HEAD`",
+  async (providerCode) => {
+    stubFetch(() => headRefused(404, providerCode));
+
+    const failure = await failureOf(() => storage().stat("absent"));
+
+    expect(failure).toMatchObject({
+      code: "NotFound",
+      operation: "stat",
+      key: "absent",
+      status: 404,
+      providerCode,
+      requestId: "request-1",
+      attempts: 1,
+    });
+    expect(failure.message).toContain(providerCode);
+  },
+);
+
+test("`exists` answers `true` for a blob and `false` for `NotFound` alone", async () => {
+  stubFetch(() => described());
+
+  expect(await storage().exists("object")).toBe(true);
+
+  const sent = stubFetch(() => headRefused(404, "ContainerNotFound"));
+
+  expect(await storage().exists("object")).toBe(false);
+  expect(sent[0]?.method).toBe("HEAD");
+});
+
+test("`exists` rethrows every failure other than `NotFound`", async () => {
+  stubFetch(() => headRefused(403, "AuthorizationPermissionMismatch"));
+
+  const failure = await failureOf(() => storage().exists("object"));
+
+  expect(failure.code).toBe("AccessDenied");
+  expect(failure.operation).toBe("exists");
+});
+
+test.each([
+  ["stat", () => storage().stat("a//b")],
+  ["exists", () => storage().exists("a//b")],
+])("`%s` refuses a key the core refuses before any request", async (_operation, call) => {
+  const sent = stubFetch(() => described());
+
+  const failure = await failureOf(call);
+
+  expect(failure.code).toBe("InvalidKey");
+  expect(failure.attempts).toBe(0);
+  expect(sent).toHaveLength(0);
+});
+
+test("`stat` names a key holding a segment ending in a dot, which another tool may have written", async () => {
+  const sent = stubFetch(() => described());
+
+  await storage().stat("dir./object");
+
+  expect(sent).toHaveLength(1);
+});
+
+// oxlint-disable-next-line no-unsafe-type-assertion -- the point of the case
+const unknownOperationOption = { versionId: "1" } as { signal?: AbortSignal };
+
+test.each([
+  ["stat", () => storage().stat("object", unknownOperationOption)],
+  ["exists", () => storage().exists("object", unknownOperationOption)],
+])("`%s` refuses an unknown option by name", async (_operation, call) => {
+  stubFetch(() => described());
+
+  const failure = await failureOf(call);
+
+  expect(failure.code).toBe("InvalidOption");
+  expect(failure.message).toContain("versionId");
+});
+
+test("`stat` and `exists` reject a signal that already fired before any request", async () => {
+  const sent = stubFetch(() => described());
+
+  await expect(storage().stat("object", { signal: AbortSignal.abort() })).rejects.toMatchObject({
+    name: "AbortError",
+  });
+  await expect(storage().exists("object", { signal: AbortSignal.abort() })).rejects.toMatchObject({
+    name: "AbortError",
+  });
+  expect(sent).toHaveLength(0);
+});

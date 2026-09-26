@@ -1,13 +1,15 @@
-import type {
-  CapabilityName,
-  DeleteReport,
-  GetOptions,
-  ObjectListing,
-  ObjectStat,
-  PutBody,
-  PutOptions,
-  Storage,
-  StoredObject,
+import {
+  type CapabilityName,
+  type DeleteReport,
+  type GetOptions,
+  isStorageError,
+  type ObjectListing,
+  type ObjectStat,
+  type OperationOptions,
+  type PutBody,
+  type PutOptions,
+  type Storage,
+  type StoredObject,
 } from "@stowage/core";
 
 import {
@@ -17,7 +19,13 @@ import {
 } from "./configuration.ts";
 import { defaultContentType, describeResponse, describeWrite } from "./description.ts";
 import { requireKey } from "./key.ts";
-import { getOptionKeys, optionError, putOptionKeys, requireKnownOptions } from "./options.ts";
+import {
+  getOptionKeys,
+  operationOptionKeys,
+  optionError,
+  putOptionKeys,
+  requireKnownOptions,
+} from "./options.ts";
 import { send } from "./request.ts";
 import { azureBlobError } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
@@ -114,12 +122,21 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
     );
   }
 
-  async stat(): Promise<ObjectStat> {
-    throw notYetImplemented("`stat`");
+  async stat(key: string, options?: OperationOptions): Promise<ObjectStat> {
+    return describeResponse(this.bucket, key, "stat", await this.#head(key, "stat", options));
   }
 
-  async exists(): Promise<boolean> {
-    throw notYetImplemented("`exists`");
+  async exists(key: string, options?: OperationOptions): Promise<boolean> {
+    try {
+      await this.#head(key, "exists", options);
+
+      return true;
+    } catch (failure) {
+      // Spec 4.10: `exists` answers `false` for `NotFound` alone and rethrows the rest.
+      if (isStorageError(failure) && failure.code === "NotFound") return false;
+
+      throw failure;
+    }
   }
 
   list(): ObjectListing {
@@ -140,6 +157,21 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
 
   async move(): Promise<ObjectStat> {
     throw notYetImplemented("`move`");
+  }
+
+  /** `Get Blob Properties`, whose failure spec 8.4 reads the code of off `x-ms-error-code`. */
+  async #head(key: string, operation: string, options?: OperationOptions): Promise<Response> {
+    requireKey(this.bucket, key, "addressable", operation);
+    requireKnownOptions(this.bucket, options, operationOptionKeys, operation);
+
+    options?.signal?.throwIfAborted();
+
+    return await send(this.#configuration, {
+      method: "HEAD",
+      operation,
+      key,
+      signal: options?.signal,
+    });
   }
 
   #requireNoUserMetadata(userMetadata: Record<string, string> | undefined, key: string): void {
