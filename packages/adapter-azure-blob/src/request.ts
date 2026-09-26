@@ -3,7 +3,12 @@ import { isTransientStatus, parseXml, type StorageError, withRetry } from "@stow
 import type { AzureBlobConfiguration } from "./configuration.ts";
 import { type AzureBlobCredentials, resolveCredentials } from "./credentials.ts";
 import { isRefusedToken, readProviderFailure } from "./provider-code.ts";
-import { type HeaderField, type QueryParameter, signSharedKey } from "./sign.ts";
+import {
+  type HeaderField,
+  type QueryParameter,
+  type SignableRequest,
+  signSharedKey,
+} from "./sign.ts";
 import { azureBlobError, inStorage } from "./storage-error.ts";
 
 export interface AzureBlobRequest {
@@ -13,10 +18,18 @@ export interface AzureBlobRequest {
   readonly key?: string;
   readonly query?: readonly QueryParameter[];
   readonly headers?: readonly HeaderField[];
-  /** Held whole: Azure refuses a chunked `Put Blob`, and Shared Key signs the length. */
-  readonly body?: Uint8Array<ArrayBuffer>;
+  readonly body?: RequestBody;
   readonly signal?: AbortSignal;
 }
+
+/**
+ * Held whole: Azure refuses a chunked `Put Blob`, and Shared Key signs the length. A body
+ * that authorizes requests of its own inside it is built for each attempt from the
+ * credential that attempt resolved, so a repeat under `forceRefresh` renews them too.
+ */
+export type RequestBody =
+  | Uint8Array<ArrayBuffer>
+  | ((credentials: AzureBlobCredentials) => Promise<Uint8Array<ArrayBuffer>>);
 
 /** Spec 8.4: the one version every request is sent under. */
 export const serviceVersion = "2026-04-06";
@@ -62,7 +75,7 @@ async function attempt(
   forceRefresh: boolean,
 ): Promise<Response> {
   const attempts = forceRefresh ? 2 : 1;
-  const path = encodePath(pathOf(configuration, request.key));
+  const path = requestPath(configuration, request.key);
   const query = request.query ?? [];
   const credentials = await resolveCredentials(configuration.credentials, {
     forceRefresh,
@@ -70,14 +83,15 @@ async function attempt(
     throw inStorage(failure, configuration.container, request.operation, request.key);
   });
   const underAccessToken = "accessToken" in credentials;
-  const headers = await authorize(configuration, request, path, credentials);
+  const body = typeof request.body === "function" ? await request.body(credentials) : request.body;
+  const headers = await authorize(configuration, request, path, body, credentials);
   let response: Response;
 
   try {
     response = await fetch(urlOf(configuration, path, query), {
       method: request.method,
       headers: [...headers, identityEncoding].map(([name, value]) => [name, value]),
-      body: request.body,
+      body,
       signal: request.signal,
     });
   } catch (failure) {
@@ -103,41 +117,58 @@ async function attempt(
   });
 }
 
-/**
- * Spec 8.3 and 8.4: the field the resolver answered decides the scheme of this request
- * alone, so a resolver may move from one to the other between two calls.
- */
 async function authorize(
   configuration: AzureBlobConfiguration,
   request: AzureBlobRequest,
   path: string,
+  body: Uint8Array | undefined,
   credentials: AzureBlobCredentials,
 ): Promise<readonly HeaderField[]> {
   // Shared Key needs a date to sign, and `fetch` forbids setting `Date`. Azure lists the
   // date among what every authorized request carries, so the bearer sends it too.
-  const headers: readonly HeaderField[] = [
-    ...(request.headers ?? []),
-    ["x-ms-version", serviceVersion],
-    ["x-ms-date", new Date().toUTCString()],
-  ];
+  return await authorizeHeaders(
+    configuration,
+    {
+      method: request.method,
+      path,
+      query: request.query ?? [],
+      headers: [
+        ...(request.headers ?? []),
+        ["x-ms-version", serviceVersion],
+        ["x-ms-date", new Date().toUTCString()],
+      ],
+      contentLength: body?.byteLength ?? 0,
+    },
+    credentials,
+  );
+}
 
+/**
+ * The headers a request carries under the credential, `authorization` added: a request
+ * the adapter sends, or one it carries inside the body of another. Spec 8.3 and 8.4: the
+ * field the resolver answered decides the scheme of this request alone, so a resolver may
+ * move from one to the other between two calls.
+ */
+export async function authorizeHeaders(
+  configuration: AzureBlobConfiguration,
+  request: Omit<SignableRequest, "account">,
+  credentials: AzureBlobCredentials,
+): Promise<readonly HeaderField[]> {
   if ("accessToken" in credentials) {
-    return [...headers, ["authorization", `Bearer ${credentials.accessToken}`]];
+    return [...request.headers, ["authorization", `Bearer ${credentials.accessToken}`]];
   }
 
   const signed = await signSharedKey(
-    {
-      method: request.method,
-      account: configuration.account,
-      path,
-      query: request.query ?? [],
-      headers,
-      contentLength: request.body?.byteLength ?? 0,
-    },
+    { ...request, account: configuration.account },
     credentials.accountKey,
   );
 
   return signed.headers;
+}
+
+/** The path a request to the key travels to, or to the container where there is none. */
+export function requestPath(configuration: AzureBlobConfiguration, key?: string): string {
+  return encodePath(pathOf(configuration, key));
 }
 
 /** The endpoint's path, the container and the key, as they stand and not yet encoded. */
@@ -229,7 +260,16 @@ async function readMessage(
   }
 
   try {
-    const document = parseXml(await response.text());
+    return errorMessageOf(await response.text());
+  } catch {
+    return undefined;
+  }
+}
+
+/** The `Message` of an error document, or nothing for a body that is none. */
+export function errorMessageOf(body: string): string | undefined {
+  try {
+    const document = parseXml(body);
     const message = document.children.find((child) => child.name === "Message")?.text;
 
     return document.name === "Error" && message !== "" ? message : undefined;
