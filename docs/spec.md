@@ -961,7 +961,7 @@ another endpoint that speaks the Blob wire protocol can be configured and are no
 | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | Listing order                      | None. A page holds at most 1000 names                                                                                                          |
 | Unicode-equivalent keys            | Undocumented. `keyBytesPreserved` is not declared                                                                                              |
-| `userMetadata`                     | ASCII identifier keys, handed back in the case they were written in; 2 KB as section 4.3 measures them                                         |
+| `userMetadata`                     | ASCII identifier keys, stored and handed back in lower case; 2 KB as section 4.3 measures them                                                 |
 | Single `Put Blob`                  | Up to 5,000 MiB                                                                                                                                |
 | Object size ceiling                | 50,000 blocks of at most 4,000 MiB; the upload of section 8.6 stops at 50,000 parts                                                            |
 | `Content-Type`                     | Always sent by `put`, on the commit of a block upload as well, `application/octet-stream` where none was given                                 |
@@ -1018,6 +1018,8 @@ another endpoint that speaks the Blob wire protocol can be configured and are no
 - Listings are `List Blobs` answers, read through `parseXml` of section 4.13. A `Name` marked
   `Encoded="true"`, which is how Azure carries a name holding `U+FFFE` or `U+FFFF`, is decoded as
   percent-encoded UTF-8.
+- A `userMetadata` key is sent folded to lower case. Azure keeps the case of a name, but `fetch`
+  hands every header name back in lower case on every runtime, so no read could return another.
 - A `userMetadata` value holding a run of whitespace is sent as encoded words even where it would
   travel as written, and read back decoded, so no header value holds a run the signature would have
   to settle.
