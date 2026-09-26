@@ -1639,6 +1639,35 @@ test.each<[string, () => Response, string]>([
     () => batchAnswer([{ status: 202 }]),
     'no answer for the key "second"',
   ],
+  [
+    "an answer with an unexpected Content-ID",
+    () =>
+      batchAnswer([
+        { status: 202, contentId: "0" },
+        { status: 202, contentId: "1" },
+        { status: 202, contentId: "2" },
+      ]),
+    'unexpected Content-ID "2"',
+  ],
+  [
+    "an answer with a non-index Content-ID",
+    () =>
+      batchAnswer([
+        { status: 202, contentId: "0" },
+        { status: 202, contentId: "01" },
+      ]),
+    'unexpected Content-ID "01"',
+  ],
+  [
+    "an answer with a duplicate Content-ID",
+    () =>
+      batchAnswer([
+        { status: 202, contentId: "0" },
+        { status: 202, contentId: "1" },
+        { status: 202, contentId: "1" },
+      ]),
+    'two answers for Content-ID "1"',
+  ],
 ])("%s is `ProviderError` rejecting the call", async (_label, answer, said) => {
   stubFetch(answer);
 

@@ -150,19 +150,36 @@ async function deleteBatch(
     throw malformedAnswer(answered, "an answer that is no batch of responses");
   }
 
-  const byContentId = new Map(
-    subresponses.map((subresponse) => [subresponse.contentId, subresponse]),
-  );
+  const expectedContentIds = new Set(keys.map((_, index) => String(index)));
+  const byContentId = new Map<string, Subresponse>();
+
+  for (const subresponse of subresponses) {
+    const { contentId } = subresponse;
+
+    if (!expectedContentIds.has(contentId)) {
+      throw malformedAnswer(
+        answered,
+        `an answer for unexpected Content-ID ${JSON.stringify(contentId)}`,
+      );
+    }
+
+    if (byContentId.has(contentId)) {
+      throw malformedAnswer(answered, `two answers for Content-ID ${JSON.stringify(contentId)}`);
+    }
+
+    byContentId.set(contentId, subresponse);
+  }
+
+  for (const [index, key] of keys.entries()) {
+    if (!byContentId.has(String(index))) {
+      throw malformedAnswer(answered, `no answer for the key ${JSON.stringify(key)}`);
+    }
+  }
+
   const failed: StorageError[] = [];
 
   for (const [index, key] of keys.entries()) {
-    const subresponse = byContentId.get(String(index));
-
-    if (subresponse === undefined) {
-      throw malformedAnswer(answered, `no answer for the key ${JSON.stringify(key)}`);
-    }
-
-    const failure = keyFailure(answered, key, subresponse);
+    const failure = keyFailure(answered, key, byContentId.get(String(index))!);
 
     if (failure !== undefined) failed.push(failure);
   }

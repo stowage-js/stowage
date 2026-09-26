@@ -244,7 +244,9 @@ async function readMessage(
 
   try {
     return errorMessageOf(await response.text());
-  } catch {
+  } catch (failure) {
+    if (failure instanceof Error && failure.name === "AbortError") throw failure;
+
     return undefined;
   }
 }
