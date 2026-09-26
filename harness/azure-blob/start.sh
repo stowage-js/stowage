@@ -59,4 +59,5 @@ export STOWAGE_AZURE_BLOB_ACCOUNT=${account}
 export STOWAGE_AZURE_BLOB_CONTAINER=${container}
 export AZURE_STORAGE_KEY=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==
 export NODE_EXTRA_CA_CERTS=$(pwd)/certificate/cert.pem
+export DENO_CERT=$(pwd)/certificate/cert.pem
 ENVIRONMENT

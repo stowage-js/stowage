@@ -33,7 +33,8 @@ writes to and prints the environment the run reads:
 | `STOWAGE_AZURE_BLOB_ACCOUNT`       | The account, Azurite's `devstoreaccount1`                      |
 | `STOWAGE_AZURE_BLOB_CONTAINER`     | The container the run writes below its own prefix in           |
 | `AZURE_STORAGE_KEY`                | Read by `fromEnv`: Azurite's published key for that account    |
-| `NODE_EXTRA_CA_CERTS`              | The certificate, which Node trusts beside its own CAs          |
+| `NODE_EXTRA_CA_CERTS`              | The certificate, which Node and Bun trust beside their own CAs |
+| `DENO_CERT`                        | The same certificate, which Deno trusts beside its own CAs     |
 
 The key is the one Microsoft publishes for the emulator and authenticates nothing else.
 
