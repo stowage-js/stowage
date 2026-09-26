@@ -1,5 +1,6 @@
 import type { ObjectStat, StorageError } from "@stowage/core";
 
+import { partialContent, wholeSizeOf } from "./range.ts";
 import { azureBlobError } from "./storage-error.ts";
 
 export const defaultContentType = "application/octet-stream";
@@ -61,6 +62,16 @@ export function unquotedEtag(etag: string): string {
 }
 
 function sizeOf(container: string, key: string, operation: string, response: Response): number {
+  if (response.status === partialContent) {
+    const size = wholeSizeOf(response);
+
+    if (size === undefined) {
+      throw incomplete(container, key, operation, "no size of the whole object");
+    }
+
+    return size;
+  }
+
   const header = response.headers.get("content-length");
   const length = header === null || header.trim() === "" ? Number.NaN : Number(header);
 

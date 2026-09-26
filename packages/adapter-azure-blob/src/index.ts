@@ -29,6 +29,7 @@ import {
   putOptionKeys,
   requireKnownOptions,
 } from "./options.ts";
+import { rangeAnswerFailure, rangeHeader, requireRange } from "./range.ts";
 import { send } from "./request.ts";
 import { azureBlobError } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
@@ -44,7 +45,7 @@ export function azureBlobStorage(options: AzureBlobAdapterOptions): AzureBlobSto
   return new AzureBlobContainerStorage(options);
 }
 
-const azureBlobCapabilities: readonly CapabilityName[] = Object.freeze([]);
+const azureBlobCapabilities: readonly CapabilityName[] = Object.freeze(["rangeReads"]);
 
 const utf8 = new TextEncoder();
 
@@ -105,9 +106,9 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
     requireKey(this.bucket, key, "addressable", "get");
     requireKnownOptions(this.bucket, options, getOptionKeys, "get");
 
-    if (options?.range !== undefined) {
-      throw this.#unsupported("rangeReads", "This storage reads no range", "get", key);
-    }
+    const range = options?.range;
+
+    requireRange(this.bucket, range);
 
     options?.signal?.throwIfAborted();
 
@@ -115,14 +116,22 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
       method: "GET",
       operation: "get",
       key,
+      headers: range === undefined ? [] : [["range", rangeHeader(range)]],
       signal: options?.signal,
     });
+    const stat = describeResponse(this.bucket, key, "get", response);
+    const refusal =
+      range === undefined
+        ? undefined
+        : rangeAnswerFailure(this.bucket, key, range, response, stat.size);
 
-    return createStoredObject(
-      this.bucket,
-      describeResponse(this.bucket, key, "get", response),
-      response,
-    );
+    if (refusal !== undefined) {
+      await response.body?.cancel();
+
+      throw refusal;
+    }
+
+    return createStoredObject(this.bucket, stat, response);
   }
 
   async stat(key: string, options?: OperationOptions): Promise<ObjectStat> {

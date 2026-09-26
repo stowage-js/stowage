@@ -441,8 +441,8 @@ test("a signal that already fired rejects with `AbortError` before any request",
   expect(sent).toHaveLength(0);
 });
 
-test("the storage declares no capability yet", () => {
-  expect(storage().capabilities).toEqual([]);
+test("the storage declares `rangeReads`", () => {
+  expect(storage().capabilities).toEqual(["rangeReads"]);
 });
 
 test("user metadata is `Unsupported` naming `userMetadata`, and an empty set is written", async () => {
@@ -461,14 +461,90 @@ test("user metadata is `Unsupported` naming `userMetadata`, and an empty set is 
   expect(sent).toHaveLength(1);
 });
 
-test("a range is `Unsupported` naming `rangeReads`", async () => {
+/** What Azure answers a range it honored with: the bytes, and the whole size behind them. */
+function partial(body: string, contentRange: string): Response {
+  return new Response(body, {
+    status: 206,
+    headers: { ...Object.fromEntries(blob(body).headers), "content-range": contentRange },
+  });
+}
+
+test("a range goes out as `Range`, and the description carries the size of the whole object", async () => {
+  const sent = stubFetch(() => partial("llo ", "bytes 2-5/11"));
+
+  const stored = await storage().get("notes/a.txt", { range: { start: 2, end: 5 } });
+
+  expect(sent[0]?.headers.get("range")).toBe("bytes=2-5");
+  expect(stored.stat.size).toBe(11);
+  expect(await stored.text()).toBe("llo ");
+});
+
+test("a range without an end reaches to the end of the object", async () => {
+  const sent = stubFetch(() => partial("world", "bytes 6-10/11"));
+
+  await storage().get("object", { range: { start: 6 } });
+
+  expect(sent[0]?.headers.get("range")).toBe("bytes=6-");
+});
+
+test.each([
+  ["a start above the end", { start: 8, end: 4 }],
+  ["a negative start", { start: -1 }],
+  ["a fractional end", { start: 0, end: 1.5 }],
+])("%s is `InvalidOption` before any request", async (_label, range) => {
   const sent = stubFetch(() => blob("body"));
 
-  const failure = await failureOf(() => storage().get("object", { range: { start: 8, end: 4 } }));
+  const failure = await failureOf(() => storage().get("object", { range }));
 
-  expect(failure.code).toBe("Unsupported");
-  expect(failure.capability).toBe("rangeReads");
+  expect(failure).toMatchObject({ code: "InvalidOption", attempts: 0 });
   expect(sent).toHaveLength(0);
+});
+
+test("`InvalidRange` is `InvalidRequest`", async () => {
+  stubFetch(() => refused(416, "InvalidRange", "The range specified is invalid."));
+
+  const failure = await failureOf(() => storage().get("object", { range: { start: 11 } }));
+
+  expect(failure).toMatchObject({ code: "InvalidRequest", status: 416, attempts: 1 });
+});
+
+// Azurite answers a start at the size with `206` and an empty body rather than `416`, and
+// spec 4.3 names the refusal whichever way the provider says it.
+test("a partial answer that starts at the size of the object is `InvalidRequest`", async () => {
+  const sent = stubFetch(() => partial("", "bytes 11-10/11"));
+
+  const failure = await failureOf(() => storage().get("object", { range: { start: 11 } }));
+
+  expect(failure).toMatchObject({ code: "InvalidRequest", attempts: 1 });
+  expect(sent).toHaveLength(1);
+});
+
+test("a partial answer without the size of the whole object is `ProviderError`", async () => {
+  stubFetch(() => new Response("llo ", { status: 206, headers: blob("llo ").headers }));
+
+  const failure = await failureOf(() => storage().get("object", { range: { start: 2, end: 5 } }));
+
+  expect(failure.code).toBe("ProviderError");
+});
+
+test("a whole answer to a range that covers the object is the body asked for", async () => {
+  stubFetch(() => blob("hello world"));
+
+  const stored = await storage().get("object", { range: { start: 0, end: 40 } });
+
+  expect(stored.stat.size).toBe(11);
+  expect(await stored.text()).toBe("hello world");
+});
+
+test.each([
+  ["an object the range starts beyond is `InvalidRequest`", "", "InvalidRequest"],
+  ["any other object is `ProviderError`", "hello world", "ProviderError"],
+])("a whole answer to a range on %s", async (_label, body, code) => {
+  stubFetch(() => blob(body));
+
+  const failure = await failureOf(() => storage().get("object", { range: { start: 2, end: 5 } }));
+
+  expect(failure.code).toBe(code);
 });
 
 // The options are as unknown to the types as they are to the storage, which is what the
