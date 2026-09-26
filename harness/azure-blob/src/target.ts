@@ -17,7 +17,7 @@ import {
   storageWithBadCredentials,
   storageWithDeniedCredentials,
 } from "./configuration.ts";
-import { type AzureBlobRealEndpoint, withAzureBlobDivergences } from "./divergences.ts";
+import { azureBlobAccount, withAzureBlobDivergences } from "./divergences.ts";
 
 /**
  * The cases the adapter passes while its operations arrive one by one: those that need
@@ -110,14 +110,12 @@ const coveredCases: ReadonlySet<string> = new Set([
  */
 const accountOnlyCases: ReadonlySet<string> = new Set(["list/noncharacter-key"]);
 
-const realEndpoint: AzureBlobRealEndpoint = "azure-blob";
-
 export function azureBlobCases(
   options: ConformanceRunOptions,
   endpointName: string | undefined,
 ): readonly ConformanceCaseSource[] {
   const runs = (name: string): boolean =>
-    coveredCases.has(name) || (endpointName === realEndpoint && accountOnlyCases.has(name));
+    coveredCases.has(name) || (endpointName === azureBlobAccount && accountOnlyCases.has(name));
 
   return selectedCases(options).filter((source) => runs(source.name));
 }

@@ -12,9 +12,7 @@ import { azureBlobStorage } from "../../../packages/adapter-azure-blob/src/index
 import { send } from "../../../packages/adapter-azure-blob/src/request.ts";
 import { isStorageError, parseXml } from "../../../packages/core/src/index.ts";
 import { firstRunSuite } from "../../s3/src/first-run.ts";
-import { runOptionsFrom } from "../../targets/src/run-options.ts";
-import { endpointNameFrom } from "./configuration.ts";
-import type { AzureBlobRealEndpoint } from "./divergences.ts";
+import { scheduledAgainstAccount } from "./configuration.ts";
 import { configuredStorage, endpointOrFail } from "./environment.ts";
 import { azureProbeNames } from "./first-run.ts";
 
@@ -26,14 +24,9 @@ import { azureProbeNames } from "./first-run.ts";
 // `GET`, carries no CORS rule and differs from the service where these probes look, so they
 // run against the account alone. The requests go through the adapter's own signing and
 // failure mapping wherever the adapter can send them.
-const account: AzureBlobRealEndpoint = "azure-blob";
-
 // One configuration for every probe, so that they share the token its resolver keeps.
 const configured = configuredStorage();
-const scheduled =
-  runOptionsFrom(env).includeSlow === true &&
-  endpointNameFrom(env) === account &&
-  configured !== undefined;
+const scheduled = scheduledAgainstAccount(env) && configured !== undefined;
 
 /** The one origin the account's CORS rule allows (ADR 0023). */
 const allowedOrigin = "https://conformance.stowage.invalid";
@@ -234,7 +227,7 @@ describe.skipIf(!scheduled)(firstRunSuite, () => {
     }
   });
 
-  // Spec 4.8 leaves it to the provider; one blob under both names means the service
+  // Spec 4.8 leaves it to the provider; one object under both names means the service
   // normalizes, and two mean `keyBytesPreserved` can be declared.
   // oxlint-disable-next-line vitest/expect-expect -- spec 13 records what the service answers, so any answer passes
   test(azureProbeNames.unicodeEquivalentNames, async ({ task }) => {
@@ -368,7 +361,7 @@ describe.skipIf(!scheduled)(firstRunSuite, () => {
   }
 });
 
-/** Block ids of one length, as the service requires of the ids of one blob (ADR 0024). */
+/** Block ids of one length, as the service requires of the ids staged under one name (ADR 0024). */
 function blockId(index: number): string {
   return btoa(`first-run-${String(index).padStart(4, "0")}`);
 }

@@ -1,5 +1,5 @@
 import { type FirstRunPoint, type FirstRunTest, firstRunSuite } from "../../s3/src/first-run.ts";
-import type { AzureBlobRealEndpoint } from "./divergences.ts";
+import { azureBlobAccount } from "./divergences.ts";
 
 /** The block `describeCases` registers the cases against the endpoint in. */
 const azureBlobSuite = "@stowage/adapter-azure-blob";
@@ -20,7 +20,7 @@ export const azureProbeNames = {
   flowOneOnWorkerd: "flow/1-large-upload measured on workerd",
 } as const;
 
-const account: readonly AzureBlobRealEndpoint[] = ["azure-blob"];
+const account = [azureBlobAccount];
 
 const probe = (title: string): FirstRunTest => ({ suite: firstRunSuite, title });
 const conformanceCase = (title: string): FirstRunTest => ({ suite: azureBlobSuite, title });
@@ -104,7 +104,7 @@ export const azureBlobFirstRunPoints: readonly FirstRunPoint[] = [
     runtime: "node",
   },
   {
-    promise: "Azure Blob, may add: whether an NFC and an NFD name are one blob or two",
+    promise: "Azure Blob, may add: whether an NFC and an NFD name are one object or two",
     tests: [probe(azureProbeNames.unicodeEquivalentNames)],
     endpoints: account,
     runtime: "node",

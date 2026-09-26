@@ -14,22 +14,17 @@ import { build } from "tsdown";
 
 import type { ConformanceFramework } from "../../../packages/conformance/src/describe.ts";
 import type { ConformanceResult } from "../../../packages/conformance/src/result.ts";
-import { endpointNameFrom as azureBlobEndpointNameFrom } from "../../azure-blob/src/configuration.ts";
-import type { AzureBlobRealEndpoint } from "../../azure-blob/src/divergences.ts";
+import { scheduledAgainstAccount } from "../../azure-blob/src/configuration.ts";
 import { configuredStorage as configuredAzureBlobStorage } from "../../azure-blob/src/environment.ts";
 import { describeAzureBlobEndpointCheck } from "../../azure-blob/src/target.ts";
 import { configuredStorage } from "../../s3/src/environment.ts";
 import { describeEndpointCheck } from "../../s3/src/target.ts";
 import { type CoreCheckResult, describeCoreResults } from "../../targets/src/core.ts";
 import { endpointTiersFrom } from "../../targets/src/endpoints.ts";
-import { runOptionsFrom } from "../../targets/src/run-options.ts";
 import type { FromEnvOutcome } from "./from-env.ts";
 import type { NodeApiReach } from "./node-api.ts";
 
 const harnessDirectory = fileURLToPath(new URL("..", import.meta.url));
-
-/** The endpoint flow 1 is measured against, which is what spec 13 asks about. */
-const account: AzureBlobRealEndpoint = "azure-blob";
 
 /**
  * ADR 0006: `workerd` has no test function to hand the cases to, so the worker runs them
@@ -48,10 +43,7 @@ export async function describeWorkerd(framework: ConformanceFramework): Promise<
     ? configuredAzureBlobStorage()
     : undefined;
 
-  const measuring =
-    runOptionsFrom(env).includeSlow === true &&
-    configuredAzureBlob !== undefined &&
-    azureBlobEndpointNameFrom(env) === account;
+  const measuring = configuredAzureBlob !== undefined && scheduledAgainstAccount(env);
 
   const { core, memory, s3, azureBlob, probes, flowOne } = await withWorkerd(async (workerd) => {
     const { origins } = workerd;
@@ -122,6 +114,9 @@ interface Workerd {
 /**
  * Spec 13 and ADR 0026: the 17 MiB upload of flow 1 on `workerd` against the account, and
  * what it spends there, which the host note of spec 2 reads against a paid plan's limits.
+ * Both numbers overstate the upload: the worker's resolver serves one request, so the
+ * measured one exchanges the job's OIDC token first, and `/proc` counts the whole process
+ * rather than the isolate a plan limits.
  */
 async function measureFlowOne(workerd: Workerd): Promise<Measurement> {
   const cpuBefore = await cpuSecondsOf(workerd.pid);
@@ -153,8 +148,9 @@ async function cpuSecondsOf(pid: number | undefined): Promise<number | undefined
     const stat = await readFile(`/proc/${pid}/stat`, "utf8");
     // The fields after the command, whose name may hold spaces, start with the third.
     const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+    const [userTicks, systemTicks] = [Number(fields[11]), Number(fields[12])];
 
-    return (Number(fields[11]) + Number(fields[12])) / 100;
+    return (userTicks + systemTicks) / 100;
   } catch {
     return undefined;
   }
@@ -173,7 +169,7 @@ export function observationOf(measurement: Measurement): string {
   if (result.status === "failed") return `failed after ${duration}: ${result.error.message}`;
   if (result.status === "skipped") return `skipped: ${result.reason}`;
 
-  return `passed in ${duration}`;
+  return `passed in ${duration}, one token exchange included`;
 }
 
 /**

@@ -1,6 +1,8 @@
 import type { AzureBlobAdapterOptions } from "../../../packages/adapter-azure-blob/src/index.ts";
 import type { Variables } from "../../s3/src/configuration.ts";
-import { type FederatedIdentity, federatedAccessToken } from "./federated-token.ts";
+import { runOptionsFrom } from "../../targets/src/run-options.ts";
+import { azureBlobAccount } from "./divergences.ts";
+import { federatedAccessToken } from "./federated-token.ts";
 import { mintAccessToken } from "./token.ts";
 
 type Credentials = AzureBlobAdapterOptions["credentials"];
@@ -72,9 +74,16 @@ function federatedTokenFor(
 
   if (clientId === undefined) return undefined;
 
-  const missing = identityVariables.filter((name) => filled(variables[name]) === undefined);
+  const [tenantId, idTokenRequestUrl, idTokenRequestToken] = identityVariables.map((name) =>
+    filled(variables[name]),
+  );
 
-  if (missing.length > 0) {
+  if (
+    tenantId === undefined ||
+    idTokenRequestUrl === undefined ||
+    idTokenRequestToken === undefined
+  ) {
+    const missing = identityVariables.filter((name) => filled(variables[name]) === undefined);
     const names = missing.map((name) => `\`${name}\``).join(", ");
 
     return async () => {
@@ -84,14 +93,7 @@ function federatedTokenFor(
     };
   }
 
-  const identity: FederatedIdentity = {
-    tenantId: variables["STOWAGE_AZURE_BLOB_TENANT_ID"] ?? "",
-    clientId,
-    idTokenRequestUrl: variables["ACTIONS_ID_TOKEN_REQUEST_URL"] ?? "",
-    idTokenRequestToken: variables["ACTIONS_ID_TOKEN_REQUEST_TOKEN"] ?? "",
-  };
-
-  return federatedAccessToken(identity);
+  return federatedAccessToken({ tenantId, clientId, idTokenRequestUrl, idTokenRequestToken });
 }
 
 /**
@@ -107,6 +109,14 @@ export function storageWithBadCredentials(
 /** Which server answers, for the harness alone: no case reads it (ADR 0012). */
 export function endpointNameFrom(variables: Variables): string | undefined {
   return filled(variables["STOWAGE_AZURE_BLOB_ENDPOINT_NAME"]);
+}
+
+/** Where the scheduled run asks for the slow tier against the account, which is where spec 13 is asked. */
+export function scheduledAgainstAccount(variables: Variables): boolean {
+  return (
+    runOptionsFrom(variables).includeSlow === true &&
+    endpointNameFrom(variables) === azureBlobAccount
+  );
 }
 
 function filled(value: string | null | undefined): string | undefined {

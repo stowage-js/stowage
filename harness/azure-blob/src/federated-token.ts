@@ -41,6 +41,12 @@ export function federatedAccessToken(
     return issuing;
   }
 
+  // Every call that found `stale` held meets it past its renewal time; only the first of them
+  // may renew it, or a burst of requests would each exchange a token of its own.
+  function renewedFrom(stale: Promise<IssuedToken>): Promise<IssuedToken> {
+    return held === stale || held === undefined ? renew() : held;
+  }
+
   return async (options) => {
     const current = held;
 
@@ -50,8 +56,7 @@ export function federatedAccessToken(
 
     if (now() < token.renewAt) return answered(token);
 
-    // Of the calls that found the token stale, the first renews it and the rest wait on that.
-    return answered(await (held !== current && held !== undefined ? held : renew()));
+    return answered(await renewedFrom(current));
   };
 }
 
