@@ -134,9 +134,6 @@ function statusMessage(answer: ProviderAnswer): string {
  * Spec 8.3: the one answer an expired access token hides behind, after which the adapter
  * resolves the credential once more with `forceRefresh: true`.
  */
-export function isRefusedToken(answer: {
-  readonly status?: number;
-  readonly providerCode?: string;
-}): boolean {
+export function isRefusedToken(answer: Pick<ProviderAnswer, "status" | "providerCode">): boolean {
   return answer.status === unauthorized && answer.providerCode === "InvalidAuthenticationInfo";
 }

@@ -176,7 +176,7 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
     throw notYetImplemented("`move`");
   }
 
-  /** `Get Blob Properties`, whose failure spec 8.4 reads the code of off `x-ms-error-code`. */
+  /** `Get Blob Properties`, whose failure spec 8.4 reads the code off `x-ms-error-code`. */
   async #head(key: string, operation: string, options?: OperationOptions): Promise<Response> {
     requireKey(this.bucket, key, "addressable", operation);
     requireKnownOptions(this.bucket, options, operationOptionKeys, operation);
@@ -191,6 +191,11 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
     });
   }
 
+  /**
+   * Spec 4.8 checks both keys before acting on either, and spec 8.7 has a copy of a key
+   * onto itself stop before it leaves the process; a `move` onto itself would otherwise
+   * delete the one object it named.
+   */
   #requireCopyKeys(
     from: string,
     to: string,
