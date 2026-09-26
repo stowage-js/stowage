@@ -112,8 +112,18 @@ jobs:
       - name: Start the S3 endpoint
         run: ./harness/s3/start.sh | sed 's/^export //' >> "$GITHUB_ENV"
 
+      # ADR 0023: each runtime trusts the certificate `start.sh` generated the way it
+      # trusts a CA of its own. Bun reads `NODE_EXTRA_CA_CERTS` and Deno `DENO_CERT`, both
+      # from this environment, and `workerd.capnp` embeds the file itself.
+      - name: Start the Azure Blob endpoint
+        run: ./harness/azure-blob/start.sh | sed 's/^export //' >> "$GITHUB_ENV"
+
       - run: pnpm run ${{ matrix.script }}
 
       - name: Stop the S3 endpoint
         if: always()
         run: ./harness/s3/stop.sh
+
+      - name: Stop the Azure Blob endpoint
+        if: always()
+        run: ./harness/azure-blob/stop.sh
