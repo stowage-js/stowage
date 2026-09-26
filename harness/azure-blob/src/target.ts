@@ -17,8 +17,8 @@ import { withAzureBlobDivergences } from "./divergences.ts";
 /**
  * The cases the adapter passes while its operations arrive one by one: those that need
  * `put` of held bytes and of a stream, `get`, `stat`, `exists`, `list`, `copy`, `move`,
- * `delete` and `deleteAll` and nothing else, including the halves that expect a capability
- * the storage does not declare yet. Every operation that joins the adapter adds its cases
+ * `delete`, `deleteAll`, `presignGet` and `presignPut` and nothing else, including the
+ * halves that expect a capability the storage does not declare. Every operation that joins the adapter adds its cases
  * here, until the list is the whole suite and goes. The cases that send a copy run against
  * Azurite as divergences (`divergences.ts`).
  * `list/noncharacter-key` waits for an Azurite that lists a name holding `U+FFFE` (#171):
@@ -92,6 +92,7 @@ const coveredCases: ReadonlySet<string> = new Set([
   "presign/put-rejects-length",
   "presign/expired-url",
   "flow/1-large-upload",
+  "flow/2-presigned-put",
   "flow/3-file-browser",
   "flow/4-streaming-download",
 ]);
