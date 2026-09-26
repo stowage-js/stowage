@@ -4,6 +4,7 @@ import { copyFile } from "node:fs/promises";
 import { get, type IncomingMessage } from "node:http";
 import { createRequire } from "node:module";
 import { join } from "node:path";
+import { env } from "node:process";
 import { createInterface } from "node:readline";
 import { Readable } from "node:stream";
 import { text } from "node:stream/consumers";
@@ -18,6 +19,7 @@ import { describeAzureBlobEndpointCheck } from "../../azure-blob/src/target.ts";
 import { configuredStorage } from "../../s3/src/environment.ts";
 import { describeEndpointCheck } from "../../s3/src/target.ts";
 import { type CoreCheckResult, describeCoreResults } from "../../targets/src/core.ts";
+import { endpointTiersFrom } from "../../targets/src/endpoints.ts";
 import type { FromEnvOutcome } from "./from-env.ts";
 import type { NodeApiReach } from "./node-api.ts";
 
@@ -35,8 +37,11 @@ export async function describeWorkerd(
   await bundleWorker();
   await placeTrustedCertificate();
 
-  const configured = configuredStorage();
-  const configuredAzureBlob = configuredAzureBlobStorage();
+  const endpointTiers = endpointTiersFrom(env);
+  const configured = endpointTiers.has("s3") ? configuredStorage() : undefined;
+  const configuredAzureBlob = endpointTiers.has("azure-blob")
+    ? configuredAzureBlobStorage()
+    : undefined;
 
   const { core, memory, s3, azureBlob, probes } = await withWorkerd(async (origins) => ({
     core: await answerOf<readonly CoreCheckResult[]>(origins.harness, "core"),
@@ -59,11 +64,13 @@ export async function describeWorkerd(
 
   describeResults(framework, "@stowage/adapter-memory", memory);
 
-  describeEndpointCheck(framework, configured);
+  if (endpointTiers.has("s3")) describeEndpointCheck(framework, configured);
 
   if (s3 !== undefined) describeResults(framework, "@stowage/adapter-s3", s3);
 
-  describeAzureBlobEndpointCheck(framework, configuredAzureBlob);
+  if (endpointTiers.has("azure-blob")) {
+    describeAzureBlobEndpointCheck(framework, configuredAzureBlob);
+  }
 
   if (azureBlob !== undefined) {
     describeResults(framework, "@stowage/adapter-azure-blob", azureBlob.harness);
