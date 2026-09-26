@@ -11,7 +11,12 @@ import {
 } from "../../../packages/conformance/src/run.ts";
 import type { ConformanceTarget } from "../../../packages/conformance/src/target.ts";
 
-import { storageWithBadCredentials } from "./configuration.ts";
+import type { Variables } from "../../s3/src/configuration.ts";
+import {
+  endpointNameFrom,
+  storageWithBadCredentials,
+  storageWithDeniedCredentials,
+} from "./configuration.ts";
 import { withAzureBlobDivergences } from "./divergences.ts";
 
 /**
@@ -85,6 +90,7 @@ const coveredCases: ReadonlySet<string> = new Set([
   "deleteAll/past-one-thousand",
   "errors/shape",
   "errors/bad-credentials",
+  "errors/denied-credentials",
   "errors/not-a-storage-error",
   "presign/get",
   "presign/put",
@@ -103,13 +109,24 @@ export function azureBlobCases(options: ConformanceRunOptions): readonly Conform
 }
 
 /** `adapter-azure-blob` against the endpoint of ADR 0023, under an access token. */
-export function azureBlobTarget(configured: AzureBlobAdapterOptions): ConformanceTarget {
+export function azureBlobTarget(
+  configured: AzureBlobAdapterOptions,
+  variables: Variables,
+): ConformanceTarget {
+  const denied = storageWithDeniedCredentials(configured, variables);
+
   return {
     name: "@stowage/adapter-azure-blob",
 
     createStorage: () => azureBlobStorage(configured),
 
     createStorageWithBadCredentials: () => azureBlobStorage(storageWithBadCredentials(configured)),
+
+    // Spec 9.2 keeps the case out of a run where the target supplies no factory, which is
+    // what Azurite, checking no role, leaves (ADR 0023).
+    ...(denied === undefined
+      ? {}
+      : { createStorageWithDeniedCredentials: () => azureBlobStorage(denied) }),
   };
 }
 
@@ -132,19 +149,29 @@ export function describeAzureBlobEndpointCheck(
   );
 }
 
-/** The check above, then the covered cases as a run against `endpointName` performs them. */
+/** The cases as a run against the endpoint `variables` name performs them. */
+export function azureBlobRunCases(
+  options: ConformanceRunOptions,
+  variables: Variables,
+): readonly ConformanceCaseSource[] {
+  const endpointName = endpointNameFrom(variables);
+
+  return withAzureBlobDivergences(azureBlobCases(options), endpointName);
+}
+
+/** The check above, then the cases as a run against the endpoint `variables` name. */
 export function describeAzureBlob(
   framework: ConformanceFramework,
   configured: AzureBlobAdapterOptions | undefined,
-  endpointName: string | undefined,
+  variables: Variables,
 ): void {
   describeAzureBlobEndpointCheck(framework, configured);
 
   if (configured === undefined) return;
 
   describeCases(
-    withAzureBlobDivergences(azureBlobCases(framework), endpointName),
-    azureBlobTarget(configured),
+    azureBlobRunCases(framework, variables),
+    azureBlobTarget(configured, variables),
     framework,
   );
 }

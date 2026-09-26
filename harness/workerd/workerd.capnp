@@ -56,6 +56,13 @@ const conformance :Workerd.Worker = (
     (name = "STOWAGE_AZURE_BLOB_ENDPOINT", fromEnvironment = "STOWAGE_AZURE_BLOB_ENDPOINT"),
     (name = "STOWAGE_AZURE_BLOB_ACCOUNT", fromEnvironment = "STOWAGE_AZURE_BLOB_ACCOUNT"),
     (name = "STOWAGE_AZURE_BLOB_CONTAINER", fromEnvironment = "STOWAGE_AZURE_BLOB_CONTAINER"),
+    (name = "STOWAGE_AZURE_BLOB_TENANT_ID", fromEnvironment = "STOWAGE_AZURE_BLOB_TENANT_ID"),
+    (name = "STOWAGE_AZURE_BLOB_CLIENT_ID", fromEnvironment = "STOWAGE_AZURE_BLOB_CLIENT_ID"),
+    (name = "STOWAGE_AZURE_BLOB_DENIED_CLIENT_ID", fromEnvironment = "STOWAGE_AZURE_BLOB_DENIED_CLIENT_ID"),
+    # ADR 0023: what the Actions runtime hands a job holding `id-token: write`, so that the
+    # worker exchanges the job's OIDC token for the account's access token itself.
+    (name = "ACTIONS_ID_TOKEN_REQUEST_URL", fromEnvironment = "ACTIONS_ID_TOKEN_REQUEST_URL"),
+    (name = "ACTIONS_ID_TOKEN_REQUEST_TOKEN", fromEnvironment = "ACTIONS_ID_TOKEN_REQUEST_TOKEN"),
   ],
 );
 
@@ -77,5 +84,12 @@ const defaults :Workerd.Worker = (
     (name = "STOWAGE_AZURE_BLOB_ENDPOINT", fromEnvironment = "STOWAGE_AZURE_BLOB_ENDPOINT"),
     (name = "STOWAGE_AZURE_BLOB_ACCOUNT", fromEnvironment = "STOWAGE_AZURE_BLOB_ACCOUNT"),
     (name = "STOWAGE_AZURE_BLOB_CONTAINER", fromEnvironment = "STOWAGE_AZURE_BLOB_CONTAINER"),
+    (name = "STOWAGE_AZURE_BLOB_TENANT_ID", fromEnvironment = "STOWAGE_AZURE_BLOB_TENANT_ID"),
+    (name = "STOWAGE_AZURE_BLOB_CLIENT_ID", fromEnvironment = "STOWAGE_AZURE_BLOB_CLIENT_ID"),
+    (name = "STOWAGE_AZURE_BLOB_DENIED_CLIENT_ID", fromEnvironment = "STOWAGE_AZURE_BLOB_DENIED_CLIENT_ID"),
+    # ADR 0023: what the Actions runtime hands a job holding `id-token: write`, so that the
+    # worker exchanges the job's OIDC token for the account's access token itself.
+    (name = "ACTIONS_ID_TOKEN_REQUEST_URL", fromEnvironment = "ACTIONS_ID_TOKEN_REQUEST_URL"),
+    (name = "ACTIONS_ID_TOKEN_REQUEST_TOKEN", fromEnvironment = "ACTIONS_ID_TOKEN_REQUEST_TOKEN"),
   ],
 );

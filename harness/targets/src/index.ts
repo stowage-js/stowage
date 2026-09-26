@@ -1,6 +1,5 @@
 import { env } from "node:process";
 
-import { endpointNameFrom as azureBlobEndpointNameFrom } from "../../azure-blob/src/configuration.ts";
 import { configuredStorage as configuredAzureBlobStorage } from "../../azure-blob/src/environment.ts";
 import { describeAzureBlob } from "../../azure-blob/src/target.ts";
 import { endpointNameFrom } from "../../s3/src/configuration.ts";
@@ -47,9 +46,5 @@ export function describeAdapters(framework: ConformanceFramework): void {
     );
   }
 
-  describeAzureBlob(
-    { ...framework, ...options },
-    configuredAzureBlobStorage(),
-    azureBlobEndpointNameFrom(env),
-  );
+  describeAzureBlob({ ...framework, ...options }, configuredAzureBlobStorage(), env);
 }
