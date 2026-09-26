@@ -61,12 +61,23 @@ function blob(body: string, headers: Record<string, string> = {}): Response {
   });
 }
 
-function refused(status: number, code: string): Response {
+/** What Azure answers a failed request with: the code in a header, and a document beside it. */
+function refused(
+  status: number,
+  code: string,
+  message = "The specified blob does not exist.",
+  headers: Record<string, string> = {},
+): Response {
   return new Response(
-    `<?xml version="1.0" encoding="utf-8"?><Error><Code>${code}</Code><Message>The specified blob does not exist.</Message></Error>`,
+    `\uFEFF<?xml version="1.0" encoding="utf-8"?><Error><Code>${code}</Code><Message>${message}</Message></Error>`,
     {
       status,
-      headers: { "x-ms-error-code": code, "x-ms-request-id": "request-1" },
+      headers: {
+        "content-type": "application/xml",
+        "x-ms-error-code": code,
+        "x-ms-request-id": "request-1",
+        ...headers,
+      },
     },
   );
 }
@@ -465,4 +476,83 @@ test("an empty `contentType` is `InvalidOption`", async () => {
   expect((await failureOf(() => storage().put("o", "b", { contentType: "" }))).code).toBe(
     "InvalidOption",
   );
+});
+
+test("the provider's code decides the error, and its message travels word for word", async () => {
+  stubFetch(() =>
+    refused(
+      403,
+      "AuthenticationFailed",
+      "Server failed to authenticate the request.\nRequestId:request-1\nTime:2026-09-26T08:00:00.0000000Z",
+    ),
+  );
+
+  const failure = await failureOf(() => storage().get("object"));
+
+  expect(failure.code).toBe("InvalidCredentials");
+  expect(failure.providerCode).toBe("AuthenticationFailed");
+  expect(failure.message).toBe(
+    "Server failed to authenticate the request.\nRequestId:request-1\nTime:2026-09-26T08:00:00.0000000Z",
+  );
+  expect(failure.status).toBe(403);
+  expect(failure.requestId).toBe("request-1");
+  expect(failure.retryable).toBe(false);
+});
+
+test.each([
+  [404, "BlobNotFound", "NotFound"],
+  [404, "ContainerNotFound", "NotFound"],
+  [404, "ResourceNotFound", "NotFound"],
+  [403, "AuthorizationPermissionMismatch", "AccessDenied"],
+  [403, "InsufficientAccountPermissions", "AccessDenied"],
+  [403, "AccountIsDisabled", "AccessDenied"],
+  [409, "UnauthorizedBlobOverwrite", "AccessDenied"],
+  [401, "NoAuthenticationInformation", "InvalidCredentials"],
+  [403, "AuthenticationFailed", "InvalidCredentials"],
+  [416, "InvalidRange", "InvalidRequest"],
+  [413, "RequestBodyTooLarge", "InvalidRequest"],
+  [409, "BlockCountExceedsLimit", "InvalidRequest"],
+  [400, "MetadataTooLarge", "InvalidRequest"],
+  [400, "InvalidMetadata", "InvalidRequest"],
+  [400, "InvalidBlockList", "ProviderError"],
+  [400, "InvalidBlobOrBlock", "ProviderError"],
+  [409, "PendingCopyOperation", "ProviderError"],
+  [409, "BlobArchived", "ProviderError"],
+  [409, "SnapshotsPresent", "ProviderError"],
+  [412, "LeaseIdMissing", "ProviderError"],
+  [409, "BlobImmutableDueToPolicy", "ProviderError"],
+])("a %i carrying `%s` is `%s`", async (status, providerCode, code) => {
+  stubFetch(() => refused(status, providerCode, "Refused."));
+
+  const failure = await failureOf(() => storage().get("object"));
+
+  expect(failure.code).toBe(code);
+  expect(failure.providerCode).toBe(providerCode);
+  expect(failure.retryable).toBe(false);
+});
+
+test("a provider code the table does not hold falls to the status", async () => {
+  stubFetch(() => refused(403, "SomethingNewEntirely", "No."));
+
+  const failure = await failureOf(() => storage().get("object"));
+
+  expect(failure.code).toBe("AccessDenied");
+  expect(failure.providerCode).toBe("SomethingNewEntirely");
+});
+
+test("a failure whose body is no error document is told by its status", async () => {
+  stubFetch(
+    () =>
+      new Response("<html>Bad Gateway</html>", {
+        status: 409,
+        headers: { "x-ms-request-id": "request-1" },
+      }),
+  );
+
+  const failure = await failureOf(() => storage().get("object"));
+
+  expect(failure.code).toBe("ProviderError");
+  expect(failure.providerCode).toBeUndefined();
+  expect(failure.message).toContain("409");
+  expect(failure.requestId).toBe("request-1");
 });

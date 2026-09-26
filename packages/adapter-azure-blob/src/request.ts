@@ -1,7 +1,8 @@
-import { errorCodeForStatus, isTransientStatus, type StorageError, withRetry } from "@stowage/core";
+import { isTransientStatus, parseXml, type StorageError, withRetry } from "@stowage/core";
 
 import type { AzureBlobConfiguration } from "./configuration.ts";
 import { type AzureBlobCredentials, resolveCredentials } from "./credentials.ts";
+import { readProviderFailure } from "./provider-code.ts";
 import { type HeaderField, type QueryParameter, signSharedKey } from "./sign.ts";
 import { azureBlobError, inStorage } from "./storage-error.ts";
 
@@ -141,22 +142,27 @@ function urlOf(
 }
 
 /**
- * The status of spec 4.10 decides the code, and the status alone whether the condition is
- * transient. Azure names its code in `x-ms-error-code` on every failure, a `HEAD`
- * included, so the body is released unread.
+ * Spec 8.8: the provider's code decides where the table recognizes one, the status of
+ * spec 4.10 decides where it does not, and the status alone decides whether the condition
+ * is transient. Azure names its code in `x-ms-error-code` on every failure, a `HEAD`
+ * included, and the message in the document beside it.
  */
 async function failureOf(
   configuration: AzureBlobConfiguration,
   request: AzureBlobRequest,
   response: Response,
 ): Promise<StorageError> {
-  await response.body?.cancel();
-
   const providerCode = response.headers.get("x-ms-error-code") ?? undefined;
+  const failure = readProviderFailure({
+    status: response.status,
+    method: request.method,
+    providerCode,
+    providerMessage: await readMessage(request, response),
+  });
 
   return azureBlobError(configuration.container, {
-    code: errorCodeForStatus(response.status) ?? "ProviderError",
-    message: `The provider answered ${response.status}${providerCode === undefined ? "" : ` ${providerCode}`}`,
+    code: failure.code,
+    message: failure.message,
     operation: request.operation,
     key: request.key,
     attempts: 1,
@@ -165,6 +171,32 @@ async function failureOf(
     requestId: response.headers.get("x-ms-request-id") ?? undefined,
     retryable: isTransientStatus(response.status),
   });
+}
+
+/**
+ * The `Message` of the error document, read to the end, which is also what releases the
+ * connection the next attempt needs. A body that is no error document — an HTML page from
+ * a proxy in between, one that broke on the way — leaves the message unset rather than
+ * failing on its way to reporting a failure.
+ */
+async function readMessage(
+  request: AzureBlobRequest,
+  response: Response,
+): Promise<string | undefined> {
+  if (request.method === "HEAD") {
+    await response.body?.cancel();
+
+    return undefined;
+  }
+
+  try {
+    const document = parseXml(await response.text());
+    const message = document.children.find((child) => child.name === "Message")?.text;
+
+    return document.name === "Error" && message !== "" ? message : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 // Spec 4.10: an aborted signal produces the runtime's `AbortError` and never a
