@@ -62,13 +62,20 @@ export interface ProviderFailure {
 /**
  * What the provider's answer means, decided by its own code where the table recognizes
  * one and by the status where it does not. The message is the provider's word for word
- * (spec 4.10), except where spec 8.3 has it say what the caller can act on: a token that
- * a refresh did not make acceptable.
+ * (spec 4.10), except where spec 8.3 has it say what the caller can act on: a credential
+ * the account does not take, and a token that a refresh did not make acceptable.
  */
 export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
   // Spec 4.10: where the provider sent no message, the status and the code are the whole
   // of what there is to say — a `HEAD` carries no body to read one out of.
   const said = answer.providerMessage ?? statusMessage(answer);
+
+  if (answer.providerCode === "KeyBasedAuthenticationNotPermitted") {
+    return {
+      code: "InvalidCredentials",
+      message: `The account takes no \`accountKey\`, and an \`accessToken\` is the credential it accepts: ${said}`,
+    };
+  }
 
   // ADR 0021: an expired token and a forged one answer alike, so the message names both
   // and leaves the caller, who knows what the resolver handed over, to tell them apart.

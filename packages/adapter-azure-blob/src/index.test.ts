@@ -731,3 +731,21 @@ test("one request costs at most six: three attempts, each doubled by the repeat"
   expect(failure.attempts).toBe(6);
   expect(sent).toHaveLength(6);
 });
+
+test("an account that takes no account key is `InvalidCredentials` naming the access token", async () => {
+  const sent = stubFetch(() =>
+    refused(
+      403,
+      "KeyBasedAuthenticationNotPermitted",
+      "Key based authentication is not permitted on this storage account.",
+    ),
+  );
+
+  const failure = await failureOf(() => storage({ credentials: { accountKey } }).get("object"));
+
+  expect(failure.code).toBe("InvalidCredentials");
+  expect(failure.message).toContain("accessToken");
+  expect(failure.retryable).toBe(false);
+  expect(failure.attempts).toBe(1);
+  expect(sent).toHaveLength(1);
+});
