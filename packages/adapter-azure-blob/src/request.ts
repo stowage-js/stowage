@@ -2,7 +2,7 @@ import { isTransientStatus, parseXml, type StorageError, withRetry } from "@stow
 
 import type { AzureBlobConfiguration } from "./configuration.ts";
 import { type AzureBlobCredentials, resolveCredentials } from "./credentials.ts";
-import { readProviderFailure } from "./provider-code.ts";
+import { isRefusedToken, readProviderFailure } from "./provider-code.ts";
 import { type HeaderField, type QueryParameter, signSharedKey } from "./sign.ts";
 import { azureBlobError, inStorage } from "./storage-error.ts";
 
@@ -40,7 +40,7 @@ export async function send(
   configuration: AzureBlobConfiguration,
   request: AzureBlobRequest,
 ): Promise<Response> {
-  return await withRetry(async () => await attemptOnce(configuration, request), {
+  return await withRetry(async () => await attempt(configuration, request, false), {
     maxAttempts: configuration.maxAttempts,
     signal: request.signal,
   });
@@ -49,18 +49,27 @@ export async function send(
 /**
  * One authorized request, which is the attempt CONTEXT.md names and what a repeat
  * repeats: the credential is resolved and the request dated and signed anew.
+ *
+ * Spec 8.3 has an attempt cost a second request where the provider refused an access
+ * token: the credential is resolved again under `forceRefresh` and the request goes out
+ * without a delay, because no wait makes a token fresher. `retry: false` does not switch
+ * that repeat off, so an attempt costs one request or two and an operation at most six
+ * (spec 8.5).
  */
-async function attemptOnce(
+async function attempt(
   configuration: AzureBlobConfiguration,
   request: AzureBlobRequest,
+  forceRefresh: boolean,
 ): Promise<Response> {
+  const attempts = forceRefresh ? 2 : 1;
   const path = encodePath(pathOf(configuration, request.key));
   const query = request.query ?? [];
   const credentials = await resolveCredentials(configuration.credentials, {
-    forceRefresh: false,
+    forceRefresh,
   }).catch((failure: unknown) => {
     throw inStorage(failure, configuration.container, request.operation, request.key);
   });
+  const underAccessToken = "accessToken" in credentials;
   const headers = await authorize(configuration, request, path, credentials);
   let response: Response;
 
@@ -72,12 +81,26 @@ async function attemptOnce(
       signal: request.signal,
     });
   } catch (failure) {
-    throw transportFailure(configuration, request, failure);
+    throw transportFailure(configuration, request, failure, attempts);
   }
 
   if (response.ok) return response;
 
-  throw await failureOf(configuration, request, response);
+  const answer = {
+    status: response.status,
+    providerCode: response.headers.get("x-ms-error-code") ?? undefined,
+  };
+
+  if (underAccessToken && !forceRefresh && isRefusedToken(answer)) {
+    await response.body?.cancel();
+
+    return await attempt(configuration, request, true);
+  }
+
+  throw await failureOf(configuration, request, response, {
+    attempts,
+    underRefreshedToken: underAccessToken && forceRefresh,
+  });
 }
 
 /**
@@ -164,6 +187,7 @@ async function failureOf(
   configuration: AzureBlobConfiguration,
   request: AzureBlobRequest,
   response: Response,
+  made: { readonly attempts: number; readonly underRefreshedToken: boolean },
 ): Promise<StorageError> {
   const providerCode = response.headers.get("x-ms-error-code") ?? undefined;
   const failure = readProviderFailure({
@@ -171,6 +195,7 @@ async function failureOf(
     method: request.method,
     providerCode,
     providerMessage: await readMessage(request, response),
+    underRefreshedToken: made.underRefreshedToken,
   });
 
   return azureBlobError(configuration.container, {
@@ -178,7 +203,7 @@ async function failureOf(
     message: failure.message,
     operation: request.operation,
     key: request.key,
-    attempts: 1,
+    attempts: made.attempts,
     status: response.status,
     providerCode,
     requestId: response.headers.get("x-ms-request-id") ?? undefined,
@@ -219,6 +244,7 @@ function transportFailure(
   configuration: AzureBlobConfiguration,
   request: AzureBlobRequest,
   failure: unknown,
+  attempts: number,
 ): unknown {
   if (failure instanceof Error && failure.name === "AbortError") return failure;
 
@@ -227,7 +253,7 @@ function transportFailure(
     message: `The request received no response: ${String(failure)}`,
     operation: request.operation,
     key: request.key,
-    attempts: 1,
+    attempts,
     retryable: true,
     cause: failure,
   });

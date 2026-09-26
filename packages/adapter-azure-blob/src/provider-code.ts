@@ -41,6 +41,8 @@ const providerCodes: ReadonlyMap<string, StorageErrorCode> = new Map([
   ["OperationTimedOut", "ProviderError"],
 ]);
 
+const unauthorized = 401;
+
 /** What the provider answered a request with, as much of it as spec 8.8 reads. */
 export interface ProviderAnswer {
   readonly status: number;
@@ -48,6 +50,8 @@ export interface ProviderAnswer {
   readonly method: string;
   readonly providerCode?: string;
   readonly providerMessage?: string;
+  /** Whether the request went out under an access token the resolver had just refreshed. */
+  readonly underRefreshedToken: boolean;
 }
 
 export interface ProviderFailure {
@@ -58,12 +62,23 @@ export interface ProviderFailure {
 /**
  * What the provider's answer means, decided by its own code where the table recognizes
  * one and by the status where it does not. The message is the provider's word for word
- * (spec 4.10).
+ * (spec 4.10), except where spec 8.3 has it say what the caller can act on: a token that
+ * a refresh did not make acceptable.
  */
 export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
   // Spec 4.10: where the provider sent no message, the status and the code are the whole
   // of what there is to say — a `HEAD` carries no body to read one out of.
   const said = answer.providerMessage ?? statusMessage(answer);
+
+  // ADR 0021: an expired token and a forged one answer alike, so the message names both
+  // and leaves the caller, who knows what the resolver handed over, to tell them apart.
+  if (answer.underRefreshedToken && isRefusedToken(answer)) {
+    return {
+      code: "InvalidCredentials",
+      message: `The access token expired or is not accepted, and so is the one the resolver refreshed: ${said}`,
+    };
+  }
+
   const recognized =
     answer.providerCode === undefined ? undefined : providerCodes.get(answer.providerCode);
 
@@ -77,4 +92,15 @@ function statusMessage(answer: ProviderAnswer): string {
   const code = answer.providerCode === undefined ? "" : ` ${answer.providerCode}`;
 
   return `The provider answered ${answer.status}${code} to \`${answer.method}\``;
+}
+
+/**
+ * Spec 8.3: the one answer an expired access token hides behind, after which the adapter
+ * resolves the credential once more with `forceRefresh: true`.
+ */
+export function isRefusedToken(answer: {
+  readonly status?: number;
+  readonly providerCode?: string;
+}): boolean {
+  return answer.status === unauthorized && answer.providerCode === "InvalidAuthenticationInfo";
 }

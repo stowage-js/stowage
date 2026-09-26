@@ -660,3 +660,74 @@ test("an abort interrupts the wait before another attempt", async () => {
   });
   expect(sent).toHaveLength(1);
 });
+
+/** What Azure answers a token that expired, and one it does not accept at all. */
+function tokenRefused(): Response {
+  return refused(
+    401,
+    "InvalidAuthenticationInfo",
+    "Server failed to authenticate the request. Please refer to the information in the www-authenticate header.",
+  );
+}
+
+test("a refused access token costs one repeat under `forceRefresh` and no wait", async () => {
+  const delays = recordedDelays();
+  const responses = [tokenRefused()];
+  const sent = stubFetch(() => responses.shift() ?? blob("body"));
+  const tokens = ["stale", "fresh"];
+  const resolve = vi.fn<() => AzureBlobCredentials>(() => ({
+    accessToken: tokens.shift() ?? "fresh",
+  }));
+
+  await storage({ credentials: resolve }).get("object");
+
+  expect(sent).toHaveLength(2);
+  expect(resolve).toHaveBeenNthCalledWith(1, { forceRefresh: false });
+  expect(resolve).toHaveBeenNthCalledWith(2, { forceRefresh: true });
+  expect(sent[1]?.headers.get("authorization")).toBe("Bearer fresh");
+  expect(delays).toEqual([]);
+});
+
+// ADR 0021: the repeat is how a caching resolver is told to refresh rather than a repeat
+// of the transport, and without it an expired token has no way back.
+test("`retry: false` does not switch the repeat off, and a second refusal is `InvalidCredentials`", async () => {
+  const sent = stubFetch(() => tokenRefused());
+
+  const failure = await failureOf(() => storage({ retry: false }).get("object"));
+
+  expect(failure.code).toBe("InvalidCredentials");
+  expect(failure.attempts).toBe(2);
+  expect(failure.retryable).toBe(false);
+  expect(failure.status).toBe(401);
+  expect(failure.providerCode).toBe("InvalidAuthenticationInfo");
+  expect(failure.message).toMatch(/access token expired or is not accepted/u);
+  expect(sent).toHaveLength(2);
+});
+
+test("under an account key the same refusal is not repeated", async () => {
+  const sent = stubFetch(() => tokenRefused());
+  const resolve = vi.fn<() => AzureBlobCredentials>(() => ({ accountKey }));
+
+  const failure = await failureOf(() => storage({ credentials: resolve }).get("object"));
+
+  expect(failure.code).toBe("InvalidCredentials");
+  expect(failure.attempts).toBe(1);
+  expect(resolve).toHaveBeenCalledTimes(1);
+  expect(sent).toHaveLength(1);
+});
+
+test("one request costs at most six: three attempts, each doubled by the repeat", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+  let answered = 0;
+  const sent = stubFetch(() => {
+    answered += 1;
+
+    return answered % 2 === 1 ? tokenRefused() : refused(503, "ServerBusy", "The server is busy.");
+  });
+
+  const failure = await failureOf(() => storage().get("object"));
+
+  expect(failure.code).toBe("ProviderError");
+  expect(failure.attempts).toBe(6);
+  expect(sent).toHaveLength(6);
+});
