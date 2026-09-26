@@ -2,8 +2,18 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { argv, stdout } from "node:process";
 
+import { azureBlobFirstRunPoints } from "../../azure-blob/src/first-run.ts";
 import { realEndpoints } from "./configuration.ts";
-import { type FirstRunPoint, type FirstRunTest, firstRunPoints } from "./first-run.ts";
+import {
+  type FirstRunPoint,
+  type FirstRunTest,
+  type ReportedEndpoint,
+  s3FirstRunPoints,
+} from "./first-run.ts";
+
+const firstRunPoints: readonly FirstRunPoint[] = [...s3FirstRunPoints, ...azureBlobFirstRunPoints];
+
+const reportedEndpoints: readonly ReportedEndpoint[] = [...realEndpoints, "azure-blob"];
 
 /** The part of one test in Vitest's JSON report that the table reads. */
 export interface JsonAssertion {
@@ -21,7 +31,8 @@ export interface JsonResults {
 
 /**
  * One job of the scheduled run and what Vitest reported. `label` is the job's artifact,
- * `<provider>-<runtime>` as `conformance-full.yml` names it: `aws-s3-node-24`, `r2-workerd`.
+ * `<provider>-<runtime>` as `conformance-full.yml` names it: `aws-s3-node-24`, `r2-workerd`,
+ * `azure-blob-node-26`.
  */
 export interface FirstRunRun {
   readonly label: string;
@@ -53,13 +64,13 @@ export function firstRunReport(runs: readonly FirstRunRun[]): string {
 }
 
 function isAsked(point: FirstRunPoint, label: string): boolean {
-  const provider = realEndpoints.find((name) => label.startsWith(`${name}-`));
-  const runtime = provider === undefined ? label : label.slice(provider.length + 1);
-  const { askedOf } = point;
+  const provider = reportedEndpoints.find((name) => label.startsWith(`${name}-`));
 
-  if (askedOf?.provider !== undefined && askedOf.provider !== provider) return false;
+  if (provider === undefined || !point.endpoints.includes(provider)) return false;
 
-  return askedOf?.runtime === undefined || runtime.startsWith(askedOf.runtime);
+  const runtime = label.slice(provider.length + 1);
+
+  return point.runtime === undefined || runtime.startsWith(point.runtime);
 }
 
 function cellFor(point: FirstRunPoint, results: JsonResults): string {

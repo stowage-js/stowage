@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { type FirstRunRun, firstRunReport, type JsonAssertion } from "./first-run-report.ts";
+import { azureProbeNames } from "../../azure-blob/src/first-run.ts";
 import { firstRunSuite, probeNames } from "./first-run.ts";
 
 const assertion = (overrides: Partial<JsonAssertion> & { title: string }): JsonAssertion => ({
@@ -142,6 +143,69 @@ describe("firstRunReport", () => {
     ]);
 
     expect(report).toContain("disproved: expected a \\| b");
+  });
+
+  test("reads a probe against the Azure account in the account's column", () => {
+    const report = firstRunReport([
+      run("azure-blob-node-24", assertion({ title: azureProbeNames.responseOverrides })),
+    ]);
+
+    expect(cellOf(report, "three response overrides on `presignGet`", "azure-blob-node-24")).toBe(
+      "held",
+    );
+  });
+
+  test("leaves a point about Azure out of the columns of S3", () => {
+    const report = firstRunReport([
+      run("aws-s3-node-24", assertion({ title: azureProbeNames.responseOverrides })),
+    ]);
+
+    expect(cellOf(report, "three response overrides on `presignGet`", "aws-s3-node-24")).toBe("—");
+  });
+
+  test("leaves a point about S3 out of the columns of the Azure account", () => {
+    const report = firstRunReport([
+      run("azure-blob-node-24", assertion({ title: probeNames.headWithoutBody })),
+    ]);
+
+    expect(cellOf(report, headPoint, "azure-blob-node-24")).toBe("—");
+  });
+
+  test("reads a case against the account and not the one of the same name against S3", () => {
+    const report = firstRunReport([
+      run(
+        "azure-blob-workerd",
+        assertion({ ancestorTitles: ["@stowage/adapter-s3"], title: "list/noncharacter-key" }),
+      ),
+      run(
+        "azure-blob-node-24",
+        assertion({
+          ancestorTitles: ["@stowage/adapter-azure-blob"],
+          title: "list/noncharacter-key",
+        }),
+      ),
+    ]);
+
+    expect(cellOf(report, "holding `U+FFFE` is stored", "azure-blob-workerd")).toBe("not run");
+    expect(cellOf(report, "holding `U+FFFE` is stored", "azure-blob-node-24")).toBe("held");
+  });
+
+  test("carries the duration and the CPU flow 1 spent on `workerd` against the account", () => {
+    const report = firstRunReport([
+      run(
+        "azure-blob-workerd",
+        assertion({
+          title: azureProbeNames.flowOneOnWorkerd,
+          meta: { observed: "passed in 6.2 s, 0.8 s of CPU in the `workerd` process" },
+        }),
+      ),
+      run("azure-blob-node-24"),
+    ]);
+
+    expect(cellOf(report, "17 MiB upload of flow 1", "azure-blob-workerd")).toBe(
+      "passed in 6.2 s, 0.8 s of CPU in the `workerd` process",
+    );
+    expect(cellOf(report, "17 MiB upload of flow 1", "azure-blob-node-24")).toBe("—");
   });
 
   test("states what becomes of a disproved promise", () => {
