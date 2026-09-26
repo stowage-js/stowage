@@ -5,7 +5,7 @@
 // The position inside is the provider's `NextMarker`, which Azure hands out opaque and
 // takes back from any process. The tag is what tells a cursor this adapter produced from
 // any other string before a request goes out; a marker the provider no longer continues
-// from is refused by the provider instead, under a code section 13 of the spec has a run record.
+// from is refused by the provider instead, with a code spec 13 has a run record.
 const cursorTag = "stowage-azure-blob-1:";
 
 const unitDigits = 4;
