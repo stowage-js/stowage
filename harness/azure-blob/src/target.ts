@@ -19,7 +19,8 @@ import { storageWithBadCredentials } from "./configuration.ts";
  * halves that expect a capability the storage does not declare yet, and those that meet
  * `copy` only with what it refuses before a request. Every operation that joins the
  * adapter adds its cases here, until the list is the whole suite and goes.
- * `list/noncharacter-key` waits for `delete`, which ends it.
+ * `list/noncharacter-key` waits for `delete`, which ends it, and for an Azurite that lists a
+ * name holding `U+FFFE`: the pinned one answers that `List Blobs` with `500`.
  */
 const coveredCases: ReadonlySet<string> = new Set([
   "declaration/valid-names",
