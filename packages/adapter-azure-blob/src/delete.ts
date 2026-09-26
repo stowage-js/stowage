@@ -1,10 +1,16 @@
-import { type DeleteReport, isTransientStatus, type StorageError } from "@stowage/core";
+import type { DeleteReport, StorageError } from "@stowage/core";
 
+import {
+  type AnsweredRequest,
+  answeredRequest,
+  malformedAnswer,
+  readAnswerText,
+} from "./answer.ts";
 import {
   batchBody,
   batchBoundary,
   batchContentType,
-  readBatchAnswer,
+  readSubresponses,
   type Subresponse,
   subrequestsPerBatch,
 } from "./batch.ts";
@@ -12,7 +18,7 @@ import type { AzureBlobConfiguration } from "./configuration.ts";
 import type { AzureBlobCredentials } from "./credentials.ts";
 import { keyRefusal } from "./key.ts";
 import { maxPageSize, walkPages } from "./listing.ts";
-import { readProviderFailure } from "./provider-code.ts";
+import { providerError } from "./provider-code.ts";
 import { authorizeHeaders, errorMessageOf, requestPath, send } from "./request.ts";
 import { azureBlobError } from "./storage-error.ts";
 
@@ -22,12 +28,6 @@ interface DeleteCall {
   /** The operation the caller invoked: `delete`, or `deleteAll` for the page it listed. */
   readonly operation: string;
   readonly signal?: AbortSignal;
-}
-
-/** What the provider answered a batch with, as much of it as a failure told against it reads. */
-interface BatchAnswer {
-  readonly status: number;
-  readonly requestId?: string;
 }
 
 /**
@@ -133,17 +133,21 @@ async function deleteBatch(
       batchBody(boundary, await deleteSubrequests(configuration, paths, credentials)),
     signal: call.signal,
   });
-  const answer: BatchAnswer = {
-    status: response.status,
-    requestId: response.headers.get("x-ms-request-id") ?? undefined,
-  };
-  const subresponses = readBatchAnswer(
+  const answered = answeredRequest(
+    configuration.container,
+    call.operation,
+    "the deletion",
+    response,
+  );
+  // The batch ran before an answer that breaks, so which keys it deleted is unknown; deleting
+  // is idempotent, and the caller who repeats the call learns it.
+  const subresponses = readSubresponses(
     response.headers.get("content-type"),
-    await readBody(configuration, call, answer, response),
+    await readAnswerText(answered, response),
   );
 
   if (subresponses === undefined) {
-    throw unreadable(configuration, call, answer, "an answer that is no batch of responses");
+    throw malformedAnswer(answered, "an answer that is no batch of responses");
   }
 
   const byContentId = new Map(
@@ -155,10 +159,10 @@ async function deleteBatch(
     const subresponse = byContentId.get(String(index));
 
     if (subresponse === undefined) {
-      throw unreadable(configuration, call, answer, `no answer for the key ${JSON.stringify(key)}`);
+      throw malformedAnswer(answered, `no answer for the key ${JSON.stringify(key)}`);
     }
 
-    const failure = keyFailure(configuration, call, key, subresponse);
+    const failure = keyFailure(answered, key, subresponse);
 
     if (failure !== undefined) failed.push(failure);
   }
@@ -192,81 +196,24 @@ async function deleteSubrequests(
  * the key's entry, reported and not repeated (spec 8.5).
  */
 function keyFailure(
-  configuration: AzureBlobConfiguration,
-  call: DeleteCall,
+  answered: AnsweredRequest,
   key: string,
   subresponse: Subresponse,
 ): StorageError | undefined {
   const { status, headers } = subresponse;
-  const providerCode = headers.get("x-ms-error-code") ?? undefined;
-
   const succeeded = status >= 200 && status < 300;
+  const alreadyAbsent = status === notFound && headers.get("x-ms-error-code") === "BlobNotFound";
 
-  if (succeeded || (status === notFound && providerCode === "BlobNotFound")) return undefined;
+  if (succeeded || alreadyAbsent) return undefined;
 
-  const failure = readProviderFailure({
-    status,
+  return providerError(answered.container, {
+    operation: answered.operation,
     method: "DELETE",
     key,
-    providerCode,
-    providerMessage: errorMessageOf(subresponse.body),
-    underRefreshedToken: false,
-  });
-
-  return azureBlobError(configuration.container, {
-    code: failure.code,
-    message: failure.message,
-    operation: call.operation,
-    key,
-    attempts: 1,
     status,
-    providerCode,
-    requestId: headers.get("x-ms-request-id") ?? undefined,
-    retryable: isTransientStatus(status),
-  });
-}
-
-/**
- * The batch ran before its answer broke, so which keys it deleted is unknown; deleting is
- * idempotent, and the caller who repeats the call learns it.
- */
-async function readBody(
-  configuration: AzureBlobConfiguration,
-  call: DeleteCall,
-  answer: BatchAnswer,
-  response: Response,
-): Promise<string> {
-  try {
-    return await response.text();
-  } catch (failure) {
-    // Spec 4.10: the caller's abort travels on as the runtime's `AbortError`.
-    if (failure instanceof Error && failure.name === "AbortError") throw failure;
-
-    throw azureBlobError(configuration.container, {
-      code: "NetworkError",
-      message: `The answer to the deletion broke while it was read: ${String(failure)}`,
-      operation: call.operation,
-      attempts: 1,
-      status: answer.status,
-      requestId: answer.requestId,
-      retryable: true,
-      cause: failure,
-    });
-  }
-}
-
-function unreadable(
-  configuration: AzureBlobConfiguration,
-  call: DeleteCall,
-  answer: BatchAnswer,
-  what: string,
-): StorageError {
-  return azureBlobError(configuration.container, {
-    code: "ProviderError",
-    message: `The provider answered the deletion with ${what}`,
-    operation: call.operation,
+    headers,
+    providerMessage: errorMessageOf(subresponse.body),
     attempts: 1,
-    status: answer.status,
-    requestId: answer.requestId,
+    underRefreshedToken: false,
   });
 }

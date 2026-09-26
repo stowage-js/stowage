@@ -1,21 +1,7 @@
-import {
-  type ObjectEntry,
-  parseXml,
-  type StorageError,
-  type XmlElement,
-  XmlSyntaxError,
-} from "@stowage/core";
+import { type ObjectEntry, parseXml, type XmlElement, XmlSyntaxError } from "@stowage/core";
 
+import { type AnsweredRequest, malformedAnswer } from "./answer.ts";
 import { unquotedEtag } from "./description.ts";
-import { azureBlobError } from "./storage-error.ts";
-
-/** The response a listing document came in, which a failure to read it is told against. */
-export interface ListingAnswer {
-  readonly container: string;
-  readonly operation: string;
-  readonly status: number;
-  readonly requestId?: string;
-}
 
 /** One page of a `List Blobs` answer. */
 export interface ListingDocument {
@@ -31,11 +17,11 @@ export interface ListingDocument {
  * a document outside the subset the parser reads; both leave the page unread rather than
  * hand the caller a value made up for what was missing.
  */
-export function readListingDocument(answer: ListingAnswer, body: string): ListingDocument {
-  const root = parse(answer, body);
+export function readListingDocument(answered: AnsweredRequest, body: string): ListingDocument {
+  const root = parse(answered, body);
 
   if (root.name !== "EnumerationResults") {
-    throw malformed(answer, `a <${root.name}> where an <EnumerationResults> belongs`);
+    throw malformedAnswer(answered, `a <${root.name}> where an <EnumerationResults> belongs`);
   }
 
   const listed = childrenNamed(root, "Blobs").flatMap((blobs) => blobs.children);
@@ -43,13 +29,13 @@ export function readListingDocument(answer: ListingAnswer, body: string): Listin
   return {
     objects: listed
       .filter((child) => child.name === "Blob")
-      .map((entry) => readEntry(answer, entry)),
+      .map((entry) => readEntry(answered, entry)),
     prefixes: listed
       .filter((child) => child.name === "BlobPrefix")
       .map((prefix) => {
-        const name = nameOf(answer, prefix);
+        const name = nameOf(answered, prefix);
 
-        if (name === undefined) throw malformed(answer, "a pseudo-directory with no name");
+        if (name === undefined) throw malformedAnswer(answered, "a pseudo-directory with no name");
 
         return name;
       }),
@@ -57,13 +43,13 @@ export function readListingDocument(answer: ListingAnswer, body: string): Listin
   };
 }
 
-function parse(answer: ListingAnswer, body: string): XmlElement {
+function parse(answered: AnsweredRequest, body: string): XmlElement {
   try {
     return parseXml(body);
   } catch (failure) {
     if (failure instanceof XmlSyntaxError) {
-      throw malformed(
-        answer,
+      throw malformedAnswer(
+        answered,
         `a document outside the XML stowage reads: ${failure.message}`,
         failure,
       );
@@ -73,22 +59,25 @@ function parse(answer: ListingAnswer, body: string): XmlElement {
   }
 }
 
-function readEntry(answer: ListingAnswer, entry: XmlElement): ObjectEntry {
-  const key = nameOf(answer, entry);
+function readEntry(answered: AnsweredRequest, entry: XmlElement): ObjectEntry {
+  const key = nameOf(answered, entry);
 
-  if (key === undefined) throw malformed(answer, "an object with no key");
+  if (key === undefined) throw malformedAnswer(answered, "an object with no key");
 
   const properties = childrenNamed(entry, "Properties")[0];
   const size = sizeOf(textOf(properties, "Content-Length"));
 
   if (size === undefined) {
-    throw malformed(answer, `the object under ${JSON.stringify(key)} with no size`);
+    throw malformedAnswer(answered, `the object under ${JSON.stringify(key)} with no size`);
   }
 
   const lastModified = Date.parse(textOf(properties, "Last-Modified") ?? "");
 
   if (Number.isNaN(lastModified)) {
-    throw malformed(answer, `the object under ${JSON.stringify(key)} with no last-modified time`);
+    throw malformedAnswer(
+      answered,
+      `the object under ${JSON.stringify(key)} with no last-modified time`,
+    );
   }
 
   return {
@@ -103,7 +92,7 @@ function readEntry(answer: ListingAnswer, entry: XmlElement): ObjectEntry {
  * Spec 8.4: Azure carries a name holding a character XML cannot, `U+FFFE` or `U+FFFF`, as
  * percent-encoded UTF-8 under `Encoded="true"`, and every other name as it stands.
  */
-function nameOf(answer: ListingAnswer, element: XmlElement): string | undefined {
+function nameOf(answered: AnsweredRequest, element: XmlElement): string | undefined {
   const name = element.children.find((child) => child.name === "Name");
 
   if (name === undefined || name.text === "") return undefined;
@@ -115,8 +104,8 @@ function nameOf(answer: ListingAnswer, element: XmlElement): string | undefined 
   } catch (failure) {
     if (!(failure instanceof URIError)) throw failure;
 
-    throw malformed(
-      answer,
+    throw malformedAnswer(
+      answered,
       `the name ${JSON.stringify(name.text)}, which does not decode`,
       failure,
     );
@@ -152,16 +141,4 @@ function textOf(element: XmlElement | undefined, name: string): string | undefin
 
 function childrenNamed(element: XmlElement, name: string): readonly XmlElement[] {
   return element.children.filter((child) => child.name === name);
-}
-
-function malformed(answer: ListingAnswer, what: string, cause?: unknown): StorageError {
-  return azureBlobError(answer.container, {
-    code: "ProviderError",
-    message: `The provider answered the listing with ${what}`,
-    operation: answer.operation,
-    attempts: 1,
-    status: answer.status,
-    requestId: answer.requestId,
-    cause,
-  });
 }

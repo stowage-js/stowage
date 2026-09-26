@@ -61,7 +61,7 @@ export function batchBody(
  * The subresponses of an answer, or nothing where the body is no `multipart/mixed` of
  * HTTP responses under the boundary its `Content-Type` names.
  */
-export function readBatchAnswer(
+export function readSubresponses(
   contentType: string | null,
   body: string,
 ): readonly Subresponse[] | undefined {
@@ -70,14 +70,14 @@ export function readBatchAnswer(
 
   if (boundary === undefined) return undefined;
 
-  const delimited = body.split(`--${boundary}`);
+  const [, ...parts] = body.split(`--${boundary}`);
+  const close = parts.pop();
 
-  // The preamble before the first delimiter, and the close after the last.
-  if (delimited.length < 2 || delimited.at(-1)?.startsWith("--") !== true) return undefined;
+  if (close?.startsWith("--") !== true) return undefined;
 
   const subresponses: Subresponse[] = [];
 
-  for (const part of delimited.slice(1, -1)) {
+  for (const part of parts) {
     const subresponse = readPart(part);
 
     if (subresponse === undefined) return undefined;
@@ -104,7 +104,6 @@ function readPart(part: string): Subresponse | undefined {
   return { contentId, status: Number(status), headers, body: body.replace(/\r?\n$/u, "") };
 }
 
-/** A head and what follows the blank line after it, which a part without one lacks. */
 function splitHead(text: string): [head: string, rest: string | undefined] {
   const match = blankLine.exec(text);
 

@@ -1,17 +1,13 @@
 import type { ListOptions, ListPage, ObjectEntry, ObjectListing } from "@stowage/core";
 
+import { answeredRequest, malformedAnswer, readAnswerText } from "./answer.ts";
 import type { AzureBlobConfiguration } from "./configuration.ts";
 import { decodeCursor, encodeCursor } from "./cursor.ts";
 import { requireKey } from "./key.ts";
-import {
-  type ListingAnswer,
-  type ListingDocument,
-  readListingDocument,
-} from "./listing-document.ts";
+import { type ListingDocument, readListingDocument } from "./listing-document.ts";
 import { listOptionKeys, optionError, requireKnownOptions } from "./options.ts";
 import { send } from "./request.ts";
 import type { QueryParameter } from "./sign.ts";
-import { azureBlobError } from "./storage-error.ts";
 
 // Spec 8.2: a page holds at most 1000 names, which is what `List Blobs` answers.
 const defaultPageSize = 1000;
@@ -142,50 +138,18 @@ async function requestPage(
     signal: request.signal,
   });
 
-  const answer: ListingAnswer = {
-    container: configuration.container,
-    operation: request.operation,
-    status: response.status,
-    requestId: response.headers.get("x-ms-request-id") ?? undefined,
-  };
-
-  const document = readListingDocument(answer, await readBody(answer, response));
+  const answered = answeredRequest(
+    configuration.container,
+    request.operation,
+    "the listing",
+    response,
+  );
+  const document = readListingDocument(answered, await readAnswerText(answered, response));
 
   // A listing that continues from where it was sent would walk the same page forever.
   if (document.nextMarker !== undefined && document.nextMarker === request.marker) {
-    throw azureBlobError(answer.container, {
-      code: "ProviderError",
-      message: "The provider repeated the marker it was sent",
-      operation: answer.operation,
-      attempts: 1,
-      status: answer.status,
-      requestId: answer.requestId,
-    });
+    throw malformedAnswer(answered, "the marker it was sent");
   }
 
   return document;
-}
-
-/**
- * Spec 8.5 repeats a transport failure that received no response; this one received its
- * response and broke in the body, which spec 4.5 leaves unresumed for `get` as well.
- */
-async function readBody(answer: ListingAnswer, response: Response): Promise<string> {
-  try {
-    return await response.text();
-  } catch (failure) {
-    // Spec 4.10: the caller's abort travels on as the runtime's `AbortError`.
-    if (failure instanceof Error && failure.name === "AbortError") throw failure;
-
-    throw azureBlobError(answer.container, {
-      code: "NetworkError",
-      message: `The listing broke while it was read: ${String(failure)}`,
-      operation: answer.operation,
-      attempts: 1,
-      status: answer.status,
-      requestId: answer.requestId,
-      retryable: true,
-      cause: failure,
-    });
-  }
 }
