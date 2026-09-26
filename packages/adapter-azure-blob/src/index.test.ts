@@ -1057,7 +1057,7 @@ function listedBlob(name: string, size = "11"): ListedBlob {
   return { name, size, lastModified: "Sun, 30 Aug 2026 12:36:00 GMT", etag: "0x8DCA1B2C3D4E5F6" };
 }
 
-test("`page()` sends one `List Blobs` below the prefix and describes each blob", async () => {
+test("`page()` sends one `List Blobs` below the prefix and describes each object", async () => {
   const sent = stubFetch(() =>
     enumeration([listedBlob("notes/a.txt"), listedBlob("notes/b.txt", "0")]),
   );
@@ -1181,8 +1181,8 @@ function listingOf(blobs: string): Response {
 
 // Spec 4.6: an entry without one of its three parts is reported, never filled in.
 test.each([
-  ["an entry without a name", () => listingOf(`<Blob>${properties}</Blob>`), "no name"],
-  ["an entry with an empty name", () => listingOf(`<Blob><Name/>${properties}</Blob>`), "no name"],
+  ["an entry without a key", () => listingOf(`<Blob>${properties}</Blob>`), "no key"],
+  ["an entry with an empty key", () => listingOf(`<Blob><Name/>${properties}</Blob>`), "no key"],
   [
     "an entry without a size",
     () => enumeration([{ ...listedBlob("a"), size: undefined }]),

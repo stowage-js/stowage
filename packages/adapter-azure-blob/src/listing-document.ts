@@ -26,7 +26,7 @@ export interface ListingDocument {
 
 /**
  * What the provider listed, read through the parser of spec 8.4. Spec 4.6 makes an entry
- * that arrives without a name, a size or a last-modified time a `ProviderError`, and so is
+ * that arrives without a key, a size or a last-modified time a `ProviderError`, and so is
  * a document outside the subset the parser reads; both leave the page unread rather than
  * hand the caller a value made up for what was missing.
  */
@@ -75,7 +75,7 @@ function parse(answer: ListingAnswer, body: string): XmlElement {
 function readEntry(answer: ListingAnswer, entry: XmlElement): ObjectEntry {
   const key = nameOf(answer, entry);
 
-  if (key === undefined) throw malformed(answer, "an object with no name");
+  if (key === undefined) throw malformed(answer, "an object with no key");
 
   const properties = childrenNamed(entry, "Properties")[0];
   const size = sizeOf(textOf(properties, "Content-Length"));
