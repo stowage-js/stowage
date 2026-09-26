@@ -21,6 +21,16 @@ export function storageOptionsFrom(
   return { account, container, endpoint, credentials };
 }
 
+/**
+ * Spec 9.3: a credential the provider refuses. A token that is not a JWT is refused by
+ * Azurite and by the service alike, and needs no identity configured for it.
+ */
+export function storageWithBadCredentials(
+  configured: AzureBlobAdapterOptions,
+): AzureBlobAdapterOptions {
+  return { ...configured, credentials: { accessToken: "not-a-jwt" } };
+}
+
 function filled(value: string | null | undefined): string | undefined {
   return value === undefined || value === null || value === "" ? undefined : value;
 }

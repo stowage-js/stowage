@@ -1,13 +1,16 @@
-import type {
-  CapabilityName,
-  DeleteReport,
-  GetOptions,
-  ObjectListing,
-  ObjectStat,
-  PutBody,
-  PutOptions,
-  Storage,
-  StoredObject,
+import {
+  type CapabilityName,
+  type DeleteReport,
+  type GetOptions,
+  isStorageError,
+  type ListOptions,
+  type ObjectListing,
+  type ObjectStat,
+  type OperationOptions,
+  type PutBody,
+  type PutOptions,
+  type Storage,
+  type StoredObject,
 } from "@stowage/core";
 
 import {
@@ -17,7 +20,14 @@ import {
 } from "./configuration.ts";
 import { defaultContentType, describeResponse, describeWrite } from "./description.ts";
 import { requireKey } from "./key.ts";
-import { getOptionKeys, optionError, putOptionKeys, requireKnownOptions } from "./options.ts";
+import { readListRequest } from "./listing.ts";
+import {
+  getOptionKeys,
+  operationOptionKeys,
+  optionError,
+  putOptionKeys,
+  requireKnownOptions,
+} from "./options.ts";
 import { send } from "./request.ts";
 import { azureBlobError } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
@@ -114,16 +124,36 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
     );
   }
 
-  async stat(): Promise<ObjectStat> {
-    throw notYetImplemented("`stat`");
+  async stat(key: string, options?: OperationOptions): Promise<ObjectStat> {
+    return describeResponse(this.bucket, key, "stat", await this.#head(key, "stat", options));
   }
 
-  async exists(): Promise<boolean> {
-    throw notYetImplemented("`exists`");
+  async exists(key: string, options?: OperationOptions): Promise<boolean> {
+    try {
+      await this.#head(key, "exists", options);
+
+      return true;
+    } catch (failure) {
+      // Spec 4.10: `exists` answers `false` for `NotFound` alone and rethrows the rest.
+      if (isStorageError(failure) && failure.code === "NotFound") return false;
+
+      throw failure;
+    }
   }
 
-  list(): ObjectListing {
-    throw notYetImplemented("`list`");
+  // Spec 4.6: a listing sends no request until it is read, so an option it refuses
+  // reaches the caller from `page()` and from the iteration and not from `list`.
+  list(options?: ListOptions): ObjectListing {
+    const refuseOrStop = async (): Promise<never> => {
+      readListRequest(this.bucket, options);
+
+      throw notYetImplemented("`list`");
+    };
+
+    return {
+      page: refuseOrStop,
+      [Symbol.asyncIterator]: () => ({ next: refuseOrStop }),
+    };
   }
 
   async delete(): Promise<DeleteReport> {
@@ -134,12 +164,57 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
     throw notYetImplemented("`deleteAll`");
   }
 
-  async copy(): Promise<ObjectStat> {
+  async copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
+    this.#requireCopyKeys(from, to, options, "copy");
+
     throw notYetImplemented("`copy`");
   }
 
-  async move(): Promise<ObjectStat> {
+  async move(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
+    this.#requireCopyKeys(from, to, options, "move");
+
     throw notYetImplemented("`move`");
+  }
+
+  /** `Get Blob Properties`, whose failure spec 8.4 reads the code off `x-ms-error-code`. */
+  async #head(key: string, operation: string, options?: OperationOptions): Promise<Response> {
+    requireKey(this.bucket, key, "addressable", operation);
+    requireKnownOptions(this.bucket, options, operationOptionKeys, operation);
+
+    options?.signal?.throwIfAborted();
+
+    return await send(this.#configuration, {
+      method: "HEAD",
+      operation,
+      key,
+      signal: options?.signal,
+    });
+  }
+
+  /**
+   * Spec 4.8 checks both keys before acting on either, and spec 8.7 has a copy of a key
+   * onto itself stop before it leaves the process; a `move` onto itself would otherwise
+   * delete the one object it named.
+   */
+  #requireCopyKeys(
+    from: string,
+    to: string,
+    options: OperationOptions | undefined,
+    operation: string,
+  ): void {
+    requireKey(this.bucket, from, "addressable", operation);
+    requireKey(this.bucket, to, "writable", operation);
+    requireKnownOptions(this.bucket, options, operationOptionKeys, operation);
+
+    if (from !== to) return;
+
+    throw azureBlobError(this.bucket, {
+      code: "InvalidRequest",
+      message: "A copy names one key as its source and another as its destination",
+      operation,
+      key: from,
+      attempts: 0,
+    });
   }
 
   #requireNoUserMetadata(userMetadata: Record<string, string> | undefined, key: string): void {

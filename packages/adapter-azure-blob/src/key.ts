@@ -3,7 +3,7 @@ import { invalidKeyReason, type KeyRule, type StorageError } from "@stowage/core
 import { azureBlobError } from "./storage-error.ts";
 
 /** Azure's limit on the segments of a blob name. */
-const segmentLimit = 254;
+export const segmentLimit = 254;
 
 /** C1 controls, which the core rule lets through and Azure forbids or advises against. */
 const c1Control = /[\u0080-\u009f]/u;
