@@ -1,6 +1,4 @@
-import { parseXml, type XmlElement, XmlSyntaxError } from "@stowage/core";
-
-import { answeredRequest, malformedAnswer, readAnswerText } from "./answer.ts";
+import { answeredRequest, malformedAnswer, parseAnswer, readAnswerText } from "./answer.ts";
 import type { AzureBlobConfiguration } from "./configuration.ts";
 import { send } from "./request.ts";
 import type { UserDelegationKey } from "./sas.ts";
@@ -38,7 +36,7 @@ export async function requestUserDelegationKey(
     throw inStorage(failure, configuration.container, operation, key);
   });
   const answered = answeredRequest(configuration.container, operation, subject, response);
-  const root = parse(answered, await readAnswerText(answered, response));
+  const root = parseAnswer(answered, await readAnswerText(answered, response));
 
   if (root.name !== "UserDelegationKey") {
     throw malformedAnswer(answered, `a <${root.name}> where a <UserDelegationKey> belongs`);
@@ -61,20 +59,4 @@ export async function requestUserDelegationKey(
     signedVersion: field("SignedVersion"),
     value: field("Value"),
   };
-}
-
-function parse(answered: ReturnType<typeof answeredRequest>, body: string): XmlElement {
-  try {
-    return parseXml(body);
-  } catch (failure) {
-    if (failure instanceof XmlSyntaxError) {
-      throw malformedAnswer(
-        answered,
-        `a document outside the XML stowage reads: ${failure.message}`,
-        failure,
-      );
-    }
-
-    throw failure;
-  }
 }

@@ -4,7 +4,7 @@ import type { AzureBlobConfiguration } from "./configuration.ts";
 import type { AzureBlobCredentials } from "./credentials.ts";
 import { describeResponse } from "./description.ts";
 import { blobUrl, send } from "./request.ts";
-import { sasLead, signServiceSas } from "./sas.ts";
+import { sasWindow, signServiceSas } from "./sas.ts";
 import type { HeaderField } from "./sign.ts";
 
 const minute = 60 * 1000;
@@ -66,15 +66,9 @@ async function sourceAuthorization(
     ];
   }
 
-  const now = Date.now();
   const sas = await signServiceSas(
     configuration,
-    {
-      key: from,
-      permissions: "r",
-      start: new Date(now - sasLead),
-      expiry: new Date(now + sourceSasLifetime),
-    },
+    { key: from, permissions: "r", ...sasWindow(sourceSasLifetime) },
     credentials.accountKey,
   );
 
