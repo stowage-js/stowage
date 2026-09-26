@@ -1,4 +1,10 @@
-import { type GetOptions, isStorageError, type PutOptions, type StorageError } from "@stowage/core";
+import {
+  type GetOptions,
+  isStorageError,
+  type PutOptions,
+  type ResolverOptions,
+  type StorageError,
+} from "@stowage/core";
 import { afterEach, expect, test, vi } from "vitest";
 
 import {
@@ -1269,4 +1275,396 @@ test("`list` sends nothing until the listing is read", async () => {
   await listing.page();
 
   expect(sent).toHaveLength(1);
+});
+
+interface Subanswer {
+  readonly status: number;
+  readonly code?: string;
+  readonly message?: string;
+  /** Where the subresponse is told apart from the order it arrives in. */
+  readonly contentId?: string;
+}
+
+/**
+ * What Azure answers a Blob Batch with: `202`, and one HTTP response per subrequest in a
+ * `multipart/mixed` body, each under the `Content-ID` of the subrequest it answers.
+ */
+function batchAnswer(subanswers: readonly Subanswer[]): Response {
+  const boundary = "batchresponse_66925647-d0cb-4109-b6d3-28efe3e1e5ed";
+  const parts = subanswers.map((subanswer, index) => {
+    const failed = subanswer.code !== undefined;
+    const document = failed
+      ? `<?xml version="1.0" encoding="utf-8"?>\n<Error><Code>${subanswer.code}</Code><Message>${subanswer.message ?? "The specified blob does not exist."}\nRequestId:sub-${index}</Message></Error>`
+      : "";
+    const headers = [
+      failed ? `x-ms-error-code: ${subanswer.code}` : "x-ms-delete-type-permanent: true",
+      `x-ms-request-id: sub-${index}`,
+      "x-ms-version: 2026-04-06",
+      ...(failed ? [`Content-Length: ${document.length}`, "Content-Type: application/xml"] : []),
+    ];
+
+    return (
+      `--${boundary}\r\nContent-Type: application/http\r\nContent-ID: ${subanswer.contentId ?? index}\r\n\r\n` +
+      `HTTP/1.1 ${subanswer.status} ${failed ? "Failed" : "Accepted"}\r\n${headers.join("\r\n")}\r\n\r\n${document}\r\n`
+    );
+  });
+
+  return new Response(`${parts.join("")}--${boundary}--\r\n`, {
+    status: 202,
+    headers: {
+      "content-type": `multipart/mixed; boundary=${boundary}`,
+      "x-ms-request-id": "request-1",
+    },
+  });
+}
+
+function accepted(count: number): Response {
+  return batchAnswer(Array.from({ length: count }, () => ({ status: 202 })));
+}
+
+interface Subrequest {
+  readonly contentId: string | null;
+  readonly requestLine: string;
+  readonly headers: Headers;
+}
+
+/** The subrequests a Blob Batch carries, read out of its `multipart/mixed` body. */
+function subrequestsOf(request: SentRequest | undefined): Subrequest[] {
+  const boundary = /boundary=(?<boundary>[^;]+)/u.exec(request?.headers.get("content-type") ?? "")
+    ?.groups?.boundary;
+
+  if (!(request?.body instanceof Uint8Array)) throw new Error("The batch carries no held body");
+
+  const body = new TextDecoder().decode(request.body);
+
+  expect(body.endsWith(`--${boundary}--\r\n`)).toBe(true);
+
+  return body
+    .split(`--${boundary}`)
+    .slice(1, -1)
+    .map((part) => {
+      const [mime = "", http = ""] = part.replace(/^\r\n/u, "").split("\r\n\r\n");
+      const [requestLine = "", ...fields] = http.split("\r\n");
+
+      return {
+        contentId: fieldsOf(mime.split("\r\n")).get("content-id"),
+        requestLine,
+        headers: fieldsOf(fields),
+      };
+    });
+}
+
+function fieldsOf(lines: readonly string[]): Headers {
+  return new Headers(
+    lines.map((line) => {
+      const colon = line.indexOf(":");
+
+      return [line.slice(0, colon), line.slice(colon + 1).trim()];
+    }),
+  );
+}
+
+test("`delete` sends its keys as one Blob Batch of `Delete Blob` subrequests under the access token", async () => {
+  const sent = stubFetch(() => accepted(2));
+
+  const report = await storage().delete("notes/a.txt", "notes/b c.txt");
+
+  expect(report).toEqual({ requested: 2, failed: [] });
+  expect(sent).toHaveLength(1);
+
+  const [request] = sent;
+
+  expect(request?.method).toBe("POST");
+  expect(request?.url).toBe(
+    "https://stowage.blob.core.windows.net/conformance?restype=container&comp=batch",
+  );
+  expect(request?.headers.get("authorization")).toBe(`Bearer ${accessToken}`);
+  expect(request?.headers.get("content-type")).toMatch(/^multipart\/mixed; boundary=batch_\S+$/u);
+
+  const subrequests = subrequestsOf(request);
+
+  expect(subrequests.map((subrequest) => [subrequest.contentId, subrequest.requestLine])).toEqual([
+    ["0", "DELETE /conformance/notes/a.txt HTTP/1.1"],
+    ["1", "DELETE /conformance/notes/b%20c.txt HTTP/1.1"],
+  ]);
+
+  for (const { headers } of subrequests) {
+    expect(headers.get("authorization")).toBe(`Bearer ${accessToken}`);
+    expect(Date.parse(headers.get("x-ms-date") ?? "")).not.toBeNaN();
+    expect(headers.get("content-length")).toBe("0");
+    // The batch names the version once, on the request that carries it.
+    expect(headers.has("x-ms-version")).toBe(false);
+  }
+});
+
+test("under an account key each subrequest carries a Shared Key signature of its own", async () => {
+  const sent = stubFetch(() => accepted(2));
+  const emulator = storage({
+    account: "devstoreaccount1",
+    endpoint: "https://127.0.0.1:10000/devstoreaccount1",
+    credentials: { accountKey },
+  });
+
+  await emulator.delete("a", "b");
+
+  expect(sent[0]?.url).toBe(
+    "https://127.0.0.1:10000/devstoreaccount1/conformance?restype=container&comp=batch",
+  );
+  expect(sent[0]?.headers.get("authorization")).toMatch(/^SharedKey devstoreaccount1:/u);
+
+  const subrequests = subrequestsOf(sent[0]);
+
+  expect(subrequests.map((subrequest) => subrequest.requestLine)).toEqual([
+    "DELETE /devstoreaccount1/conformance/a HTTP/1.1",
+    "DELETE /devstoreaccount1/conformance/b HTTP/1.1",
+  ]);
+
+  const [one, other] = subrequests.map((subrequest) => subrequest.headers.get("authorization"));
+
+  expect(one).toMatch(/^SharedKey devstoreaccount1:[A-Za-z0-9+/]+=*$/u);
+  expect(other).toMatch(/^SharedKey devstoreaccount1:[A-Za-z0-9+/]+=*$/u);
+  expect(one).not.toBe(other);
+});
+
+test("a subrequest answered `404 BlobNotFound` counts as deleted", async () => {
+  stubFetch(() => batchAnswer([{ status: 202 }, { status: 404, code: "BlobNotFound" }]));
+
+  const report = await storage().delete("present", "absent");
+
+  expect(report).toEqual({ requested: 2, failed: [] });
+});
+
+test("any other failed subrequest is the key's entry in `failed`, told by spec 8.8 and not repeated", async () => {
+  const sent = stubFetch(() =>
+    batchAnswer([
+      { status: 202 },
+      {
+        status: 403,
+        code: "AuthorizationPermissionMismatch",
+        message: "This request is not authorized to perform this operation using this permission.",
+      },
+      { status: 503, code: "ServerBusy", message: "The server is busy." },
+      { status: 409, code: "LeaseIdMissing", message: "There is currently a lease on the blob." },
+    ]),
+  );
+
+  const report = await storage().delete("deleted", "denied", "busy", "leased");
+
+  expect(sent).toHaveLength(1);
+  expect(report.requested).toBe(4);
+  expect(
+    report.failed.map((failure) => [failure.key, failure.code, failure.status, failure.retryable]),
+  ).toEqual([
+    ["denied", "AccessDenied", 403, false],
+    ["busy", "ProviderError", 503, true],
+    ["leased", "ProviderError", 409, false],
+  ]);
+
+  const [denied] = report.failed;
+
+  expect(denied?.message).toBe(
+    "This request is not authorized to perform this operation using this permission.\nRequestId:sub-1",
+  );
+  expect(denied?.providerCode).toBe("AuthorizationPermissionMismatch");
+  expect(denied?.requestId).toBe("sub-1");
+  expect(denied?.operation).toBe("delete");
+  expect(denied?.bucket).toBe("conformance");
+  expect(denied?.attempts).toBe(1);
+});
+
+test("a `404` for anything but the blob, such as the container, is a failure of the key", async () => {
+  stubFetch(() =>
+    batchAnswer([
+      {
+        status: 404,
+        code: "ContainerNotFound",
+        message: "The specified container does not exist.",
+      },
+    ]),
+  );
+
+  const report = await storage().delete("object");
+
+  expect(report.failed.map((failure) => [failure.key, failure.code])).toEqual([
+    ["object", "NotFound"],
+  ]);
+});
+
+test("subresponses are told apart by `Content-ID`, not by the order they arrive in", async () => {
+  stubFetch(() =>
+    batchAnswer([
+      { status: 202, contentId: "2" },
+      { status: 403, code: "AuthorizationPermissionMismatch", contentId: "0" },
+      { status: 202, contentId: "1" },
+    ]),
+  );
+
+  const report = await storage().delete("first", "second", "third");
+
+  expect(report.failed.map((failure) => failure.key)).toEqual(["first"]);
+});
+
+test("a failure of the batch request as a whole rejects the call", async () => {
+  stubFetch(() =>
+    refused(403, "AuthenticationFailed", "Server failed to authenticate the request."),
+  );
+
+  const failure = await failureOf(() =>
+    storage({ credentials: { accountKey } }).delete("one", "two"),
+  );
+
+  expect(failure.code).toBe("InvalidCredentials");
+  expect(failure.operation).toBe("delete");
+  expect(failure.key).toBeUndefined();
+  expect(failure.status).toBe(403);
+});
+
+test("a batch request that fails transiently is repeated as a whole, on the budget of spec 8.5", async () => {
+  recordedDelays();
+
+  const sent = stubFetch(() =>
+    sent.length < 2 ? refused(503, "ServerBusy", "The server is busy.") : accepted(1),
+  );
+
+  const report = await storage().delete("object");
+
+  expect(report).toEqual({ requested: 1, failed: [] });
+  expect(sent).toHaveLength(2);
+});
+
+test("the repeat under a refreshed token authorizes the subrequests under the new token too", async () => {
+  const sent = stubFetch(() =>
+    sent.length === 1
+      ? refused(
+          401,
+          "InvalidAuthenticationInfo",
+          "Lifetime validation failed. The token is expired.",
+        )
+      : accepted(1),
+  );
+  const resolve = vi.fn<(options?: ResolverOptions) => AzureBlobCredentials>((options) => ({
+    accessToken: options?.forceRefresh === true ? "refreshed" : accessToken,
+  }));
+
+  await storage({ credentials: resolve }).delete("object");
+
+  expect(sent).toHaveLength(2);
+  expect(subrequestsOf(sent[0])[0]?.headers.get("authorization")).toBe(`Bearer ${accessToken}`);
+  expect(sent[1]?.headers.get("authorization")).toBe("Bearer refreshed");
+  expect(subrequestsOf(sent[1])[0]?.headers.get("authorization")).toBe("Bearer refreshed");
+});
+
+test("an invalid key is reported as `InvalidKey` and not sent, and the others are deleted", async () => {
+  const sent = stubFetch(() => accepted(2));
+  const loneSurrogate = "notes/\uD800.txt";
+
+  const report = await storage().delete(
+    "notes/a.txt",
+    "notes/../b.txt",
+    loneSurrogate,
+    "notes/c.txt",
+  );
+
+  expect(report.requested).toBe(4);
+  expect(report.failed.map((failure) => [failure.key, failure.code, failure.attempts])).toEqual([
+    ["notes/../b.txt", "InvalidKey", 0],
+    [loneSurrogate, "InvalidKey", 0],
+  ]);
+  expect(subrequestsOf(sent[0]).map((subrequest) => subrequest.requestLine)).toEqual([
+    "DELETE /conformance/notes/a.txt HTTP/1.1",
+    "DELETE /conformance/notes/c.txt HTTP/1.1",
+  ]);
+});
+
+test("a key another tool wrote, ending a segment in a dot, is deleted", async () => {
+  const sent = stubFetch(() => accepted(1));
+
+  const report = await storage().delete("written./by another tool");
+
+  expect(report).toEqual({ requested: 1, failed: [] });
+  expect(sent).toHaveLength(1);
+});
+
+test("zero keys, or none but invalid ones, resolve without a request", async () => {
+  const sent = stubFetch(() => accepted(0));
+
+  expect(await storage().delete()).toEqual({ requested: 0, failed: [] });
+
+  const report = await storage().delete("");
+
+  expect(report.requested).toBe(1);
+  expect(report.failed.map((failure) => failure.code)).toEqual(["InvalidKey"]);
+  expect(sent).toHaveLength(0);
+});
+
+test("`delete` sends at most one Blob Batch per 256 keys", async () => {
+  const sent = stubFetch((request) => accepted(subrequestsOf(request).length));
+  const keys = Array.from({ length: 600 }, (_, index) => `many/${index}`);
+
+  const report = await storage().delete(...keys);
+
+  expect(report).toEqual({ requested: 600, failed: [] });
+  expect(sent.map((request) => subrequestsOf(request).length)).toEqual([256, 256, 88]);
+  expect(subrequestsOf(sent[1])[0]).toMatchObject({
+    contentId: "0",
+    requestLine: "DELETE /conformance/many/256 HTTP/1.1",
+  });
+});
+
+test.each<[string, () => Response, string]>([
+  [
+    "an answer with no boundary",
+    () => new Response("", { status: 202, headers: { "x-ms-request-id": "request-1" } }),
+    "no batch of responses",
+  ],
+  [
+    "an answer that never closes",
+    () => {
+      const complete = batchAnswer([{ status: 202 }]);
+
+      return new Response("--b\r\nContent-ID: 0\r\n\r\nHTTP/1.1 202 Accepted\r\n\r\n", {
+        status: 202,
+        headers: {
+          "content-type":
+            complete.headers.get("content-type")?.replace(/boundary=.*/u, "boundary=b") ?? "",
+          "x-ms-request-id": "request-1",
+        },
+      });
+    },
+    "no batch of responses",
+  ],
+  [
+    "an answer missing a key",
+    () => batchAnswer([{ status: 202 }]),
+    'no answer for the key "second"',
+  ],
+])("%s is `ProviderError` rejecting the call", async (_label, answer, said) => {
+  stubFetch(answer);
+
+  const failure = await failureOf(() => storage().delete("first", "second"));
+
+  expect(failure.code).toBe("ProviderError");
+  expect(failure.message).toContain(said);
+  expect(failure.operation).toBe("delete");
+  expect(failure.status).toBe(202);
+  expect(failure.requestId).toBe("request-1");
+});
+
+test("an answer whose body breaks while it is read is a `NetworkError`", async () => {
+  stubFetch(
+    () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.error(new TypeError("terminated"));
+          },
+        }),
+        { status: 202, headers: { "content-type": "multipart/mixed; boundary=b" } },
+      ),
+  );
+
+  const failure = await failureOf(() => storage().delete("object"));
+
+  expect(failure.code).toBe("NetworkError");
+  expect(failure.retryable).toBe(true);
 });
