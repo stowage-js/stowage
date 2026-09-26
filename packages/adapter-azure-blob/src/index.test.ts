@@ -1255,6 +1255,8 @@ test("a provider that hands back the marker it was sent is `ProviderError`, not 
 
   expect(failure.code).toBe("ProviderError");
   expect(failure.message).toContain("marker");
+  expect(failure.status).toBe(200);
+  expect(failure.requestId).toBe("request-1");
   expect(sent).toHaveLength(2);
 });
 

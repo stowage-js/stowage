@@ -68,15 +68,6 @@ async function* walkPages(
     // oxlint-disable-next-line no-await-in-loop -- the next page needs this one's marker
     const document = await requestPage(configuration, { ...request, marker });
 
-    if (document.nextMarker !== undefined && document.nextMarker === marker) {
-      throw azureBlobError(configuration.container, {
-        code: "ProviderError",
-        message: "The provider repeated the marker it was sent",
-        operation: "list",
-        attempts: 1,
-      });
-    }
-
     yield document;
 
     if (document.nextMarker === undefined) return;
@@ -148,7 +139,21 @@ async function requestPage(
     requestId: response.headers.get("x-ms-request-id") ?? undefined,
   };
 
-  return readListingDocument(answer, await readBody(answer, response));
+  const document = readListingDocument(answer, await readBody(answer, response));
+
+  // A listing that continues from where it was sent would walk the same page forever.
+  if (document.nextMarker !== undefined && document.nextMarker === request.marker) {
+    throw azureBlobError(answer.container, {
+      code: "ProviderError",
+      message: "The provider repeated the marker it was sent",
+      operation: "list",
+      attempts: 1,
+      status: answer.status,
+      requestId: answer.requestId,
+    });
+  }
+
+  return document;
 }
 
 /**
