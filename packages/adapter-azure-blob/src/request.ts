@@ -193,6 +193,7 @@ async function failureOf(
   const failure = readProviderFailure({
     status: response.status,
     method: request.method,
+    key: request.key,
     providerCode,
     providerMessage: await readMessage(request, response),
     underRefreshedToken: made.underRefreshedToken,

@@ -882,3 +882,35 @@ test("`stat` and `exists` reject a signal that already fired before any request"
   });
   expect(sent).toHaveLength(0);
 });
+
+const tooLongKey = "k".repeat(1025);
+const tooManySegments = Array.from({ length: 255 }, () => "s").join("/");
+
+test.each([
+  ["`stat` of a key above 1,024 characters", () => storage().stat(tooLongKey)],
+  ["`exists` of a key above 1,024 characters", () => storage().exists(tooLongKey)],
+  ["`stat` of a key above 254 segments", () => storage().stat(tooManySegments)],
+  ["`get` of a key above 1,024 characters", () => storage().get(tooLongKey)],
+])("%s answered `400` is `InvalidKey`", async (_label, call) => {
+  stubFetch(() => headRefused(400, "InvalidUri"));
+
+  const failure = await failureOf(call);
+
+  expect(failure).toMatchObject({ code: "InvalidKey", status: 400, attempts: 1 });
+});
+
+test("a `400` for a key within the limits stays `ProviderError`", async () => {
+  stubFetch(() => headRefused(400, "InvalidUri"));
+
+  const failure = await failureOf(() => storage().stat("k".repeat(1024)));
+
+  expect(failure.code).toBe("ProviderError");
+});
+
+test("a `400` whose code the table holds is told by the table, whatever the key", async () => {
+  stubFetch(() => refused(400, "InvalidMetadata", "The metadata is invalid."));
+
+  const failure = await failureOf(() => storage().get(tooLongKey));
+
+  expect(failure.code).toBe("InvalidRequest");
+});

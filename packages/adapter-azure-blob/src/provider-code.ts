@@ -1,5 +1,7 @@
 import { errorCodeForStatus, type StorageErrorCode } from "@stowage/core";
 
+import { segmentLimit } from "./key.ts";
+
 /**
  * The table of spec 8.8: a code recognized here decides the error code alone, and an
  * unrecognized one falls to the status mapping of spec 4.10. Whether the condition is
@@ -41,13 +43,23 @@ const providerCodes: ReadonlyMap<string, StorageErrorCode> = new Map([
   ["OperationTimedOut", "ProviderError"],
 ]);
 
+const badRequest = 400;
 const unauthorized = 401;
+
+/**
+ * The longest blob name Azure holds, in characters. `length` counts UTF-16 code units, as
+ * .NET measures a string, which is never fewer than the code points: a key above the
+ * limit in either count is above it in this one.
+ */
+const longestHeldKey = 1024;
 
 /** What the provider answered a request with, as much of it as spec 8.8 reads. */
 export interface ProviderAnswer {
   readonly status: number;
   /** The method, which says what a provider that sent no message answered to. */
   readonly method: string;
+  /** The key the request addressed, whose length tells what a bare `400` means. */
+  readonly key?: string;
   readonly providerCode?: string;
   readonly providerMessage?: string;
   /** Whether the request went out under an access token the resolver had just refreshed. */
@@ -89,10 +101,27 @@ export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
   const recognized =
     answer.providerCode === undefined ? undefined : providerCodes.get(answer.providerCode);
 
-  return {
-    code: recognized ?? errorCodeForStatus(answer.status) ?? "ProviderError",
-    message: said,
-  };
+  if (recognized !== undefined) return { code: recognized, message: said };
+
+  // Spec 8.8: an addressable key the provider cannot hold, which spec 8.1 lets through so
+  // that a blob another tool wrote stays reachable, and which Azure names by no code.
+  const beyond = answer.key === undefined ? undefined : beyondHeldKey(answer.key);
+
+  if (answer.status === badRequest && beyond !== undefined) {
+    return { code: "InvalidKey", message: `The key ${beyond} the provider holds: ${said}` };
+  }
+
+  return { code: errorCodeForStatus(answer.status) ?? "ProviderError", message: said };
+}
+
+function beyondHeldKey(key: string): string | undefined {
+  if (key.length > longestHeldKey) {
+    return `is longer than the ${longestHeldKey} characters`;
+  }
+
+  if (key.split("/").length > segmentLimit) return `has more than the ${segmentLimit} segments`;
+
+  return undefined;
 }
 
 function statusMessage(answer: ProviderAnswer): string {
