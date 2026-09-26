@@ -31,40 +31,53 @@ const identityEncoding: HeaderField = ["accept-encoding", "identity"];
 /** What `encodeURIComponent` leaves alone and RFC 3986 counts as reserved. */
 const reservedByEncodeUriComponent = /[!'()*]/gu;
 
-/** One Azure request, answered by the response the provider sent or rejected with its failure. */
+/**
+ * One Azure request, answered by the response the provider sent or rejected with its
+ * failure. The loop of spec 8.5 lives in `@stowage/core`, as the one definition of the
+ * budget and the curve that a third-party adapter reads too.
+ */
 export async function send(
+  configuration: AzureBlobConfiguration,
+  request: AzureBlobRequest,
+): Promise<Response> {
+  return await withRetry(async () => await attemptOnce(configuration, request), {
+    maxAttempts: configuration.maxAttempts,
+    signal: request.signal,
+  });
+}
+
+/**
+ * One authorized request, which is the attempt CONTEXT.md names and what a repeat
+ * repeats: the credential is resolved and the request dated and signed anew.
+ */
+async function attemptOnce(
   configuration: AzureBlobConfiguration,
   request: AzureBlobRequest,
 ): Promise<Response> {
   const path = encodePath(pathOf(configuration, request.key));
   const query = request.query ?? [];
-  return await withRetry(
-    async () => {
-      const credentials = await resolveCredentials(configuration.credentials, {
-        forceRefresh: false,
-      }).catch((failure: unknown) => {
-        throw inStorage(failure, configuration.container, request.operation, request.key);
-      });
-      const headers = await authorize(configuration, request, path, credentials);
-      let response: Response;
+  const credentials = await resolveCredentials(configuration.credentials, {
+    forceRefresh: false,
+  }).catch((failure: unknown) => {
+    throw inStorage(failure, configuration.container, request.operation, request.key);
+  });
+  const headers = await authorize(configuration, request, path, credentials);
+  let response: Response;
 
-      try {
-        response = await fetch(urlOf(configuration, path, query), {
-          method: request.method,
-          headers: [...headers, identityEncoding].map(([name, value]) => [name, value]),
-          body: request.body,
-          signal: request.signal,
-        });
-      } catch (failure) {
-        throw transportFailure(configuration, request, failure);
-      }
+  try {
+    response = await fetch(urlOf(configuration, path, query), {
+      method: request.method,
+      headers: [...headers, identityEncoding].map(([name, value]) => [name, value]),
+      body: request.body,
+      signal: request.signal,
+    });
+  } catch (failure) {
+    throw transportFailure(configuration, request, failure);
+  }
 
-      if (response.ok) return response;
+  if (response.ok) return response;
 
-      throw await failureOf(configuration, request, response);
-    },
-    { maxAttempts: configuration.maxAttempts, signal: request.signal },
-  );
+  throw await failureOf(configuration, request, response);
 }
 
 /**

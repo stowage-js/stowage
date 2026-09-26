@@ -82,6 +82,20 @@ function refused(
   );
 }
 
+/** The delay of every wait, with the timer itself fired at once so the run goes on. */
+function recordedDelays(): number[] {
+  const delays: number[] = [];
+  const fire = globalThis.setTimeout;
+
+  vi.stubGlobal("setTimeout", (handler: () => void, milliseconds?: number): unknown => {
+    delays.push(milliseconds ?? 0);
+
+    return fire(handler, 0);
+  });
+
+  return delays;
+}
+
 const accessToken = "eyJ0eXAiOiJKV1QifQ.e30.";
 const accountKey = "c3Rvd2FnZQ==";
 
@@ -329,7 +343,7 @@ test("`get` of a missing blob is `NotFound` carrying what the provider answered"
   expect(failure.attempts).toBe(1);
 });
 
-test("a request that received no response is a `NetworkError`", async () => {
+test("a request that keeps receiving no response is a `NetworkError` after three attempts", async () => {
   vi.spyOn(Math, "random").mockReturnValue(0);
   const sent = stubFetch(() => {
     throw new TypeError("fetch failed");
@@ -339,8 +353,8 @@ test("a request that received no response is a `NetworkError`", async () => {
 
   expect(failure.code).toBe("NetworkError");
   expect(failure.retryable).toBe(true);
-  expect(failure.cause).toBeInstanceOf(TypeError);
   expect(failure.attempts).toBe(3);
+  expect(failure.cause).toBeInstanceOf(TypeError);
   expect(sent).toHaveLength(3);
 });
 
@@ -555,4 +569,94 @@ test("a failure whose body is no error document is told by its status", async ()
   expect(failure.providerCode).toBeUndefined();
   expect(failure.message).toContain("409");
   expect(failure.requestId).toBe("request-1");
+});
+
+test("`retry: false` sends one attempt", async () => {
+  const sent = stubFetch(() => {
+    throw new TypeError("fetch failed");
+  });
+
+  const failure = await failureOf(() => storage({ retry: false }).get("object"));
+
+  expect(failure.attempts).toBe(1);
+  expect(sent).toHaveLength(1);
+});
+
+test("`maxAttempts` bounds the attempts", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+  const sent = stubFetch(() => refused(503, "ServerBusy", "The server is busy."));
+
+  const failure = await failureOf(() => storage({ retry: { maxAttempts: 2 } }).get("object"));
+
+  expect(failure.code).toBe("ProviderError");
+  expect(failure.providerCode).toBe("ServerBusy");
+  expect(failure.message).toBe("The server is busy.");
+  expect(failure.retryable).toBe(true);
+  expect(failure.attempts).toBe(2);
+  expect(sent).toHaveLength(2);
+});
+
+// Spec 8.5: the group is a transport failure that received no response plus `408`, `429`
+// and every `5xx`. No provider code adds to it and none removes from it (ADR 0013).
+test.each([408, 429, 500, 502, 503, 504])("a %i is repeated on the budget", async (status) => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+  const sent = stubFetch(() => refused(status, "NothingThisTableHolds", "Try again."));
+
+  const failure = await failureOf(() => storage().get("object"));
+
+  expect(failure.retryable).toBe(true);
+  expect(failure.attempts).toBe(3);
+  expect(sent).toHaveLength(3);
+});
+
+test.each([400, 403, 404, 409, 412])("a %i is not repeated", async (status) => {
+  const sent = stubFetch(() => refused(status, "NothingThisTableHolds", "No."));
+
+  const failure = await failureOf(() => storage().get("object"));
+
+  expect(failure.retryable).toBe(false);
+  expect(failure.attempts).toBe(1);
+  expect(sent).toHaveLength(1);
+});
+
+test("a repeat resolves the credential again and sends the held body again", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+  const responses = [refused(500, "OperationTimedOut", "Operation could not be completed.")];
+  const sent = stubFetch(() => responses.shift() ?? created());
+  const resolve = vi.fn<() => AzureBlobCredentials>(() => ({ accessToken }));
+  const body = new TextEncoder().encode("held");
+
+  await storage({ credentials: resolve }).put("object", body);
+
+  expect(resolve).toHaveBeenCalledTimes(2);
+  expect(resolve).toHaveBeenCalledWith({ forceRefresh: false });
+  expect(sent).toHaveLength(2);
+  expect(sent[1]?.body).toEqual(body);
+});
+
+// Spec 8.5 reads no `Retry-After`, which Azure's Blob service does not promise to send.
+test("the wait is the backoff curve and never a `Retry-After`", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(1);
+  const delays = recordedDelays();
+
+  stubFetch(() => refused(503, "ServerBusy", "The server is busy.", { "retry-after": "120" }));
+
+  await failureOf(() => storage().get("object"));
+
+  expect(delays).toEqual([200, 400]);
+});
+
+test("an abort interrupts the wait before another attempt", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(0.5);
+  const controller = new AbortController();
+  const sent = stubFetch(() => {
+    setTimeout(() => controller.abort(), 0);
+
+    return refused(503, "ServerBusy", "The server is busy.");
+  });
+
+  await expect(storage().get("object", { signal: controller.signal })).rejects.toMatchObject({
+    name: "AbortError",
+  });
+  expect(sent).toHaveLength(1);
 });
