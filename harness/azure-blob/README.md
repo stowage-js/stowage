@@ -22,8 +22,9 @@ Azurite listens on `127.0.0.1:10000`. Where that port is taken, `STOWAGE_AZURE_B
 another one, and the printed endpoint follows it.
 
 `start.sh` generates a self-signed certificate for `127.0.0.1` on every start, because Azurite
-takes a bearer token over HTTPS alone, recreates the container with it, creates the container the
-suite writes to and prints the environment the run reads:
+takes a bearer token over HTTPS alone, and makes it no CA, since Deno refuses a CA certificate a
+server presents as its own. It recreates the container with it, creates the container the suite
+writes to and prints the environment the run reads:
 
 | Variable                           | What it names                                                  |
 | ---------------------------------- | -------------------------------------------------------------- |
