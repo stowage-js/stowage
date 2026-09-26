@@ -13,10 +13,12 @@ endpoint="https://127.0.0.1:${port}/${account}"
 
 # ADR 0023: a certificate of its own on every start, for the loopback address alone. The
 # key is readable by the container's user whatever this machine's user is; it signs for
-# nothing but a local emulator.
+# nothing but a local emulator. It is no CA: Deno's rustls refuses a CA certificate the
+# server presents as its own, which is what `openssl req -x509` makes by default.
 mkdir -p certificate
 openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=127.0.0.1" \
   -addext "subjectAltName=IP:127.0.0.1,DNS:localhost" \
+  -addext "basicConstraints=critical,CA:FALSE" \
   -keyout certificate/key.pem -out certificate/cert.pem 2>/dev/null
 chmod 644 certificate/key.pem
 
