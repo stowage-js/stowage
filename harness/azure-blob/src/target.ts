@@ -28,6 +28,7 @@ const coveredCases: ReadonlySet<string> = new Set([
   "declaration/identity",
   "put/string-round-trip",
   "put/overwrites",
+  "put/user-metadata",
   "put/user-metadata-limits",
   "put/user-metadata-token-keys",
   "get/missing-key",
