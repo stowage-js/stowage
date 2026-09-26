@@ -48,6 +48,12 @@ jobs:
       - name: Start the S3 endpoint
         run: ./harness/s3/start.sh | sed 's/^export //' >> "$GITHUB_ENV"
 
+      # ADR 0023: Azurite beside SeaweedFS. Its environment carries `NODE_EXTRA_CA_CERTS`,
+      # which the Node of every later step reads at its start to trust the certificate
+      # `start.sh` generated.
+      - name: Start the Azure Blob endpoint
+        run: ./harness/azure-blob/start.sh | sed 's/^export //' >> "$GITHUB_ENV"
+
       # Spec 2: `test` holds the Node column. Bun, Deno and `workerd` are columns of their
       # own, in the job below.
       - run: pnpm run test
@@ -55,6 +61,10 @@ jobs:
       - name: Stop the S3 endpoint
         if: always()
         run: ./harness/s3/stop.sh
+
+      - name: Stop the Azure Blob endpoint
+        if: always()
+        run: ./harness/azure-blob/stop.sh
 
   runtimes:
     name: ${{ matrix.name }}

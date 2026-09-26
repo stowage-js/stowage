@@ -928,7 +928,9 @@ export function fromEnv(options?: ResolverOptions): { accountKey: string };
 
 - `bucket` is the container. `account` is required configuration, not part of the credential: it
   names the endpoint and enters every Shared Key signature. Nothing reads it from the host or the
-  environment (ADR 0021).
+  environment (ADR 0021). It takes Azure's rule for an account name, 3 to 24 lower-case letters and
+  digits, with an `endpoint` or without one; anything else is `InvalidOption` at construction,
+  since without an `endpoint` the account becomes the host a bearer token is sent to.
 - `endpoint` absent addresses `https://<account>.blob.core.windows.net`. Given, it follows the
   rules of section 7.1: an absolute URL with no userinfo, no query and no fragment, `https:` always
   and `http:` only where the host is a loopback address; anything else is `InvalidOption` at
