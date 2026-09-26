@@ -1,6 +1,6 @@
 {
   "name": "@stowage/conformance",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "The cases every stowage adapter has to pass, as plain cases a test framework maps onto its own runner.",
   "keywords": [
     "adapter",

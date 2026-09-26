@@ -1,6 +1,6 @@
 {
   "name": "@stowage/adapter-fs",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "stowage adapter rooting a storage in one directory of the local file system.",
   "keywords": [
     "adapter",
