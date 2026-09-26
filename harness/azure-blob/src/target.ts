@@ -11,11 +11,15 @@ import {
 } from "../../../packages/conformance/src/run.ts";
 import type { ConformanceTarget } from "../../../packages/conformance/src/target.ts";
 
+import { storageWithBadCredentials } from "./configuration.ts";
+
 /**
  * The cases the adapter passes while its operations arrive one by one: those that need
- * `put` of held bytes and `get` and nothing else, including the halves that expect a
- * capability the storage does not declare yet. Every operation that joins the adapter
- * adds its cases here, until the list is the whole suite and goes.
+ * `put` of held bytes, `get`, `stat` and `exists` and nothing else, including the halves
+ * that expect a capability the storage does not declare yet, and those that meet `list`
+ * and `copy` only with what they refuse before a request. Every operation that joins the
+ * adapter adds its cases here, until the list is the whole suite and goes.
+ * `errors/bad-credentials` waits for `list`, which it reads under the refused credential.
  */
 const coveredCases: ReadonlySet<string> = new Set([
   "declaration/valid-names",
@@ -28,11 +32,17 @@ const coveredCases: ReadonlySet<string> = new Set([
   "get/stream",
   "get/text-and-json",
   "get/body-read-once",
+  "get/stat-from-response",
   "get/addressable-keys",
   "get/aborted-signal",
   "get/range",
   "get/range-unsatisfiable",
   "get/range-clipped",
+  "stat/describes-object",
+  "stat/missing-key",
+  "exists/answers",
+  "exists/invalid-key",
+  "errors/shape",
   "errors/not-a-storage-error",
   "presign/get",
   "presign/put",
@@ -52,6 +62,8 @@ export function azureBlobTarget(configured: AzureBlobAdapterOptions): Conformanc
     name: "@stowage/adapter-azure-blob",
 
     createStorage: () => azureBlobStorage(configured),
+
+    createStorageWithBadCredentials: () => azureBlobStorage(storageWithBadCredentials(configured)),
 
     // The default of spec 9.2 deletes below the prefix through `deleteAll`, which the
     // adapter does not have yet. Azurite holds the run in memory and is recreated by every
