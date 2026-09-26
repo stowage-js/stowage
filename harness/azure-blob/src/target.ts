@@ -17,11 +17,11 @@ import { storageWithBadCredentials } from "./configuration.ts";
  * The cases the adapter passes while its operations arrive one by one: those that need
  * `put` of held bytes, `get`, `stat`, `exists`, `list`, `delete` and `deleteAll` and nothing
  * else, including the halves that expect a capability the storage does not declare yet, and
- * those that meet `copy` only with what it refuses before a request. Every operation that joins the
- * adapter adds its cases here, until the list is the whole suite and goes.
- * `list/noncharacter-key` waits for an Azurite that lists a name holding `U+FFFE`: the
- * pinned one answers that `List Blobs` with `500`, and the blob the case leaves behind fails
- * the `cleanup` of the run with the same answer.
+ * those that meet `copy` only with what it refuses before a request. Every operation that
+ * joins the adapter adds its cases here, until the list is the whole suite and goes.
+ * `list/noncharacter-key` waits for an Azurite that lists a name holding `U+FFFE` (#171):
+ * the pinned one answers that `List Blobs` with `500`, and the blob the case leaves behind
+ * fails the `cleanup` of the run with the same answer.
  */
 const coveredCases: ReadonlySet<string> = new Set([
   "declaration/valid-names",
