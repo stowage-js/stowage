@@ -15,12 +15,13 @@ import { storageWithBadCredentials } from "./configuration.ts";
 
 /**
  * The cases the adapter passes while its operations arrive one by one: those that need
- * `put` of held bytes, `get`, `stat`, `exists` and `list` and nothing else, including the
- * halves that expect a capability the storage does not declare yet, and those that meet
- * `copy` only with what it refuses before a request. Every operation that joins the
+ * `put` of held bytes, `get`, `stat`, `exists`, `list`, `delete` and `deleteAll` and nothing
+ * else, including the halves that expect a capability the storage does not declare yet, and
+ * those that meet `copy` only with what it refuses before a request. Every operation that joins the
  * adapter adds its cases here, until the list is the whole suite and goes.
- * `list/noncharacter-key` waits for `delete`, which ends it, and for an Azurite that lists a
- * name holding `U+FFFE`: the pinned one answers that `List Blobs` with `500`.
+ * `list/noncharacter-key` waits for an Azurite that lists a name holding `U+FFFE`: the
+ * pinned one answers that `List Blobs` with `500`, and the blob the case leaves behind fails
+ * the `cleanup` of the run with the same answer.
  */
 const coveredCases: ReadonlySet<string> = new Set([
   "declaration/valid-names",
@@ -55,6 +56,15 @@ const coveredCases: ReadonlySet<string> = new Set([
   "list/invalid-delimiter",
   "list/past-one-thousand",
   "list/key-bytes",
+  "delete/single",
+  "delete/many",
+  "delete/absent-key-succeeds",
+  "delete/nothing",
+  "delete/invalid-key-reported",
+  "delete/past-one-thousand",
+  "deleteAll/below-prefix",
+  "deleteAll/nothing",
+  "deleteAll/past-one-thousand",
   "errors/shape",
   "errors/bad-credentials",
   "errors/not-a-storage-error",
@@ -79,11 +89,6 @@ export function azureBlobTarget(configured: AzureBlobAdapterOptions): Conformanc
     createStorage: () => azureBlobStorage(configured),
 
     createStorageWithBadCredentials: () => azureBlobStorage(storageWithBadCredentials(configured)),
-
-    // The default of spec 9.2 deletes below the prefix through `deleteAll`, which the
-    // adapter does not have yet. Azurite holds the run in memory and is recreated by every
-    // start, so nothing the run wrote outlives it.
-    async cleanup() {},
   };
 }
 
