@@ -28,6 +28,18 @@ const copyUnimplemented = {
 const notImplemented = "Current API is not implemented yet";
 const missingSourceUnread = 'carries `code: "ProviderError"` rather than "NotFound"';
 
+/**
+ * ADR 0022: Azurite takes `srh` on a user delegation SAS and leaves the headers it names
+ * out of the string to sign, so it refuses a signature that binds them, as the real account
+ * requires (`docs/research/azure-srh-binding.md`), and accepts one that binds nothing.
+ */
+const signedHeadersUnbound = {
+  endpoint: "azurite",
+  differs:
+    "Azurite 3.37.0 leaves the request headers `srh` names out of the string to sign of a user delegation SAS",
+  settledBy: "azure-blob",
+} as const;
+
 // Kept in the private harness and never in `@stowage/conformance` (ADR 0012).
 export const azureBlobDivergences: readonly Divergence<AzureBlobEmulator, AzureBlobRealEndpoint>[] =
   [
@@ -37,6 +49,16 @@ export const azureBlobDivergences: readonly Divergence<AzureBlobEmulator, AzureB
     { case: "copy/user-metadata", failureMessagePart: notImplemented, ...copyUnimplemented },
     { case: "move/round-trip", failureMessagePart: notImplemented, ...copyUnimplemented },
     { case: "move/missing-source", failureMessagePart: missingSourceUnread, ...copyUnimplemented },
+    {
+      case: "presign/put",
+      failureMessagePart: "answered 403 and not a success",
+      ...signedHeadersUnbound,
+    },
+    {
+      case: "flow/2-presigned-put",
+      failureMessagePart: "presigned URL was answered 403",
+      ...signedHeadersUnbound,
+    },
   ];
 
 /** The cases as a run against `endpoint` performs them, after ADR 0012. */
