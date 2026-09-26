@@ -11,6 +11,17 @@ export const putOptionKeys: readonly string[] = [
   "userMetadata",
 ];
 export const getOptionKeys: readonly string[] = [...operationOptionKeys, "range"];
+export const presignGetOptionKeys: readonly string[] = [
+  "expiresIn",
+  "responseContentType",
+  "responseContentDisposition",
+  "responseCacheControl",
+];
+export const presignPutOptionKeys: readonly string[] = [
+  "expiresIn",
+  "contentType",
+  "contentLength",
+];
 export const listOptionKeys: readonly string[] = [
   ...operationOptionKeys,
   "prefix",
