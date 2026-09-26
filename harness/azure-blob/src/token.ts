@@ -1,8 +1,14 @@
+/** A tenant that exists nowhere. */
+const tenant = "00000000-0000-0000-0000-000000000000";
+
+/** An issuer under the prefix `https://sts.windows.net/`, which Azurite accepts. */
+const issuer = `https://sts.windows.net/${tenant}/`;
+
 /**
- * An issuer under the prefix `https://sts.windows.net/`, which Azurite accepts, for a
- * tenant that exists nowhere.
+ * The principal the token stands for. Azurite answers `Get User Delegation Key` with an
+ * empty `500` for a token without `oid` and `tid`, which an Entra token always carries.
  */
-const issuer = "https://sts.windows.net/00000000-0000-0000-0000-000000000000/";
+const principal = "11111111-2222-3333-4444-555555555555";
 
 const audience = "https://storage.azure.com";
 
@@ -24,6 +30,8 @@ export function mintAccessToken(now: Date = new Date()): string {
     iat: seconds - leadSeconds,
     nbf: seconds - leadSeconds,
     exp: seconds + lifetimeSeconds,
+    oid: principal,
+    tid: tenant,
   };
 
   return `${base64Url(header)}.${base64Url(claims)}.`;
