@@ -80,7 +80,7 @@ const maxParts = 50_000;
  * fixed for as long as the adapter exists; another would collide with the uncommitted
  * blocks an earlier version left under the name.
  */
-const uploadTagBytes = 16;
+const uploadNonceBytes = 16;
 const partIndexBytes = 4;
 
 /**
@@ -95,8 +95,8 @@ async function blockUpload(
   parts: PartReader,
   first: Part,
 ): Promise<ObjectStat> {
-  const uploadTag = crypto.getRandomValues(new Uint8Array(uploadTagBytes));
-  const { blockIds, size } = await stageBlocks(configuration, write, parts, first, uploadTag);
+  const uploadNonce = crypto.getRandomValues(new Uint8Array(uploadNonceBytes));
+  const { blockIds, size } = await stageBlocks(configuration, write, parts, first, uploadNonce);
 
   return await commitBlocks(configuration, write, blockIds, size);
 }
@@ -108,19 +108,19 @@ interface StagedBlocks {
 }
 
 /**
- * Spec 8.6: `concurrency` blocks in flight, and the next part read only once one of them
- * settled, so the part buffers never outnumber the blocks in flight. The first failure
- * stops the blocks still in flight, and is what the upload rejects with once they settled.
+ * Spec 8.6: `concurrency` parts in flight, and the next part read only once one of them
+ * settled, so the part buffers never outnumber the parts in flight. The first failure
+ * stops the parts still in flight, and is what the upload rejects with once they settled.
  */
 async function stageBlocks(
   configuration: AzureBlobConfiguration,
   write: ObjectWrite,
   parts: PartReader,
   first: Part,
-  uploadTag: Uint8Array,
+  uploadNonce: Uint8Array,
 ): Promise<StagedBlocks> {
   const stop = new AbortController();
-  const blockWrite: ObjectWrite = {
+  const partWrite: ObjectWrite = {
     ...write,
     signal: write.signal === undefined ? stop.signal : AbortSignal.any([write.signal, stop.signal]),
   };
@@ -129,7 +129,7 @@ async function stageBlocks(
   let failure: { readonly reason: unknown } | undefined;
   let size = 0;
 
-  // The source is canceled along with the blocks, because a stream that stalls would
+  // The source is canceled along with the parts, because a stream that stalls would
   // otherwise hold the upload at the read of a part that is never sent.
   const fail = (reason: unknown): void => {
     failure ??= { reason };
@@ -138,7 +138,7 @@ async function stageBlocks(
   };
   const stageBlock = async (blockId: string, part: Part): Promise<void> => {
     try {
-      await putBlock(configuration, blockWrite, blockId, part);
+      await putBlock(configuration, partWrite, blockId, part);
     } catch (reason) {
       fail(reason);
     } finally {
@@ -150,7 +150,7 @@ async function stageBlocks(
     for (let index = 0, part = first; !stop.signal.aborted; index += 1) {
       if (index === maxParts - 1 && !part.last) throw tooManyParts(configuration, write);
 
-      const blockId = blockIdOf(uploadTag, index);
+      const blockId = blockIdOf(uploadNonce, index);
       const staging = stageBlock(blockId, part);
 
       blockIds.push(blockId);
@@ -177,12 +177,12 @@ async function stageBlocks(
   return { blockIds, size };
 }
 
-/** ADR 0024: the upload's tag and the part index big-endian, as the Base64 of twenty bytes. */
-function blockIdOf(uploadTag: Uint8Array, index: number): string {
-  const bytes = new Uint8Array(uploadTagBytes + partIndexBytes);
+/** ADR 0024: the upload's nonce and the part index big-endian, as the Base64 of twenty bytes. */
+function blockIdOf(uploadNonce: Uint8Array, index: number): string {
+  const bytes = new Uint8Array(uploadNonceBytes + partIndexBytes);
 
-  bytes.set(uploadTag);
-  new DataView(bytes.buffer).setUint32(uploadTagBytes, index);
+  bytes.set(uploadNonce);
+  new DataView(bytes.buffer).setUint32(uploadNonceBytes, index);
 
   return btoa(String.fromCharCode(...bytes));
 }

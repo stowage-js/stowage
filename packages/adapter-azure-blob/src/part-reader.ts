@@ -2,7 +2,7 @@
 const initialCapacity = 64 * 1024;
 
 export interface Part {
-  /** Held whole, because Shared Key signs its length and a repeat sends it again (spec 8.4). */
+  /** Held whole, because Azure refuses a chunked `Put Blob` and a repeat sends it again (spec 8.4). */
   readonly bytes: Uint8Array<ArrayBuffer>;
   /** Whether the stream ended with this part, which decides between one `Put Blob` and blocks. */
   readonly last: boolean;
@@ -13,7 +13,7 @@ export interface Part {
  * once the stream has ended behind it, so a full part looks one chunk ahead; that chunk
  * is the stream's own and becomes the start of the next part.
  *
- * A part handed back through `recycle` lends its buffer to a later one. Spec 8.6 bounds
+ * A part handed back through `recycle` lends its buffer to a later one. ADR 0016 bounds
  * an upload at `partSize × concurrency` of buffers, and a fresh buffer per part would
  * keep the settled ones alive until the collector noticed them.
  *
