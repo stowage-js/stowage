@@ -1323,14 +1323,14 @@ function accepted(count: number): Response {
   return batchAnswer(Array.from({ length: count }, () => ({ status: 202 })));
 }
 
-interface Subrequest {
+interface SentSubrequest {
   readonly contentId: string | null;
   readonly requestLine: string;
   readonly headers: Headers;
 }
 
 /** The subrequests a Blob Batch carries, read out of its `multipart/mixed` body. */
-function subrequestsOf(request: SentRequest | undefined): Subrequest[] {
+function subrequestsOf(request: SentRequest | undefined): SentSubrequest[] {
   const boundary = /boundary=(?<boundary>[^;]+)/u.exec(request?.headers.get("content-type") ?? "")
     ?.groups?.boundary;
 
