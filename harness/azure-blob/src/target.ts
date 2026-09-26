@@ -16,11 +16,11 @@ import { withAzureBlobDivergences } from "./divergences.ts";
 
 /**
  * The cases the adapter passes while its operations arrive one by one: those that need
- * `put` of held bytes, `get`, `stat`, `exists`, `list`, `copy`, `move`, `delete` and
- * `deleteAll` and nothing else, including the halves that expect a capability the storage
- * does not declare yet. Every operation that joins the adapter adds its cases here, until
- * the list is the whole suite and goes. The cases that send a copy run against Azurite as
- * divergences (`divergences.ts`).
+ * `put` of held bytes and of a stream, `get`, `stat`, `exists`, `list`, `copy`, `move`,
+ * `delete` and `deleteAll` and nothing else, including the halves that expect a capability
+ * the storage does not declare yet. Every operation that joins the adapter adds its cases
+ * here, until the list is the whole suite and goes. The cases that send a copy run against
+ * Azurite as divergences (`divergences.ts`).
  * `list/noncharacter-key` waits for an Azurite that lists a name holding `U+FFFE` (#171):
  * the pinned one answers that `List Blobs` with `500`, and the blob the case leaves behind
  * fails the `cleanup` of the run with the same answer.
@@ -29,6 +29,12 @@ const coveredCases: ReadonlySet<string> = new Set([
   "declaration/valid-names",
   "declaration/identity",
   "put/string-round-trip",
+  "put/stream-round-trip",
+  "put/multipart-round-trip",
+  "put/empty-body",
+  "put/abort-during-upload",
+  "put/stream-consumed",
+  "put/concurrent-writers",
   "put/overwrites",
   "put/user-metadata",
   "put/user-metadata-limits",
@@ -85,6 +91,7 @@ const coveredCases: ReadonlySet<string> = new Set([
   "presign/put-rejects-type",
   "presign/put-rejects-length",
   "presign/expired-url",
+  "flow/1-large-upload",
   "flow/3-file-browser",
   "flow/4-streaming-download",
 ]);
