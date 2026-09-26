@@ -1,7 +1,10 @@
+import { env } from "node:process";
+
 import { describe, expect, test } from "vitest";
 
 import { azureBlobStorage } from "../../../packages/adapter-azure-blob/src/index.ts";
 import { isStorageError } from "../../../packages/core/src/index.ts";
+import { endpointNameFrom } from "./configuration.ts";
 import { configuredStorage, endpointOrFail, storageUnderAccountKey } from "./environment.ts";
 
 // ADR 0023: the account key is promised as much as the access token, and the suite runs
@@ -84,7 +87,11 @@ describe.skipIf(underAccountKey === undefined || underAccessToken === undefined)
 
       const copied = await storage.copy(from, to).catch((failure: unknown) => failure);
 
-      if (isStorageError(copied) && copied.providerCode === "APINotImplemented") {
+      if (
+        endpointNameFrom(env) === "azurite" &&
+        isStorageError(copied) &&
+        copied.providerCode === "APINotImplemented"
+      ) {
         ctx.skip("The endpoint does not implement `Put Blob From URL` (ADR 0025)");
       }
 
