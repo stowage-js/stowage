@@ -11,6 +11,7 @@ import {
 import type { AzureBlobConfiguration } from "./configuration.ts";
 import type { AzureBlobCredentials } from "./credentials.ts";
 import { keyRefusal } from "./key.ts";
+import { maxPageSize, walkPages } from "./listing.ts";
 import { readProviderFailure } from "./provider-code.ts";
 import { authorizeHeaders, errorMessageOf, requestPath, send } from "./request.ts";
 import { azureBlobError } from "./storage-error.ts";
@@ -18,6 +19,7 @@ import { azureBlobError } from "./storage-error.ts";
 const notFound = 404;
 
 interface DeleteCall {
+  /** The operation the caller invoked: `delete`, or `deleteAll` for the page it listed. */
   readonly operation: string;
   readonly signal?: AbortSignal;
 }
@@ -55,6 +57,38 @@ export async function deleteKeys(
   }
 
   return { requested: keys.length, failed };
+}
+
+/**
+ * Spec 4.11: every object below the prefix, listed a page at a time and each page deleted
+ * as it arrives, so the call holds one page of keys whatever the prefix holds.
+ */
+export async function deleteBelow(
+  configuration: AzureBlobConfiguration,
+  prefix: string,
+  signal: AbortSignal | undefined,
+): Promise<DeleteReport> {
+  const operation = "deleteAll";
+  const failed: StorageError[] = [];
+  let requested = 0;
+
+  for await (const page of walkPages(configuration, {
+    operation,
+    prefix,
+    pageSize: maxPageSize,
+    signal,
+  })) {
+    const report = await deleteKeys(
+      configuration,
+      page.objects.map((entry) => entry.key),
+      { operation, signal },
+    );
+
+    requested += report.requested;
+    failed.push(...report.failed);
+  }
+
+  return { requested, failed };
 }
 
 function refusalOf(container: string, key: string, operation: string): StorageError | undefined {

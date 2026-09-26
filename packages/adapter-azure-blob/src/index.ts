@@ -18,7 +18,7 @@ import {
   type AzureBlobConfiguration,
   readConfiguration,
 } from "./configuration.ts";
-import { deleteKeys } from "./delete.ts";
+import { deleteBelow, deleteKeys } from "./delete.ts";
 import { defaultContentType, describeResponse, describeWrite } from "./description.ts";
 import { requireKey } from "./key.ts";
 import { createListing } from "./listing.ts";
@@ -150,8 +150,13 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
     return await deleteKeys(this.#configuration, keys, { operation: "delete" });
   }
 
-  async deleteAll(): Promise<DeleteReport> {
-    throw notYetImplemented("`deleteAll`");
+  async deleteAll(prefix: string, options?: OperationOptions): Promise<DeleteReport> {
+    requireKey(this.bucket, prefix, "prefix", "deleteAll");
+    requireKnownOptions(this.bucket, options, operationOptionKeys, "deleteAll");
+
+    options?.signal?.throwIfAborted();
+
+    return await deleteBelow(this.#configuration, prefix, options?.signal);
   }
 
   async copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {

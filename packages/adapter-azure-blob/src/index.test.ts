@@ -905,6 +905,7 @@ const unknownOperationOption = { versionId: "1" } as { signal?: AbortSignal };
 test.each([
   ["stat", () => storage().stat("object", unknownOperationOption)],
   ["exists", () => storage().exists("object", unknownOperationOption)],
+  ["deleteAll", () => storage().deleteAll("", unknownOperationOption)],
 ])("`%s` refuses an unknown option by name", async (_operation, call) => {
   stubFetch(() => described());
 
@@ -1667,4 +1668,75 @@ test("an answer whose body breaks while it is read is a `NetworkError`", async (
 
   expect(failure.code).toBe("NetworkError");
   expect(failure.retryable).toBe(true);
+});
+
+test("`deleteAll` lists below the prefix and deletes each page as it arrives", async () => {
+  const sent = stubFetch((request) => {
+    const url = new URL(request.url);
+
+    if (url.searchParams.get("comp") === "batch") {
+      return accepted(subrequestsOf(request).length);
+    }
+
+    return url.searchParams.has("marker")
+      ? enumeration([listedBlob("notes/c.txt")])
+      : enumeration([listedBlob("notes/a.txt"), listedBlob("notes/b.txt")], {
+          nextMarker: "after-b",
+        });
+  });
+
+  const report = await storage().deleteAll("notes/");
+
+  expect(report).toEqual({ requested: 3, failed: [] });
+  expect(sent.map((request) => new URL(request.url).searchParams.get("comp"))).toEqual([
+    "list",
+    "batch",
+    "list",
+    "batch",
+  ]);
+  expect(new URL(sent[0]?.url ?? "").searchParams.get("prefix")).toBe("notes/");
+  expect(new URL(sent[0]?.url ?? "").searchParams.get("maxresults")).toBe("1000");
+  expect(subrequestsOf(sent[3]).map((subrequest) => subrequest.requestLine)).toEqual([
+    "DELETE /conformance/notes/c.txt HTTP/1.1",
+  ]);
+});
+
+test("`deleteAll` of the empty prefix lists the whole container, and of nothing sends no batch", async () => {
+  const sent = stubFetch(() => enumeration([]));
+
+  expect(await storage().deleteAll("")).toEqual({ requested: 0, failed: [] });
+  expect(sent).toHaveLength(1);
+  expect(new URL(sent[0]?.url ?? "").searchParams.has("prefix")).toBe(false);
+});
+
+test("`deleteAll` reports a key's failure and tells a failed listing as its own", async () => {
+  stubFetch((request) =>
+    new URL(request.url).searchParams.get("comp") === "batch"
+      ? batchAnswer([{ status: 409, code: "LeaseIdMissing" }])
+      : enumeration([listedBlob("leased")]),
+  );
+
+  const report = await storage().deleteAll("");
+
+  expect(report.failed.map((failure) => [failure.key, failure.operation])).toEqual([
+    ["leased", "deleteAll"],
+  ]);
+
+  stubFetch(() => refused(404, "ContainerNotFound", "The specified container does not exist."));
+
+  const failure = await failureOf(() => storage().deleteAll(""));
+
+  expect(failure.code).toBe("NotFound");
+  expect(failure.operation).toBe("deleteAll");
+});
+
+test("`deleteAll` refuses a prefix and a fired signal before any request", async () => {
+  const sent = stubFetch(() => enumeration([]));
+  const aborted = AbortSignal.abort();
+
+  expect((await failureOf(() => storage().deleteAll("a/../b"))).code).toBe("InvalidKey");
+  await expect(storage().deleteAll("", { signal: aborted })).rejects.toThrow(
+    expect.objectContaining({ name: "AbortError" }),
+  );
+  expect(sent).toHaveLength(0);
 });
