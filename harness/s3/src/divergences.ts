@@ -7,16 +7,19 @@ import type { Emulator, RealEndpoint } from "./configuration.ts";
  * stands in for. The harness expects the case to fail against that endpoint alone, and the
  * same case run against `settledBy` in the `slow` tier is what keeps the entry honest.
  */
-export interface Divergence {
+export interface Divergence<
+  Endpoint extends string = Emulator,
+  Settling extends string = RealEndpoint,
+> {
   /** The conformance case the difference shows up in. */
   readonly case: string;
-  readonly endpoint: Emulator;
+  readonly endpoint: Endpoint;
   /** What the emulator does differently. */
   readonly differs: string;
   /** Part of the message the case fails with, so that another failure still reads as one. */
   readonly failureMessagePart: string;
   /** The real endpoint that runs the same case. */
-  readonly settledBy: RealEndpoint;
+  readonly settledBy: Settling;
   /** Where the difference is tracked upstream, telling a bug being fixed from an intent. */
   readonly upstream?: string;
 }
@@ -33,7 +36,8 @@ export const divergences: readonly Divergence[] = [];
 export function withDivergences(
   sources: readonly ConformanceCaseSource[],
   endpoint: string | undefined,
-  list: readonly Divergence[] = divergences,
+  list: readonly Divergence<string, string>[] = divergences,
+  listedIn = "harness/s3/src/divergences.ts",
 ): readonly ConformanceCaseSource[] {
   return sources.map((source) => {
     const divergence = list.find(
@@ -42,20 +46,25 @@ export function withDivergences(
 
     if (divergence === undefined) return source;
 
-    const run = expectingFailure(divergence, async (ctx) => await source.run(ctx));
+    const run = expectingFailure(divergence, listedIn, async (ctx) => await source.run(ctx));
 
     return "runWithout" in source
       ? {
           ...source,
           run,
-          runWithout: expectingFailure(divergence, async (ctx) => await source.runWithout(ctx)),
+          runWithout: expectingFailure(
+            divergence,
+            listedIn,
+            async (ctx) => await source.runWithout(ctx),
+          ),
         }
       : { ...source, run };
   });
 }
 
 function expectingFailure(
-  divergence: Divergence,
+  divergence: Divergence<string, string>,
+  listedIn: string,
   half: (ctx: ConformanceContext) => Promise<void>,
 ): (ctx: ConformanceContext) => Promise<void> {
   return async (ctx) => {
@@ -69,8 +78,7 @@ function expectingFailure(
 
     throw new Error(
       `\`${divergence.case}\` passed against ${divergence.endpoint}, which the divergence ` +
-        `list expects to fail: ${divergence.differs}. Remove the entry from ` +
-        "`harness/s3/src/divergences.ts`.",
+        `list expects to fail: ${divergence.differs}. Remove the entry from \`${listedIn}\`.`,
     );
   };
 }
