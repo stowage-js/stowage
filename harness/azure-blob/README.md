@@ -25,13 +25,14 @@ another one, and the printed endpoint follows it.
 takes a bearer token over HTTPS alone, recreates the container with it, creates the container the
 suite writes to and prints the environment the run reads:
 
-| Variable                       | What it names                                                  |
-| ------------------------------ | -------------------------------------------------------------- |
-| `STOWAGE_AZURE_BLOB_ENDPOINT`  | The URL the adapter is constructed against, the account's path |
-| `STOWAGE_AZURE_BLOB_ACCOUNT`   | The account, Azurite's `devstoreaccount1`                      |
-| `STOWAGE_AZURE_BLOB_CONTAINER` | The container the run writes below its own prefix in           |
-| `AZURE_STORAGE_KEY`            | Read by `fromEnv`: Azurite's published key for that account    |
-| `NODE_EXTRA_CA_CERTS`          | The certificate, which Node trusts beside its own CAs          |
+| Variable                           | What it names                                                  |
+| ---------------------------------- | -------------------------------------------------------------- |
+| `STOWAGE_AZURE_BLOB_ENDPOINT_NAME` | Which server answers, `azurite`, read by the divergence list   |
+| `STOWAGE_AZURE_BLOB_ENDPOINT`      | The URL the adapter is constructed against, the account's path |
+| `STOWAGE_AZURE_BLOB_ACCOUNT`       | The account, Azurite's `devstoreaccount1`                      |
+| `STOWAGE_AZURE_BLOB_CONTAINER`     | The container the run writes below its own prefix in           |
+| `AZURE_STORAGE_KEY`                | Read by `fromEnv`: Azurite's published key for that account    |
+| `NODE_EXTRA_CA_CERTS`              | The certificate, which Node trusts beside its own CAs          |
 
 The key is the one Microsoft publishes for the emulator and authenticates nothing else.
 
@@ -47,3 +48,12 @@ same container.
 
 The adapter gains its operations one ticket at a time, and `src/target.ts` names the cases it
 passes. A case joins that list with the operation it needs, until the list is the whole suite.
+
+## The divergence list
+
+`src/divergences.ts` holds one entry per conformance case Azurite answers differently from the
+account (ADR 0012, ADR 0023), read against `STOWAGE_AZURE_BLOB_ENDPOINT_NAME`, which `start.sh`
+sets to `azurite`. The mechanism is the S3 harness's: against the endpoint an entry names, the
+case passes where it fails as the entry says and fails where it passes. The six cases that send
+a copy are on it while the pinned Azurite lacks `Put Blob From URL` and ignores
+`x-ms-copy-source-authorization` (ADR 0025).

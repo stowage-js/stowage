@@ -12,13 +12,15 @@ import {
 import type { ConformanceTarget } from "../../../packages/conformance/src/target.ts";
 
 import { storageWithBadCredentials } from "./configuration.ts";
+import { withAzureBlobDivergences } from "./divergences.ts";
 
 /**
  * The cases the adapter passes while its operations arrive one by one: those that need
- * `put` of held bytes, `get`, `stat`, `exists`, `list`, `delete` and `deleteAll` and nothing
- * else, including the halves that expect a capability the storage does not declare yet, and
- * those that meet `copy` only with what it refuses before a request. Every operation that
- * joins the adapter adds its cases here, until the list is the whole suite and goes.
+ * `put` of held bytes, `get`, `stat`, `exists`, `list`, `copy`, `move`, `delete` and
+ * `deleteAll` and nothing else, including the halves that expect a capability the storage
+ * does not declare yet. Every operation that joins the adapter adds its cases here, until
+ * the list is the whole suite and goes. The cases that send a copy run against Azurite as
+ * divergences (`divergences.ts`).
  * `list/noncharacter-key` waits for an Azurite that lists a name holding `U+FFFE` (#171):
  * the pinned one answers that `List Blobs` with `500`, and the blob the case leaves behind
  * fails the `cleanup` of the run with the same answer.
@@ -57,6 +59,14 @@ const coveredCases: ReadonlySet<string> = new Set([
   "list/invalid-delimiter",
   "list/past-one-thousand",
   "list/key-bytes",
+  "copy/round-trip",
+  "copy/overwrites",
+  "copy/missing-source",
+  "copy/onto-itself",
+  "copy/invalid-keys",
+  "copy/user-metadata",
+  "move/round-trip",
+  "move/missing-source",
   "delete/single",
   "delete/many",
   "delete/absent-key-succeeds",
@@ -104,6 +114,7 @@ export const endpointMissing =
 export function describeAzureBlob(
   framework: ConformanceFramework,
   configured: AzureBlobAdapterOptions | undefined,
+  endpointName: string | undefined,
 ): void {
   framework.test(
     "the Azure Blob endpoint of ADR 0023 is configured (see `harness/azure-blob/README.md`)",
@@ -114,5 +125,9 @@ export function describeAzureBlob(
 
   if (configured === undefined) return;
 
-  describeCases(azureBlobCases(framework), azureBlobTarget(configured), framework);
+  describeCases(
+    withAzureBlobDivergences(azureBlobCases(framework), endpointName),
+    azureBlobTarget(configured),
+    framework,
+  );
 }
