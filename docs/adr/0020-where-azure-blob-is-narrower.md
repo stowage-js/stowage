@@ -72,3 +72,5 @@ which every adapter satisfies and which would take the same promise from S3's ca
   provider.
 - The README of the Azure adapter lists as limits the missing `userMetadataTokenKeys`, the three
   refused kinds of writable key, and the batch of 256.
+- ADR 0029 amends this: the adapter sends user metadata keys folded to lower case and hands them
+  back in lower case, because `fetch` reads every header name in lower case.

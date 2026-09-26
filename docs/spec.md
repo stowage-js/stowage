@@ -1019,7 +1019,8 @@ another endpoint that speaks the Blob wire protocol can be configured and are no
   `Encoded="true"`, which is how Azure carries a name holding `U+FFFE` or `U+FFFF`, is decoded as
   percent-encoded UTF-8.
 - A `userMetadata` key is sent folded to lower case. Azure keeps the case of a name, but `fetch`
-  hands every header name back in lower case on every runtime, so no read could return another.
+  hands every header name back in lower case on every runtime, so no read could return another
+  (ADR 0029).
 - A `userMetadata` value holding a run of whitespace is sent as encoded words even where it would
   travel as written, and read back decoded, so no header value holds a run the signature would have
   to settle.
