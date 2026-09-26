@@ -39,5 +39,18 @@ describe.skipIf(underAccountKey === undefined || underAccessToken === undefined)
 
       expect(await stored.text()).toBe("written under the token");
     });
+
+    // `List Blobs` is the first request whose query Shared Key signs, and the prefix in it
+    // travels encoded.
+    test("Shared Key signs a listing below a prefix of characters that travel encoded", async () => {
+      const storage = azureBlobStorage(endpointOrFail(underAccountKey));
+      const below = `${prefix}a b#c?d%e+f'(g)*!/`;
+
+      await storage.put(`${below}listed`, "listed under the account key");
+
+      const page = await storage.list({ prefix: below, delimiter: "/" }).page();
+
+      expect(page.objects.map((entry) => entry.key)).toEqual([`${below}listed`]);
+    });
   },
 );

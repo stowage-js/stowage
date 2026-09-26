@@ -15,11 +15,11 @@ import { storageWithBadCredentials } from "./configuration.ts";
 
 /**
  * The cases the adapter passes while its operations arrive one by one: those that need
- * `put` of held bytes, `get`, `stat` and `exists` and nothing else, including the halves
- * that expect a capability the storage does not declare yet, and those that meet `list`
- * and `copy` only with what they refuse before a request. Every operation that joins the
+ * `put` of held bytes, `get`, `stat`, `exists` and `list` and nothing else, including the
+ * halves that expect a capability the storage does not declare yet, and those that meet
+ * `copy` only with what it refuses before a request. Every operation that joins the
  * adapter adds its cases here, until the list is the whole suite and goes.
- * `errors/bad-credentials` waits for `list`, which it reads under the refused credential.
+ * `list/noncharacter-key` waits for `delete`, which ends it.
  */
 const coveredCases: ReadonlySet<string> = new Set([
   "declaration/valid-names",
@@ -42,7 +42,20 @@ const coveredCases: ReadonlySet<string> = new Set([
   "stat/missing-key",
   "exists/answers",
   "exists/invalid-key",
+  "list/nothing",
+  "list/every-object-once",
+  "list/entry-shape",
+  "list/pages-and-cursor",
+  "list/delimiter",
+  "list/prefix-mid-segment",
+  "list/lazy",
+  "list/page-size-bounds",
+  "list/invalid-cursor",
+  "list/invalid-delimiter",
+  "list/past-one-thousand",
+  "list/key-bytes",
   "errors/shape",
+  "errors/bad-credentials",
   "errors/not-a-storage-error",
   "presign/get",
   "presign/put",
@@ -50,6 +63,7 @@ const coveredCases: ReadonlySet<string> = new Set([
   "presign/put-rejects-type",
   "presign/put-rejects-length",
   "presign/expired-url",
+  "flow/3-file-browser",
 ]);
 
 export function azureBlobCases(options: ConformanceRunOptions): readonly ConformanceCaseSource[] {
