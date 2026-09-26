@@ -1,7 +1,17 @@
 import type { ConformanceCaseSource } from "../../../packages/conformance/src/case.ts";
 import { runCases } from "../../../packages/conformance/src/run-all.ts";
-import { selectedCases } from "../../../packages/conformance/src/run.ts";
+import {
+  type ConformanceRunOptions,
+  selectedCases,
+} from "../../../packages/conformance/src/run.ts";
 import type { ConformanceTarget } from "../../../packages/conformance/src/target.ts";
+import {
+  endpointNameFrom as azureBlobEndpointNameFrom,
+  storageOptionsFrom as azureBlobStorageOptionsFrom,
+} from "../../azure-blob/src/configuration.ts";
+import { withAzureBlobDivergences } from "../../azure-blob/src/divergences.ts";
+import { azureBlobCases, azureBlobTarget } from "../../azure-blob/src/target.ts";
+import { mintAccessToken } from "../../azure-blob/src/token.ts";
 import {
   endpointNameFrom,
   storageOptionsFrom,
@@ -39,9 +49,11 @@ export default {
 };
 
 function runAt(pathname: string, variables: Variables): Run | undefined {
-  const cases = selectedCases(runOptionsFrom(variables));
+  const options = runOptionsFrom(variables);
+  const cases = selectedCases(options);
 
   if (pathname === "/adapter-memory") return { target: memoryTarget, cases };
+  if (pathname === "/adapter-azure-blob") return azureBlobRun(variables, options);
   if (pathname !== "/adapter-s3") return undefined;
 
   // The flags of spec 1 take `process` away, so `fromEnv` finds nothing to read here and
@@ -56,5 +68,20 @@ function runAt(pathname: string, variables: Variables): Run | undefined {
   return {
     target: s3Target(configured, variables),
     cases: withDivergences(cases, endpointNameFrom(variables)),
+  };
+}
+
+function azureBlobRun(variables: Variables, options: ConformanceRunOptions): Run | undefined {
+  // ADR 0023: the suite runs under an access token and not the account key `fromEnv`
+  // reads, so the worker mints one for every request as the other harnesses do.
+  const configured = azureBlobStorageOptionsFrom(variables, () => ({
+    accessToken: mintAccessToken(),
+  }));
+
+  if (configured === undefined) return undefined;
+
+  return {
+    target: azureBlobTarget(configured),
+    cases: withAzureBlobDivergences(azureBlobCases(options), azureBlobEndpointNameFrom(variables)),
   };
 }

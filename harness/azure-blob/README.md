@@ -14,9 +14,10 @@ pnpm test
 ```
 
 `pnpm test` runs the Node column of spec 2, the S3 tier included, so `harness/s3/start.sh` belongs
-beside it. Docker and `openssl` are required. Without `STOWAGE_AZURE_BLOB_ENDPOINT` the run fails
-rather than passing with the tier skipped (ADR 0012), and CI starts `compose.yml` itself before the
-harnesses run.
+beside it. `pnpm test:bun`, `pnpm test:deno` and `pnpm test:workerd` run the same tier in the other
+three columns, against the same endpoint. Docker and `openssl` are required. Without
+`STOWAGE_AZURE_BLOB_ENDPOINT` the run fails rather than passing with the tier skipped (ADR 0012),
+and CI starts `compose.yml` itself before the harnesses run.
 
 Azurite listens on `127.0.0.1:10000`. Where that port is taken, `STOWAGE_AZURE_BLOB_PORT` names
 another one, and the printed endpoint follows it.
@@ -36,7 +37,18 @@ writes to and prints the environment the run reads:
 | `NODE_EXTRA_CA_CERTS`              | The certificate, which Node and Bun trust beside their own CAs |
 | `DENO_CERT`                        | The same certificate, which Deno trusts beside its own CAs     |
 
-The key is the one Microsoft publishes for the emulator and authenticates nothing else.
+The key is the one Microsoft publishes for the emulator and authenticates nothing else. `workerd`
+reads no variable for a certificate: the `workerd` harness copies the file to where
+`workerd.capnp` names it in `tlsOptions.trustedCertificates` (ADR 0023), and a placeholder whose
+key nobody holds where `start.sh` has not run, so that `workerd` starts and the missing endpoint
+fails its check.
+
+## The `workerd` harness
+
+The worker runs the tier under `no_nodejs_compat` and `no_nodejs_compat_v2`, where no Node API is
+reachable, and runs its `fast` cases a second time under the default flags of the compatibility
+date (ADR 0026). Both runs take the case list and the divergence list from `src/`, so a case that
+joins `src/target.ts` runs in every column.
 
 ## Two credentials
 

@@ -114,7 +114,7 @@ jobs:
 
       # ADR 0023: each runtime trusts the certificate `start.sh` generated the way it
       # trusts a CA of its own. Bun reads `NODE_EXTRA_CA_CERTS` and Deno `DENO_CERT`, both
-      # from this environment, and `workerd.capnp` embeds the file itself.
+      # from this environment, and the `workerd` harness hands the file to `workerd.capnp`.
       - name: Start the Azure Blob endpoint
         run: ./harness/azure-blob/start.sh | sed 's/^export //' >> "$GITHUB_ENV"
 
