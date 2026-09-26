@@ -1,5 +1,12 @@
 # @stowage/adapter-fs
 
+## 0.2.0
+
+### Patch Changes
+
+- Updated dependencies [42a6ad3]
+  - @stowage/core@0.2.0
+
 ## 0.1.0
 
 ### Minor Changes
