@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { azureBlobStorage } from "../../../packages/adapter-azure-blob/src/index.ts";
+import { isStorageError } from "../../../packages/core/src/index.ts";
 import { configuredStorage, endpointOrFail, storageUnderAccountKey } from "./environment.ts";
 
 // ADR 0023: the account key is promised as much as the access token, and the suite runs
@@ -69,6 +70,30 @@ describe.skipIf(underAccountKey === undefined || underAccessToken === undefined)
         false,
         false,
       ]);
+    });
+
+    // ADR 0025: under the account key the source of a copy carries a service SAS, which an
+    // endpoint checks only where it carries `Put Blob From URL`. The pinned Azurite answers
+    // `501`, and the test copies once the pin moves to a release that does not.
+    test("Shared Key signs a copy whose source carries a service SAS", async (ctx) => {
+      const storage = azureBlobStorage(endpointOrFail(underAccountKey));
+      const from = `${encodedPrefix}copied/source`;
+      const to = `${encodedPrefix}copied/destination`;
+
+      await storage.put(from, "copied under the account key", { contentType: "text/plain" });
+
+      const copied = await storage.copy(from, to).catch((failure: unknown) => failure);
+
+      if (isStorageError(copied) && copied.providerCode === "APINotImplemented") {
+        ctx.skip("The endpoint does not implement `Put Blob From URL` (ADR 0025)");
+      }
+
+      if (copied instanceof Error) throw copied;
+
+      const stored = await storage.get(to);
+
+      expect(stored.stat.contentType).toBe("text/plain");
+      expect(await stored.text()).toBe("copied under the account key");
     });
   },
 );

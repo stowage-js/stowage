@@ -18,6 +18,7 @@ import {
   type AzureBlobConfiguration,
   readConfiguration,
 } from "./configuration.ts";
+import { copyBlob } from "./copy.ts";
 import { deleteBelow, deleteKeys } from "./delete.ts";
 import { defaultContentType, describeResponse, describeWrite } from "./description.ts";
 import { requireKey } from "./key.ts";
@@ -29,9 +30,11 @@ import {
   putOptionKeys,
   requireKnownOptions,
 } from "./options.ts";
+import { rangeAnswerFailure, rangeHeader, requireRange } from "./range.ts";
 import { send } from "./request.ts";
 import { azureBlobError } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
+import { userMetadataHeaders } from "./user-metadata.ts";
 
 export type { AzureBlobAdapterOptions } from "./configuration.ts";
 export { type AzureBlobCredentials, fromEnv } from "./credentials.ts";
@@ -44,7 +47,10 @@ export function azureBlobStorage(options: AzureBlobAdapterOptions): AzureBlobSto
   return new AzureBlobContainerStorage(options);
 }
 
-const azureBlobCapabilities: readonly CapabilityName[] = Object.freeze([]);
+const azureBlobCapabilities: readonly CapabilityName[] = Object.freeze([
+  "rangeReads",
+  "userMetadata",
+]);
 
 const utf8 = new TextEncoder();
 
@@ -74,8 +80,12 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
   async #put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat> {
     requireKey(this.bucket, key, "writable", "put");
     requireKnownOptions(this.bucket, options, putOptionKeys, "put");
-    this.#requireNoUserMetadata(options?.userMetadata, key);
-
+    const userMetadata = userMetadataHeaders(
+      this.bucket,
+      options?.userMetadata,
+      key,
+      this.capabilities,
+    );
     const contentType = this.#readContentType(options?.contentType);
 
     // Spec 4.3: a signal that already fired rejects before the request goes out.
@@ -91,6 +101,7 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
       headers: [
         ["content-type", contentType],
         ["x-ms-blob-type", "BlockBlob"],
+        ...userMetadata.headers,
       ],
       body: bytes,
       signal: options?.signal,
@@ -98,16 +109,23 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
 
     await response.body?.cancel();
 
-    return describeWrite(this.bucket, key, bytes.byteLength, contentType, response);
+    return describeWrite(
+      this.bucket,
+      key,
+      bytes.byteLength,
+      contentType,
+      userMetadata.held,
+      response,
+    );
   }
 
   async get(key: string, options?: GetOptions): Promise<StoredObject> {
     requireKey(this.bucket, key, "addressable", "get");
     requireKnownOptions(this.bucket, options, getOptionKeys, "get");
 
-    if (options?.range !== undefined) {
-      throw this.#unsupported("rangeReads", "This storage reads no range", "get", key);
-    }
+    const range = options?.range;
+
+    requireRange(this.bucket, range);
 
     options?.signal?.throwIfAborted();
 
@@ -115,14 +133,22 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
       method: "GET",
       operation: "get",
       key,
+      headers: range === undefined ? [] : [["range", rangeHeader(range)]],
       signal: options?.signal,
     });
+    const stat = describeResponse(this.bucket, key, "get", response);
+    const refusal =
+      range === undefined
+        ? undefined
+        : rangeAnswerFailure(this.bucket, key, range, response, stat.size);
 
-    return createStoredObject(
-      this.bucket,
-      describeResponse(this.bucket, key, "get", response),
-      response,
-    );
+    if (refusal !== undefined) {
+      await response.body?.cancel();
+
+      throw refusal;
+    }
+
+    return createStoredObject(this.bucket, stat, response);
   }
 
   async stat(key: string, options?: OperationOptions): Promise<ObjectStat> {
@@ -162,13 +188,33 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
   async copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
     this.#requireCopyKeys(from, to, options, "copy");
 
-    throw notYetImplemented("`copy`");
+    return await copyBlob(this.#configuration, from, to, "copy", options?.signal);
   }
 
+  /**
+   * Spec 8.7: the copy and then `Delete Blob` on `from`, sent without a condition. The copy
+   * has finished when it resolves, so no pending copy is there for the delete to break, and
+   * a source already gone counts as deleted, as it does for `delete` (spec 4.7).
+   */
   async move(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
     this.#requireCopyKeys(from, to, options, "move");
 
-    throw notYetImplemented("`move`");
+    const written = await copyBlob(this.#configuration, from, to, "move", options?.signal);
+
+    try {
+      const response = await send(this.#configuration, {
+        method: "DELETE",
+        operation: "move",
+        key: from,
+        signal: options?.signal,
+      });
+
+      await response.body?.cancel();
+    } catch (failure) {
+      if (!isStorageError(failure) || failure.providerCode !== "BlobNotFound") throw failure;
+    }
+
+    return written;
   }
 
   /** `Get Blob Properties`, whose failure spec 8.4 reads the code off `x-ms-error-code`. */
@@ -212,12 +258,6 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
     });
   }
 
-  #requireNoUserMetadata(userMetadata: Record<string, string> | undefined, key: string): void {
-    if (userMetadata === undefined || Object.keys(userMetadata).length === 0) return;
-
-    throw this.#unsupported("userMetadata", "This storage holds no user metadata", "put", key);
-  }
-
   #readContentType(contentType: string | undefined): string {
     if (contentType === undefined) return defaultContentType;
 
@@ -226,17 +266,6 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
     }
 
     return contentType;
-  }
-
-  #unsupported(capability: CapabilityName, message: string, operation: string, key: string) {
-    return azureBlobError(this.bucket, {
-      code: "Unsupported",
-      message,
-      operation,
-      key,
-      attempts: 0,
-      capability,
-    });
   }
 }
 

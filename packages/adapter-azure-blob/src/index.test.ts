@@ -441,34 +441,176 @@ test("a signal that already fired rejects with `AbortError` before any request",
   expect(sent).toHaveLength(0);
 });
 
-test("the storage declares no capability yet", () => {
-  expect(storage().capabilities).toEqual([]);
+test("the storage declares `rangeReads` and `userMetadata`, and not `userMetadataTokenKeys`", () => {
+  expect(storage().capabilities).toEqual(["rangeReads", "userMetadata"]);
 });
 
-test("user metadata is `Unsupported` naming `userMetadata`, and an empty set is written", async () => {
+test("`put` sends each user metadata key as an `x-ms-meta-` field, folded to lower case", async () => {
   const sent = stubFetch(() => created());
 
-  const failure = await failureOf(() =>
-    storage().put("object", "body", { userMetadata: { WrittenBy: "stowage" } }),
-  );
+  const written = await storage().put("object", "body", {
+    userMetadata: { WrittenBy: "stowage", run_1: "grüße" },
+  });
 
-  expect(failure.code).toBe("Unsupported");
-  expect(failure.capability).toBe("userMetadata");
-  expect(failure.attempts).toBe(0);
+  expect(sent[0]?.headers.get("x-ms-meta-writtenby")).toBe("stowage");
+  expect(sent[0]?.headers.get("x-ms-meta-run_1")).toBe("=?UTF-8?B?Z3LDvMOfZQ==?=");
+  expect(written.userMetadata).toEqual({ writtenby: "stowage", run_1: "grüße" });
+});
 
-  await storage().put("object", "body", { userMetadata: {} });
+// Shared Key folds a run of whitespace in a canonical header to one space, and whether the
+// service stores the run or the folded value is left for no signature to settle.
+test("a value holding a run of whitespace travels as encoded words, a single space as written", async () => {
+  const sent = stubFetch(() => created());
 
+  await storage({ credentials: { accountKey } }).put("object", "body", {
+    userMetadata: { spaced: "a  b", single: "a b" },
+  });
+
+  expect(sent[0]?.headers.get("x-ms-meta-spaced")).toBe("=?UTF-8?B?YSAgYg==?=");
+  expect(sent[0]?.headers.get("x-ms-meta-single")).toBe("a b");
+});
+
+test("`stat` and `get` read the user metadata back decoded, under lower-case keys", async () => {
+  const headers = {
+    "x-ms-meta-WrittenBy": "stowage",
+    "x-ms-meta-spaced": "=?UTF-8?B?YSAgYg==?=",
+    "x-ms-meta-quoted": "=?utf-8?q?gr=C3=BC=C3=9Fe?=",
+  };
+  const expected = { writtenby: "stowage", spaced: "a  b", quoted: "grüße" };
+
+  stubFetch((request) => (request.method === "HEAD" ? described(headers) : blob("body", headers)));
+
+  expect((await storage().stat("object")).userMetadata).toEqual(expected);
+  expect((await storage().get("object")).stat.userMetadata).toEqual(expected);
+});
+
+test.each([
+  ["a key holding a space", { "written by": "stowage" }],
+  ["a key above ASCII", { schlüssel: "wert" }],
+  ["two keys differing in case alone", { WrittenBy: "one", writtenby: "two" }],
+  ["a set above 2 KB, a key beyond identifiers among it", { "content-hash": "x".repeat(2048) }],
+])("%s is `InvalidRequest` before any request", async (_label, userMetadata) => {
+  const sent = stubFetch(() => created());
+
+  const failure = await failureOf(() => storage().put("object", "body", { userMetadata }));
+
+  expect(failure).toMatchObject({ code: "InvalidRequest", attempts: 0, key: "object" });
+  expect(sent).toHaveLength(0);
+});
+
+test.each(["content-hash", "x.y", "1st"])(
+  "the key `%s` is `Unsupported` naming `userMetadataTokenKeys`",
+  async (name) => {
+    const sent = stubFetch(() => created());
+
+    const failure = await failureOf(() =>
+      storage().put("object", "body", { userMetadata: { [name]: "value" } }),
+    );
+
+    expect(failure).toMatchObject({
+      code: "Unsupported",
+      capability: "userMetadataTokenKeys",
+      attempts: 0,
+    });
+    expect(sent).toHaveLength(0);
+  },
+);
+
+test("an empty user metadata set sends no `x-ms-meta-` field", async () => {
+  const sent = stubFetch(() => created());
+
+  const written = await storage().put("object", "body", { userMetadata: {} });
+
+  expect(
+    [...(sent[0]?.headers.keys() ?? [])].filter((name) => name.startsWith("x-ms-meta-")),
+  ).toEqual([]);
+  expect(written.userMetadata).toEqual({});
+});
+
+/** What Azure answers a range it honored with: the bytes, and the whole size behind them. */
+function partial(body: string, contentRange: string): Response {
+  return new Response(body, {
+    status: 206,
+    headers: { ...Object.fromEntries(blob(body).headers), "content-range": contentRange },
+  });
+}
+
+test("a range goes out as `Range`, and the description carries the size of the whole object", async () => {
+  const sent = stubFetch(() => partial("llo ", "bytes 2-5/11"));
+
+  const stored = await storage().get("notes/a.txt", { range: { start: 2, end: 5 } });
+
+  expect(sent[0]?.headers.get("range")).toBe("bytes=2-5");
+  expect(stored.stat.size).toBe(11);
+  expect(await stored.text()).toBe("llo ");
+});
+
+test("a range without an end reaches to the end of the object", async () => {
+  const sent = stubFetch(() => partial("world", "bytes 6-10/11"));
+
+  await storage().get("object", { range: { start: 6 } });
+
+  expect(sent[0]?.headers.get("range")).toBe("bytes=6-");
+});
+
+test.each([
+  ["a start above the end", { start: 8, end: 4 }],
+  ["a negative start", { start: -1 }],
+  ["a fractional end", { start: 0, end: 1.5 }],
+])("%s is `InvalidOption` before any request", async (_label, range) => {
+  const sent = stubFetch(() => blob("body"));
+
+  const failure = await failureOf(() => storage().get("object", { range }));
+
+  expect(failure).toMatchObject({ code: "InvalidOption", attempts: 0 });
+  expect(sent).toHaveLength(0);
+});
+
+test("`InvalidRange` is `InvalidRequest`", async () => {
+  stubFetch(() => refused(416, "InvalidRange", "The range specified is invalid."));
+
+  const failure = await failureOf(() => storage().get("object", { range: { start: 11 } }));
+
+  expect(failure).toMatchObject({ code: "InvalidRequest", status: 416, attempts: 1 });
+});
+
+// Azurite answers a start at the size with `206` and an empty body rather than `416`, and
+// spec 4.3 names the refusal whichever way the provider says it.
+test("a partial answer that starts at the size of the object is `InvalidRequest`", async () => {
+  const sent = stubFetch(() => partial("", "bytes 11-10/11"));
+
+  const failure = await failureOf(() => storage().get("object", { range: { start: 11 } }));
+
+  expect(failure).toMatchObject({ code: "InvalidRequest", attempts: 1 });
   expect(sent).toHaveLength(1);
 });
 
-test("a range is `Unsupported` naming `rangeReads`", async () => {
-  const sent = stubFetch(() => blob("body"));
+test("a partial answer without the size of the whole object is `ProviderError`", async () => {
+  stubFetch(() => new Response("llo ", { status: 206, headers: blob("llo ").headers }));
 
-  const failure = await failureOf(() => storage().get("object", { range: { start: 8, end: 4 } }));
+  const failure = await failureOf(() => storage().get("object", { range: { start: 2, end: 5 } }));
 
-  expect(failure.code).toBe("Unsupported");
-  expect(failure.capability).toBe("rangeReads");
-  expect(sent).toHaveLength(0);
+  expect(failure.code).toBe("ProviderError");
+});
+
+test("a whole answer to a range that covers the object is the body asked for", async () => {
+  stubFetch(() => blob("hello world"));
+
+  const stored = await storage().get("object", { range: { start: 0, end: 40 } });
+
+  expect(stored.stat.size).toBe(11);
+  expect(await stored.text()).toBe("hello world");
+});
+
+test.each([
+  ["an object the range starts beyond is `InvalidRequest`", "", "InvalidRequest"],
+  ["any other object is `ProviderError`", "hello world", "ProviderError"],
+])("a whole answer to a range on %s", async (_label, body, code) => {
+  stubFetch(() => blob(body));
+
+  const failure = await failureOf(() => storage().get("object", { range: { start: 2, end: 5 } }));
+
+  expect(failure.code).toBe(code);
 });
 
 // The options are as unknown to the types as they are to the storage, which is what the
@@ -1002,10 +1144,260 @@ test.each(["copy", "move"] as const)(
 );
 
 test("`copy` refuses a destination Azure does not take before any request", async () => {
+  const sent = stubFetch(() => created());
+
   const failure = await failureOf(() => storage().copy("object", "dir./object"));
 
   expect(failure.code).toBe("InvalidKey");
   expect(failure.key).toBe("dir./object");
+  expect(sent).toHaveLength(0);
+});
+
+test.each(["copy", "move"] as const)(
+  "`%s` checks the source before either key is acted on",
+  async (operation) => {
+    const sent = stubFetch(() => created());
+
+    const failure = await failureOf(() => storage()[operation]("a//b", "object"));
+
+    expect(failure).toMatchObject({ code: "InvalidKey", key: "a//b", operation, attempts: 0 });
+    expect(sent).toHaveLength(0);
+  },
+);
+
+/** What Azure answers `Put Blob From URL` and then the `HEAD` of the destination with. */
+function copied(headers: Record<string, string> = {}) {
+  return (request: SentRequest): Response =>
+    request.method === "HEAD" ? described(headers) : created();
+}
+
+test("`copy` sends one `Put Blob From URL` and describes the destination with a `HEAD`", async () => {
+  const sent = stubFetch(copied({ "x-ms-meta-writtenby": "stowage" }));
+
+  const written = await storage().copy("from #1.txt", "to.txt");
+
+  expect(sent.map((request) => request.method)).toEqual(["PUT", "HEAD"]);
+  expect(sent[0]?.url).toBe("https://stowage.blob.core.windows.net/conformance/to.txt");
+  expect(sent[0]?.headers.get("x-ms-blob-type")).toBe("BlockBlob");
+  expect(sent[0]?.headers.get("x-ms-copy-source")).toBe(
+    "https://stowage.blob.core.windows.net/conformance/from%20%231.txt",
+  );
+  // The service copies the content type and the user metadata of the source (ADR 0025).
+  expect(sent[0]?.headers.has("content-type")).toBe(false);
+  expect([...(sent[0]?.headers.keys() ?? [])].some((name) => name.startsWith("x-ms-meta-"))).toBe(
+    false,
+  );
+  expect(sent[0]?.body).toEqual(new Uint8Array(0));
+  expect(sent[1]?.url).toBe("https://stowage.blob.core.windows.net/conformance/to.txt");
+  expect(written).toEqual({
+    key: "to.txt",
+    size: 11,
+    lastModified: new Date("2026-08-30T12:36:00Z"),
+    etag: "0x8DCA1B2C3D4E5F6",
+    contentType: "text/plain",
+    userMetadata: { writtenby: "stowage" },
+  });
+});
+
+test("under an access token the source is authorized by the token of the request itself", async () => {
+  const sent = stubFetch(copied());
+
+  await storage().copy("from.txt", "to.txt");
+
+  expect(sent[0]?.headers.get("authorization")).toBe(`Bearer ${accessToken}`);
+  expect(sent[0]?.headers.get("x-ms-copy-source-authorization")).toBe(`Bearer ${accessToken}`);
+});
+
+test("the repeat after a refused token renews the authorization of the source too", async () => {
+  const responses = [tokenRefused()];
+  const sent = stubFetch((request) => responses.shift() ?? copied()(request));
+  const tokens = ["stale", "fresh"];
+
+  await storage({ credentials: () => ({ accessToken: tokens.shift() ?? "fresh" }) }).copy(
+    "from.txt",
+    "to.txt",
+  );
+
+  expect(sent[1]?.headers.get("authorization")).toBe("Bearer fresh");
+  expect(sent[1]?.headers.get("x-ms-copy-source-authorization")).toBe("Bearer fresh");
+});
+
+test("under an account key the source carries a service SAS reading it for the next hour", async () => {
+  vi.useFakeTimers({ now: new Date("2026-08-30T12:36:00.500Z"), toFake: ["Date"] });
+  const sent = stubFetch(copied());
+
+  try {
+    await storage({ credentials: { accountKey } }).copy("from #1.txt", "to.txt");
+  } finally {
+    vi.useRealTimers();
+  }
+
+  const source = new URL(sent[0]?.headers.get("x-ms-copy-source") ?? "");
+
+  expect(`${source.origin}${source.pathname}`).toBe(
+    "https://stowage.blob.core.windows.net/conformance/from%20%231.txt",
+  );
+  expect(Object.fromEntries(source.searchParams)).toMatchObject({
+    sv: "2026-04-06",
+    spr: "https",
+    st: "2026-08-30T12:21:00Z",
+    se: "2026-08-30T13:36:00Z",
+    sr: "b",
+    sp: "r",
+  });
+  expect(source.searchParams.get("sig")).toMatch(/^[A-Za-z0-9+/]{43}=$/u);
+  expect(sent[0]?.headers.has("x-ms-copy-source-authorization")).toBe(false);
+  expect(sent[0]?.headers.get("authorization")).toMatch(/^SharedKey stowage:/u);
+});
+
+test("each attempt signs the SAS of the source with the key it resolved", async () => {
+  recordedDelays();
+  const responses = [refused(503, "ServerBusy", "The server is busy.")];
+  const sent = stubFetch((request) => responses.shift() ?? copied()(request));
+  const keys = [accountKey, "b3RoZXIta2V5"];
+
+  await storage({ credentials: () => ({ accountKey: keys.shift() ?? accountKey }) }).copy(
+    "from.txt",
+    "to.txt",
+  );
+
+  const signatures = sent
+    .filter((request) => request.method === "PUT")
+    .map((request) =>
+      new URL(request.headers.get("x-ms-copy-source") ?? "").searchParams.get("sig"),
+    );
+
+  expect(signatures).toHaveLength(2);
+  expect(signatures[0]).not.toBe(signatures[1]);
+});
+
+function sourceUnverified(status: number, sourceStatus?: number): Response {
+  return refused(
+    status,
+    "CannotVerifyCopySource",
+    "The specified blob does not exist.",
+    sourceStatus === undefined ? {} : { "x-ms-copy-source-status-code": String(sourceStatus) },
+  );
+}
+
+test.each([
+  ["the source's status where it is named", sourceUnverified(404, 404), "NotFound", 404],
+  ["the source's status over the response's", sourceUnverified(409, 403), "AccessDenied", 409],
+  [
+    "the response's status where the source's is missing",
+    sourceUnverified(401),
+    "InvalidCredentials",
+    401,
+  ],
+])(
+  "`CannotVerifyCopySource` is told by %s, against the source key",
+  async (_label, answer, code, status) => {
+    stubFetch(() => answer);
+
+    const failure = await failureOf(() => storage().copy("from.txt", "to.txt"));
+
+    expect(failure).toMatchObject({
+      code,
+      status,
+      providerCode: "CannotVerifyCopySource",
+      operation: "copy",
+      key: "from.txt",
+      attempts: 1,
+    });
+  },
+);
+
+test("a source the service could not verify in time is repeated as transient", async () => {
+  recordedDelays();
+  const sent = stubFetch(() => sourceUnverified(500));
+
+  const failure = await failureOf(() => storage().copy("from.txt", "to.txt"));
+
+  expect(failure).toMatchObject({ code: "ProviderError", retryable: true, attempts: 3 });
+  expect(sent).toHaveLength(3);
+});
+
+test.each([
+  ["no code", new Response(null, { status: 409 })],
+  ["a code the table does not name", refused(409, "CopySourceTooLarge", "Too large.")],
+])(
+  "a `409` with %s is `InvalidRequest` naming the 5,000 MiB, without a fallback",
+  async (_label, answer) => {
+    const sent = stubFetch(() => answer);
+
+    const failure = await failureOf(() => storage().copy("from.txt", "to.txt"));
+
+    expect(failure).toMatchObject({ code: "InvalidRequest", status: 409, key: "to.txt" });
+    expect(failure.message).toContain("5,000 MiB");
+    expect(sent).toHaveLength(1);
+  },
+);
+
+test("a `409` whose code the table names is told by the table", async () => {
+  stubFetch(() => refused(409, "PendingCopyOperation", "There is currently a pending copy."));
+
+  const failure = await failureOf(() => storage().copy("from.txt", "to.txt"));
+
+  expect(failure.code).toBe("ProviderError");
+});
+
+test("a `409` outside a copy stays with the status", async () => {
+  stubFetch(() => refused(409, "CopySourceTooLarge", "Too large."));
+
+  expect((await failureOf(() => storage().put("object", "body"))).code).toBe("ProviderError");
+});
+
+test("`copy` rejects a signal that already fired before any request", async () => {
+  const sent = stubFetch(copied());
+
+  await expect(
+    storage().copy("from.txt", "to.txt", { signal: AbortSignal.abort() }),
+  ).rejects.toMatchObject({ name: "AbortError" });
+  expect(sent).toHaveLength(0);
+});
+
+test("`move` copies, then deletes the source without a condition, and describes the destination", async () => {
+  const sent = stubFetch((request) =>
+    request.method === "DELETE" ? new Response(null, { status: 202 }) : copied()(request),
+  );
+
+  const moved = await storage().move("from.txt", "to.txt");
+
+  expect(sent.map((request) => request.method)).toEqual(["PUT", "HEAD", "DELETE"]);
+  expect(sent[2]?.url).toBe("https://stowage.blob.core.windows.net/conformance/from.txt");
+  expect(sent[2]?.headers.has("if-match")).toBe(false);
+  expect(moved.key).toBe("to.txt");
+});
+
+test("a source already gone when `move` deletes it is deleted", async () => {
+  stubFetch((request) =>
+    request.method === "DELETE" ? refused(404, "BlobNotFound") : copied()(request),
+  );
+
+  expect((await storage().move("from.txt", "to.txt")).key).toBe("to.txt");
+});
+
+test("`move` rejects with the error of the step that failed, named as `move`", async () => {
+  const copyRefused = stubFetch(() => sourceUnverified(404, 404));
+
+  expect(await failureOf(() => storage().move("from.txt", "to.txt"))).toMatchObject({
+    code: "NotFound",
+    operation: "move",
+    key: "from.txt",
+  });
+  expect(copyRefused).toHaveLength(1);
+
+  stubFetch((request) =>
+    request.method === "DELETE"
+      ? refused(403, "AuthorizationPermissionMismatch", "Not authorized.")
+      : copied()(request),
+  );
+
+  expect(await failureOf(() => storage().move("from.txt", "to.txt"))).toMatchObject({
+    code: "AccessDenied",
+    operation: "move",
+    key: "from.txt",
+  });
 });
 
 interface ListedName {

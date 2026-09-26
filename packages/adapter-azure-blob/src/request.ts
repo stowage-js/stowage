@@ -17,10 +17,20 @@ export interface AzureBlobRequest {
   /** The key the request addresses, absent for a request about the container itself. */
   readonly key?: string;
   readonly query?: readonly QueryParameter[];
-  readonly headers?: readonly HeaderField[];
+  readonly headers?: RequestHeaders;
   readonly body?: RequestBody;
+  /** The key a `Put Blob From URL` copies from, which spec 8.8 tells a failure of the source by. */
+  readonly copySource?: string;
   readonly signal?: AbortSignal;
 }
+
+/**
+ * Headers that authorize another request than this one, such as the source of a copy, are
+ * built for each attempt from the credential that attempt resolved, as a body is.
+ */
+export type RequestHeaders =
+  | readonly HeaderField[]
+  | ((credentials: AzureBlobCredentials) => Promise<readonly HeaderField[]>);
 
 /**
  * Held whole: Azure refuses a chunked `Put Blob`, and Shared Key signs the length. A body
@@ -84,7 +94,14 @@ async function attempt(
   });
   const underAccessToken = "accessToken" in credentials;
   const body = typeof request.body === "function" ? await request.body(credentials) : request.body;
-  const headers = await authorize(configuration, request, path, body, credentials);
+  const requested =
+    typeof request.headers === "function" ? await request.headers(credentials) : request.headers;
+  const headers = await authorize(
+    configuration,
+    { method: request.method, path, query, headers: requested ?? [] },
+    body,
+    credentials,
+  );
   let response: Response;
 
   try {
@@ -119,8 +136,7 @@ async function attempt(
 
 async function authorize(
   configuration: AzureBlobConfiguration,
-  request: AzureBlobRequest,
-  path: string,
+  request: Omit<SignableRequest, "account" | "contentLength">,
   body: Uint8Array | undefined,
   credentials: AzureBlobCredentials,
 ): Promise<readonly HeaderField[]> {
@@ -129,11 +145,9 @@ async function authorize(
   return await authorizeHeaders(
     configuration,
     {
-      method: request.method,
-      path,
-      query: request.query ?? [],
+      ...request,
       headers: [
-        ...(request.headers ?? []),
+        ...request.headers,
         ["x-ms-version", serviceVersion],
         ["x-ms-date", new Date().toUTCString()],
       ],
@@ -195,6 +209,15 @@ function encodeRfc3986(value: string): string {
   );
 }
 
+/** The URL of the key, as another request names it: the source of a copy. */
+export function blobUrl(
+  configuration: AzureBlobConfiguration,
+  key: string,
+  query: readonly QueryParameter[],
+): string {
+  return urlOf(configuration, requestPath(configuration, key), query);
+}
+
 function urlOf(
   configuration: AzureBlobConfiguration,
   path: string,
@@ -219,6 +242,7 @@ async function failureOf(
     operation: request.operation,
     method: request.method,
     key: request.key,
+    copySource: request.copySource,
     status: response.status,
     headers: response.headers,
     providerMessage: await readMessage(request, response),

@@ -1,11 +1,10 @@
 import type { ObjectStat, StorageError } from "@stowage/core";
 
+import { partialContent, wholeSizeOf } from "./range.ts";
 import { azureBlobError } from "./storage-error.ts";
+import { readUserMetadata } from "./user-metadata.ts";
 
 export const defaultContentType = "application/octet-stream";
-
-/** Until the storage declares `userMetadata`, every object reads as holding none. */
-const noUserMetadata: Readonly<Record<string, string>> = Object.freeze(Object.create(null));
 
 /** The description a `Get Blob` response carries in its headers (spec 4.4). */
 export function describeResponse(
@@ -20,7 +19,7 @@ export function describeResponse(
     lastModified: lastModifiedOf(container, key, operation, response),
     etag: etagOf(response),
     contentType: response.headers.get("content-type") ?? defaultContentType,
-    userMetadata: noUserMetadata,
+    userMetadata: readUserMetadata(response.headers),
   };
 }
 
@@ -35,6 +34,7 @@ export function describeWrite(
   key: string,
   size: number,
   contentType: string,
+  userMetadata: Readonly<Record<string, string>>,
   response: Response,
 ): ObjectStat {
   return {
@@ -43,7 +43,7 @@ export function describeWrite(
     lastModified: lastModifiedOf(container, key, "put", response),
     etag: etagOf(response),
     contentType,
-    userMetadata: noUserMetadata,
+    userMetadata,
   };
 }
 
@@ -61,6 +61,16 @@ export function unquotedEtag(etag: string): string {
 }
 
 function sizeOf(container: string, key: string, operation: string, response: Response): number {
+  if (response.status === partialContent) {
+    const size = wholeSizeOf(response);
+
+    if (size === undefined) {
+      throw incomplete(container, key, operation, "no size of the whole object");
+    }
+
+    return size;
+  }
+
   const header = response.headers.get("content-length");
   const length = header === null || header.trim() === "" ? Number.NaN : Number(header);
 

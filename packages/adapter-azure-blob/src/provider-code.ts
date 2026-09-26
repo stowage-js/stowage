@@ -51,6 +51,7 @@ const providerCodes: ReadonlyMap<string, StorageErrorCode> = new Map([
 
 const badRequest = 400;
 const unauthorized = 401;
+const conflict = 409;
 
 /**
  * The longest blob name Azure holds, in characters. `length` counts UTF-16 code units, as
@@ -70,6 +71,10 @@ export interface ProviderAnswer {
   readonly providerMessage?: string;
   /** Whether the request went out under an access token the resolver had just refreshed. */
   readonly underRefreshedToken: boolean;
+  /** Whether the request was a `Put Blob From URL`, whose unnamed `409` spec 8.7 reads. */
+  readonly copiesFromUrl: boolean;
+  /** What the source of a copy answered the service, from `x-ms-copy-source-status-code`. */
+  readonly copySourceStatus?: number;
 }
 
 export interface ProviderFailure {
@@ -104,10 +109,27 @@ export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
     };
   }
 
+  // ADR 0025: the service answers a failure on the source under its own code, and the
+  // source's status says which failure it was.
+  if (answer.providerCode === "CannotVerifyCopySource") {
+    const status = answer.copySourceStatus ?? answer.status;
+
+    return { code: errorCodeForStatus(status) ?? "ProviderError", message: said };
+  }
+
   const recognized =
     answer.providerCode === undefined ? undefined : providerCodes.get(answer.providerCode);
 
   if (recognized !== undefined) return { code: recognized, message: said };
+
+  // Spec 8.7: the service names no code for a source above what one `Put Blob From URL`
+  // copies, and a fallback to blocks copied by range is declined (ADR 0025).
+  if (answer.copiesFromUrl && answer.status === conflict) {
+    return {
+      code: "InvalidRequest",
+      message: `The source is above the 5,000 MiB one copy takes, or reported no valid length: ${said}`,
+    };
+  }
 
   // Spec 8.8: an addressable key the provider cannot hold, which spec 8.1 lets through so
   // that a blob another tool wrote stays reachable, and which Azure names by no code.
@@ -125,6 +147,8 @@ export interface FailedResponse {
   readonly operation: string;
   readonly method: string;
   readonly key?: string;
+  /** The key a `Put Blob From URL` copies from. */
+  readonly copySource?: string;
   readonly status: number;
   readonly headers: Headers;
   readonly providerMessage?: string;
@@ -147,19 +171,28 @@ export function providerError(container: string, response: FailedResponse): Stor
     providerCode,
     providerMessage: response.providerMessage,
     underRefreshedToken: response.underRefreshedToken,
+    copiesFromUrl: response.copySource !== undefined,
+    copySourceStatus: statusOf(response.headers.get("x-ms-copy-source-status-code")),
   });
+  const failedOnSource = providerCode === "CannotVerifyCopySource";
 
   return azureBlobError(container, {
     code: failure.code,
     message: failure.message,
     operation: response.operation,
-    key: response.key,
+    key: failedOnSource ? (response.copySource ?? response.key) : response.key,
     attempts: response.attempts,
     status: response.status,
     providerCode,
     requestId: response.headers.get("x-ms-request-id") ?? undefined,
     retryable: isTransientStatus(response.status),
   });
+}
+
+function statusOf(header: string | null): number | undefined {
+  const status = Number(header ?? "");
+
+  return Number.isInteger(status) && status >= 100 && status <= 599 ? status : undefined;
 }
 
 function beyondHeldKey(key: string): string | undefined {

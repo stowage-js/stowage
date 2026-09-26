@@ -111,3 +111,5 @@ that part of the test reports itself skipped. The missing header is reported to 
   `x-ms-copy-source-authorization`, and the scheduled run is the only place where the adapter's
   `copy` meets a check under an access token. A regression there shows within a day, not within
   the pull request.
+- ADR 0029 has user metadata keys stored and read in lower case. A copy keeps the case a source
+  another tool wrote, and a read of the destination hands it back in lower case.
