@@ -75,6 +75,7 @@ const coveredCases: ReadonlySet<string> = new Set([
   "presign/put-rejects-length",
   "presign/expired-url",
   "flow/3-file-browser",
+  "flow/4-streaming-download",
 ]);
 
 export function azureBlobCases(options: ConformanceRunOptions): readonly ConformanceCaseSource[] {
