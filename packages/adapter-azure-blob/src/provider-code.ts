@@ -1,6 +1,12 @@
-import { errorCodeForStatus, type StorageErrorCode } from "@stowage/core";
+import {
+  errorCodeForStatus,
+  isTransientStatus,
+  type StorageError,
+  type StorageErrorCode,
+} from "@stowage/core";
 
 import { segmentLimit } from "./key.ts";
+import { azureBlobError } from "./storage-error.ts";
 
 /**
  * The table of spec 8.8: a code recognized here decides the error code alone, and an
@@ -112,6 +118,48 @@ export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
   }
 
   return { code: errorCodeForStatus(answer.status) ?? "ProviderError", message: said };
+}
+
+/** A failed response, as much of it as spec 8.8 reads, and the request it answered. */
+export interface FailedResponse {
+  readonly operation: string;
+  readonly method: string;
+  readonly key?: string;
+  readonly status: number;
+  readonly headers: Headers;
+  readonly providerMessage?: string;
+  readonly attempts: number;
+  readonly underRefreshedToken: boolean;
+}
+
+/**
+ * Spec 8.8: the provider's code decides where the table recognizes one, the status of
+ * spec 4.10 decides where it does not, and the status alone decides whether the condition
+ * is transient. Azure names its code in `x-ms-error-code` on every failure, a `HEAD` and
+ * a subresponse of a Blob Batch included.
+ */
+export function providerError(container: string, response: FailedResponse): StorageError {
+  const providerCode = response.headers.get("x-ms-error-code") ?? undefined;
+  const failure = readProviderFailure({
+    status: response.status,
+    method: response.method,
+    key: response.key,
+    providerCode,
+    providerMessage: response.providerMessage,
+    underRefreshedToken: response.underRefreshedToken,
+  });
+
+  return azureBlobError(container, {
+    code: failure.code,
+    message: failure.message,
+    operation: response.operation,
+    key: response.key,
+    attempts: response.attempts,
+    status: response.status,
+    providerCode,
+    requestId: response.headers.get("x-ms-request-id") ?? undefined,
+    retryable: isTransientStatus(response.status),
+  });
 }
 
 function beyondHeldKey(key: string): string | undefined {

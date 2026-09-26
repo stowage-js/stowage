@@ -1,8 +1,8 @@
-import { isTransientStatus, parseXml, type StorageError, withRetry } from "@stowage/core";
+import { parseXml, type StorageError, withRetry } from "@stowage/core";
 
 import type { AzureBlobConfiguration } from "./configuration.ts";
 import { type AzureBlobCredentials, resolveCredentials } from "./credentials.ts";
-import { isRefusedToken, readProviderFailure } from "./provider-code.ts";
+import { isRefusedToken, providerError } from "./provider-code.ts";
 import {
   type HeaderField,
   type QueryParameter,
@@ -208,38 +208,21 @@ function urlOf(
   return `${configuration.protocol}//${configuration.host}${path}${search}`;
 }
 
-/**
- * Spec 8.8: the provider's code decides where the table recognizes one, the status of
- * spec 4.10 decides where it does not, and the status alone decides whether the condition
- * is transient. Azure names its code in `x-ms-error-code` on every failure, a `HEAD`
- * included, and the message in the document beside it.
- */
+/** The message is read out of the document beside the code, where the body carries one. */
 async function failureOf(
   configuration: AzureBlobConfiguration,
   request: AzureBlobRequest,
   response: Response,
   made: { readonly attempts: number; readonly underRefreshedToken: boolean },
 ): Promise<StorageError> {
-  const providerCode = response.headers.get("x-ms-error-code") ?? undefined;
-  const failure = readProviderFailure({
-    status: response.status,
+  return providerError(configuration.container, {
+    operation: request.operation,
     method: request.method,
     key: request.key,
-    providerCode,
-    providerMessage: await readMessage(request, response),
-    underRefreshedToken: made.underRefreshedToken,
-  });
-
-  return azureBlobError(configuration.container, {
-    code: failure.code,
-    message: failure.message,
-    operation: request.operation,
-    key: request.key,
-    attempts: made.attempts,
     status: response.status,
-    providerCode,
-    requestId: response.headers.get("x-ms-request-id") ?? undefined,
-    retryable: isTransientStatus(response.status),
+    headers: response.headers,
+    providerMessage: await readMessage(request, response),
+    ...made,
   });
 }
 
