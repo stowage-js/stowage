@@ -31,6 +31,11 @@ export function storageWithBadCredentials(
   return { ...configured, credentials: { accessToken: "not-a-jwt" } };
 }
 
+/** Which server answers, for the harness alone: no case reads it (ADR 0012). */
+export function endpointNameFrom(variables: Variables): string | undefined {
+  return filled(variables["STOWAGE_AZURE_BLOB_ENDPOINT_NAME"]);
+}
+
 function filled(value: string | null | undefined): string | undefined {
   return value === undefined || value === null || value === "" ? undefined : value;
 }

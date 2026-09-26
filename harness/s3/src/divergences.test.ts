@@ -68,6 +68,12 @@ describe("withDivergences", () => {
     );
   });
 
+  test("names the list to remove the entry from", async () => {
+    await expect(
+      runOnly(withDivergences([passing], "azurite", [{ ...entry, endpoint: "azurite" }], "a.ts")),
+    ).rejects.toThrow("Remove the entry from `a.ts`");
+  });
+
   test("hands on a failure its entry does not describe", async () => {
     await expect(
       runOnly(withDivergences([failing("the bucket is gone")], "seaweedfs", [entry])),

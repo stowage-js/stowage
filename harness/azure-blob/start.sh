@@ -51,6 +51,7 @@ case "${status}" in
 esac
 
 cat <<ENVIRONMENT
+export STOWAGE_AZURE_BLOB_ENDPOINT_NAME=azurite
 export STOWAGE_AZURE_BLOB_ENDPOINT=${endpoint}
 export STOWAGE_AZURE_BLOB_ACCOUNT=${account}
 export STOWAGE_AZURE_BLOB_CONTAINER=${container}

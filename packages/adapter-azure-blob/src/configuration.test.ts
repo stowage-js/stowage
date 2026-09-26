@@ -40,6 +40,16 @@ test("the path of a configured endpoint becomes the prefix of every request path
   expect(configuration.basePath).toBe("/devstoreaccount1");
 });
 
+test.each([
+  [undefined, false],
+  ["https://blob.example.com", false],
+  ["https://127.0.0.1:10000/devstoreaccount1", true],
+  ["http://localhost:10000", true],
+  ["https://[::1]:10000", true],
+])("the endpoint %s is a loopback address: %s", (endpoint, loopback) => {
+  expect(readConfiguration(options({ endpoint })).loopback).toBe(loopback);
+});
+
 test("a trailing slash of the endpoint's path is no segment of its own", () => {
   const configuration = readConfiguration(options({ endpoint: "https://blob.example.com/base/" }));
 
