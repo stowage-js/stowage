@@ -64,7 +64,9 @@ it passes, so an upstream fix shows up as a red run that asks for the entry to g
 
 `.github/workflows/conformance-full.yml` runs both tiers on a schedule, on demand and for a
 release workflow to call: on Node 24, Node 26 and `workerd` against a real AWS S3 bucket and a
-real R2 bucket, and on Bun and Deno against the emulator. It never runs on a pull request.
+real R2 bucket, and on Bun and Deno against the emulator. It never runs on a pull request. Its
+jobs against the buckets set `STOWAGE_CONFORMANCE_ENDPOINTS` to `s3`, so that the Azure tier,
+whose account the jobs of `harness/azure-blob/README.md` reach, stays out of their run.
 
 Each provider is a GitHub environment, `aws-s3` and `r2`, holding the same names:
 
