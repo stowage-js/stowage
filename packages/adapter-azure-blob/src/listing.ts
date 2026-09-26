@@ -15,9 +15,11 @@ import { azureBlobError } from "./storage-error.ts";
 
 // Spec 8.2: a page holds at most 1000 names, which is what `List Blobs` answers.
 const defaultPageSize = 1000;
-const maxPageSize = 1000;
+export const maxPageSize = 1000;
 
-interface ListRequest {
+export interface ListRequest {
+  /** The operation the caller invoked: `list`, or `deleteAll` for the walk it makes. */
+  readonly operation: string;
   readonly prefix: string;
   readonly delimiter?: string;
   readonly pageSize: number;
@@ -60,7 +62,7 @@ export function createListing(
 }
 
 /** Every page of the listing from where the request starts to its end. */
-async function* walkPages(
+export async function* walkPages(
   configuration: AzureBlobConfiguration,
   request: ListRequest,
 ): AsyncGenerator<ListingDocument> {
@@ -106,7 +108,14 @@ function readListRequest(container: string, options: ListOptions | undefined): L
     throw optionError(container, "cursor", "takes a cursor this storage handed out", "list");
   }
 
-  return { prefix, delimiter: options?.delimiter, pageSize, marker, signal: options?.signal };
+  return {
+    operation: "list",
+    prefix,
+    delimiter: options?.delimiter,
+    pageSize,
+    marker,
+    signal: options?.signal,
+  };
 }
 
 async function requestPage(
@@ -128,13 +137,14 @@ async function requestPage(
 
   const response = await send(configuration, {
     method: "GET",
-    operation: "list",
+    operation: request.operation,
     query,
     signal: request.signal,
   });
 
   const answer: ListingAnswer = {
     container: configuration.container,
+    operation: request.operation,
     status: response.status,
     requestId: response.headers.get("x-ms-request-id") ?? undefined,
   };
@@ -146,7 +156,7 @@ async function requestPage(
     throw azureBlobError(answer.container, {
       code: "ProviderError",
       message: "The provider repeated the marker it was sent",
-      operation: "list",
+      operation: answer.operation,
       attempts: 1,
       status: answer.status,
       requestId: answer.requestId,
@@ -170,7 +180,7 @@ async function readBody(answer: ListingAnswer, response: Response): Promise<stri
     throw azureBlobError(answer.container, {
       code: "NetworkError",
       message: `The listing broke while it was read: ${String(failure)}`,
-      operation: "list",
+      operation: answer.operation,
       attempts: 1,
       status: answer.status,
       requestId: answer.requestId,

@@ -12,6 +12,7 @@ import { azureBlobError } from "./storage-error.ts";
 /** The response a listing document came in, which a failure to read it is told against. */
 export interface ListingAnswer {
   readonly container: string;
+  readonly operation: string;
   readonly status: number;
   readonly requestId?: string;
 }
@@ -157,7 +158,7 @@ function malformed(answer: ListingAnswer, what: string, cause?: unknown): Storag
   return azureBlobError(answer.container, {
     code: "ProviderError",
     message: `The provider answered the listing with ${what}`,
-    operation: "list",
+    operation: answer.operation,
     attempts: 1,
     status: answer.status,
     requestId: answer.requestId,
