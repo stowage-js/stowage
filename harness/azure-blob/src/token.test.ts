@@ -27,6 +27,15 @@ test("the token is for Azure Storage, from an issuer Azurite accepts", () => {
   expect(String(claims["iss"])).toMatch(/^https:\/\/sts\.windows\.net\//u);
 });
 
+// Azurite answers `Get User Delegation Key` with an empty `500` for a token without them,
+// and hands them back as the key's `SignedOid` and `SignedTid`.
+test("the token names a principal and the tenant of its issuer", () => {
+  const claims = claimsOf(mintAccessToken(now));
+
+  expect(claims["oid"]).toMatch(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/u);
+  expect(String(claims["iss"])).toBe(`https://sts.windows.net/${String(claims["tid"])}/`);
+});
+
 test("the token holds from a minute ago for an hour", () => {
   const claims = claimsOf(mintAccessToken(now));
 
