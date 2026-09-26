@@ -441,24 +441,90 @@ test("a signal that already fired rejects with `AbortError` before any request",
   expect(sent).toHaveLength(0);
 });
 
-test("the storage declares `rangeReads`", () => {
-  expect(storage().capabilities).toEqual(["rangeReads"]);
+test("the storage declares `rangeReads` and `userMetadata`, and not `userMetadataTokenKeys`", () => {
+  expect(storage().capabilities).toEqual(["rangeReads", "userMetadata"]);
 });
 
-test("user metadata is `Unsupported` naming `userMetadata`, and an empty set is written", async () => {
+test("`put` sends each user metadata key as an `x-ms-meta-` field, folded to lower case", async () => {
   const sent = stubFetch(() => created());
 
-  const failure = await failureOf(() =>
-    storage().put("object", "body", { userMetadata: { WrittenBy: "stowage" } }),
-  );
+  const written = await storage().put("object", "body", {
+    userMetadata: { WrittenBy: "stowage", run_1: "grüße" },
+  });
 
-  expect(failure.code).toBe("Unsupported");
-  expect(failure.capability).toBe("userMetadata");
-  expect(failure.attempts).toBe(0);
+  expect(sent[0]?.headers.get("x-ms-meta-writtenby")).toBe("stowage");
+  expect(sent[0]?.headers.get("x-ms-meta-run_1")).toBe("=?UTF-8?B?Z3LDvMOfZQ==?=");
+  expect(written.userMetadata).toEqual({ writtenby: "stowage", run_1: "grüße" });
+});
 
-  await storage().put("object", "body", { userMetadata: {} });
+// Shared Key folds a run of whitespace in a canonical header to one space, and whether the
+// service stores the run or the folded value is left for no signature to settle.
+test("a value holding a run of whitespace travels as encoded words, a single space as written", async () => {
+  const sent = stubFetch(() => created());
 
-  expect(sent).toHaveLength(1);
+  await storage({ credentials: { accountKey } }).put("object", "body", {
+    userMetadata: { spaced: "a  b", single: "a b" },
+  });
+
+  expect(sent[0]?.headers.get("x-ms-meta-spaced")).toBe("=?UTF-8?B?YSAgYg==?=");
+  expect(sent[0]?.headers.get("x-ms-meta-single")).toBe("a b");
+});
+
+test("`stat` and `get` read the user metadata back decoded, under lower-case keys", async () => {
+  const headers = {
+    "x-ms-meta-WrittenBy": "stowage",
+    "x-ms-meta-spaced": "=?UTF-8?B?YSAgYg==?=",
+    "x-ms-meta-quoted": "=?utf-8?q?gr=C3=BC=C3=9Fe?=",
+  };
+  const expected = { writtenby: "stowage", spaced: "a  b", quoted: "grüße" };
+
+  stubFetch((request) => (request.method === "HEAD" ? described(headers) : blob("body", headers)));
+
+  expect((await storage().stat("object")).userMetadata).toEqual(expected);
+  expect((await storage().get("object")).stat.userMetadata).toEqual(expected);
+});
+
+test.each([
+  ["a key holding a space", { "written by": "stowage" }],
+  ["a key above ASCII", { schlüssel: "wert" }],
+  ["two keys differing in case alone", { WrittenBy: "one", writtenby: "two" }],
+  ["a set above 2 KB, a key beyond identifiers among it", { "content-hash": "x".repeat(2048) }],
+])("%s is `InvalidRequest` before any request", async (_label, userMetadata) => {
+  const sent = stubFetch(() => created());
+
+  const failure = await failureOf(() => storage().put("object", "body", { userMetadata }));
+
+  expect(failure).toMatchObject({ code: "InvalidRequest", attempts: 0, key: "object" });
+  expect(sent).toHaveLength(0);
+});
+
+test.each(["content-hash", "x.y", "1st"])(
+  "the key `%s` is `Unsupported` naming `userMetadataTokenKeys`",
+  async (name) => {
+    const sent = stubFetch(() => created());
+
+    const failure = await failureOf(() =>
+      storage().put("object", "body", { userMetadata: { [name]: "value" } }),
+    );
+
+    expect(failure).toMatchObject({
+      code: "Unsupported",
+      capability: "userMetadataTokenKeys",
+      attempts: 0,
+    });
+    expect(sent).toHaveLength(0);
+  },
+);
+
+test("an empty user metadata set sends no `x-ms-meta-` field", async () => {
+  const sent = stubFetch(() => created());
+
+  const written = await storage().put("object", "body", { userMetadata: {} });
+
+  expect(
+    [...(sent[0]?.headers.keys() ?? [])].filter((name) => name.startsWith("x-ms-meta-")),
+  ).toEqual([]);
+  expect(written.userMetadata).toEqual({});
 });
 
 /** What Azure answers a range it honored with: the bytes, and the whole size behind them. */

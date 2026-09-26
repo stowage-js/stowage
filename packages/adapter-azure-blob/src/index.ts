@@ -33,6 +33,7 @@ import { rangeAnswerFailure, rangeHeader, requireRange } from "./range.ts";
 import { send } from "./request.ts";
 import { azureBlobError } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
+import { userMetadataHeaders } from "./user-metadata.ts";
 
 export type { AzureBlobAdapterOptions } from "./configuration.ts";
 export { type AzureBlobCredentials, fromEnv } from "./credentials.ts";
@@ -45,7 +46,10 @@ export function azureBlobStorage(options: AzureBlobAdapterOptions): AzureBlobSto
   return new AzureBlobContainerStorage(options);
 }
 
-const azureBlobCapabilities: readonly CapabilityName[] = Object.freeze(["rangeReads"]);
+const azureBlobCapabilities: readonly CapabilityName[] = Object.freeze([
+  "rangeReads",
+  "userMetadata",
+]);
 
 const utf8 = new TextEncoder();
 
@@ -75,8 +79,12 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
   async #put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat> {
     requireKey(this.bucket, key, "writable", "put");
     requireKnownOptions(this.bucket, options, putOptionKeys, "put");
-    this.#requireNoUserMetadata(options?.userMetadata, key);
-
+    const userMetadata = userMetadataHeaders(
+      this.bucket,
+      options?.userMetadata,
+      key,
+      this.capabilities,
+    );
     const contentType = this.#readContentType(options?.contentType);
 
     // Spec 4.3: a signal that already fired rejects before the request goes out.
@@ -92,6 +100,7 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
       headers: [
         ["content-type", contentType],
         ["x-ms-blob-type", "BlockBlob"],
+        ...userMetadata.headers,
       ],
       body: bytes,
       signal: options?.signal,
@@ -99,7 +108,14 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
 
     await response.body?.cancel();
 
-    return describeWrite(this.bucket, key, bytes.byteLength, contentType, response);
+    return describeWrite(
+      this.bucket,
+      key,
+      bytes.byteLength,
+      contentType,
+      userMetadata.held,
+      response,
+    );
   }
 
   async get(key: string, options?: GetOptions): Promise<StoredObject> {
@@ -221,12 +237,6 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
     });
   }
 
-  #requireNoUserMetadata(userMetadata: Record<string, string> | undefined, key: string): void {
-    if (userMetadata === undefined || Object.keys(userMetadata).length === 0) return;
-
-    throw this.#unsupported("userMetadata", "This storage holds no user metadata", "put", key);
-  }
-
   #readContentType(contentType: string | undefined): string {
     if (contentType === undefined) return defaultContentType;
 
@@ -235,17 +245,6 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
     }
 
     return contentType;
-  }
-
-  #unsupported(capability: CapabilityName, message: string, operation: string, key: string) {
-    return azureBlobError(this.bucket, {
-      code: "Unsupported",
-      message,
-      operation,
-      key,
-      attempts: 0,
-      capability,
-    });
   }
 }
 
