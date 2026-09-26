@@ -1039,9 +1039,8 @@ function enumeration(
       `<BlobPrefix>${nameElement(typeof prefix === "string" ? { name: prefix } : prefix)}</BlobPrefix>`,
   );
 
-  return new Response(
-    `﻿<?xml version="1.0" encoding="utf-8"?><EnumerationResults ServiceEndpoint="https://stowage.blob.core.windows.net/" ContainerName="conformance"><Blobs>${blobElements.join("")}${prefixElements.join("")}</Blobs><NextMarker>${nextMarker}</NextMarker></EnumerationResults>`,
-    { status: 200, headers: { "content-type": "application/xml", "x-ms-request-id": "request-1" } },
+  return listingAnswer(
+    `\uFEFF<?xml version="1.0" encoding="utf-8"?><EnumerationResults ServiceEndpoint="https://stowage.blob.core.windows.net/" ContainerName="conformance"><Blobs>${blobElements.join("")}${prefixElements.join("")}</Blobs><NextMarker>${nextMarker}</NextMarker></EnumerationResults>`,
   );
 }
 
