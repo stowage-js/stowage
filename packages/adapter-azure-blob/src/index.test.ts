@@ -571,6 +571,43 @@ test("a failure whose body is no error document is told by its status", async ()
   expect(failure.requestId).toBe("request-1");
 });
 
+test("an AbortError while reading a failed response travels on", async () => {
+  const aborted = new DOMException("Aborted", "AbortError");
+  const sent = stubFetch(
+    () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.error(aborted);
+          },
+        }),
+        { status: 409 },
+      ),
+  );
+
+  await expect(storage().get("object")).rejects.toBe(aborted);
+  expect(sent).toHaveLength(1);
+});
+
+test("a non-abort body read failure leaves the provider message unset", async () => {
+  stubFetch(
+    () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.error(new TypeError("broken body"));
+          },
+        }),
+        { status: 409 },
+      ),
+  );
+
+  const failure = await failureOf(() => storage().get("object"));
+
+  expect(failure.code).toBe("ProviderError");
+  expect(failure.message).toContain("409");
+});
+
 test("`retry: false` sends one attempt", async () => {
   const sent = stubFetch(() => {
     throw new TypeError("fetch failed");

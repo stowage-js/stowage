@@ -233,7 +233,9 @@ async function readMessage(
     const message = document.children.find((child) => child.name === "Message")?.text;
 
     return document.name === "Error" && message !== "" ? message : undefined;
-  } catch {
+  } catch (failure) {
+    if (failure instanceof Error && failure.name === "AbortError") throw failure;
+
     return undefined;
   }
 }
