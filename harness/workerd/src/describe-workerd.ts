@@ -1,6 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
-import { copyFile } from "node:fs/promises";
+import { copyFile, readFile } from "node:fs/promises";
 import { get, type IncomingMessage } from "node:http";
 import { createRequire } from "node:module";
 import { join } from "node:path";
@@ -14,26 +14,31 @@ import { build } from "tsdown";
 
 import type { ConformanceFramework } from "../../../packages/conformance/src/describe.ts";
 import type { ConformanceResult } from "../../../packages/conformance/src/result.ts";
+import { endpointNameFrom as azureBlobEndpointNameFrom } from "../../azure-blob/src/configuration.ts";
+import type { AzureBlobRealEndpoint } from "../../azure-blob/src/divergences.ts";
 import { configuredStorage as configuredAzureBlobStorage } from "../../azure-blob/src/environment.ts";
 import { describeAzureBlobEndpointCheck } from "../../azure-blob/src/target.ts";
 import { configuredStorage } from "../../s3/src/environment.ts";
 import { describeEndpointCheck } from "../../s3/src/target.ts";
 import { type CoreCheckResult, describeCoreResults } from "../../targets/src/core.ts";
 import { endpointTiersFrom } from "../../targets/src/endpoints.ts";
+import { runOptionsFrom } from "../../targets/src/run-options.ts";
 import type { FromEnvOutcome } from "./from-env.ts";
 import type { NodeApiReach } from "./node-api.ts";
 
 const harnessDirectory = fileURLToPath(new URL("..", import.meta.url));
 
+/** The endpoint flow 1 is measured against, which is what spec 13 asks about. */
+const account: AzureBlobRealEndpoint = "azure-blob";
+
 /**
  * ADR 0006: `workerd` has no test function to hand the cases to, so the worker runs them
  * and answers with the results, and the harness reports each one on Node as a test of its
  * own, named as `describeConformance` names the case. What each worker reports about
- * itself beside the cases is handed back for the caller to assert on.
+ * itself beside the cases, and what flow 1 cost against the Azure account, is handed back
+ * for the caller to assert on and report.
  */
-export async function describeWorkerd(
-  framework: ConformanceFramework,
-): Promise<Record<Socket, Probes>> {
+export async function describeWorkerd(framework: ConformanceFramework): Promise<WorkerdRun> {
   await bundleWorker();
   await placeTrustedCertificate();
 
@@ -43,22 +48,33 @@ export async function describeWorkerd(
     ? configuredAzureBlobStorage()
     : undefined;
 
-  const { core, memory, s3, azureBlob, probes } = await withWorkerd(async (origins) => ({
-    core: await answerOf<readonly CoreCheckResult[]>(origins.harness, "core"),
-    memory: await resultsOf(origins.harness, "adapter-memory"),
-    s3: configured === undefined ? undefined : await resultsOf(origins.harness, "adapter-s3"),
-    azureBlob:
-      configuredAzureBlob === undefined
-        ? undefined
-        : {
-            harness: await resultsOf(origins.harness, "adapter-azure-blob"),
-            defaults: await resultsOf(origins.defaults, "adapter-azure-blob"),
-          },
-    probes: {
-      harness: await probesOf(origins.harness),
-      defaults: await probesOf(origins.defaults),
-    },
-  }));
+  const measuring =
+    runOptionsFrom(env).includeSlow === true &&
+    configuredAzureBlob !== undefined &&
+    azureBlobEndpointNameFrom(env) === account;
+
+  const { core, memory, s3, azureBlob, probes, flowOne } = await withWorkerd(async (workerd) => {
+    const { origins } = workerd;
+
+    return {
+      core: await answerOf<readonly CoreCheckResult[]>(origins.harness, "core"),
+      memory: await resultsOf(origins.harness, "adapter-memory"),
+      s3: configured === undefined ? undefined : await resultsOf(origins.harness, "adapter-s3"),
+      azureBlob:
+        configuredAzureBlob === undefined
+          ? undefined
+          : {
+              harness: await resultsOf(origins.harness, "adapter-azure-blob"),
+              defaults: await resultsOf(origins.defaults, "adapter-azure-blob"),
+            },
+      probes: {
+        harness: await probesOf(origins.harness),
+        defaults: await probesOf(origins.defaults),
+      },
+      // After every other run, so that the CPU the process spends meanwhile is the upload's.
+      flowOne: measuring ? await measureFlowOne(workerd) : undefined,
+    };
+  });
 
   describeCoreResults(framework, core);
 
@@ -81,7 +97,83 @@ export async function describeWorkerd(
     );
   }
 
-  return probes;
+  return { probes, flowOne };
+}
+
+export interface WorkerdRun {
+  readonly probes: Record<Socket, Probes>;
+  /** Flow 1 against the Azure account, where the scheduled run asks for the slow tier there. */
+  readonly flowOne?: Measurement;
+}
+
+/** One case run on its own in the worker, with the time and the CPU it took. */
+export interface Measurement {
+  readonly result: ConformanceResult | undefined;
+  readonly seconds: number;
+  /** The CPU of the `workerd` process, where `/proc` reports one. */
+  readonly cpuSeconds: number | undefined;
+}
+
+interface Workerd {
+  readonly origins: Record<Socket, string>;
+  readonly pid: number | undefined;
+}
+
+/**
+ * Spec 13 and ADR 0026: the 17 MiB upload of flow 1 on `workerd` against the account, and
+ * what it spends there, which the host note of spec 2 reads against a paid plan's limits.
+ */
+async function measureFlowOne(workerd: Workerd): Promise<Measurement> {
+  const cpuBefore = await cpuSecondsOf(workerd.pid);
+  const started = performance.now();
+  const [result] = await resultsOf(
+    workerd.origins.harness,
+    `adapter-azure-blob?case=${encodeURIComponent("flow/1-large-upload")}`,
+  );
+  const seconds = (performance.now() - started) / 1000;
+  const cpuAfter = await cpuSecondsOf(workerd.pid);
+
+  return {
+    result,
+    seconds,
+    cpuSeconds:
+      cpuBefore === undefined || cpuAfter === undefined ? undefined : cpuAfter - cpuBefore,
+  };
+}
+
+/**
+ * The CPU the `workerd` process spent, user and system, out of `/proc/<pid>/stat`, which
+ * counts in the fixed 100 ticks a second Linux reports there. Elsewhere there is none to
+ * read, and the measurement is the duration alone.
+ */
+async function cpuSecondsOf(pid: number | undefined): Promise<number | undefined> {
+  if (pid === undefined) return undefined;
+
+  try {
+    const stat = await readFile(`/proc/${pid}/stat`, "utf8");
+    // The fields after the command, whose name may hold spaces, start with the third.
+    const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+
+    return (Number(fields[11]) + Number(fields[12])) / 100;
+  } catch {
+    return undefined;
+  }
+}
+
+/** What the report shows for the measurement, whatever the case did. */
+export function observationOf(measurement: Measurement): string {
+  const cpu =
+    measurement.cpuSeconds === undefined
+      ? ""
+      : `, ${measurement.cpuSeconds.toFixed(1)} s of CPU in the \`workerd\` process`;
+  const duration = `${measurement.seconds.toFixed(1)} s${cpu}`;
+  const { result } = measurement;
+
+  if (result === undefined) return `no result after ${duration}`;
+  if (result.status === "failed") return `failed after ${duration}: ${result.error.message}`;
+  if (result.status === "skipped") return `skipped: ${result.reason}`;
+
+  return `passed in ${duration}`;
 }
 
 /**
@@ -131,7 +223,7 @@ async function placeTrustedCertificate(): Promise<void> {
   }
 }
 
-async function withWorkerd<T>(use: (origins: Record<Socket, string>) => Promise<T>): Promise<T> {
+async function withWorkerd<T>(use: (workerd: Workerd) => Promise<T>): Promise<T> {
   // The package hands out the path of the binary built for this machine as its default
   // export.
   const workerd: { readonly default: string } = createRequire(import.meta.url)("workerd");
@@ -146,8 +238,11 @@ async function withWorkerd<T>(use: (origins: Record<Socket, string>) => Promise<
     const ports = await listeningPorts(child);
 
     return await use({
-      harness: `http://127.0.0.1:${ports.harness}`,
-      defaults: `http://127.0.0.1:${ports.defaults}`,
+      origins: {
+        harness: `http://127.0.0.1:${ports.harness}`,
+        defaults: `http://127.0.0.1:${ports.defaults}`,
+      },
+      pid: child.pid,
     });
   } finally {
     child.kill();

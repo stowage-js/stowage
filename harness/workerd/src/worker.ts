@@ -42,7 +42,11 @@ export default {
 
     if (run === undefined) return new Response(null, { status: 404 });
 
-    return Response.json(await runCases(run.cases, run.target));
+    // One case on its own, for the harness to measure what it spends in this process.
+    const only = url.searchParams.get("case");
+    const cases = only === null ? run.cases : run.cases.filter((source) => source.name === only);
+
+    return Response.json(await runCases(cases, run.target));
   },
 };
 
