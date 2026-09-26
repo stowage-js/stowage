@@ -57,7 +57,13 @@ issuer and audience and no signature, so `src/token.ts` mints an unsigned JWT fo
 `https://storage.azure.com`, fresh for every request the resolver is asked for. It names a
 principal in `oid` and its tenant in `tid`, without which Azurite answers the user delegation key
 the presign cases request with an empty `500`. The account key reaches the endpoint through
-`src/adapter-azure-blob.test.ts`, which holds Shared Key against the same container.
+`src/adapter-azure-blob.test.ts`, which holds Shared Key against the same container across the
+operations of the parity core (spec 9.4): user metadata named `a1` and `a_` with a value holding
+a run of spaces, a stream staged as blocks, `presignGet` as a service SAS and `presignPut` refused
+before any request. The copy and the move report themselves skipped where the endpoint answers
+`Put Blob From URL` with `501`, as the pinned Azurite does (ADR 0025). It runs against Azurite on
+every commit, asks nothing of the endpoint the account does not answer, so that the `slow` tier
+runs it against the account as it is, and deletes what it wrote once it is done.
 
 ## The cases run so far
 
