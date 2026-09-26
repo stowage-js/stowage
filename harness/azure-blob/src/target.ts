@@ -120,10 +120,9 @@ export const endpointMissing =
  * ADR 0023, after ADR 0012: a run includes this tier and fails where no endpoint is
  * reachable rather than passing with it skipped.
  */
-export function describeAzureBlob(
+export function describeAzureBlobEndpointCheck(
   framework: ConformanceFramework,
   configured: AzureBlobAdapterOptions | undefined,
-  endpointName: string | undefined,
 ): void {
   framework.test(
     "the Azure Blob endpoint of ADR 0023 is configured (see `harness/azure-blob/README.md`)",
@@ -131,6 +130,15 @@ export function describeAzureBlob(
       if (configured === undefined) throw new Error(endpointMissing);
     },
   );
+}
+
+/** The check above, then the covered cases as a run against `endpointName` performs them. */
+export function describeAzureBlob(
+  framework: ConformanceFramework,
+  configured: AzureBlobAdapterOptions | undefined,
+  endpointName: string | undefined,
+): void {
+  describeAzureBlobEndpointCheck(framework, configured);
 
   if (configured === undefined) return;
 

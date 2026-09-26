@@ -1,7 +1,9 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { once } from "node:events";
+import { copyFile } from "node:fs/promises";
 import { get, type IncomingMessage } from "node:http";
 import { createRequire } from "node:module";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { Readable } from "node:stream";
 import { text } from "node:stream/consumers";
@@ -11,6 +13,8 @@ import { build } from "tsdown";
 
 import type { ConformanceFramework } from "../../../packages/conformance/src/describe.ts";
 import type { ConformanceResult } from "../../../packages/conformance/src/result.ts";
+import { configuredStorage as configuredAzureBlobStorage } from "../../azure-blob/src/environment.ts";
+import { describeAzureBlobEndpointCheck } from "../../azure-blob/src/target.ts";
 import { configuredStorage } from "../../s3/src/environment.ts";
 import { describeEndpointCheck } from "../../s3/src/target.ts";
 import { type CoreCheckResult, describeCoreResults } from "../../targets/src/core.ts";
@@ -29,13 +33,22 @@ export async function describeWorkerd(
   framework: ConformanceFramework,
 ): Promise<Record<Socket, Probes>> {
   await bundleWorker();
+  await placeTrustedCertificate();
 
   const configured = configuredStorage();
+  const configuredAzureBlob = configuredAzureBlobStorage();
 
-  const { core, memory, s3, probes } = await withWorkerd(async (origins) => ({
+  const { core, memory, s3, azureBlob, probes } = await withWorkerd(async (origins) => ({
     core: await answerOf<readonly CoreCheckResult[]>(origins.harness, "core"),
     memory: await resultsOf(origins.harness, "adapter-memory"),
     s3: configured === undefined ? undefined : await resultsOf(origins.harness, "adapter-s3"),
+    azureBlob:
+      configuredAzureBlob === undefined
+        ? undefined
+        : {
+            harness: await resultsOf(origins.harness, "adapter-azure-blob"),
+            defaults: await resultsOf(origins.defaults, "adapter-azure-blob"),
+          },
     probes: {
       harness: await probesOf(origins.harness),
       defaults: await probesOf(origins.defaults),
@@ -49,6 +62,17 @@ export async function describeWorkerd(
   describeEndpointCheck(framework, configured);
 
   if (s3 !== undefined) describeResults(framework, "@stowage/adapter-s3", s3);
+
+  describeAzureBlobEndpointCheck(framework, configuredAzureBlob);
+
+  if (azureBlob !== undefined) {
+    describeResults(framework, "@stowage/adapter-azure-blob", azureBlob.harness);
+    describeResults(
+      framework,
+      "@stowage/adapter-azure-blob at the default flags",
+      azureBlob.defaults,
+    );
+  }
 
   return probes;
 }
@@ -80,6 +104,24 @@ async function bundleWorker(): Promise<void> {
     dts: false,
     logLevel: "warn",
   });
+}
+
+/**
+ * ADR 0023: `workerd.capnp` trusts the certificate `harness/azure-blob/start.sh` generates,
+ * and `workerd` refuses to start on a missing or empty file. Where no Azurite was started, a
+ * certificate whose key nobody holds stands in, so that the run reports the missing endpoint
+ * as a failed check (ADR 0012) and the other adapters' results still arrive.
+ */
+async function placeTrustedCertificate(): Promise<void> {
+  const trusted = join(harnessDirectory, "dist", "trusted-certificate.pem");
+
+  try {
+    await copyFile(join(harnessDirectory, "..", "azure-blob", "certificate", "cert.pem"), trusted);
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+
+    await copyFile(join(harnessDirectory, "placeholder-certificate.pem"), trusted);
+  }
 }
 
 async function withWorkerd<T>(use: (origins: Record<Socket, string>) => Promise<T>): Promise<T> {
