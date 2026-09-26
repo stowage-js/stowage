@@ -18,6 +18,7 @@ import {
   type AzureBlobConfiguration,
   readConfiguration,
 } from "./configuration.ts";
+import { copyBlob } from "./copy.ts";
 import { deleteBelow, deleteKeys } from "./delete.ts";
 import { defaultContentType, describeResponse, describeWrite } from "./description.ts";
 import { requireKey } from "./key.ts";
@@ -187,7 +188,7 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
   async copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
     this.#requireCopyKeys(from, to, options, "copy");
 
-    throw notYetImplemented("`copy`");
+    return await copyBlob(this.#configuration, from, to, "copy", options?.signal);
   }
 
   async move(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {

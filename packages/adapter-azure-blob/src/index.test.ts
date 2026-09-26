@@ -1144,10 +1144,216 @@ test.each(["copy", "move"] as const)(
 );
 
 test("`copy` refuses a destination Azure does not take before any request", async () => {
+  const sent = stubFetch(() => created());
+
   const failure = await failureOf(() => storage().copy("object", "dir./object"));
 
   expect(failure.code).toBe("InvalidKey");
   expect(failure.key).toBe("dir./object");
+  expect(sent).toHaveLength(0);
+});
+
+test.each(["copy", "move"] as const)(
+  "`%s` checks the source before either key is acted on",
+  async (operation) => {
+    const sent = stubFetch(() => created());
+
+    const failure = await failureOf(() => storage()[operation]("a//b", "object"));
+
+    expect(failure).toMatchObject({ code: "InvalidKey", key: "a//b", operation, attempts: 0 });
+    expect(sent).toHaveLength(0);
+  },
+);
+
+/** What Azure answers `Put Blob From URL` and then the `HEAD` of the destination with. */
+function copied(headers: Record<string, string> = {}) {
+  return (request: SentRequest): Response =>
+    request.method === "HEAD" ? described(headers) : created();
+}
+
+test("`copy` sends one `Put Blob From URL` and describes the destination with a `HEAD`", async () => {
+  const sent = stubFetch(copied({ "x-ms-meta-writtenby": "stowage" }));
+
+  const written = await storage().copy("from #1.txt", "to.txt");
+
+  expect(sent.map((request) => request.method)).toEqual(["PUT", "HEAD"]);
+  expect(sent[0]?.url).toBe("https://stowage.blob.core.windows.net/conformance/to.txt");
+  expect(sent[0]?.headers.get("x-ms-blob-type")).toBe("BlockBlob");
+  expect(sent[0]?.headers.get("x-ms-copy-source")).toBe(
+    "https://stowage.blob.core.windows.net/conformance/from%20%231.txt",
+  );
+  // The service copies the content type and the user metadata of the source (ADR 0025).
+  expect(sent[0]?.headers.has("content-type")).toBe(false);
+  expect([...(sent[0]?.headers.keys() ?? [])].some((name) => name.startsWith("x-ms-meta-"))).toBe(
+    false,
+  );
+  expect(sent[0]?.body).toEqual(new Uint8Array(0));
+  expect(sent[1]?.url).toBe("https://stowage.blob.core.windows.net/conformance/to.txt");
+  expect(written).toEqual({
+    key: "to.txt",
+    size: 11,
+    lastModified: new Date("2026-08-30T12:36:00Z"),
+    etag: "0x8DCA1B2C3D4E5F6",
+    contentType: "text/plain",
+    userMetadata: { writtenby: "stowage" },
+  });
+});
+
+test("under an access token the source is authorized by the token of the request itself", async () => {
+  const sent = stubFetch(copied());
+
+  await storage().copy("from.txt", "to.txt");
+
+  expect(sent[0]?.headers.get("authorization")).toBe(`Bearer ${accessToken}`);
+  expect(sent[0]?.headers.get("x-ms-copy-source-authorization")).toBe(`Bearer ${accessToken}`);
+});
+
+test("the repeat after a refused token renews the authorization of the source too", async () => {
+  const responses = [tokenRefused()];
+  const sent = stubFetch((request) => responses.shift() ?? copied()(request));
+  const tokens = ["stale", "fresh"];
+
+  await storage({ credentials: () => ({ accessToken: tokens.shift() ?? "fresh" }) }).copy(
+    "from.txt",
+    "to.txt",
+  );
+
+  expect(sent[1]?.headers.get("authorization")).toBe("Bearer fresh");
+  expect(sent[1]?.headers.get("x-ms-copy-source-authorization")).toBe("Bearer fresh");
+});
+
+test("under an account key the source carries a service SAS reading it for the next hour", async () => {
+  vi.useFakeTimers({ now: new Date("2026-08-30T12:36:00.500Z"), toFake: ["Date"] });
+  const sent = stubFetch(copied());
+
+  try {
+    await storage({ credentials: { accountKey } }).copy("from #1.txt", "to.txt");
+  } finally {
+    vi.useRealTimers();
+  }
+
+  const source = new URL(sent[0]?.headers.get("x-ms-copy-source") ?? "");
+
+  expect(`${source.origin}${source.pathname}`).toBe(
+    "https://stowage.blob.core.windows.net/conformance/from%20%231.txt",
+  );
+  expect(Object.fromEntries(source.searchParams)).toMatchObject({
+    sv: "2026-04-06",
+    spr: "https",
+    st: "2026-08-30T12:21:00Z",
+    se: "2026-08-30T13:36:00Z",
+    sr: "b",
+    sp: "r",
+  });
+  expect(source.searchParams.get("sig")).toMatch(/^[A-Za-z0-9+/]{43}=$/u);
+  expect(sent[0]?.headers.has("x-ms-copy-source-authorization")).toBe(false);
+  expect(sent[0]?.headers.get("authorization")).toMatch(/^SharedKey stowage:/u);
+});
+
+test("each attempt signs the SAS of the source with the key it resolved", async () => {
+  recordedDelays();
+  const responses = [refused(503, "ServerBusy", "The server is busy.")];
+  const sent = stubFetch((request) => responses.shift() ?? copied()(request));
+  const keys = [accountKey, "b3RoZXIta2V5"];
+
+  await storage({ credentials: () => ({ accountKey: keys.shift() ?? accountKey }) }).copy(
+    "from.txt",
+    "to.txt",
+  );
+
+  const signatures = sent
+    .filter((request) => request.method === "PUT")
+    .map((request) =>
+      new URL(request.headers.get("x-ms-copy-source") ?? "").searchParams.get("sig"),
+    );
+
+  expect(signatures).toHaveLength(2);
+  expect(signatures[0]).not.toBe(signatures[1]);
+});
+
+function sourceUnverified(status: number, sourceStatus?: number): Response {
+  return refused(
+    status,
+    "CannotVerifyCopySource",
+    "The specified blob does not exist.",
+    sourceStatus === undefined ? {} : { "x-ms-copy-source-status-code": String(sourceStatus) },
+  );
+}
+
+test.each([
+  ["the source's status where it is named", sourceUnverified(404, 404), "NotFound", 404],
+  ["the source's status over the response's", sourceUnverified(409, 403), "AccessDenied", 409],
+  [
+    "the response's status where the source's is missing",
+    sourceUnverified(401),
+    "InvalidCredentials",
+    401,
+  ],
+])(
+  "`CannotVerifyCopySource` is told by %s, against the source key",
+  async (_label, answer, code, status) => {
+    stubFetch(() => answer);
+
+    const failure = await failureOf(() => storage().copy("from.txt", "to.txt"));
+
+    expect(failure).toMatchObject({
+      code,
+      status,
+      providerCode: "CannotVerifyCopySource",
+      operation: "copy",
+      key: "from.txt",
+      attempts: 1,
+    });
+  },
+);
+
+test("a source the service could not verify in time is repeated as transient", async () => {
+  recordedDelays();
+  const sent = stubFetch(() => sourceUnverified(500));
+
+  const failure = await failureOf(() => storage().copy("from.txt", "to.txt"));
+
+  expect(failure).toMatchObject({ code: "ProviderError", retryable: true, attempts: 3 });
+  expect(sent).toHaveLength(3);
+});
+
+test.each([
+  ["no code", new Response(null, { status: 409 })],
+  ["a code the table does not name", refused(409, "CopySourceTooLarge", "Too large.")],
+])(
+  "a `409` with %s is `InvalidRequest` naming the 5,000 MiB, without a fallback",
+  async (_label, answer) => {
+    const sent = stubFetch(() => answer);
+
+    const failure = await failureOf(() => storage().copy("from.txt", "to.txt"));
+
+    expect(failure).toMatchObject({ code: "InvalidRequest", status: 409, key: "to.txt" });
+    expect(failure.message).toContain("5,000 MiB");
+    expect(sent).toHaveLength(1);
+  },
+);
+
+test("a `409` whose code the table names is told by the table", async () => {
+  stubFetch(() => refused(409, "PendingCopyOperation", "There is currently a pending copy."));
+
+  const failure = await failureOf(() => storage().copy("from.txt", "to.txt"));
+
+  expect(failure.code).toBe("ProviderError");
+});
+
+test("a `409` outside a copy stays with the status", async () => {
+  stubFetch(() => refused(409, "CopySourceTooLarge", "Too large."));
+
+  expect((await failureOf(() => storage().put("object", "body"))).code).toBe("ProviderError");
+});
+
+test("`copy` rejects a signal that already fired before any request", async () => {
+  const sent = stubFetch(copied());
+
+  await expect(
+    storage().copy("from.txt", "to.txt", { signal: AbortSignal.abort() }),
+  ).rejects.toMatchObject({ name: "AbortError" });
+  expect(sent).toHaveLength(0);
 });
 
 interface ListedName {
