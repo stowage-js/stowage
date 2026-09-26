@@ -18,9 +18,10 @@ import { withAzureBlobDivergences } from "./divergences.ts";
  * The cases the adapter passes while its operations arrive one by one: those that need
  * `put` of held bytes and of a stream, `get`, `stat`, `exists`, `list`, `copy`, `move`,
  * `delete`, `deleteAll`, `presignGet` and `presignPut` and nothing else, including the
- * halves that expect a capability the storage does not declare. Every operation that joins the adapter adds its cases
- * here, until the list is the whole suite and goes. The cases that send a copy run against
- * Azurite as divergences (`divergences.ts`).
+ * halves that expect a capability the storage does not declare. Every operation that
+ * joins the adapter adds its cases here, until the list is the whole suite and goes. The
+ * cases that send a copy, `presign/put` and `flow/2-presigned-put` run against Azurite as
+ * divergences (`divergences.ts`).
  * `list/noncharacter-key` waits for an Azurite that lists a name holding `U+FFFE` (#171):
  * the pinned one answers that `List Blobs` with `500`, and the blob the case leaves behind
  * fails the `cleanup` of the run with the same answer.

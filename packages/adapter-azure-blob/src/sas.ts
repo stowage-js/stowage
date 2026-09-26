@@ -5,7 +5,7 @@ import { type HeaderField, hmacSha256Base64, type QueryParameter } from "./sign.
 const minute = 60 * 1000;
 
 /** ADR 0022: a SAS starts early enough for a service clock that trails this one. */
-export const sasLead: number = 15 * minute;
+const sasLead = 15 * minute;
 
 /** What a SAS grants on one blob: its permissions, from `start` until `expiry`. */
 export interface SasGrant {
@@ -169,7 +169,10 @@ function commonFields(configuration: AzureBlobConfiguration, grant: SasGrant) {
   };
 }
 
-/** `rscc`, `rscd`, `rsce`, `rscl` and `rsct`, the two stowage never sets empty. */
+/**
+ * `rscc`, `rscd`, `rsce`, `rscl` and `rsct`. `rsce` and `rscl` stay empty: `S3Storage`
+ * carries neither, so no presign options offer them (ADR 0022).
+ */
 function overrideLines(overrides: ResponseOverrides | undefined): string[] {
   return [
     overrides?.cacheControl ?? "",
@@ -190,6 +193,13 @@ function overrideQuery(overrides: ResponseOverrides | undefined): QueryParameter
   if (overrides?.contentType !== undefined) query.push(["rsct", overrides.contentType]);
 
   return query;
+}
+
+/** From `sasLead` in the past until `lifetime` milliseconds from now. */
+export function sasWindow(lifetime: number): Pick<SasGrant, "start" | "expiry"> {
+  const now = Date.now();
+
+  return { start: new Date(now - sasLead), expiry: new Date(now + lifetime) };
 }
 
 /** ISO 8601 in UTC to the second, one of the forms a SAS accepts. */

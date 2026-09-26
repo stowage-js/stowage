@@ -1,6 +1,6 @@
-import { type ObjectEntry, parseXml, type XmlElement, XmlSyntaxError } from "@stowage/core";
+import { type ObjectEntry, type XmlElement } from "@stowage/core";
 
-import { type AnsweredRequest, malformedAnswer } from "./answer.ts";
+import { type AnsweredRequest, malformedAnswer, parseAnswer } from "./answer.ts";
 import { unquotedEtag } from "./description.ts";
 
 /** One page of a `List Blobs` answer. */
@@ -18,7 +18,7 @@ export interface ListingDocument {
  * hand the caller a value made up for what was missing.
  */
 export function readListingDocument(answered: AnsweredRequest, body: string): ListingDocument {
-  const root = parse(answered, body);
+  const root = parseAnswer(answered, body);
 
   if (root.name !== "EnumerationResults") {
     throw malformedAnswer(answered, `a <${root.name}> where an <EnumerationResults> belongs`);
@@ -41,22 +41,6 @@ export function readListingDocument(answered: AnsweredRequest, body: string): Li
       }),
     nextMarker: nextMarkerOf(root),
   };
-}
-
-function parse(answered: AnsweredRequest, body: string): XmlElement {
-  try {
-    return parseXml(body);
-  } catch (failure) {
-    if (failure instanceof XmlSyntaxError) {
-      throw malformedAnswer(
-        answered,
-        `a document outside the XML stowage reads: ${failure.message}`,
-        failure,
-      );
-    }
-
-    throw failure;
-  }
 }
 
 function readEntry(answered: AnsweredRequest, entry: XmlElement): ObjectEntry {

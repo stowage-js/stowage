@@ -1,4 +1,4 @@
-import type { StorageError } from "@stowage/core";
+import { parseXml, type StorageError, type XmlElement, XmlSyntaxError } from "@stowage/core";
 
 import { azureBlobError } from "./storage-error.ts";
 
@@ -51,6 +51,26 @@ export async function readAnswerText(
       retryable: true,
       cause: failure,
     });
+  }
+}
+
+/**
+ * The document the provider answered with, read through the parser of spec 8.4. A body
+ * outside the subset the parser reads is a `ProviderError` rather than a value made up.
+ */
+export function parseAnswer(answered: AnsweredRequest, body: string): XmlElement {
+  try {
+    return parseXml(body);
+  } catch (failure) {
+    if (failure instanceof XmlSyntaxError) {
+      throw malformedAnswer(
+        answered,
+        `a document outside the XML stowage reads: ${failure.message}`,
+        failure,
+      );
+    }
+
+    throw failure;
   }
 }
 

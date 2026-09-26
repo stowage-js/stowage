@@ -12,9 +12,8 @@ import {
 import { blobUrl } from "./request.ts";
 import {
   type ResponseOverrides,
-  sasLead,
-  type SasGrant,
   sasTime,
+  sasWindow,
   type SignedSas,
   signServiceSas,
   signUserDelegationSas,
@@ -78,8 +77,8 @@ export async function presignGet(
     overrides[field] = readText(configuration.container, value, option, operation);
   }
 
-  const grant = { key, permissions: "r", ...window(expiresIn), overrides };
-  const credentials = await resolve(configuration, operation, key);
+  const grant = { key, permissions: "r", ...sasWindow(expiresIn * 1000), overrides };
+  const credentials = await credentialsOfCall(configuration, operation, key);
   const sas =
     "accountKey" in credentials
       ? await signServiceSas(configuration, grant, credentials.accountKey)
@@ -112,9 +111,9 @@ export async function presignPut(
   );
   const contentLength = readContentLength(configuration.container, given.contentLength, operation);
 
-  const credentials = await resolve(configuration, operation, key);
+  const credentials = await credentialsOfCall(configuration, operation, key);
 
-  // ADR 0022: the key may be right, and it is the wrong form of credential for what was
+  // ADR 0022: the account key may be right, and it is the wrong form of credential for what was
   // asked, as `KeyBasedAuthenticationNotPermitted` is under ADR 0021.
   if ("accountKey" in credentials) {
     throw azureBlobError(configuration.container, {
@@ -127,13 +126,12 @@ export async function presignPut(
     });
   }
 
-  const sent = { "content-type": contentType, "x-ms-blob-type": blockBlob };
   const sas = await signUnderDelegation(
     configuration,
     {
       key,
       permissions: "w",
-      ...window(expiresIn),
+      ...sasWindow(expiresIn * 1000),
       signedHeaders: [
         ["content-type", contentType],
         ["content-length", contentLength],
@@ -143,7 +141,10 @@ export async function presignPut(
     operation,
   );
 
-  return { url: blobUrl(configuration, key, sas.query), headers: sent };
+  return {
+    url: blobUrl(configuration, key, sas.query),
+    headers: { "content-type": contentType, "x-ms-blob-type": blockBlob },
+  };
 }
 
 /** One user delegation key for this one SAS, valid for as long as the SAS is (ADR 0022). */
@@ -163,7 +164,7 @@ async function signUnderDelegation(
 }
 
 /** The credential of the call, which decides the kind of SAS (spec 8.9). */
-async function resolve(
+async function credentialsOfCall(
   configuration: AzureBlobConfiguration,
   operation: string,
   key: string,
@@ -173,13 +174,6 @@ async function resolve(
       throw inStorage(failure, configuration.container, operation, key);
     },
   );
-}
-
-/** Spec 8.9: from 15 minutes in the past to `expiresIn` seconds from now. */
-function window(expiresIn: number): Pick<SasGrant, "start" | "expiry"> {
-  const now = Date.now();
-
-  return { start: new Date(now - sasLead), expiry: new Date(now + expiresIn * 1000) };
 }
 
 /**
