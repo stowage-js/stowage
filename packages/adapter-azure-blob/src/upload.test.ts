@@ -164,11 +164,14 @@ function blockIdBytes(blockId: string): Uint8Array {
   return Uint8Array.from(atob(blockId), (character) => character.charCodeAt(0));
 }
 
+/** ADR 0024: the part index follows the sixteen bytes drawn once per upload. */
+const partIndexOffset = 16;
+
 /** The part index a `Put Block` carries in the last four bytes of its id, big-endian. */
 function partIndexOf(request: SentRequest): number {
   const bytes = blockIdBytes(request.url.searchParams.get("blockid") ?? "");
 
-  return new DataView(bytes.buffer).getUint32(16);
+  return new DataView(bytes.buffer).getUint32(partIndexOffset);
 }
 
 /** What Azure answers each request of a block upload with, where it accepts it. */
@@ -593,8 +596,8 @@ test("blocks go `concurrency` at a time, and the upload holds no more of the str
 
   expect(firstDifference(assembled(sent), bytes)).toBe(-1);
   expect(held.mostInFlight()).toBe(2);
-  // The blocks in flight, and the chunk read ahead to learn whether the stream goes on
-  // together with the one the stream itself queues in front of the next read.
+  // Two parts in flight, plus two chunks of the stream: the one read ahead to learn
+  // whether the stream goes on, and the one the stream queues in front of the next read.
   expect(Math.max(...held.heldAtEachBlock)).toBeLessThanOrEqual(2 * smallestPart + 2 * mebibyte);
 });
 
@@ -619,10 +622,17 @@ test("parts are 8 MiB and go four at a time by default", async () => {
   expect(Math.max(...held.heldAtEachBlock)).toBeLessThanOrEqual(4 * 8 * mebibyte + 2 * mebibyte);
 });
 
-test("a stream that needs more than 50,000 parts rejects naming `partSize` and the way past it", async () => {
-  // The bodies are counted rather than kept: 50,000 parts would not fit in memory.
+/** Azure's limit on the committed blocks of one blob. */
+const maxParts = 50_000;
+
+/**
+ * The steps of an upload, and the commit's body, with the bodies of the blocks counted
+ * rather than kept: 50,000 parts would not fit in memory.
+ */
+function stubCountingFetch(): { steps: string[]; commitBody: () => string | undefined } {
   const steps: string[] = [];
   const provider = blockProvider();
+  let commitBody: string | undefined;
 
   vi.stubGlobal("fetch", async (url: string, init: RequestInit): Promise<Response> => {
     const request: SentRequest = {
@@ -632,12 +642,45 @@ test("a stream that needs more than 50,000 parts rejects naming `partSize` and t
       body: undefined,
       signal: undefined,
     };
+    const step = stepOf(request);
 
-    steps.push(stepOf(request));
+    steps.push(step);
+
+    if (step === "commit") commitBody = new TextDecoder().decode(sentBytes(init.body));
 
     return await provider(request);
   });
 
+  return { steps, commitBody: () => commitBody };
+}
+
+test("a stream of exactly 50,000 parts is committed", async () => {
+  const { steps, commitBody } = stubCountingFetch();
+  const chunk = new Uint8Array(smallestPart);
+  let enqueued = 0;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (enqueued === maxParts) {
+        controller.close();
+        return;
+      }
+
+      controller.enqueue(chunk);
+      enqueued += 1;
+    },
+  });
+  const upload = storage({ multipart: { partSize: smallestPart } });
+
+  const written = await upload.put("object.bin", body);
+
+  expect(written.size).toBe(maxParts * smallestPart);
+  expect(steps.filter((step) => step.startsWith("block "))).toHaveLength(maxParts);
+  expect(steps.at(-1)).toBe("commit");
+  expect(commitBody()?.match(/<Latest>/gu)).toHaveLength(maxParts);
+}, 30_000);
+
+test("a stream that needs more than 50,000 parts rejects naming `partSize` and the way past it", async () => {
+  const { steps } = stubCountingFetch();
   const chunk = new Uint8Array(smallestPart);
   let canceled = false;
   const body = new ReadableStream<Uint8Array>({
