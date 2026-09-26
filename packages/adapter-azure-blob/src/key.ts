@@ -14,12 +14,22 @@ const c1Control = /[\u0080-\u009f]/u;
  * core rule alone, so that a blob another tool wrote stays reachable.
  */
 export function requireKey(container: string, key: string, rule: KeyRule, operation: string): void {
+  const refusal = keyRefusal(container, key, rule, operation);
+
+  if (refusal !== undefined) throw refusal;
+}
+
+/** The same rule for `delete`, which reports a key it refuses rather than throwing (spec 4.7). */
+export function keyRefusal(
+  container: string,
+  key: string,
+  rule: KeyRule,
+  operation: string,
+): StorageError | undefined {
   const reason =
     invalidKeyReason(key, rule) ?? (rule === "writable" ? azureReason(key) : undefined);
 
-  if (reason === undefined) return;
-
-  throw keyError(container, key, reason, operation);
+  return reason === undefined ? undefined : keyError(container, key, reason, operation);
 }
 
 function azureReason(key: string): string | undefined {

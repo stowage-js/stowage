@@ -1008,6 +1008,7 @@ another endpoint that speaks the Blob wire protocol can be configured and are no
 ### 8.4 Requests
 
 - Every request carries `x-ms-version: 2026-04-06`, and every SAS the adapter signs `sv=2026-04-06`.
+  A subrequest inside a Blob Batch carries none, since the batch request names it for all of them.
 - Under an account key a request is signed with Shared Key, which signs the length and no hash of
   the body. Canonical headers are ordered by code point with `_` placed before the digits, never
   by a runtime's collation. Under an access token a request carries it as `Authorization: Bearer`.

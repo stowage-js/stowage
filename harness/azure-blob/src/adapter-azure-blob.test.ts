@@ -53,5 +53,22 @@ describe.skipIf(underAccountKey === undefined || underAccessToken === undefined)
 
       expect(page.objects.map((entry) => entry.key)).toEqual([key]);
     });
+
+    // A Blob Batch carries a Shared Key signature for every subrequest beside its own, each
+    // over a path that travels encoded.
+    test("Shared Key signs a Blob Batch and every subrequest inside it", async () => {
+      const storage = azureBlobStorage(endpointOrFail(underAccountKey));
+      const keys = [`${encodedPrefix}batched/one`, `${encodedPrefix}batched/二`];
+
+      await Promise.all(keys.map(async (key) => await storage.put(key, "deleted in a batch")));
+
+      const report = await storage.delete(...keys, `${encodedPrefix}batched/absent`);
+
+      expect(report).toEqual({ requested: 3, failed: [] });
+      expect(await Promise.all(keys.map(async (key) => await storage.exists(key)))).toEqual([
+        false,
+        false,
+      ]);
+    });
   },
 );
