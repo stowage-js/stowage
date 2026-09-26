@@ -72,7 +72,7 @@ export interface ProviderAnswer {
   /** Whether the request went out under an access token the resolver had just refreshed. */
   readonly underRefreshedToken: boolean;
   /** Whether the request was a `Put Blob From URL`, whose unnamed `409` spec 8.7 reads. */
-  readonly copies: boolean;
+  readonly copiesFromUrl: boolean;
   /** What the source of a copy answered the service, from `x-ms-copy-source-status-code`. */
   readonly copySourceStatus?: number;
 }
@@ -124,7 +124,7 @@ export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
 
   // Spec 8.7: the service names no code for a source above what one `Put Blob From URL`
   // copies, and a fallback to blocks copied by range is declined (ADR 0025).
-  if (answer.copies && answer.status === conflict) {
+  if (answer.copiesFromUrl && answer.status === conflict) {
     return {
       code: "InvalidRequest",
       message: `The source is above the 5,000 MiB one copy takes, or reported no valid length: ${said}`,
@@ -171,7 +171,7 @@ export function providerError(container: string, response: FailedResponse): Stor
     providerCode,
     providerMessage: response.providerMessage,
     underRefreshedToken: response.underRefreshedToken,
-    copies: response.copySource !== undefined,
+    copiesFromUrl: response.copySource !== undefined,
     copySourceStatus: statusOf(response.headers.get("x-ms-copy-source-status-code")),
   });
   const failedOnSource = providerCode === "CannotVerifyCopySource";
