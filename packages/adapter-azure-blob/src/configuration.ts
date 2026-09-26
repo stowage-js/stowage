@@ -43,6 +43,8 @@ export interface AzureBlobConfiguration {
   readonly host: string;
   /** What the endpoint puts in front of the path, without a trailing slash. */
   readonly basePath: string;
+  /** Whether the endpoint is a loopback address, the one a SAS admits `http` for (ADR 0022). */
+  readonly loopback: boolean;
   readonly credentials: Resolvable<AzureBlobCredentials>;
   readonly maxAttempts: number;
   readonly partSize: number;
@@ -118,6 +120,7 @@ interface EndpointAddress {
   readonly protocol: string;
   readonly host: string;
   readonly basePath: string;
+  readonly loopback: boolean;
 }
 
 /**
@@ -128,7 +131,12 @@ interface EndpointAddress {
  */
 function readEndpoint(container: string, options: AzureBlobAdapterOptions): EndpointAddress {
   if (options.endpoint === undefined) {
-    return { protocol: "https:", host: `${options.account}.blob.core.windows.net`, basePath: "" };
+    return {
+      protocol: "https:",
+      host: `${options.account}.blob.core.windows.net`,
+      basePath: "",
+      loopback: false,
+    };
   }
 
   if (typeof options.endpoint !== "string") {
@@ -151,6 +159,7 @@ function readEndpoint(container: string, options: AzureBlobAdapterOptions): Endp
     protocol: parsed.protocol,
     host: parsed.host,
     basePath: readBasePath(container, parsed.pathname.replace(/\/$/u, "")),
+    loopback: loopbackHosts.test(parsed.hostname),
   };
 }
 
