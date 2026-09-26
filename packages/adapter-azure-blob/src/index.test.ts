@@ -914,3 +914,50 @@ test("a `400` whose code the table holds is told by the table, whatever the key"
 
   expect(failure.code).toBe("InvalidRequest");
 });
+
+// Spec 4.6: the listing sends nothing until it is read, so the refusal is the reader's.
+test.each([
+  ["a `pageSize` of 0", { pageSize: 0 }, "pageSize"],
+  ["a `pageSize` above 1000", { pageSize: 1001 }, "pageSize"],
+  ["an empty `delimiter`", { delimiter: "" }, "delimiter"],
+])("`list` refuses %s before any request", async (_label, options, option) => {
+  const sent = stubFetch(() => described());
+  const listing = storage().list(options);
+
+  const failure = await failureOf(() => listing.page());
+
+  expect(failure.code).toBe("InvalidOption");
+  expect(failure.message).toContain(option);
+  expect(failure.operation).toBe("list");
+  expect(failure.attempts).toBe(0);
+  expect(sent).toHaveLength(0);
+});
+
+test("`list` refuses a prefix the core refuses, from the iteration as well", async () => {
+  const listing = storage().list({ prefix: "a//" });
+
+  const failure = await failureOf(() => listing[Symbol.asyncIterator]().next());
+
+  expect(failure.code).toBe("InvalidKey");
+});
+
+test.each(["copy", "move"] as const)(
+  "`%s` of a key onto itself is `InvalidRequest` before any request",
+  async (operation) => {
+    const sent = stubFetch(() => created());
+
+    const failure = await failureOf(() => storage()[operation]("object", "object"));
+
+    expect(failure.code).toBe("InvalidRequest");
+    expect(failure.operation).toBe(operation);
+    expect(failure.attempts).toBe(0);
+    expect(sent).toHaveLength(0);
+  },
+);
+
+test("`copy` refuses a destination Azure does not take before any request", async () => {
+  const failure = await failureOf(() => storage().copy("object", "dir./object"));
+
+  expect(failure.code).toBe("InvalidKey");
+  expect(failure.key).toBe("dir./object");
+});

@@ -3,6 +3,7 @@ import {
   type DeleteReport,
   type GetOptions,
   isStorageError,
+  type ListOptions,
   type ObjectListing,
   type ObjectStat,
   type OperationOptions,
@@ -19,6 +20,7 @@ import {
 } from "./configuration.ts";
 import { defaultContentType, describeResponse, describeWrite } from "./description.ts";
 import { requireKey } from "./key.ts";
+import { readListRequest } from "./listing.ts";
 import {
   getOptionKeys,
   operationOptionKeys,
@@ -139,8 +141,19 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
     }
   }
 
-  list(): ObjectListing {
-    throw notYetImplemented("`list`");
+  // Spec 4.6: a listing sends no request until it is read, so an option it refuses
+  // reaches the caller from `page()` and from the iteration and not from `list`.
+  list(options?: ListOptions): ObjectListing {
+    const refuseOrStop = async (): Promise<never> => {
+      readListRequest(this.bucket, options);
+
+      throw notYetImplemented("`list`");
+    };
+
+    return {
+      page: refuseOrStop,
+      [Symbol.asyncIterator]: () => ({ next: refuseOrStop }),
+    };
   }
 
   async delete(): Promise<DeleteReport> {
@@ -151,11 +164,15 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
     throw notYetImplemented("`deleteAll`");
   }
 
-  async copy(): Promise<ObjectStat> {
+  async copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
+    this.#requireCopyKeys(from, to, options, "copy");
+
     throw notYetImplemented("`copy`");
   }
 
-  async move(): Promise<ObjectStat> {
+  async move(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
+    this.#requireCopyKeys(from, to, options, "move");
+
     throw notYetImplemented("`move`");
   }
 
@@ -171,6 +188,27 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
       operation,
       key,
       signal: options?.signal,
+    });
+  }
+
+  #requireCopyKeys(
+    from: string,
+    to: string,
+    options: OperationOptions | undefined,
+    operation: string,
+  ): void {
+    requireKey(this.bucket, from, "addressable", operation);
+    requireKey(this.bucket, to, "writable", operation);
+    requireKnownOptions(this.bucket, options, operationOptionKeys, operation);
+
+    if (from !== to) return;
+
+    throw azureBlobError(this.bucket, {
+      code: "InvalidRequest",
+      message: "A copy names one key as its source and another as its destination",
+      operation,
+      key: from,
+      attempts: 0,
     });
   }
 
