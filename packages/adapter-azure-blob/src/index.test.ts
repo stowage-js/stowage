@@ -9,6 +9,7 @@ import {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 interface SentRequest {
@@ -302,7 +303,7 @@ test("a body that breaks after `get` resolved is a `NetworkError`", async () => 
 });
 
 test("`get` of a missing blob is `NotFound` carrying what the provider answered", async () => {
-  stubFetch(() => refused(404, "BlobNotFound"));
+  const sent = stubFetch(() => refused(404, "BlobNotFound"));
 
   const failure = await failureOf(() => storage().get("absent"));
 
@@ -311,13 +312,15 @@ test("`get` of a missing blob is `NotFound` carrying what the provider answered"
   expect(failure.operation).toBe("get");
   expect(failure.status).toBe(404);
   expect(failure.providerCode).toBe("BlobNotFound");
+  expect(sent).toHaveLength(1);
   expect(failure.requestId).toBe("request-1");
   expect(failure.retryable).toBe(false);
   expect(failure.attempts).toBe(1);
 });
 
 test("a request that received no response is a `NetworkError`", async () => {
-  stubFetch(() => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+  const sent = stubFetch(() => {
     throw new TypeError("fetch failed");
   });
 
@@ -326,6 +329,73 @@ test("a request that received no response is a `NetworkError`", async () => {
   expect(failure.code).toBe("NetworkError");
   expect(failure.retryable).toBe(true);
   expect(failure.cause).toBeInstanceOf(TypeError);
+  expect(failure.attempts).toBe(3);
+  expect(sent).toHaveLength(3);
+});
+
+test.each([408, 429, 500, 503])(
+  "a transient %s resolves and authorizes the next attempt again",
+  async (status) => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const resolve = vi
+      .fn<() => AzureBlobCredentials>()
+      .mockReturnValueOnce({ accessToken })
+      .mockReturnValue({ accountKey });
+    const sent = stubFetch(() => (sent.length === 1 ? refused(status, "ServerBusy") : created()));
+
+    const written = await storage({ credentials: resolve }).put("object", "body");
+
+    expect(written.key).toBe("object");
+    expect(sent).toHaveLength(2);
+    expect(resolve).toHaveBeenCalledTimes(2);
+    expect(resolve).toHaveBeenNthCalledWith(2, { forceRefresh: false });
+    expect(sent[0]?.headers.get("authorization")).toBe(`Bearer ${accessToken}`);
+    expect(sent[1]?.headers.get("authorization")).toMatch(/^SharedKey /u);
+    expect(sent[1]?.body).toEqual(sent[0]?.body);
+  },
+);
+
+test.each([false, { maxAttempts: 2 }] as const)(
+  "a transient failure respects retry %j",
+  async (retry) => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const sent = stubFetch(() => refused(503, "ServerBusy"));
+
+    const failure = await failureOf(() => storage({ retry }).get("object"));
+    const attempts = retry === false ? 1 : retry.maxAttempts;
+
+    expect(sent).toHaveLength(attempts);
+    expect(failure).toMatchObject({
+      attempts,
+      status: 503,
+      providerCode: "ServerBusy",
+      requestId: "request-1",
+      retryable: true,
+    });
+  },
+);
+
+test("an abort after a transient response prevents the next attempt", async () => {
+  const controller = new AbortController();
+  const aborted = new DOMException("Aborted", "AbortError");
+  const sent = stubFetch(() => {
+    controller.abort(aborted);
+
+    return refused(503, "ServerBusy");
+  });
+
+  await expect(storage().get("object", { signal: controller.signal })).rejects.toBe(aborted);
+  expect(sent).toHaveLength(1);
+});
+
+test("an AbortError from fetch travels on without retrying", async () => {
+  const aborted = new DOMException("Aborted", "AbortError");
+  const sent = stubFetch(() => {
+    throw aborted;
+  });
+
+  await expect(storage().get("object")).rejects.toBe(aborted);
+  expect(sent).toHaveLength(1);
 });
 
 test("a signal that already fired rejects with `AbortError` before any request", async () => {

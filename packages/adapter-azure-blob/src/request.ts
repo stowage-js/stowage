@@ -1,4 +1,4 @@
-import { errorCodeForStatus, isTransientStatus, type StorageError } from "@stowage/core";
+import { errorCodeForStatus, isTransientStatus, type StorageError, withRetry } from "@stowage/core";
 
 import type { AzureBlobConfiguration } from "./configuration.ts";
 import { type AzureBlobCredentials, resolveCredentials } from "./credentials.ts";
@@ -37,28 +37,33 @@ export async function send(
 ): Promise<Response> {
   const path = encodePath(pathOf(configuration, request.key));
   const query = request.query ?? [];
-  const credentials = await resolveCredentials(configuration.credentials, {
-    forceRefresh: false,
-  }).catch((failure: unknown) => {
-    throw inStorage(failure, configuration.container, request.operation, request.key);
-  });
-  const headers = await authorize(configuration, request, path, credentials);
-  let response: Response;
+  return await withRetry(
+    async () => {
+      const credentials = await resolveCredentials(configuration.credentials, {
+        forceRefresh: false,
+      }).catch((failure: unknown) => {
+        throw inStorage(failure, configuration.container, request.operation, request.key);
+      });
+      const headers = await authorize(configuration, request, path, credentials);
+      let response: Response;
 
-  try {
-    response = await fetch(urlOf(configuration, path, query), {
-      method: request.method,
-      headers: [...headers, identityEncoding].map(([name, value]) => [name, value]),
-      body: request.body,
-      signal: request.signal,
-    });
-  } catch (failure) {
-    throw transportFailure(configuration, request, failure);
-  }
+      try {
+        response = await fetch(urlOf(configuration, path, query), {
+          method: request.method,
+          headers: [...headers, identityEncoding].map(([name, value]) => [name, value]),
+          body: request.body,
+          signal: request.signal,
+        });
+      } catch (failure) {
+        throw transportFailure(configuration, request, failure);
+      }
 
-  if (response.ok) return response;
+      if (response.ok) return response;
 
-  throw await failureOf(configuration, request, response);
+      throw await failureOf(configuration, request, response);
+    },
+    { maxAttempts: configuration.maxAttempts, signal: request.signal },
+  );
 }
 
 /**
