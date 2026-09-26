@@ -20,7 +20,7 @@ import {
 } from "./configuration.ts";
 import { copyBlob } from "./copy.ts";
 import { deleteBelow, deleteKeys } from "./delete.ts";
-import { defaultContentType, describeResponse, describeWrite } from "./description.ts";
+import { defaultContentType, describeResponse } from "./description.ts";
 import { requireKey } from "./key.ts";
 import { createListing } from "./listing.ts";
 import {
@@ -34,6 +34,7 @@ import { rangeAnswerFailure, rangeHeader, requireRange } from "./range.ts";
 import { send } from "./request.ts";
 import { azureBlobError } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
+import { putBlob, uploadStream } from "./upload.ts";
 import { userMetadataHeaders } from "./user-metadata.ts";
 
 export type { AzureBlobAdapterOptions } from "./configuration.ts";
@@ -91,32 +92,11 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
     // Spec 4.3: a signal that already fired rejects before the request goes out.
     options?.signal?.throwIfAborted();
 
-    if (isStream(body)) throw notYetImplemented("`put` of a stream");
+    const write = { key, contentType, userMetadata, signal: options?.signal };
 
-    const bytes = bytesOf(body);
-    const response = await send(this.#configuration, {
-      method: "PUT",
-      operation: "put",
-      key,
-      headers: [
-        ["content-type", contentType],
-        ["x-ms-blob-type", "BlockBlob"],
-        ...userMetadata.headers,
-      ],
-      body: bytes,
-      signal: options?.signal,
-    });
+    if (isStream(body)) return await uploadStream(this.#configuration, write, body);
 
-    await response.body?.cancel();
-
-    return describeWrite(
-      this.bucket,
-      key,
-      bytes.byteLength,
-      contentType,
-      userMetadata.held,
-      response,
-    );
+    return await putBlob(this.#configuration, write, bytesOf(body));
   }
 
   async get(key: string, options?: GetOptions): Promise<StoredObject> {
@@ -267,14 +247,6 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
 
     return contentType;
   }
-}
-
-/**
- * The package is unreleased while its operations arrive one by one, and a call that
- * reaches one still missing says so rather than pretending to a failure of the provider.
- */
-function notYetImplemented(what: string): Error {
-  return new Error(`${what} is not implemented in adapter-azure-blob yet`);
 }
 
 /** Spec 4.2: a string travels as its UTF-8 bytes. */
