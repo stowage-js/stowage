@@ -19,7 +19,7 @@ import {
 } from "./bytes.ts";
 import { keyFor, prefixFor } from "./keys.ts";
 import { assertNamesEachOnce, collectEntries, textContentType } from "./objects.ts";
-import { assertNeitherMethod, presignedUrl, presignLifetime } from "./presign.ts";
+import { assertNeitherMethod, presignedPut, presignLifetime } from "./presign.ts";
 
 const utf8 = new TextEncoder();
 
@@ -94,16 +94,12 @@ export const flowCases: readonly ConformanceCaseSource[] = [
       // Flow 2 has the client report the length and the server sign that number, which
       // is the round trip ADR 0011 records in place of a range the URL would allow.
       const body = utf8.encode("the body a browser uploads to the provider");
-      const url = await presignedUrl(ctx, "presignPut", key, {
+      const { url, headers } = await presignedPut(ctx, key, {
         expiresIn: presignLifetime,
         contentType: textContentType,
         contentLength: body.byteLength,
       });
-      const response = await fetch(url, {
-        method: "PUT",
-        body,
-        headers: { "content-type": textContentType },
-      });
+      const response = await fetch(url, { method: "PUT", body, headers });
 
       assert(response.ok, `The upload to the presigned URL was answered ${response.status}`);
       await response.arrayBuffer();

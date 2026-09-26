@@ -1,4 +1,4 @@
-import type { Storage } from "@stowage/core";
+import type { PresignedPut, Storage } from "@stowage/core";
 
 import { assert, assertHeader, assertSameBytes, expectStorageError } from "../assertions.ts";
 import type { ConformanceCaseSource } from "../case.ts";
@@ -43,9 +43,7 @@ export const presignCases: readonly ConformanceCaseSource[] = [
 
       await ctx.storage.put(key, body, { contentType: textContentType });
 
-      const response = await fetch(
-        await presignedUrl(ctx, "presignGet", key, { expiresIn: presignLifetime }),
-      );
+      const response = await fetch(await presignedGet(ctx, key, { expiresIn: presignLifetime }));
 
       assertStatus(response.status, 200, "`fetch` on a signed `GET`");
       assertHeader(response, "content-type", textContentType);
@@ -64,16 +62,12 @@ export const presignCases: readonly ConformanceCaseSource[] = [
     async run(ctx) {
       const key = keyFor(ctx, "presign/put", "object.txt");
       const body = utf8.encode("the body a signed `PUT` takes");
-      const url = await presignedUrl(ctx, "presignPut", key, {
+      const { url, headers } = await presignedPut(ctx, key, {
         expiresIn: presignLifetime,
         contentType: textContentType,
         contentLength: body.byteLength,
       });
-      const response = await fetch(url, {
-        method: "PUT",
-        body,
-        headers: { "content-type": textContentType },
-      });
+      const response = await fetch(url, { method: "PUT", body, headers });
 
       assert(
         response.ok,
@@ -128,18 +122,20 @@ export const presignCases: readonly ConformanceCaseSource[] = [
     async run(ctx) {
       const key = keyFor(ctx, "presign/put-rejects-type", "object.txt");
       const body = utf8.encode("a body of another type than the signature binds");
-      const url = await presignedUrl(ctx, "presignPut", key, {
+      const presigned = await presignedPut(ctx, key, {
         expiresIn: presignLifetime,
         contentType: textContentType,
         contentLength: body.byteLength,
       });
+      // `Headers` and not a spread, so that the type replaces the one handed back whatever
+      // case the adapter wrote its name in.
+      const headers = new Headers(presigned.headers);
+
+      headers.set("content-type", "application/json");
+
       // Spec 7.10 binds the content type through a signed header, so the provider rebuilds
       // another signature for this request and refuses it (ADR 0011).
-      const response = await fetch(url, {
-        method: "PUT",
-        body,
-        headers: { "content-type": "application/json" },
-      });
+      const response = await fetch(presigned.url, { method: "PUT", body, headers });
 
       assertStatus(await statusOf(response), 403, "a signed `PUT` carrying another content type");
     },
@@ -152,16 +148,12 @@ export const presignCases: readonly ConformanceCaseSource[] = [
     async run(ctx) {
       const key = keyFor(ctx, "presign/put-rejects-length", "object.txt");
       const body = utf8.encode("a body longer than the signature binds");
-      const url = await presignedUrl(ctx, "presignPut", key, {
+      const { url, headers } = await presignedPut(ctx, key, {
         expiresIn: presignLifetime,
         contentType: textContentType,
         contentLength: body.byteLength - 1,
       });
-      const response = await fetch(url, {
-        method: "PUT",
-        body,
-        headers: { "content-type": textContentType },
-      });
+      const response = await fetch(url, { method: "PUT", body, headers });
       // The length is body framing rather than the signature, which is why the row states
       // the class of the answer and not the one status a signature mismatch produces.
       const status = await statusOf(response);
@@ -186,7 +178,7 @@ export const presignCases: readonly ConformanceCaseSource[] = [
         contentType: textContentType,
       });
 
-      const url = await presignedUrl(ctx, "presignGet", key, { expiresIn: 1 });
+      const url = await presignedGet(ctx, key, { expiresIn: 1 });
 
       await delay(pastTheLifetime);
 
@@ -210,21 +202,66 @@ export async function assertNeitherMethod(ctx: ConformanceContext): Promise<void
   }
 }
 
-/** The URL the method handed back, which a target may report as anything at runtime. */
-export async function presignedUrl(
+/** The URL `presignGet` handed back, which a target may report as anything at runtime. */
+export async function presignedGet(
   ctx: ConformanceContext,
-  name: PresignName,
   key: string,
   options: PresignOptions,
 ): Promise<string> {
-  const url: unknown = await presignerOf(ctx.storage, name)(key, options);
+  const url: unknown = await presignerOf(ctx.storage, "presignGet")(key, options);
 
-  assert(
-    typeof url === "string" && url !== "",
-    `\`${name}\` handed back ${JSON.stringify(url)} and not a URL`,
-  );
+  assert(isUrl(url), `\`presignGet\` handed back ${JSON.stringify(url)} and not a URL`);
 
   return url;
+}
+
+/**
+ * What `presignPut` handed back, which a target may report as anything at runtime. The
+ * upload sends its headers as they are, so the suite names no provider (spec 4.13).
+ */
+export async function presignedPut(
+  ctx: ConformanceContext,
+  key: string,
+  options: PresignOptions,
+): Promise<PresignedPut> {
+  const presigned: unknown = await presignerOf(ctx.storage, "presignPut")(key, options);
+
+  assert(
+    isPresignedPut(presigned),
+    `\`presignPut\` handed back ${JSON.stringify(presigned)} and not a URL with the headers that go beside the body`,
+  );
+
+  return presigned;
+}
+
+function isUrl(value: unknown): value is string {
+  return typeof value === "string" && value !== "";
+}
+
+/** The shape spec 4.13 gives `PresignedPut`, its rule on `Content-Length` included. */
+function isPresignedPut(value: unknown): value is PresignedPut {
+  if (typeof value !== "object" || value === null) return false;
+
+  const url: unknown = Reflect.get(value, "url");
+  const headers: unknown = Reflect.get(value, "headers");
+
+  if (!isUrl(url) || !isPlainObject(headers)) return false;
+
+  return Object.entries(headers).every(
+    ([name, field]) => typeof field === "string" && name.toLowerCase() !== "content-length",
+  );
+}
+
+/**
+ * An array or a `Headers` would pass the entries check above: the one lists its indices,
+ * the other lists nothing at all.
+ */
+function isPlainObject(value: unknown): value is object {
+  if (typeof value !== "object" || value === null) return false;
+
+  const prototype: unknown = Object.getPrototypeOf(value);
+
+  return prototype === Object.prototype || prototype === null;
 }
 
 function presignerOf(

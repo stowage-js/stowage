@@ -1,4 +1,4 @@
-import { isStorageError } from "@stowage/core";
+import { isStorageError, type PresignedPut } from "@stowage/core";
 
 import type { HeaderField, QueryParameter } from "./canonical.ts";
 import type { S3Configuration } from "./configuration.ts";
@@ -83,13 +83,14 @@ export async function presignGet(
  * Spec 7.10: `PutObject` on a writable key, with the content type and the content length
  * bound through signed headers. Nothing else is signed in: no user metadata and no
  * checksum, which the browser would have to match exactly for a `403` that names nothing
- * (ADR 0011).
+ * (ADR 0011). Of the two, only the content type is handed back to send beside the body
+ * (spec 4.13).
  */
 export async function presignPut(
   configuration: S3Configuration,
   key: string,
   options: S3PresignPutOptions,
-): Promise<string> {
+): Promise<PresignedPut> {
   const operation = "presignPut";
 
   requireKey(configuration.bucket, key, "writable", operation);
@@ -99,7 +100,7 @@ export async function presignPut(
   const contentType = readText(configuration.bucket, given.contentType, "contentType", operation);
   const contentLength = readContentLength(configuration.bucket, given.contentLength, operation);
 
-  return await presignedUrl(configuration, {
+  const url = await presignedUrl(configuration, {
     method: "PUT",
     operation,
     key,
@@ -110,6 +111,8 @@ export async function presignPut(
     ],
     expiresIn,
   });
+
+  return { url, headers: { "content-type": contentType } };
 }
 
 interface Presignable {

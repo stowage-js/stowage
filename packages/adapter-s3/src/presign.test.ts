@@ -102,15 +102,23 @@ test("`presignGet` takes an addressable key that is not writable", async () => {
   expect(new URL(url).pathname).toBe("/another%5Ctool.txt");
 });
 
+test("`presignPut` resolves with the URL and the headers a plain `fetch` sends beside the body", async () => {
+  const presigned = await s3Storage(options()).presignPut("object.txt", putOptions);
+
+  expect(new URL(presigned.url).pathname).toBe("/object.txt");
+  // The length is signed in too, and still not handed back (spec 4.13).
+  expect(presigned.headers).toEqual({ "content-type": "text/plain" });
+});
+
 test("`presignPut` binds the content type and the content length through signed headers", async () => {
-  const url = await s3Storage(options()).presignPut("folder/object.txt", putOptions);
+  const { url } = await s3Storage(options()).presignPut("folder/object.txt", putOptions);
 
   expect(new URL(url).pathname).toBe("/folder/object.txt");
   expect(queryOf(url)["X-Amz-SignedHeaders"]).toBe("content-length;content-type;host");
 });
 
 test("a presigned `PUT` binds no header beyond the two and `host`", async () => {
-  const url = await s3Storage(options()).presignPut("object.txt", putOptions);
+  const { url } = await s3Storage(options()).presignPut("object.txt", putOptions);
 
   expect(Object.keys(queryOf(url)).filter((name) => !name.startsWith("X-Amz-"))).toEqual([]);
 });
@@ -124,7 +132,7 @@ test("`presignPut` refuses a key that is addressable and not writable", async ()
 });
 
 test("a key is percent-encoded segment by segment on the URL", async () => {
-  const url = await s3Storage(options()).presignPut("a b/c#d/e%f/g+h/ሴ", putOptions);
+  const { url } = await s3Storage(options()).presignPut("a b/c#d/e%f/g+h/ሴ", putOptions);
 
   expect(url.split("?")[0]).toBe(
     "https://stowage.s3.eu-central-1.amazonaws.com/a%20b/c%23d/e%25f/g%2Bh/%E1%88%B4",
@@ -189,7 +197,7 @@ test.each([0, 604_801, 1.5, -1, Number.NaN, Number.POSITIVE_INFINITY, undefined]
 test.each([0, 5 * 1024 ** 3])("a `contentLength` of %s is signed", async (contentLength) => {
   await expect(
     s3Storage(options()).presignPut("object.txt", { ...putOptions, contentLength }),
-  ).resolves.toMatch(/^https:/u);
+  ).resolves.toMatchObject({ url: expect.stringMatching(/^https:/u) });
 });
 
 test.each([-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, undefined])(
@@ -317,7 +325,7 @@ test.each([
   const calls: readonly {
     readonly operation: string;
     readonly key: string;
-    readonly presign: () => Promise<string>;
+    readonly presign: () => Promise<unknown>;
   }[] = [
     {
       operation: "presignGet",
