@@ -121,9 +121,10 @@ jobs:
           path: results.json
 
   # ADR 0012: Bun and Deno run against the emulator. Their columns are covered by the same
-  # suite, answered by the pinned image rather than by a provider.
+  # suite, answered by the pinned image rather than by a provider. ADR 0023 carries that
+  # over to Azure Blob, with Azurite beside SeaweedFS.
   emulator:
-    name: ${{ matrix.name }} against SeaweedFS
+    name: ${{ matrix.name }} against SeaweedFS and Azurite
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -163,11 +164,20 @@ jobs:
       - name: Start the S3 endpoint
         run: ./harness/s3/start.sh | sed 's/^export //' >> "$GITHUB_ENV"
 
+      # Bun trusts the certificate `start.sh` generated through `NODE_EXTRA_CA_CERTS`, Deno
+      # through `DENO_CERT`, both from this environment.
+      - name: Start the Azure Blob endpoint
+        run: ./harness/azure-blob/start.sh | sed 's/^export //' >> "$GITHUB_ENV"
+
       - run: ${{ matrix.command }}
 
       - name: Stop the S3 endpoint
         if: always()
         run: ./harness/s3/stop.sh
+
+      - name: Stop the Azure Blob endpoint
+        if: always()
+        run: ./harness/azure-blob/stop.sh
 
   # Spec 13: the run reports on each point it settles, one column per endpoint and runtime.
   report:
