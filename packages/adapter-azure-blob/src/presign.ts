@@ -48,6 +48,14 @@ const blockBlob = "BlockBlob";
 /** ADR 0022: the seven days a user delegation key may live, and the ceiling of spec 7.10. */
 const longestLifetime = 604_800;
 
+/**
+ * ADR 0022: a key whose expiry has passed when its request arrives is refused, which a SAS
+ * of a few seconds would meet on a slow request or a service clock running ahead. The key
+ * lives this long at the least and the URL still dies at `se`, the same 15 minutes `st`
+ * leaves a service clock that trails.
+ */
+const shortestKeyLifetime = 15 * 60 * 1000;
+
 /** Each override of spec 8.9 and the field of the grant that carries it into the SAS. */
 const responseOverrides = [
   ["responseCacheControl", "cacheControl"],
@@ -147,7 +155,7 @@ export async function presignPut(
   };
 }
 
-/** One user delegation key for this one SAS, valid for as long as the SAS is (ADR 0022). */
+/** One user delegation key for this one SAS, living at least as long as it (ADR 0022). */
 async function signUnderDelegation(
   configuration: AzureBlobConfiguration,
   grant: UserDelegationSasGrant,
@@ -157,9 +165,12 @@ async function signUnderDelegation(
     grant.expiry.getTime() - grant.start.getTime() > longestLifetime * 1000
       ? { ...grant, start: new Date(grant.expiry.getTime() - longestLifetime * 1000) }
       : grant;
+  const keyExpiry = new Date(
+    Math.max(adjustedGrant.expiry.getTime(), Date.now() + shortestKeyLifetime),
+  );
   const delegationKey = await requestUserDelegationKey(
     configuration,
-    { start: sasTime(adjustedGrant.start), expiry: sasTime(adjustedGrant.expiry) },
+    { start: sasTime(adjustedGrant.start), expiry: sasTime(keyExpiry) },
     operation,
     grant.key,
   );

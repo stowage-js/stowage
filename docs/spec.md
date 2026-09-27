@@ -1000,9 +1000,9 @@ another endpoint that speaks the Blob wire protocol can be configured and are no
   `getToken` in a resolver of their own.
 - No package takes a connection string. A caller holding one splits it into `account`, `endpoint`
   and `credentials`; the `adapter-azure-blob` README shows how.
-- A presigned URL signed under an account key works until it expires or the key is regenerated.
-  One signed under an access token outlives the token and stops working when its user delegation
-  key expires, which is when the URL does; revoking the account's user delegation keys, or the role
+- A presigned URL signed under an account key works until it expires or the key is regenerated. One
+  signed under an access token outlives the token and stops working at `se`, which its user
+  delegation key lives at least until; revoking the account's user delegation keys, or the role
   assignment behind the token, revokes it, after a delay of Azure's.
 
 ### 8.4 Requests
@@ -1157,9 +1157,9 @@ A URL is a SAS, and the credential of the call decides which kind (ADR 0022):
 - Every SAS carries `sr=b`, `st` 15 minutes in the past and `se` `expiresIn` seconds from now, and
   `spr=https`, or `https,http` where the endpoint is a loopback address; none carries `sip`. An
   account with a SAS expiration policy therefore measures `expiresIn + 900` seconds.
-- Under an access token each call requests one user delegation key, valid from `st` to `se`, and
-  keeps it nowhere; it is an ordinary request of the adapter under sections 8.3 and 8.5, and a
-  refusal of it is `AccessDenied`. The principal needs the account's
+- Under an access token each call requests one user delegation key, valid from `st` to `se` and for
+  no less than 15 minutes, and keeps it nowhere; it is an ordinary request of the adapter under
+  sections 8.3 and 8.5, and a refusal of it is `AccessDenied`. The principal needs the account's
   `generateUserDelegationKey` action and the data role for the operation it signs.
 - The URL is a bearer token: whoever holds it may perform that one operation on that one key until
   it expires. It works against the endpoint that signed it only.
