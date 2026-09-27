@@ -2,6 +2,7 @@ import type { Stats } from "node:fs";
 import { lstat, realpath, rename, rmdir, stat, unlink } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 
+import { holdDirectoryMutations } from "./directory-lock.ts";
 import { fsErrorFrom, isAbsence } from "./errno.ts";
 import { type FsAccessContext, pathOf, within } from "./paths.ts";
 
@@ -15,17 +16,6 @@ export interface ObjectFile {
   readonly stats: Stats;
   readonly release: () => void;
 }
-
-interface DirectoryMutationLock {
-  tail: Promise<void>;
-  leases: number;
-}
-
-// Resolving a parent and mutating a child must be one critical section: otherwise a
-// concurrent prune can remove that parent and let a replacement redirect the pathname.
-// The map is shared by every storage in this process that resolves to the same root.
-const directoryMutationLocks = new Map<string, DirectoryMutationLock>();
-const doNothing = (): void => {};
 
 /**
  * The file below the key, or `undefined` where the key names no object of this storage:
@@ -101,47 +91,18 @@ export async function renameObjectFile(
   path: string,
 ): Promise<void> {
   try {
-    try {
-      await rename(file.path, path);
-    } catch (thrown) {
-      throw fsErrorFrom(thrown, { ...context, access: "write" });
-    }
+    await rename(file.path, path);
+  } catch (thrown) {
+    // The lease stays with the caller, which still has to take back the directories it
+    // created for the destination before anyone else may remove or reuse them.
+    throw fsErrorFrom(thrown, { ...context, access: "write" });
+  }
 
+  try {
     await pruneEmptyDirectories(context.realRoot, dirname(file.path));
   } finally {
     file.release();
   }
-}
-
-async function holdDirectoryMutations(realRoot: string): Promise<() => void> {
-  const lock = directoryMutationLocks.get(realRoot) ?? {
-    tail: Promise.resolve(),
-    leases: 0,
-  };
-  const previous = lock.tail;
-  let releaseNext = doNothing;
-
-  lock.tail = new Promise<void>((resolve) => {
-    releaseNext = resolve;
-  });
-  lock.leases += 1;
-  directoryMutationLocks.set(realRoot, lock);
-
-  await previous;
-
-  let held = true;
-
-  return () => {
-    if (!held) return;
-
-    held = false;
-    lock.leases -= 1;
-    releaseNext();
-
-    if (lock.leases === 0 && directoryMutationLocks.get(realRoot) === lock) {
-      directoryMutationLocks.delete(realRoot);
-    }
-  };
 }
 
 async function pruneEmptyDirectories(realRoot: string, directory: string): Promise<void> {

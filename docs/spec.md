@@ -651,7 +651,8 @@ export function fsStorage(options: FsAdapterOptions): FsStorage;
 - `put` writes to a temporary file in the same directory and renames it into place, so a reader sees
   the old object or the new one and never a partial write. Intermediate directories are created.
   That file carries a name of the adapter's own, which a listing passes over: a write in flight is
-  no object, and neither is a key of that shape.
+  no object, and neither is a key of that shape. A `put`, `copy` or `move` that fails removes the
+  directories it created where they stayed empty, and leaves those that were there before it.
   `delete`, `deleteAll` and `move` remove directories left empty, up to the root, so a listing with a
   delimiter shows no empty pseudo-directory.
 - `lastModified` is the file's modification time. `size` is the file's size. `etag` is not set.
