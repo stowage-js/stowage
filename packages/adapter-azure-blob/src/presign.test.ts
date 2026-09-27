@@ -221,11 +221,11 @@ function delegationKey(request: SentRequest): Response {
   );
 }
 
-test("under an access token `presignPut` requests one user delegation key from `st` to `se`", async () => {
+test("under an access token `presignPut` requests one user delegation key", async () => {
   const sent = stubFetch(delegationKey);
 
   await storage().presignPut("a.txt", {
-    expiresIn: 300,
+    expiresIn: 3600,
     contentType: "text/plain",
     contentLength: 11,
   });
@@ -238,9 +238,43 @@ test("under an access token `presignPut` requests one user delegation key from `
   expect(sent[0]?.headers.get("authorization")).toBe(`Bearer ${accessToken}`);
   expect(sent[0]?.headers.get("x-ms-version")).toBe("2026-04-06");
   expect(textOf(sent[0]?.body)).toContain(
-    "<KeyInfo><Start>2026-08-30T12:21:00Z</Start><Expiry>2026-08-30T12:41:00Z</Expiry></KeyInfo>",
+    "<KeyInfo><Start>2026-08-30T12:21:00Z</Start><Expiry>2026-08-30T13:36:00Z</Expiry></KeyInfo>",
   );
 });
+
+/** The URL `presignGet` or `presignPut` signs for `a.txt` under an access token. */
+async function presignFor(operation: "get" | "put", expiresIn: number): Promise<string> {
+  const presigner = storage();
+
+  if (operation === "get") return await presigner.presignGet("a.txt", { expiresIn });
+
+  const presigned = await presigner.presignPut("a.txt", {
+    expiresIn,
+    contentType: "text/plain",
+    contentLength: 11,
+  });
+
+  return presigned.url;
+}
+
+test.each([
+  ["get", 1, "2026-08-30T12:36:01Z", "2026-08-30T12:51:00Z"],
+  ["put", 1, "2026-08-30T12:36:01Z", "2026-08-30T12:51:00Z"],
+  ["get", 300, "2026-08-30T12:41:00Z", "2026-08-30T12:51:00Z"],
+  ["get", 3600, "2026-08-30T13:36:00Z", "2026-08-30T13:36:00Z"],
+] as const)(
+  "an access token signs %s for %i seconds with a user delegation key until `se` or 15 minutes from now, whichever is later",
+  async (operation, expiresIn, expiry, keyExpiry) => {
+    const sent = stubFetch(delegationKey);
+    const url = await presignFor(operation, expiresIn);
+
+    expect(textOf(sent[0]?.body)).toContain(
+      `<KeyInfo><Start>2026-08-30T12:21:00Z</Start><Expiry>${keyExpiry}</Expiry></KeyInfo>`,
+    );
+    expect(queryOf(url)).toContainEqual(["se", expiry]);
+    expect(queryOf(url)).toContainEqual(["ske", keyExpiry]);
+  },
+);
 
 test.each([
   ["get", 603_900, "2026-08-30T12:21:00Z", "2026-09-06T12:21:00Z"],
@@ -251,17 +285,7 @@ test.each([
   "an access token signs %s for %i seconds with a delegation key no longer than seven days",
   async (operation, expiresIn, start, expiry) => {
     const sent = stubFetch(delegationKey);
-    const presigner = storage();
-    const url =
-      operation === "get"
-        ? await presigner.presignGet("a.txt", { expiresIn })
-        : (
-            await presigner.presignPut("a.txt", {
-              expiresIn,
-              contentType: "text/plain",
-              contentLength: 11,
-            })
-          ).url;
+    const url = await presignFor(operation, expiresIn);
 
     expect(sent).toHaveLength(1);
     expect(textOf(sent[0]?.body)).toContain(
@@ -298,7 +322,7 @@ test("`presignPut` binds three headers through `srh` and hands back the two a cl
     ["skoid", "11111111-2222-3333-4444-555555555555"],
     ["sktid", "66666666-7777-8888-9999-000000000000"],
     ["skt", "2026-08-30T12:21:00Z"],
-    ["ske", "2026-08-30T12:41:00Z"],
+    ["ske", "2026-08-30T12:51:00Z"],
     ["sks", "b"],
     ["skv", "2026-04-06"],
     ["sr", "b"],

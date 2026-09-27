@@ -12,6 +12,7 @@ import {
 import { blobUrl } from "./request.ts";
 import {
   type ResponseOverrides,
+  sasLead,
   sasTime,
   sasWindow,
   type SignedSas,
@@ -147,7 +148,7 @@ export async function presignPut(
   };
 }
 
-/** One user delegation key for this one SAS, valid for as long as the SAS is (ADR 0022). */
+/** One user delegation key for this one SAS, valid at least until its `se` (ADR 0022). */
 async function signUnderDelegation(
   configuration: AzureBlobConfiguration,
   grant: UserDelegationSasGrant,
@@ -157,9 +158,12 @@ async function signUnderDelegation(
     grant.expiry.getTime() - grant.start.getTime() > longestLifetime * 1000
       ? { ...grant, start: new Date(grant.expiry.getTime() - longestLifetime * 1000) }
       : grant;
+  // ADR 0022: a user delegation key that expired before the service read its request would
+  // be refused, which a SAS of a few seconds leaves no room to avoid.
+  const keyExpiry = new Date(Math.max(adjustedGrant.expiry.getTime(), Date.now() + sasLead));
   const delegationKey = await requestUserDelegationKey(
     configuration,
-    { start: sasTime(adjustedGrant.start), expiry: sasTime(adjustedGrant.expiry) },
+    { start: sasTime(adjustedGrant.start), expiry: sasTime(keyExpiry) },
     operation,
     grant.key,
   );

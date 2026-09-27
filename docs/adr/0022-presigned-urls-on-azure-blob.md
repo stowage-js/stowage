@@ -41,12 +41,16 @@ for what was asked. `Unsupported` was the other name and would have contradicted
 the same storage makes.
 
 Under an access token a presign call sends a request, which ADR 0011 said neither method does. The
-adapter requests a user delegation key for each call and keeps none: the key starts 15 minutes in
-the past and expires with the SAS, so one key signs one URL. A cache would save the round trip for
-the life of the key, and it would be the one piece of state the adapter carries between calls,
-which ADR 0007 and ADR 0021 keep with the resolver. It can be added in a minor release without a
-change to the API. Flow 2 already costs the browser a round trip to the server before the
-signature, and the key request falls inside it, between the server and Azure.
+adapter requests a user delegation key for each call and keeps none: the user delegation key starts
+15 minutes in the past and expires at `se` or 15 minutes from now, whichever is later, so one key
+signs one URL. It expired with the SAS at first, and on `workerd` the account answered the key
+request for a SAS of one second with `400` and "The value for one of the XML nodes is not in the
+correct format"; the presumed cause is an expiry that had passed by the time the service read the
+request. A user delegation key that outlives `se` does not extend the URL. A cache would save the
+round trip for the life of the key, and it would be the one piece of state the adapter carries
+between calls, which ADR 0007 and ADR 0021 keep with the resolver. It can be added in a minor
+release without a change to the API. Flow 2 already costs the browser a round trip to the server
+before the signature, and the key request falls inside it, between the server and Azure.
 
 ## Consequences
 
@@ -69,11 +73,12 @@ signature, and the key request falls inside it, between the server and Azure.
   carries neither method. A `presignGet` without the declaration would be half a capability that
   the inverted case of ADR 0015 cannot check. The account showed on 2026-09-25 that all three
   headers are bound (`docs/research/azure-srh-binding.md`), so the declaration stands.
-- A URL signed under an access token outlives the token and dies with its key, at `se`. It is
-  revoked by revoking the account's user delegation keys or the role assignment behind it, and
-  Azure caches both for a while. A URL signed under an account key lives until `se` or until the
-  key is regenerated. The spec's sentence that a URL stops working when the credential that signed
-  it expires stays true, with the user delegation key as that credential.
+- A URL signed under an access token outlives the token and dies at `se`, and its user delegation
+  key does not expire before then. It is revoked by revoking the account's user delegation keys or
+  the role assignment behind it, and Azure caches both for a while. A URL signed under an account
+  key lives until `se` or until the key is regenerated. The spec's sentence that a URL stops working
+  when the credential that signed it expires stays true, with the user delegation key as that
+  credential: the URL stops working at the latest then.
 - The principal behind the access token needs
   `Microsoft.Storage/storageAccounts/blobServices/generateUserDelegationKey/action`, at the account
   or above, and the data role for the operation it signs; a user delegation SAS grants at most what
