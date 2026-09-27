@@ -11,7 +11,8 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-# Each job asks for what it needs, so that `id-token: write` reaches the publish job alone.
+# Each job asks for what it needs, so that `id-token: write` reaches the publish job and the
+# slow tier alone.
 permissions: {}
 
 jobs:
@@ -78,10 +79,13 @@ jobs:
     if: needs.select-mode.outputs.mode == 'publish'
     permissions:
       contents: read
+      # ADR 0023: a called job holds no permission its caller lacks, and the Azure jobs
+      # exchange their OIDC token for the account's access token.
+      id-token: write
     uses: ./.github/workflows/conformance-full.yml
-    # The credentials are secrets of the environments `aws-s3` and `r2`, and a called job
-    # that names its environment still reads them empty unless the caller inherits them;
-    # the environment's variables arrive either way.
+    # The credentials are secrets of the environments `aws-s3`, `r2` and `azure-blob`, and a
+    # called job that names its environment still reads them empty unless the caller
+    # inherits them; the environment's variables arrive either way.
     secrets: inherit
 
   pack:
@@ -118,9 +122,9 @@ jobs:
         with:
           publish-plan-artifact-id: ${{ needs.select-mode.outputs.publish-plan-artifact-id }}
 
-  # The job that holds `id-token: write` builds nothing and runs no install script: it
-  # installs for the Changesets CLI, publishes the tarballs the job above packed, then tags
-  # each package as `<name>@<version>`, the tag its README links the spec at.
+  # The publish job builds nothing and runs no install script: it installs for the Changesets
+  # CLI, publishes the tarballs the job above packed, then tags each package as
+  # `<name>@<version>`, the tag its README links the spec at.
   publish:
     name: Publish
     needs: [pack, slow-tier]

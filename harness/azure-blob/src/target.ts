@@ -11,8 +11,13 @@ import {
 } from "../../../packages/conformance/src/run.ts";
 import type { ConformanceTarget } from "../../../packages/conformance/src/target.ts";
 
-import { storageWithBadCredentials } from "./configuration.ts";
-import { withAzureBlobDivergences } from "./divergences.ts";
+import type { Variables } from "../../s3/src/configuration.ts";
+import {
+  endpointNameFrom,
+  storageWithBadCredentials,
+  storageWithDeniedCredentials,
+} from "./configuration.ts";
+import { azureBlobAccount, withAzureBlobDivergences } from "./divergences.ts";
 
 /**
  * The cases the adapter passes while its operations arrive one by one: those that need
@@ -22,9 +27,6 @@ import { withAzureBlobDivergences } from "./divergences.ts";
  * joins the adapter adds its cases here, until the list is the whole suite and goes. The
  * cases that send a copy, `presign/put` and `flow/2-presigned-put` run against Azurite as
  * divergences (`divergences.ts`).
- * `list/noncharacter-key` waits for an Azurite that lists a name holding `U+FFFE` (#171):
- * the pinned one answers that `List Blobs` with `500`, and the blob the case leaves behind
- * fails the `cleanup` of the run with the same answer.
  */
 const coveredCases: ReadonlySet<string> = new Set([
   "declaration/valid-names",
@@ -85,6 +87,7 @@ const coveredCases: ReadonlySet<string> = new Set([
   "deleteAll/past-one-thousand",
   "errors/shape",
   "errors/bad-credentials",
+  "errors/denied-credentials",
   "errors/not-a-storage-error",
   "presign/get",
   "presign/put",
@@ -98,18 +101,44 @@ const coveredCases: ReadonlySet<string> = new Set([
   "flow/4-streaming-download",
 ]);
 
-export function azureBlobCases(options: ConformanceRunOptions): readonly ConformanceCaseSource[] {
-  return selectedCases(options).filter((source) => coveredCases.has(source.name));
+/**
+ * Cases the account runs and Azurite cannot, even as a divergence. `list/noncharacter-key`
+ * waits for an Azurite that lists a name holding `U+FFFE` (#171): the pinned one answers
+ * that `List Blobs` with `500`, and the blob the case leaves behind fails the `cleanup` of
+ * the run with the same answer. Spec 13 asks the account whether it stores and lists such a
+ * name as written.
+ */
+const accountOnlyCases: ReadonlySet<string> = new Set(["list/noncharacter-key"]);
+
+export function azureBlobCases(
+  options: ConformanceRunOptions,
+  endpointName: string | undefined,
+): readonly ConformanceCaseSource[] {
+  const runs = (name: string): boolean =>
+    coveredCases.has(name) || (endpointName === azureBlobAccount && accountOnlyCases.has(name));
+
+  return selectedCases(options).filter((source) => runs(source.name));
 }
 
 /** `adapter-azure-blob` against the endpoint of ADR 0023, under an access token. */
-export function azureBlobTarget(configured: AzureBlobAdapterOptions): ConformanceTarget {
+export function azureBlobTarget(
+  configured: AzureBlobAdapterOptions,
+  variables: Variables,
+): ConformanceTarget {
+  const denied = storageWithDeniedCredentials(configured, variables);
+
   return {
     name: "@stowage/adapter-azure-blob",
 
     createStorage: () => azureBlobStorage(configured),
 
     createStorageWithBadCredentials: () => azureBlobStorage(storageWithBadCredentials(configured)),
+
+    // Spec 9.2 keeps the case out of a run where the target supplies no factory, which is
+    // what Azurite, checking no role, leaves (ADR 0023).
+    ...(denied === undefined
+      ? {}
+      : { createStorageWithDeniedCredentials: () => azureBlobStorage(denied) }),
   };
 }
 
@@ -132,19 +161,29 @@ export function describeAzureBlobEndpointCheck(
   );
 }
 
-/** The check above, then the covered cases as a run against `endpointName` performs them. */
+/** The cases as a run against the endpoint `variables` name performs them. */
+export function azureBlobRunCases(
+  options: ConformanceRunOptions,
+  variables: Variables,
+): readonly ConformanceCaseSource[] {
+  const endpointName = endpointNameFrom(variables);
+
+  return withAzureBlobDivergences(azureBlobCases(options, endpointName), endpointName);
+}
+
+/** The check above, then the cases as a run against the endpoint `variables` name. */
 export function describeAzureBlob(
   framework: ConformanceFramework,
   configured: AzureBlobAdapterOptions | undefined,
-  endpointName: string | undefined,
+  variables: Variables,
 ): void {
   describeAzureBlobEndpointCheck(framework, configured);
 
   if (configured === undefined) return;
 
   describeCases(
-    withAzureBlobDivergences(azureBlobCases(framework), endpointName),
-    azureBlobTarget(configured),
+    azureBlobRunCases(framework, variables),
+    azureBlobTarget(configured, variables),
     framework,
   );
 }

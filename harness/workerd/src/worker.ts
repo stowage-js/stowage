@@ -6,12 +6,10 @@ import {
 } from "../../../packages/conformance/src/run.ts";
 import type { ConformanceTarget } from "../../../packages/conformance/src/target.ts";
 import {
-  endpointNameFrom as azureBlobEndpointNameFrom,
+  accessTokenFrom,
   storageOptionsFrom as azureBlobStorageOptionsFrom,
 } from "../../azure-blob/src/configuration.ts";
-import { withAzureBlobDivergences } from "../../azure-blob/src/divergences.ts";
-import { azureBlobCases, azureBlobTarget } from "../../azure-blob/src/target.ts";
-import { mintAccessToken } from "../../azure-blob/src/token.ts";
+import { azureBlobRunCases, azureBlobTarget } from "../../azure-blob/src/target.ts";
 import {
   endpointNameFrom,
   storageOptionsFrom,
@@ -44,7 +42,11 @@ export default {
 
     if (run === undefined) return new Response(null, { status: 404 });
 
-    return Response.json(await runCases(run.cases, run.target));
+    // One case on its own, for the harness to measure what it spends in this process.
+    const only = url.searchParams.get("case");
+    const cases = only === null ? run.cases : run.cases.filter((source) => source.name === only);
+
+    return Response.json(await runCases(cases, run.target));
   },
 };
 
@@ -73,15 +75,15 @@ function runAt(pathname: string, variables: Variables): Run | undefined {
 
 function azureBlobRun(variables: Variables, options: ConformanceRunOptions): Run | undefined {
   // ADR 0023: the suite runs under an access token and not the account key `fromEnv`
-  // reads, so the worker mints one for every request as the other harnesses do.
-  const configured = azureBlobStorageOptionsFrom(variables, () => ({
-    accessToken: mintAccessToken(),
-  }));
+  // reads. The bindings carry what the other harnesses read from `process.env`, the Actions
+  // runtime's two variables among them, and a resolver built here serves this request alone,
+  // which is all `workerd` lets a pending exchange be awaited from.
+  const configured = azureBlobStorageOptionsFrom(variables, accessTokenFrom(variables));
 
   if (configured === undefined) return undefined;
 
   return {
-    target: azureBlobTarget(configured),
-    cases: withAzureBlobDivergences(azureBlobCases(options), azureBlobEndpointNameFrom(variables)),
+    target: azureBlobTarget(configured, variables),
+    cases: azureBlobRunCases(options, variables),
   };
 }

@@ -8,6 +8,8 @@ import { type Divergence, withDivergences } from "../../s3/src/divergences.ts";
 export type AzureBlobEmulator = "azurite";
 export type AzureBlobRealEndpoint = "azure-blob";
 
+export const azureBlobAccount: AzureBlobRealEndpoint = "azure-blob";
+
 const listedIn = "harness/azure-blob/src/divergences.ts";
 
 /**

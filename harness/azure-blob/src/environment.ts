@@ -2,16 +2,15 @@ import { env } from "node:process";
 
 import type { AzureBlobAdapterOptions } from "../../../packages/adapter-azure-blob/src/index.ts";
 import { fromEnv } from "../../../packages/adapter-azure-blob/src/index.ts";
-import { storageOptionsFrom } from "./configuration.ts";
+import { accessTokenFrom, storageOptionsFrom } from "./configuration.ts";
 import { endpointMissing } from "./target.ts";
-import { mintAccessToken } from "./token.ts";
 
 /**
  * ADR 0023: every conformance case runs under an access token, the one scheme under which
- * everything the storage declares works. The resolver mints a fresh one for every request.
+ * everything the storage declares works.
  */
 export function configuredStorage(): AzureBlobAdapterOptions | undefined {
-  return storageOptionsFrom(env, () => ({ accessToken: mintAccessToken() }));
+  return storageOptionsFrom(env, accessTokenFrom(env));
 }
 
 /**

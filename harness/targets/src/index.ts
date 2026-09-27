@@ -1,6 +1,5 @@
 import { env } from "node:process";
 
-import { endpointNameFrom as azureBlobEndpointNameFrom } from "../../azure-blob/src/configuration.ts";
 import { configuredStorage as configuredAzureBlobStorage } from "../../azure-blob/src/environment.ts";
 import { describeAzureBlob } from "../../azure-blob/src/target.ts";
 import { endpointNameFrom } from "../../s3/src/configuration.ts";
@@ -14,6 +13,7 @@ import {
 } from "../../../packages/conformance/src/describe.ts";
 import { selectedCases } from "../../../packages/conformance/src/run.ts";
 import { describeCore } from "./core.ts";
+import { endpointTiersFrom } from "./endpoints.ts";
 import { fsCases, fsTarget } from "./fs.ts";
 import { memoryTarget } from "./memory.ts";
 import { runOptionsFrom } from "./run-options.ts";
@@ -35,21 +35,23 @@ export function describeAdapters(framework: ConformanceFramework): void {
 
   describeCases(fsCases(options), fsTarget, framework);
 
-  const configured = configuredStorage();
+  const endpointTiers = endpointTiersFrom(env);
 
-  describeEndpointCheck(framework, configured);
+  if (endpointTiers.has("s3")) {
+    const configured = configuredStorage();
 
-  if (configured !== undefined) {
-    describeCases(
-      withDivergences(selectedCases(options), endpointNameFrom(env)),
-      s3Target(configured, env),
-      framework,
-    );
+    describeEndpointCheck(framework, configured);
+
+    if (configured !== undefined) {
+      describeCases(
+        withDivergences(selectedCases(options), endpointNameFrom(env)),
+        s3Target(configured, env),
+        framework,
+      );
+    }
   }
 
-  describeAzureBlob(
-    { ...framework, ...options },
-    configuredAzureBlobStorage(),
-    azureBlobEndpointNameFrom(env),
-  );
+  if (endpointTiers.has("azure-blob")) {
+    describeAzureBlob({ ...framework, ...options }, configuredAzureBlobStorage(), env);
+  }
 }

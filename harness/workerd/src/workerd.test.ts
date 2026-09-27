@@ -1,8 +1,22 @@
 import { describe, expect, test } from "vitest";
 
-import { describeWorkerd } from "./describe-workerd.ts";
+import { azureProbeNames } from "../../azure-blob/src/first-run.ts";
+import { firstRunSuite } from "../../s3/src/first-run.ts";
+import { describeWorkerd, observationOf } from "./describe-workerd.ts";
 
-const probes = await describeWorkerd({ describe, test });
+const { probes, flowOne } = await describeWorkerd({ describe, test });
+
+/* oxlint-disable vitest/valid-title -- the measurement's block and name are the ones the
+   spec 13 report reads, kept once in `first-run.ts` for both */
+
+// Spec 13 asks what flow 1 costs here, which a failure of the case answers as well: the
+// case's own result is reported beside the others, and this carries the measurement.
+describe.skipIf(flowOne === undefined)(firstRunSuite, () => {
+  // oxlint-disable-next-line vitest/expect-expect -- a measurement, which passes whatever it measured
+  test(azureProbeNames.flowOneOnWorkerd, ({ task }) => {
+    if (flowOne !== undefined) task.meta.observed = observationOf(flowOne);
+  });
+});
 
 describe("the flags of spec 1", () => {
   test("leave the harness worker no Node API", () => {
