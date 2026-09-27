@@ -128,7 +128,8 @@ jobs:
 
   # ADR 0023 and ADR 0026: the Azure adapter's tiers against the real account, on the same
   # three runtimes, under the token Entra exchanges the job's OIDC token for. No secret holds
-  # a token; the account key is one for the test that holds Shared Key against the account.
+  # a token; the account key is one for the test that holds Shared Key against the account,
+  # and reaches the Node jobs alone, since that test does not run on `workerd`.
   azure-account:
     name: ${{ matrix.runtime }} against azure-blob
     runs-on: ubuntu-latest
@@ -147,11 +148,13 @@ jobs:
             slug: node-24
             node: "24"
             command: pnpm exec vitest run harness/node harness/azure-blob
+            account-key: true
             copy-above-limit: "true"
           - runtime: Node 26
             slug: node-26
             node: "26"
             command: pnpm exec vitest run harness/node harness/azure-blob
+            account-key: true
           - runtime: workerd
             slug: workerd
             node: "24"
@@ -164,7 +167,7 @@ jobs:
       STOWAGE_AZURE_BLOB_TENANT_ID: ${{ vars.STOWAGE_AZURE_BLOB_TENANT_ID }}
       STOWAGE_AZURE_BLOB_CLIENT_ID: ${{ vars.STOWAGE_AZURE_BLOB_CLIENT_ID }}
       STOWAGE_AZURE_BLOB_DENIED_CLIENT_ID: ${{ vars.STOWAGE_AZURE_BLOB_DENIED_CLIENT_ID }}
-      AZURE_STORAGE_KEY: ${{ secrets.STOWAGE_AZURE_BLOB_ACCOUNT_KEY }}
+      AZURE_STORAGE_KEY: ${{ matrix.account-key && secrets.STOWAGE_AZURE_BLOB_ACCOUNT_KEY || '' }}
       STOWAGE_AZURE_BLOB_COPY_ABOVE_LIMIT: ${{ matrix.copy-above-limit }}
     steps:
       - uses: actions/checkout@v7

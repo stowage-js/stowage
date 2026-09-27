@@ -78,14 +78,14 @@ tier's endpoint check stays out of their run. Unset, a run asks for both.
 The account is `stowageconformance` in `swedencentral`, and the run writes to its one container,
 `stowage-conformance`. The GitHub environment `azure-blob`, restricted to `main`, holds:
 
-| Name                                  | Kind     | What it holds                                                               |
-| ------------------------------------- | -------- | --------------------------------------------------------------------------- |
-| `STOWAGE_AZURE_BLOB_ACCOUNT`          | variable | The account, `stowageconformance`                                           |
-| `STOWAGE_AZURE_BLOB_CONTAINER`        | variable | The container, `stowage-conformance`, which holds nothing else              |
-| `STOWAGE_AZURE_BLOB_TENANT_ID`        | variable | The tenant of both managed identities                                       |
-| `STOWAGE_AZURE_BLOB_CLIENT_ID`        | variable | The client id of `stowage-ci`, Storage Blob Data Contributor on the account |
-| `STOWAGE_AZURE_BLOB_DENIED_CLIENT_ID` | variable | The client id of `stowage-ci-readonly`, Storage Blob Data Reader alone      |
-| `STOWAGE_AZURE_BLOB_ACCOUNT_KEY`      | secret   | key1 of the account, which the job hands the harness as `AZURE_STORAGE_KEY` |
+| Name                                  | Kind     | What it holds                                                                    |
+| ------------------------------------- | -------- | -------------------------------------------------------------------------------- |
+| `STOWAGE_AZURE_BLOB_ACCOUNT`          | variable | The account, `stowageconformance`                                                |
+| `STOWAGE_AZURE_BLOB_CONTAINER`        | variable | The container, `stowage-conformance`, which holds nothing else                   |
+| `STOWAGE_AZURE_BLOB_TENANT_ID`        | variable | The tenant of both managed identities                                            |
+| `STOWAGE_AZURE_BLOB_CLIENT_ID`        | variable | The client id of `stowage-ci`, Storage Blob Data Contributor on the account      |
+| `STOWAGE_AZURE_BLOB_DENIED_CLIENT_ID` | variable | The client id of `stowage-ci-readonly`, Storage Blob Data Reader alone           |
+| `STOWAGE_AZURE_BLOB_ACCOUNT_KEY`      | secret   | key1 of the account, which the Node jobs hand the harness as `AZURE_STORAGE_KEY` |
 
 The job sets `STOWAGE_AZURE_BLOB_ENDPOINT_NAME` to `azure-blob` and no
 `STOWAGE_AZURE_BLOB_ENDPOINT`, so the adapter addresses `https://stowageconformance.blob.core.windows.net`
