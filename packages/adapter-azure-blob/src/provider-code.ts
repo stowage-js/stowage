@@ -80,6 +80,8 @@ export interface ProviderAnswer {
 export interface ProviderFailure {
   readonly code: StorageErrorCode;
   readonly message: string;
+  /** Whether the failure is the source's, so that the error names `from` (ADR 0025). */
+  readonly onSource?: boolean;
 }
 
 /**
@@ -110,11 +112,16 @@ export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
   }
 
   // ADR 0025: the service answers a failure on the source under its own code, and the
-  // source's status says which failure it was.
+  // source's status says which failure it was. The refusal of a source above 5,000 MiB
+  // arrives under the same code, as a `409` with no failed source behind it.
   if (answer.providerCode === "CannotVerifyCopySource") {
-    const status = answer.copySourceStatus ?? answer.status;
+    const sourceFailed = answer.copySourceStatus !== undefined && answer.copySourceStatus >= 400;
 
-    return { code: errorCodeForStatus(status) ?? "ProviderError", message: said };
+    if (!sourceFailed && isAboveCopyLimit(answer)) return aboveCopyLimit(said);
+
+    const status = sourceFailed ? answer.copySourceStatus : answer.status;
+
+    return { code: errorCodeForStatus(status) ?? "ProviderError", message: said, onSource: true };
   }
 
   const recognized =
@@ -122,14 +129,7 @@ export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
 
   if (recognized !== undefined) return { code: recognized, message: said };
 
-  // Spec 8.7: the service names no code for a source above what one `Put Blob From URL`
-  // copies, and a fallback to blocks copied by range is declined (ADR 0025).
-  if (answer.copiesFromUrl && answer.status === conflict) {
-    return {
-      code: "InvalidRequest",
-      message: `The source is above the 5,000 MiB one copy takes, or reported no valid length: ${said}`,
-    };
-  }
+  if (isAboveCopyLimit(answer)) return aboveCopyLimit(said);
 
   // Spec 8.8: an addressable key the provider cannot hold, which spec 8.1 lets through so
   // that a blob another tool wrote stays reachable, and which Azure names by no code.
@@ -174,13 +174,12 @@ export function providerError(container: string, response: FailedResponse): Stor
     copiesFromUrl: response.copySource !== undefined,
     copySourceStatus: statusOf(response.headers.get("x-ms-copy-source-status-code")),
   });
-  const failedOnSource = providerCode === "CannotVerifyCopySource";
 
   return azureBlobError(container, {
     code: failure.code,
     message: failure.message,
     operation: response.operation,
-    key: failedOnSource ? (response.copySource ?? response.key) : response.key,
+    key: failure.onSource === true ? (response.copySource ?? response.key) : response.key,
     attempts: response.attempts,
     status: response.status,
     providerCode,
@@ -203,6 +202,22 @@ function beyondHeldKey(key: string): string | undefined {
   if (key.split("/").length > segmentLimit) return `has more than the ${segmentLimit} segments`;
 
   return undefined;
+}
+
+/**
+ * Spec 8.7: a `409` to a `Put Blob From URL` that the table does not name otherwise is a
+ * source above what one copy takes, and a fallback to blocks copied by range is declined
+ * (ADR 0025).
+ */
+function isAboveCopyLimit(answer: ProviderAnswer): boolean {
+  return answer.copiesFromUrl && answer.status === conflict;
+}
+
+function aboveCopyLimit(said: string): ProviderFailure {
+  return {
+    code: "InvalidRequest",
+    message: `The source is above the 5,000 MiB one copy takes, or reported no valid length: ${said}`,
+  };
 }
 
 function statusMessage(answer: ProviderAnswer): string {

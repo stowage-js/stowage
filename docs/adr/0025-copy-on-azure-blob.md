@@ -54,16 +54,19 @@ the response's status otherwise, through the status mapping of section 4.10, wit
 `500 CannotVerifyCopySource` the error table lists for a source that could not be verified in time
 is a `ProviderError` with `retryable: true`.
 
-Above 5,000 MiB the service answers `409`, and the reference names no code for it. This amends
-ADR 0016 for the Azure adapter. An unrecognized `409` on `Put Blob From URL` is `InvalidRequest`,
-saying that the source is above 5,000 MiB or returned no valid length; the codes the adapter's
-table in section 8.8 of the spec recognizes, such as `PendingCopyOperation` or `BlobArchived`,
-decide first. That keeps
-ADR 0016's rule of reacting to the provider's refusal rather than checking a size up front. The
-fallback ADR 0016 declines on S3 for want of a pinned source version is declined on Azure for the
-same want: it would be ranges of `Put Block From URL` and one `Put Block List`, and that operation
-documents no source conditional header at all, so no block can be tied to the source the others
-read. `Copy Blob` would have been the other fallback, and is excluded for the reasons above.
+Above 5,000 MiB the service answers `409`, and the reference names no code for it. This amends ADR
+0016 for the Azure adapter. An unrecognized `409` on `Put Blob From URL` is `InvalidRequest`, saying
+that the source is above 5,000 MiB or returned no valid length; the codes the adapter's table in
+section 8.8 of the spec recognizes, such as `PendingCopyOperation` or `BlobArchived`, decide first.
+The first run against the real account recorded the answer as `409 CannotVerifyCopySource`, the code
+a failure on the source arrives under, although the source was readable. A `409` of that code is
+therefore the refusal above 5,000 MiB where `x-ms-copy-source-status-code` is missing or names no
+failure. That keeps ADR 0016's rule of reacting to the provider's refusal rather than checking a
+size up front. The fallback ADR 0016 declines on S3 for want of a pinned source version is declined
+on Azure for the same want: it would be ranges of `Put Block From URL` and one `Put Block List`, and
+that operation documents no source conditional header at all, so no block can be tied to the source
+the others read. `Copy Blob` would have been the other fallback, and is excluded for the reasons
+above.
 
 `move` is `copy` and then `Delete Blob` on `from`, sent without a condition, as on S3. The copy has
 finished when it resolves, so there is no pending copy for the delete to break, and the paragraph
@@ -101,7 +104,7 @@ that part of the test reports itself skipped. The missing header is reported to 
   checks that the bearer header authorizes the source. The harness test checks the service SAS
   under the account key. And a test in the `slow` tier measures once the code of the `409` for a
   source above 5,000 MiB, assembled on the service from blocks with `Put Block From URL` so that
-  nothing is uploaded, and the code then joins the table.
+  nothing is uploaded, and the code then joins the table. It recorded `CannotVerifyCopySource`.
 - The identity holding Storage Blob Data Contributor reads the source as well. The denied identity
   of ADR 0023, holding Storage Blob Data Reader, fails a copy at the destination with
   `403 AuthorizationPermissionMismatch`, which is `AccessDenied`; no case needs adding.

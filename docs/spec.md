@@ -1087,9 +1087,9 @@ another endpoint that speaks the Blob wire protocol can be configured and are no
   signed for each attempt with `sp=r`, `sr=b`, `st` 15 minutes in the past and `se` 60 minutes from
   now. Under an access token it carries `x-ms-copy-source-authorization: Bearer` with the token of
   its own `Authorization`, so the repeat of section 8.3 renews both.
-- Above 5,000 MiB the service answers `409`, which is `InvalidRequest` saying that the source is
-  above 5,000 MiB or reported no valid length. There is no fallback to blocks copied by range or to
-  `Copy Blob`. `move` inherits that.
+- Above 5,000 MiB the service answers `409 CannotVerifyCopySource` although the source is readable,
+  which is `InvalidRequest` saying that the source is above 5,000 MiB or reported no valid length.
+  There is no fallback to blocks copied by range or to `Copy Blob`. `move` inherits that.
 - `move` is `copy` followed by an unconditional `Delete Blob` on `from`.
 - Copying a key onto itself is `InvalidRequest` before any request.
 
@@ -1112,7 +1112,8 @@ carries a response.
 | `CannotVerifyCopySource`                                                                                                 | By the source        | Mapped through `x-ms-copy-source-status-code` where present, else the response's status, with `key` set to `from`                                                                     |
 
 - On `Put Blob From URL`, a `409` whose code the table does not name is `InvalidRequest` (section
-  8.7).
+  8.7), and so is a `409 CannotVerifyCopySource` whose `x-ms-copy-source-status-code` is missing
+  or names no failure, with `key` set to `to`.
 - A `400` for a key above 1,024 characters or 254 segments is `InvalidKey`, as section 7.9 has it
   for S3: an addressable key the provider cannot hold.
 

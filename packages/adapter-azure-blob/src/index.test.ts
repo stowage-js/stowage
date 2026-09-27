@@ -1320,6 +1320,19 @@ test("a source the service could not verify in time is repeated as transient", a
 test.each([
   ["no code", new Response(null, { status: 409 })],
   ["a code the table does not name", refused(409, "CopySourceTooLarge", "Too large.")],
+  // The answer the account gave the first run's copy of a source above 5,000 MiB.
+  [
+    "`CannotVerifyCopySource` and no failed source",
+    refused(
+      409,
+      "CannotVerifyCopySource",
+      "The source request body is too large and exceeds the maximum permissible limit (5000MB).",
+    ),
+  ],
+  [
+    "`CannotVerifyCopySource` and a source that answered",
+    refused(409, "CannotVerifyCopySource", "Too large.", { "x-ms-copy-source-status-code": "200" }),
+  ],
 ])(
   "a `409` with %s is `InvalidRequest` naming the 5,000 MiB, without a fallback",
   async (_label, answer) => {
