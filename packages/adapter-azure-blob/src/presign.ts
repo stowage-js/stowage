@@ -24,7 +24,11 @@ import { azureBlobError, inStorage } from "./storage-error.ts";
 import { requestUserDelegationKey } from "./user-delegation-key.ts";
 
 export interface AzureBlobPresignGetOptions {
-  /** Seconds, 1 to 604800. */
+  /**
+   * Seconds, 1 to 604800; anything else is `InvalidOption` before anything is sent. The SAS
+   * starts 15 minutes in the past, so an account's SAS expiration policy measures 900
+   * seconds more.
+   */
   expiresIn: number;
   responseContentType?: string;
   responseContentDisposition?: string;
@@ -32,13 +36,18 @@ export interface AzureBlobPresignGetOptions {
 }
 
 export interface AzureBlobPresignPutOptions {
-  /** Seconds, 1 to 604800. */
+  /**
+   * Seconds, 1 to 604800; anything else is `InvalidOption` before anything is sent. The SAS
+   * starts 15 minutes in the past, so an account's SAS expiration policy measures 900
+   * seconds more.
+   */
   expiresIn: number;
   /** Bound exactly, case and parameters included: an upload of another type is refused. */
   contentType: string;
   /**
    * Bound exactly, so the client reports the length and the server signs that number. A
    * finite, non-negative integer; anything else is `InvalidOption` before anything is sent.
+   * It is not held against the 5,000 MiB of a single `Put Blob`, which Azure enforces.
    */
   contentLength: number;
 }
