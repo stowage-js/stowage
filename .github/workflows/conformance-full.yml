@@ -161,7 +161,7 @@ jobs:
   # ADR 0012: Bun and Deno run against the emulator. Their columns are covered by the same
   # suite, answered by the pinned image rather than by a provider. ADR 0023 carries that
   # over to Azure Blob, with Azurite beside SeaweedFS.
-  emulator:
+  emulators:
     name: ${{ matrix.name }} against SeaweedFS and Azurite
     runs-on: ubuntu-latest
     timeout-minutes: 30
