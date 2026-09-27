@@ -264,27 +264,35 @@ describe.skipIf(!scheduled)(firstRunSuite, () => {
   });
 
   // Spec 8.1 refuses these before any request, so the probe sends each `Put Blob` itself and
-  // reads what the service did with the name.
+  // reads what the service did with the name. The C1 range goes one character at a time,
+  // since the reference forbids `U+0081` alone and a refusal is loosened only where the run
+  // shows it needless.
   // oxlint-disable-next-line vitest/expect-expect -- spec 13 records what the service answers, so any answer passes
   test(azureProbeNames.refusedWritableKeys, async ({ task }) => {
     const below = `${prefix}refused/`;
-    const keys = {
-      "255 segments": `${below}${"s/".repeat(254)}s`,
-      "a segment ending in `.`": `${below}dotted./blob`,
-      "U+0085": `${below}c1\u0085control`,
-    };
+    const keys: readonly (readonly [kind: string, key: string])[] = [
+      ["255 segments", `${below}${"s/".repeat(254)}s`],
+      ["a segment ending in `.`", `${below}dotted./blob`],
+      ...c1Controls.map(
+        (point) =>
+          [codePointName(point), `${below}c1${String.fromCodePoint(point)}control`] as const,
+      ),
+    ];
     const answers = await Promise.all(
-      Object.entries(keys).map(async ([kind, key]) => ({ kind, key, answer: await rawPut(key) })),
+      keys.map(async ([kind, key]) => ({ kind, key, answer: await rawPut(key) })),
     );
     const { objects } = await storage().list({ prefix: below }).page();
     const listed = new Set(objects.map((entry) => entry.key));
-    const written: readonly string[] = Object.values(keys);
-    const unmatched = [...listed].filter((name) => !written.includes(name));
-    const outcomes = answers.map(({ kind, key, answer }) => {
-      if (answer !== undefined) return `${kind}: ${answer}`;
+    const written = new Set(keys.map(([, key]) => key));
+    const unmatched = [...listed].filter((name) => !written.has(name));
+    const kindsByOutcome = Map.groupBy(answers, ({ key, answer }) => {
+      if (answer !== undefined) return answer;
 
-      return `${kind}: ${listed.has(key) ? "stored and listed as written" : "stored, not listed as written"}`;
+      return listed.has(key) ? "stored and listed as written" : "stored, not listed as written";
     });
+    const outcomes = [...kindsByOutcome].map(
+      ([outcome, answered]) => `${answered.map(({ kind }) => kind).join(", ")}: ${outcome}`,
+    );
 
     task.meta.observed = [
       ...outcomes,
@@ -373,6 +381,13 @@ describe.skipIf(!scheduled)(firstRunSuite, () => {
     }
   }
 });
+
+/** The C1 control characters, `U+0080` to `U+009F`, which spec 8.1 refuses in a writable key. */
+const c1Controls = Array.from({ length: 0x20 }, (_, offset) => 0x80 + offset);
+
+function codePointName(point: number): string {
+  return `U+${point.toString(16).toUpperCase().padStart(4, "0")}`;
+}
 
 /** Block ids of one length, as the service requires of the ids staged under one name (ADR 0024). */
 function blockId(index: number): string {
