@@ -401,9 +401,9 @@ export type CapabilityName = (typeof capabilityNames)[number];
 | `userMetadataTokenKeys` | Beside `userMetadata`: a key may be any ASCII HTTP token, such as `content-hash`                    | A key outside identifiers is `Unsupported` naming it; without `userMetadata` too, the call is `Unsupported` naming that |
 
 - The declarations: `adapter-s3` `presignedUrls`, `rangeReads`, `userMetadata`,
-  `userMetadataTokenKeys`; `adapter-azure-blob` `presignedUrls`, `rangeReads`, `userMetadata`;
-  `adapter-fs` `rangeReads`; `adapter-memory` `keyBytesPreserved`, `rangeReads`, `userMetadata`,
-  `userMetadataTokenKeys`.
+  `userMetadataTokenKeys`; `adapter-azure-blob` `keyBytesPreserved`, `presignedUrls`, `rangeReads`,
+  `userMetadata`; `adapter-fs` `rangeReads`; `adapter-memory` `keyBytesPreserved`, `rangeReads`,
+  `userMetadata`, `userMetadataTokenKeys`.
 - The declaration is runtime only. There is no type parameter over it.
 - An `Unsupported` error names the capability in its `capability` field.
 - The list is closed and grows in minor releases (section 10).
@@ -943,9 +943,8 @@ export function fromEnv(options?: ResolverOptions): { accountKey: string };
 - `put` on `AzureBlobStorage` accepts the `PutOptions` of section 4.3 and nothing more. Append and
   page blobs, access tiers, snapshots, soft delete, versioning, leases, immutability policies and
   blob index tags are not offered.
-- Declares `presignedUrls`, `rangeReads` and `userMetadata`. It does not declare
-  `userMetadataTokenKeys`, and not `keyBytesPreserved` until a run against the account settles how
-  Azure treats Unicode-equivalent names (section 13).
+- Declares `keyBytesPreserved`, `presignedUrls`, `rangeReads` and `userMetadata`. It does not
+  declare `userMetadataTokenKeys`.
 - Refuses three kinds of writable key with `InvalidKey` and `attempts: 0`: more than 254
   segments, a segment ending in `.`, and a key holding a character from `U+0080` to `U+009F`.
   Addressable keys and prefixes are refused by nothing beyond the rule of section 4.8 (ADR 0020).
@@ -960,7 +959,7 @@ another endpoint that speaks the Blob wire protocol can be configured and are no
 | Point                              | Promised                                                                                                                                       |
 | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | Listing order                      | None. A page holds at most 1000 names                                                                                                          |
-| Unicode-equivalent keys            | Undocumented. `keyBytesPreserved` is not declared                                                                                              |
+| Unicode-equivalent keys            | Two blobs: an NFC and an NFD name are stored, listed and read apart. `keyBytesPreserved` is declared                                           |
 | `userMetadata`                     | ASCII identifier keys, stored and handed back in lower case; 2 KB as section 4.3 measures them                                                 |
 | Single `Put Blob`                  | Up to 5,000 MiB                                                                                                                                |
 | Object size ceiling                | 50,000 blocks of at most 4,000 MiB; the upload of section 8.6 stops at 50,000 parts                                                            |
@@ -1619,6 +1618,5 @@ What a run may add or loosen, in a minor release and without a withdrawal:
 - `adapter-s3`: whether a `DeleteObjects` body holding `&#xFFFE;` or `&#65534;` deletes the object
   on AWS S3 and R2. If one spelling does on both, these keys go back into the batch without a
   change to this document.
-- `adapter-azure-blob`: whether an NFC and an NFD name are one blob or two, and so whether
-  `keyBytesPreserved` can be declared; and whether the three kinds of writable key section 8.1
-  refuses need refusing. A refusal shown needless is loosened.
+- `adapter-azure-blob`: whether the three kinds of writable key section 8.1 refuses need refusing.
+  A refusal shown needless is loosened.

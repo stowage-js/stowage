@@ -59,6 +59,7 @@ export function azureBlobStorage(options: AzureBlobAdapterOptions): AzureBlobSto
 }
 
 const azureBlobCapabilities: readonly CapabilityName[] = Object.freeze([
+  "keyBytesPreserved",
   "presignedUrls",
   "rangeReads",
   "userMetadata",
