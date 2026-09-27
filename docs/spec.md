@@ -1487,7 +1487,8 @@ Accepted means the core's check passes and the request goes out. A provider may 
 addressable key it cannot hold: S3 answers a key above 1024 bytes with `KeyTooLongError`, which
 `adapter-s3` reports as `InvalidKey`, and `adapter-azure-blob` reports Azure's `400` for a name
 above 1,024 characters the same way. The accepted list holds on Azure unchanged. `adapter-fs` refuses the key of 1024 bytes where the file
-system's path limit does not hold it below the root, which section 6 states.
+system's path limit does not hold it below the root, which section 6 states, and its cells leave
+`list/noncharacter-key` unrun where the file system refuses the name that case writes.
 
 ## 10. Versions
 

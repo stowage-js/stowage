@@ -20,14 +20,24 @@ const pathByteLimit = platform === "darwin" ? 1024 : 4096;
 
 const boundaryKeyBytes = 1024;
 
-/** The tiers the run asks for, minus the one case no path below this root leaves room for. */
-const runnable = (name: string): boolean =>
-  name !== "put/accepted-keys" || tmpdir().length + boundaryKeyBytes < pathByteLimit;
+/**
+ * APFS refuses every noncharacter in a name it creates, and spec 6 has the adapter pass that
+ * refusal on as `InvalidKey`, so the key `list/noncharacter-key` writes cannot be held there.
+ */
+const refusesNoncharacters = platform === "darwin";
+
+/** The tiers the run asks for, minus the cases the file system below this root cannot hold. */
+const runnable = (name: string): boolean => {
+  if (name === "put/accepted-keys") return tmpdir().length + boundaryKeyBytes < pathByteLimit;
+  if (name === "list/noncharacter-key") return !refusesNoncharacters;
+
+  return true;
+};
 
 // ADR 0006: `adapter-fs` is read against the suite like any other adapter. The harness
-// reaches past `describeConformance` for the cases alone, so that the case the path limit
-// rules out is left unrun rather than red on a machine whose temporary directory is one
-// character too long.
+// reaches past `describeConformance` for the cases alone, so that a case the file system
+// rules out is left unrun rather than red: the path limit on a machine whose temporary
+// directory is one character too long, and a noncharacter on APFS (spec 9.7).
 export const fsCases = (options: ConformanceRunOptions): readonly ConformanceCaseSource[] =>
   selectedCases(options).filter((source) => runnable(source.name));
 
