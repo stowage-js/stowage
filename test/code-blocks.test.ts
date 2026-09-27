@@ -16,6 +16,7 @@ const documents = [
   "packages/adapter-memory/README.md",
   "packages/adapter-fs/README.md",
   "packages/adapter-s3/README.md",
+  "packages/adapter-azure-blob/README.md",
   "packages/conformance/README.md",
   "docs/spec.md",
 ];
