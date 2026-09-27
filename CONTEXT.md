@@ -8,12 +8,14 @@ nothing else.
 
 **Provider**:
 The vendor or service that stores the bytes: Amazon S3, Cloudflare R2, Azure Blob, the local
-file system.
+file system. For the local file system it is the file system the root lies on, whose limits on
+names differ from one file system to the next and are reported rather than repaired.
 _Avoid_: cloud, backend, service
 
 **Promised provider**:
 A provider stowage keeps its promises against: AWS S3, Cloudflare R2 and Azure Blob Storage, the
-last as a general-purpose v2 account without hierarchical namespace in the public cloud. Another
+last as a general-purpose v2 account without hierarchical namespace in the public cloud, and the
+local file systems of Linux and macOS. Another
 endpoint speaking the same wire protocol can be configured and is not promised. An adapter is not
 told which promised provider it faces.
 _Avoid_: supported provider, tested provider, official provider
