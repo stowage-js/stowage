@@ -79,7 +79,11 @@ describe.skipIf(underAccountKey === undefined || underAccessToken === undefined)
     // The real account keeps what a run leaves for a day (ADR 0023), and a run leaves
     // nothing where it can help it.
     afterAll(async () => {
-      await azureBlobStorage(endpointOrFail(underAccountKey)).deleteAll(prefix);
+      const report = await azureBlobStorage(endpointOrFail(underAccountKey)).deleteAll(prefix);
+
+      if (report.failed.length > 0) {
+        throw new AggregateError(report.failed, "Failed to clean up Azure Blob test blobs");
+      }
     });
 
     test("Shared Key signs a `put` of held bytes and a `get` the endpoint accepts", async () => {

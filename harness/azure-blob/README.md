@@ -62,8 +62,8 @@ operations of the parity core (spec 9.4): user metadata named `a1` and `a_` with
 a run of spaces, a stream staged as blocks, `presignGet` as a service SAS and `presignPut` refused
 before any request. The copy and the move report themselves skipped where the endpoint answers
 `Put Blob From URL` with `501`, as the pinned Azurite does (ADR 0025). It runs against Azurite on
-every commit, asks nothing of the endpoint the account does not answer, so that the `slow` tier
-runs it against the account as it is, and deletes what it wrote once it is done.
+every commit, asks nothing of the endpoint the account does not answer, so that a future `slow` tier
+can run it against the account as it is, and delete what it wrote once it is done.
 
 ## The cases run so far
 
