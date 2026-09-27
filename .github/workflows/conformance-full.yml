@@ -88,6 +88,8 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: pnpm/action-setup@v6
 
@@ -166,6 +168,8 @@ jobs:
       STOWAGE_AZURE_BLOB_COPY_ABOVE_LIMIT: ${{ matrix.copy-above-limit }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: pnpm/action-setup@v6
 
@@ -217,6 +221,8 @@ jobs:
             command: pnpm run test:deno
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: pnpm/action-setup@v6
 
@@ -265,6 +271,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       # The report reads the JSON files and imports nothing it would need installed.
       - uses: actions/setup-node@v7
