@@ -98,7 +98,8 @@ before the signature, and the key request falls inside it, between the server an
   CORS-safelisted method, so every cross-origin upload through a presigned URL is preflighted on
   every provider; `x-ms-blob-type` adds a name to the rule and not a preflight to the flow. Whether
   Azure sends CORS headers on the `403` for an expired or deviating URL, where R2 sends none, is
-  left for the first run against the real account.
+  left for the first run against the real account. That run answered an expired URL with
+  `403 AuthenticationFailed` carrying the rule's `access-control-allow-origin`.
 - A single `Put Blob` takes up to 5,000 MiB, and flow 2 has no path above it. The Azure adapter
   checks `contentLength` as `adapter-s3` does, as a finite, non-negative integer, and not against
   the provider's ceiling, which the spec states among the Azure points. The limit that matters in

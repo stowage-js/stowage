@@ -87,7 +87,8 @@ secret would be a long-lived credential in the environment when a federated one 
 - The account holds one CORS rule, for the origin `https://conformance.stowage.invalid`, with `GET`
   and `PUT` and the headers `content-type` and `x-ms-blob-type`. A test in the `slow` tier sends a
   preflight from that origin and a `PUT` to an expired presigned URL, which settles the question
-  ADR 0022 left for the first run: whether Azure sends CORS headers on that `403`.
+  ADR 0022 left for the first run: whether Azure sends CORS headers on that `403`. It does: the
+  first run saw `access-control-allow-origin` for that origin on the `403`.
 - The same test of the adapter asserts the three response overrides of ADR 0022 against the real
   account, because Azurite applies them to any `GET`.
 - Nothing here creates the account. Provisioning it, with both identities, their roles, the

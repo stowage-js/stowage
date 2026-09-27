@@ -38,7 +38,9 @@ Worker created today does not run at. A new date is a change to the spec; Renova
   on `workerd` than it does against S3. A presigned URL under an access token costs one subrequest
   for the user delegation key. The first scheduled run measures the 17 MiB upload of flow 1 on
   `workerd` against Azure as it did against S3; a result beyond a paid plan's limit changes the
-  host note beside the matrix and no cell, since hosts are not promised.
+  host note beside the matrix and no cell, since hosts are not promised. It measured 6.4 seconds
+  and half a second of CPU for the whole `workerd` process, one token exchange included, which a
+  paid plan allows.
 - Flow 1 names all four runtimes. Its text has named Node, Bun and Deno since v0.1 while the
   matrix and ADR 0002 marked `workerd` as `yes`; the matrix was right.
 - `flow/5-prefix-move` does not change. It never named a target provider.
