@@ -60,6 +60,35 @@ function sectionOf(text: string, heading: string): string {
   return text.slice(start, end === -1 ? undefined : end);
 }
 
+test("the README of @stowage/conformance names the four adapters of this repository", async () => {
+  const text = await readmeOf(conformance);
+
+  for (const adapter of [adapterMemory, adapterFs, adapterS3, adapterAzureBlob]) {
+    expect(text).toContain(adapter.name);
+  }
+});
+
+test("the README of @stowage/core covers the exports of spec 4.13", async () => {
+  const text = await readmeOf(core);
+
+  for (const name of [
+    "invalidKeyReason",
+    "errorCodeForStatus",
+    "isTransientStatus",
+    "withRetry",
+    "parseXml",
+    "XmlSyntaxError",
+    "readEnvironment",
+    "isUserMetadataKey",
+    "encodeUserMetadataValue",
+    "decodeUserMetadataValue",
+    "userMetadataByteLength",
+    "PresignedPut",
+  ]) {
+    expect(text).toContain(`\`${name}\``);
+  }
+});
+
 test("the README of @stowage/adapter-azure-blob writes its example with an access token", async () => {
   const example = sectionOf(await readmeOf(adapterAzureBlob), "Example");
 
