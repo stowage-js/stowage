@@ -196,11 +196,24 @@ describe.skipIf(!scheduled)(firstRunSuite, () => {
         expect(copied.size).toBe(aboveTheCopyLimit);
         task.meta.observed = `copied ${aboveTheCopyLimit} bytes in one request`;
       } catch (thrown) {
-        if (!isStorageError(thrown) || thrown.code !== "InvalidRequest") throw thrown;
+        if (!isStorageError(thrown)) throw thrown;
 
-        task.meta.observed =
+        const refusal =
           `refused as \`${thrown.code}\`, ${thrown.status} \`${thrown.providerCode}\`: ` +
           thrown.message;
+
+        task.meta.observed = refusal;
+
+        // The status and the provider's code are what the run is here to record, and a
+        // rethrown `StorageError` shows neither in the log.
+        if (thrown.code !== "InvalidRequest") {
+          throw new Error(
+            `Spec 8.7 has \`copy\` answer \`InvalidRequest\`, and it was ${refusal}`,
+            {
+              cause: thrown,
+            },
+          );
+        }
       }
     },
     largeObjectTimeout,
