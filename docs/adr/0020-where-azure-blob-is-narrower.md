@@ -37,7 +37,11 @@ the rest. The line is drawn wide on purpose: loosening a key rule costs nothing 
 tightening one costs a minor release, so a refusal the first run against a real account shows to
 be needless is the cheap mistake. Noncharacters such as `U+FFFE` stay allowed, because a listing
 percent-encodes them correctly, and the first run checks them on a write. Addressable keys are not
-refused beyond the core rule, since other tools may have written them.
+refused beyond the core rule, since other tools may have written them. The first run against the
+account kept two of the refusals: it answered a name of 255 segments with `400` and stored a
+segment ending in `.` without the dot. It stored `U+0085`, the one C1 character it sent, as written,
+which is too narrow a sample to loosen a range the reference forbids `U+0081` in, so the next run
+sends each character of the range.
 
 The batch size of `delete` leaves the core, which conflicts with ADR 0017. Section 4.1 promises at
 most one request per 1000 keys for every adapter, and Blob Batch takes 256 subrequests. The number

@@ -1608,5 +1608,6 @@ What a run may add or loosen, in a minor release and without a withdrawal:
 - `adapter-s3`: whether a `DeleteObjects` body holding `&#xFFFE;` or `&#65534;` deletes the object
   on AWS S3 and R2. If one spelling does on both, these keys go back into the batch without a
   change to this document. No test of the scheduled run sends either body yet.
-- `adapter-azure-blob`: whether the three kinds of writable key section 8.1 refuses need refusing.
-  A refusal shown needless is loosened.
+- `adapter-azure-blob`: whether a key holding a character from `U+0080` to `U+009F` needs
+  refusing. A refusal shown needless is loosened. The first run sent `U+0085` alone, which the
+  account stored and listed as written; the scheduled run now sends each of the 32.
