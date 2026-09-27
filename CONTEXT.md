@@ -96,8 +96,9 @@ _Avoid_: path, filename, id
 
 **Writable key**:
 A key stowage creates: what `put`, the destination of `copy` and `move` and a presigned `PUT`
-accept. It is the narrowest key space every adapter can hold, so a key written against one
-adapter can be written against all of them. An adapter may refuse beyond it.
+accept. It is the key space stowage promises across adapters, so a key outside it is refused by
+every one of them. An adapter, or the provider behind it, may refuse beyond it, and does so as it
+refuses a key outside it.
 _Avoid_: valid key, safe key, allowed key
 
 **Addressable key**:
