@@ -4,8 +4,11 @@ import { type HeaderField, hmacSha256Base64, type QueryParameter } from "./sign.
 
 const minute = 60 * 1000;
 
-/** ADR 0022: a SAS starts early enough for a service clock that trails this one. */
-const sasLead = 15 * minute;
+/**
+ * ADR 0022: a SAS starts early enough for a service clock that trails this one, and a user
+ * delegation key ends no sooner than this after the call.
+ */
+export const sasLead: number = 15 * minute;
 
 /** What a SAS grants on one blob: its permissions, from `start` until `expiry`. */
 export interface SasGrant {
