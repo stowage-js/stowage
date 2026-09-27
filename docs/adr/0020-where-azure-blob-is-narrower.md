@@ -37,7 +37,11 @@ the rest. The line is drawn wide on purpose: loosening a key rule costs nothing 
 tightening one costs a minor release, so a refusal the first run against a real account shows to
 be needless is the cheap mistake. Noncharacters such as `U+FFFE` stay allowed, because a listing
 percent-encodes them correctly, and the first run checks them on a write. Addressable keys are not
-refused beyond the core rule, since other tools may have written them.
+refused beyond the core rule, since other tools may have written them. The first run against the
+account kept two of the refusals: it answered a name of 255 segments with `400` and stored a
+segment ending in `.` without the dot. It stored `U+0085`, the one C1 character it sent, as written,
+which is too narrow a sample to loosen a range the reference forbids `U+0081` in, so the next run
+sends each character of the range.
 
 The batch size of `delete` leaves the core, which conflicts with ADR 0017. Section 4.1 promises at
 most one request per 1000 keys for every adapter, and Blob Batch takes 256 subrequests. The number
@@ -59,9 +63,11 @@ which every adapter satisfies and which would take the same promise from S3's ca
   withdrawal. It names `userMetadataTokenKeys` as what a third-party adapter adds to keep passing
   the metadata case.
 - The Azure adapter declares `rangeReads` and `userMetadata`. Whether it declares `presignedUrls`
-  is decided with SAS, in ADR 0022, which declares it. `keyBytesPreserved` is not declared, because
-  the reference is silent on Unicode normalization; if the first run shows NFC and NFD as two
-  blobs, declaring it later adds a promise and costs a minor release.
+  is decided with SAS, in ADR 0022, which declares it. `keyBytesPreserved` is not declared at
+  first, because the reference is silent on Unicode normalization; if the first run shows NFC and
+  NFD as two blobs, declaring it later adds a promise and costs a minor release. The first run
+  against the account listed and read an NFC and an NFD name as two blobs, and the adapter declares
+  `keyBytesPreserved` from then on.
 - `provider` is `"azure-blob"`. `bucket` is the container name, and the account belongs to how the
   storage is constructed rather than to `bucket`.
 - The conformance suite splits the metadata key case: a hyphenated key round-trips where

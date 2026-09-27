@@ -441,8 +441,13 @@ test("a signal that already fired rejects with `AbortError` before any request",
   expect(sent).toHaveLength(0);
 });
 
-test("the storage declares `presignedUrls`, `rangeReads` and `userMetadata`, and not `userMetadataTokenKeys`", () => {
-  expect(storage().capabilities).toEqual(["presignedUrls", "rangeReads", "userMetadata"]);
+test("the storage declares `keyBytesPreserved`, `presignedUrls`, `rangeReads` and `userMetadata`, and not `userMetadataTokenKeys`", () => {
+  expect(storage().capabilities).toEqual([
+    "keyBytesPreserved",
+    "presignedUrls",
+    "rangeReads",
+    "userMetadata",
+  ]);
 });
 
 test("`put` sends each user metadata key as an `x-ms-meta-` field, folded to lower case", async () => {
