@@ -75,8 +75,8 @@ size do, and leaves room to batch these keys again without a change to the spec.
     route deletes such a key there, the real endpoint has disproved the promise, and ADR 0017
     withdraws it in a minor: `adapter-s3` refuses `U+FFFE` and `U+FFFF` in a writable key as
     `InvalidKey`, and `list/noncharacter-key` narrows to the listing for S3. That change then names
-    its conflict with ADR 0020. The first run after v0.2 saw both providers answer `204` and
-    remove the object, so the promise stands.
+    its conflict with ADR 0020. The first run after v0.2 saw the `DELETE` succeed on both
+    providers and the key leave the listing, so the promise stands.
   - A quiet `DeleteObjects` body holding `&#xFFFE;`, and one holding `&#65534;`. If AWS and R2 both
     accept one spelling and delete the object, these keys go back into the batch without a change
     to the spec. Otherwise nothing changes.

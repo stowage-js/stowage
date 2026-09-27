@@ -778,8 +778,8 @@ configured and is not promised.
   not read.
 - A key holding `U+FFFE` or `U+FFFF`, which XML carries neither raw nor as a reference, leaves the
   `DeleteObjects` batch and is deleted by a `DELETE` of its own, after the batches and one after
-  another, each on the budget of section 7.5. AWS S3 and R2 answer it with `204` and remove the
-  object, and a `204` counts as deleted. A failure of the request
+  another, each on the budget of section 7.5. A `204` counts as deleted. On AWS S3 and R2 such a
+  `DELETE` succeeds and removes the object. A failure of the request
   as a whole rejects the call and stops the requests after it; any other failure becomes the key's
   entry in `failed` (ADR 0027).
 - A key is percent-encoded segment by segment on the request path, so `#`, `%`, `?`, `+`, a space
