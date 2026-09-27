@@ -190,6 +190,27 @@ describe("firstRunReport", () => {
     expect(cellOf(report, "holding `U+FFFE` is stored", "azure-blob-node-24")).toBe("held");
   });
 
+  test("reads the `DELETE` of a `U+FFFE` key off the case and the harness test against S3", () => {
+    const point = "a `DELETE` of a key holding `U+FFFE`";
+    const report = firstRunReport([
+      run(
+        "aws-s3-node-24",
+        assertion({ ancestorTitles: ["@stowage/adapter-s3"], title: "list/noncharacter-key" }),
+        assertion({
+          ancestorTitles: ["adapter-s3 against the endpoint"],
+          title: "a `delete` sends a key holding U+FFFE as a `DELETE` of its own",
+        }),
+      ),
+      run(
+        "r2-workerd",
+        assertion({ ancestorTitles: ["@stowage/adapter-s3"], title: "list/noncharacter-key" }),
+      ),
+    ]);
+
+    expect(cellOf(report, point, "aws-s3-node-24")).toBe("held");
+    expect(cellOf(report, point, "r2-workerd")).toBe("—");
+  });
+
   test("carries the duration and the CPU flow 1 spent on `workerd` against the account", () => {
     const report = firstRunReport([
       run(

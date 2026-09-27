@@ -17,6 +17,9 @@ export const firstRunSuite = "settled by the first run";
 /** The block `describeConformance` registers the cases against the endpoint in. */
 const s3Suite = "@stowage/adapter-s3";
 
+/** The block `adapter-s3.test.ts` holds spec 9.4 against the endpoint in. */
+const endpointSuite = "adapter-s3 against the endpoint";
+
 export const probeNames = {
   entityTooSmall: "a completion over a part below 5 MiB answers `EntityTooSmall`",
   invalidPart: "a completion naming a part the provider does not hold answers `InvalidPart`",
@@ -82,6 +85,20 @@ export const s3FirstRunPoints: readonly FirstRunPoint[] = [
     promise: "R2 answers `ExpiredRequest` for an expired credential",
     tests: [conformanceCase("errors/expired-credentials")],
     endpoints: ["r2"],
+  },
+  {
+    promise:
+      "`adapter-s3`: a `DELETE` of a key holding `U+FFFE` answers `204` and removes the object (ADR 0027)",
+    tests: [
+      conformanceCase("list/noncharacter-key"),
+      {
+        suite: endpointSuite,
+        title: "a `delete` sends a key holding U+FFFE as a `DELETE` of its own",
+      },
+    ],
+    endpoints: realEndpoints,
+    // The harness test that sees the `DELETE` go out on its own runs on Node alone.
+    runtime: "node",
   },
   {
     promise: "The refusal of `copy` above the single-request limit against a real provider",
