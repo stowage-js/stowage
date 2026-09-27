@@ -153,14 +153,18 @@ async function signUnderDelegation(
   grant: UserDelegationSasGrant,
   operation: string,
 ): Promise<SignedSas> {
+  const adjustedGrant =
+    grant.expiry.getTime() - grant.start.getTime() > longestLifetime * 1000
+      ? { ...grant, start: new Date(grant.expiry.getTime() - longestLifetime * 1000) }
+      : grant;
   const delegationKey = await requestUserDelegationKey(
     configuration,
-    { start: sasTime(grant.start), expiry: sasTime(grant.expiry) },
+    { start: sasTime(adjustedGrant.start), expiry: sasTime(adjustedGrant.expiry) },
     operation,
     grant.key,
   );
 
-  return await signUserDelegationSas(configuration, grant, delegationKey);
+  return await signUserDelegationSas(configuration, adjustedGrant, delegationKey);
 }
 
 /** The credential of the call, which decides the kind of SAS (spec 8.9). */
