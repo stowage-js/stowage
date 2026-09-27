@@ -242,28 +242,31 @@ test("under an access token `presignPut` requests one user delegation key", asyn
   );
 });
 
-// A key whose expiry is past by the time its request arrives is refused, which a lifetime
-// of a second would otherwise meet whenever the request took longer than that.
+/** The URL `presignGet` or `presignPut` signs for `a.txt` under an access token. */
+async function presignFor(operation: "get" | "put", expiresIn: number): Promise<string> {
+  const presigner = storage();
+
+  if (operation === "get") return await presigner.presignGet("a.txt", { expiresIn });
+
+  const presigned = await presigner.presignPut("a.txt", {
+    expiresIn,
+    contentType: "text/plain",
+    contentLength: 11,
+  });
+
+  return presigned.url;
+}
+
 test.each([
   ["get", 1, "2026-08-30T12:36:01Z", "2026-08-30T12:51:00Z"],
   ["put", 1, "2026-08-30T12:36:01Z", "2026-08-30T12:51:00Z"],
   ["get", 300, "2026-08-30T12:41:00Z", "2026-08-30T12:51:00Z"],
   ["get", 3600, "2026-08-30T13:36:00Z", "2026-08-30T13:36:00Z"],
 ] as const)(
-  "an access token signs %s for %i seconds with a delegation key that lives 15 minutes at the least",
+  "an access token signs %s for %i seconds with a user delegation key until `se` or 15 minutes from now, whichever is later",
   async (operation, expiresIn, expiry, keyExpiry) => {
     const sent = stubFetch(delegationKey);
-    const presigner = storage();
-    const url =
-      operation === "get"
-        ? await presigner.presignGet("a.txt", { expiresIn })
-        : (
-            await presigner.presignPut("a.txt", {
-              expiresIn,
-              contentType: "text/plain",
-              contentLength: 11,
-            })
-          ).url;
+    const url = await presignFor(operation, expiresIn);
 
     expect(textOf(sent[0]?.body)).toContain(
       `<KeyInfo><Start>2026-08-30T12:21:00Z</Start><Expiry>${keyExpiry}</Expiry></KeyInfo>`,
@@ -282,17 +285,7 @@ test.each([
   "an access token signs %s for %i seconds with a delegation key no longer than seven days",
   async (operation, expiresIn, start, expiry) => {
     const sent = stubFetch(delegationKey);
-    const presigner = storage();
-    const url =
-      operation === "get"
-        ? await presigner.presignGet("a.txt", { expiresIn })
-        : (
-            await presigner.presignPut("a.txt", {
-              expiresIn,
-              contentType: "text/plain",
-              contentLength: 11,
-            })
-          ).url;
+    const url = await presignFor(operation, expiresIn);
 
     expect(sent).toHaveLength(1);
     expect(textOf(sent[0]?.body)).toContain(
