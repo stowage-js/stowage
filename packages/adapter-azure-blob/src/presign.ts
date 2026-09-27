@@ -26,8 +26,9 @@ import { requestUserDelegationKey } from "./user-delegation-key.ts";
 export interface AzureBlobPresignGetOptions {
   /**
    * Seconds, 1 to 604800; anything else is `InvalidOption` before anything is sent. The SAS
-   * starts 15 minutes in the past, so an account's SAS expiration policy measures 900
-   * seconds more.
+   * normally starts 15 minutes in the past, so an account's SAS expiration policy measures
+   * 900 seconds more. With an access token and `expiresIn` of 604800, it starts at the
+   * current time instead because a user delegation key can live for only seven days.
    */
   expiresIn: number;
   responseContentType?: string;
@@ -38,8 +39,9 @@ export interface AzureBlobPresignGetOptions {
 export interface AzureBlobPresignPutOptions {
   /**
    * Seconds, 1 to 604800; anything else is `InvalidOption` before anything is sent. The SAS
-   * starts 15 minutes in the past, so an account's SAS expiration policy measures 900
-   * seconds more.
+   * normally starts 15 minutes in the past, so an account's SAS expiration policy measures
+   * 900 seconds more. With an access token and `expiresIn` of 604800, it starts at the
+   * current time instead because a user delegation key can live for only seven days.
    */
   expiresIn: number;
   /** Bound exactly, case and parameters included: an upload of another type is refused. */
