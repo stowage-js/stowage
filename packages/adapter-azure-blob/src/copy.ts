@@ -4,13 +4,10 @@ import type { AzureBlobConfiguration } from "./configuration.ts";
 import type { AzureBlobCredentials } from "./credentials.ts";
 import { describeResponse } from "./description.ts";
 import { blobUrl, send } from "./request.ts";
-import { signServiceSas } from "./sas.ts";
+import { sasWindow, signServiceSas } from "./sas.ts";
 import type { HeaderField } from "./sign.ts";
 
 const minute = 60 * 1000;
-
-/** ADR 0022: a SAS starts early enough for a service clock that trails this one. */
-const sasLead = 15 * minute;
 
 /** ADR 0025: long enough for the service to read the largest source one copy takes. */
 const sourceSasLifetime = 60 * minute;
@@ -69,15 +66,9 @@ async function sourceAuthorization(
     ];
   }
 
-  const now = Date.now();
   const sas = await signServiceSas(
     configuration,
-    {
-      key: from,
-      permissions: "r",
-      start: new Date(now - sasLead),
-      expiry: new Date(now + sourceSasLifetime),
-    },
+    { key: from, permissions: "r", ...sasWindow(sourceSasLifetime) },
     credentials.accountKey,
   );
 

@@ -16,6 +16,8 @@ export interface AzureBlobRequest {
   readonly operation: string;
   /** The key the request addresses, absent for a request about the container itself. */
   readonly key?: string;
+  /** Set for a request about the account's blob service, which addresses no container. */
+  readonly toService?: boolean;
   readonly query?: readonly QueryParameter[];
   readonly headers?: RequestHeaders;
   readonly body?: RequestBody;
@@ -85,7 +87,9 @@ async function attempt(
   forceRefresh: boolean,
 ): Promise<Response> {
   const attempts = forceRefresh ? 2 : 1;
-  const path = requestPath(configuration, request.key);
+  const path = request.toService
+    ? encodePath(`${configuration.basePath}/`)
+    : requestPath(configuration, request.key);
   const query = request.query ?? [];
   const credentials = await resolveCredentials(configuration.credentials, {
     forceRefresh,

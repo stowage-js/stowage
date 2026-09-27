@@ -7,6 +7,7 @@ import {
   type ObjectListing,
   type ObjectStat,
   type OperationOptions,
+  type PresignedPut,
   type PutBody,
   type PutOptions,
   type Storage,
@@ -30,6 +31,12 @@ import {
   putOptionKeys,
   requireKnownOptions,
 } from "./options.ts";
+import {
+  type AzureBlobPresignGetOptions,
+  type AzureBlobPresignPutOptions,
+  presignGet,
+  presignPut,
+} from "./presign.ts";
 import { rangeAnswerFailure, rangeHeader, requireRange } from "./range.ts";
 import { send } from "./request.ts";
 import { azureBlobError } from "./storage-error.ts";
@@ -39,9 +46,12 @@ import { userMetadataHeaders } from "./user-metadata.ts";
 
 export type { AzureBlobAdapterOptions } from "./configuration.ts";
 export { type AzureBlobCredentials, fromEnv } from "./credentials.ts";
+export type { AzureBlobPresignGetOptions, AzureBlobPresignPutOptions } from "./presign.ts";
 
 export interface AzureBlobStorage extends Storage {
   readonly provider: "azure-blob";
+  presignGet(key: string, options: AzureBlobPresignGetOptions): Promise<string>;
+  presignPut(key: string, options: AzureBlobPresignPutOptions): Promise<PresignedPut>;
 }
 
 export function azureBlobStorage(options: AzureBlobAdapterOptions): AzureBlobStorage {
@@ -49,6 +59,7 @@ export function azureBlobStorage(options: AzureBlobAdapterOptions): AzureBlobSto
 }
 
 const azureBlobCapabilities: readonly CapabilityName[] = Object.freeze([
+  "presignedUrls",
   "rangeReads",
   "userMetadata",
 ]);
@@ -195,6 +206,14 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
     }
 
     return written;
+  }
+
+  async presignGet(key: string, options: AzureBlobPresignGetOptions): Promise<string> {
+    return await presignGet(this.#configuration, key, options);
+  }
+
+  async presignPut(key: string, options: AzureBlobPresignPutOptions): Promise<PresignedPut> {
+    return await presignPut(this.#configuration, key, options);
   }
 
   /** `Get Blob Properties`, whose failure spec 8.4 reads the code off `x-ms-error-code`. */
