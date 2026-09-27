@@ -89,11 +89,18 @@ export const errorCases: readonly ConformanceCaseSource[] = [
       const prefix = prefixFor(ctx, "errors/bad-credentials");
       const storage = await storageFrom(ctx, "createStorageWithBadCredentials");
 
-      await expectStorageError(() => storage.get(`${prefix}object`), {
+      const refused = await expectStorageError(() => storage.get(`${prefix}object`), {
         code: "InvalidCredentials",
         retryable: false,
-        attempts: 1,
       });
+
+      // ADR 0021: an adapter that refreshes a refused access token spends a second attempt,
+      // and the suite cannot see whether it refreshed. A third would be the retry budget
+      // spent on a credential no retry makes valid.
+      assert(
+        refused.attempts === 1 || refused.attempts === 2,
+        `Expected \`InvalidCredentials\` from \`get\`, and the error carries \`attempts: ${refused.attempts}\` rather than 1 or 2`,
+      );
       // Spec 4.10 has `exists` answer `false` for `NotFound` alone and rethrow every
       // other failure, so a refused credential reaches the caller rather than reading as
       // an object that is not there.

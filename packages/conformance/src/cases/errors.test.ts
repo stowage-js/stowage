@@ -69,6 +69,24 @@ test("`errors/bad-credentials` holds against a provider that refuses the credent
   ).resolves.toBe("declared");
 });
 
+test("`errors/bad-credentials` accepts the second attempt a refreshing adapter spends", async () => {
+  await expect(
+    runAgainst(
+      "errors/bad-credentials",
+      "createStorageWithBadCredentials",
+      stubStorage(refusingFields("InvalidCredentials", 2)),
+    ),
+  ).resolves.toBe("declared");
+
+  await expect(
+    runAgainst(
+      "errors/bad-credentials",
+      "createStorageWithBadCredentials",
+      stubStorage(refusingFields("InvalidCredentials", 3)),
+    ),
+  ).rejects.toThrow("`attempts: 3` rather than 1 or 2");
+});
+
 test("the `errors/bad-credentials` case refuses an `exists` that answers rather than rejects", async () => {
   const answering = stubStorage({
     ...refusingFields("InvalidCredentials", 1),
