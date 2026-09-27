@@ -27,38 +27,60 @@ env:
   STOWAGE_CONFORMANCE_INCLUDE_SLOW: "true"
 
 jobs:
+  # ADR 0012, ADR 0023 and ADR 0026: both tiers against each real endpoint on the three
+  # runtimes. Spec 2: Node and `workerd` are the pair that differ most in how they fetch, so
+  # they are the runtimes that meet TLS, latency and redirects of a real endpoint.
   real-endpoints:
-    name: ${{ matrix.runtime }} against ${{ matrix.provider }}
+    name: ${{ matrix.runtime }} against ${{ matrix.endpoint }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    # Each provider is an environment holding the same names, so that one set of steps
-    # serves both and a credential reaches the jobs of its own provider alone.
+    # Each provider is an environment holding its own endpoint and credential, so that one
+    # set of steps serves all three and a credential reaches the jobs of its own provider
+    # alone.
     environment: ${{ matrix.provider }}
+    permissions:
+      contents: read
+      # The job's OIDC token, whose subject names the environment the two managed identities
+      # of the Azure account trust. No identity trusts the S3 and R2 environments, so the
+      # token those jobs could take is exchanged for nothing.
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
-        provider: [aws-s3, r2]
+        provider: [aws-s3, r2, azure-blob]
         runtime: [Node 24, Node 26, workerd]
         include:
+          # `tier` names the endpoint tier of `STOWAGE_CONFORMANCE_ENDPOINTS` and the
+          # harness directory of the Node run alike.
+          - provider: aws-s3
+            endpoint: AWS S3
+            tier: s3
+          - provider: r2
+            endpoint: Cloudflare R2
+            tier: s3
+          - provider: azure-blob
+            endpoint: Azure Blob
+            tier: azure-blob
+          # The limits of spec 7.8 and 8.7 are the service's and no property of the Node
+          # line, so one line uploads the 5 GiB. The account key is for the test that holds
+          # Shared Key against the account, which does not run on `workerd`.
           - runtime: Node 24
             slug: node-24
             node: "24"
-            command: pnpm exec vitest run harness/node harness/s3
             copy-above-limit: "true"
+            account-key: true
           - runtime: Node 26
             slug: node-26
             node: "26"
-            command: pnpm exec vitest run harness/node harness/s3
-          # Spec 2: Node and `workerd` are the pair that differ most in how they fetch, so
-          # they are the runtimes that meet TLS, latency and redirects of a real endpoint.
+            account-key: true
           - runtime: workerd
             slug: workerd
             node: "24"
-            command: pnpm --filter @stowage/harness-workerd exec vitest run
+    # Every job gets the variables of both tiers. The environment fills those of its own
+    # provider and leaves the others empty, and `STOWAGE_CONFORMANCE_ENDPOINTS` keeps the
+    # other tier out of the run rather than failing its endpoint check.
     env:
-      # The environment holds the bucket alone, so the Azure tier stays out of this run and
-      # runs in the job below.
-      STOWAGE_CONFORMANCE_ENDPOINTS: s3
+      STOWAGE_CONFORMANCE_ENDPOINTS: ${{ matrix.tier }}
       STOWAGE_S3_ENDPOINT_NAME: ${{ matrix.provider }}
       STOWAGE_S3_ENDPOINT: ${{ vars.STOWAGE_S3_ENDPOINT }}
       STOWAGE_S3_BUCKET: ${{ vars.STOWAGE_S3_BUCKET }}
@@ -68,10 +90,18 @@ jobs:
       STOWAGE_S3_DENIED_ACCESS_KEY_ID: ${{ secrets.STOWAGE_S3_DENIED_ACCESS_KEY_ID }}
       STOWAGE_S3_DENIED_SECRET_ACCESS_KEY: ${{ secrets.STOWAGE_S3_DENIED_SECRET_ACCESS_KEY }}
       STOWAGE_S3_COPY_ABOVE_LIMIT: ${{ matrix.copy-above-limit }}
+      STOWAGE_AZURE_BLOB_ENDPOINT_NAME: ${{ matrix.provider }}
+      STOWAGE_AZURE_BLOB_ACCOUNT: ${{ vars.STOWAGE_AZURE_BLOB_ACCOUNT }}
+      STOWAGE_AZURE_BLOB_CONTAINER: ${{ vars.STOWAGE_AZURE_BLOB_CONTAINER }}
+      STOWAGE_AZURE_BLOB_TENANT_ID: ${{ vars.STOWAGE_AZURE_BLOB_TENANT_ID }}
+      STOWAGE_AZURE_BLOB_CLIENT_ID: ${{ vars.STOWAGE_AZURE_BLOB_CLIENT_ID }}
+      STOWAGE_AZURE_BLOB_DENIED_CLIENT_ID: ${{ vars.STOWAGE_AZURE_BLOB_DENIED_CLIENT_ID }}
+      AZURE_STORAGE_KEY: ${{ matrix.account-key && secrets.STOWAGE_AZURE_BLOB_ACCOUNT_KEY || '' }}
+      STOWAGE_AZURE_BLOB_COPY_ABOVE_LIMIT: ${{ matrix.copy-above-limit }}
     steps:
       # ADR 0012: the token is taken first, and the harness hands it to the `Expired` case
-      # once the expiration STS returned and a margin have passed. R2 has no such token,
-      # and the case reports itself skipped there.
+      # once the expiration STS returned and a margin have passed. R2 and Azure have no such
+      # token, and the case reports itself skipped there.
       - name: Take a 900-second STS token
         if: matrix.provider == 'aws-s3'
         run: |
@@ -103,11 +133,13 @@ jobs:
       - run: pnpm run build
 
       # A real endpoint answers in round trips over the internet, the 5 GiB copy of spec 7.8
-      # takes minutes, and the `Expired` case waits out the token: the per-commit timeouts
-      # measure none of that.
+      # and the 5,000 MiB one of spec 8.7 take minutes, and the `Expired` case waits out the
+      # token: the per-commit timeouts measure none of that.
       - name: Run both tiers
         run: >-
-          ${{ matrix.command }}
+          ${{ matrix.runtime == 'workerd'
+          && 'pnpm --filter @stowage/harness-workerd exec vitest run'
+          || format('pnpm exec vitest run harness/node harness/{0}', matrix.tier) }}
           --testTimeout=2400000
           --hookTimeout=600000
           --reporter=default
@@ -126,89 +158,10 @@ jobs:
           name: ${{ matrix.provider }}-${{ matrix.slug }}
           path: results.json
 
-  # ADR 0023 and ADR 0026: the Azure adapter's tiers against the real account, on the same
-  # three runtimes, under the token Entra exchanges the job's OIDC token for. No secret holds
-  # a token; the account key is one for the test that holds Shared Key against the account,
-  # and reaches the Node jobs alone, since that test does not run on `workerd`.
-  azure-account:
-    name: ${{ matrix.runtime }} against azure-blob
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    environment: azure-blob
-    permissions:
-      contents: read
-      # The job's OIDC token, whose subject names the environment the two managed identities
-      # of the account trust.
-      id-token: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runtime: Node 24
-            slug: node-24
-            node: "24"
-            command: pnpm exec vitest run harness/node harness/azure-blob
-            account-key: true
-            copy-above-limit: "true"
-          - runtime: Node 26
-            slug: node-26
-            node: "26"
-            command: pnpm exec vitest run harness/node harness/azure-blob
-            account-key: true
-          - runtime: workerd
-            slug: workerd
-            node: "24"
-            command: pnpm --filter @stowage/harness-workerd exec vitest run
-    env:
-      STOWAGE_CONFORMANCE_ENDPOINTS: azure-blob
-      STOWAGE_AZURE_BLOB_ENDPOINT_NAME: azure-blob
-      STOWAGE_AZURE_BLOB_ACCOUNT: ${{ vars.STOWAGE_AZURE_BLOB_ACCOUNT }}
-      STOWAGE_AZURE_BLOB_CONTAINER: ${{ vars.STOWAGE_AZURE_BLOB_CONTAINER }}
-      STOWAGE_AZURE_BLOB_TENANT_ID: ${{ vars.STOWAGE_AZURE_BLOB_TENANT_ID }}
-      STOWAGE_AZURE_BLOB_CLIENT_ID: ${{ vars.STOWAGE_AZURE_BLOB_CLIENT_ID }}
-      STOWAGE_AZURE_BLOB_DENIED_CLIENT_ID: ${{ vars.STOWAGE_AZURE_BLOB_DENIED_CLIENT_ID }}
-      AZURE_STORAGE_KEY: ${{ matrix.account-key && secrets.STOWAGE_AZURE_BLOB_ACCOUNT_KEY || '' }}
-      STOWAGE_AZURE_BLOB_COPY_ABOVE_LIMIT: ${{ matrix.copy-above-limit }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: ${{ matrix.node }}
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-
-      - run: pnpm run build
-
-      # As in the job above: round trips over the internet, and the 5,000 MiB copy of spec 8.7.
-      - name: Run both tiers
-        run: >-
-          ${{ matrix.command }}
-          --testTimeout=2400000
-          --hookTimeout=600000
-          --reporter=default
-          --reporter=json
-          --outputFile.json="$GITHUB_WORKSPACE/results.json"
-
-      - name: Keep a report for a run that wrote none
-        if: always()
-        run: test -f results.json || echo '{"testResults":[]}' > results.json
-
-      - if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: azure-blob-${{ matrix.slug }}
-          path: results.json
-
   # ADR 0012: Bun and Deno run against the emulator. Their columns are covered by the same
   # suite, answered by the pinned image rather than by a provider. ADR 0023 carries that
   # over to Azure Blob, with Azurite beside SeaweedFS.
-  emulator:
+  emulators:
     name: ${{ matrix.name }} against SeaweedFS and Azurite
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -269,7 +222,7 @@ jobs:
   # Spec 13: the run reports on each point it settles, one column per endpoint and runtime.
   report:
     name: Report on spec 13
-    needs: [real-endpoints, azure-account]
+    needs: [real-endpoints]
     if: always()
     runs-on: ubuntu-latest
     steps:
