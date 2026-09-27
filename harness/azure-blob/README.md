@@ -97,7 +97,9 @@ Actions runtime for an OIDC token with the audience `api://AzureADTokenExchange`
 scope `https://storage.azure.com/.default`, keeps the result until five minutes before it
 expires and fetches a new one on `forceRefresh`. Each identity carries a federated credential for
 the issuer `https://token.actions.githubusercontent.com`, the subject
-`repo:stowage-js/stowage:environment:azure-blob` and that audience. On `workerd` the bindings of
+`repo:stowage-js@325610168/stowage@1359085380:environment:azure-blob` and that audience. The token
+names the owner and the repository by name and id; a credential for
+`repo:stowage-js/stowage:environment:azure-blob` meets `AADSTS700213`. On `workerd` the bindings of
 `workerd.capnp` carry the tenant, both client ids, `ACTIONS_ID_TOKEN_REQUEST_URL` and
 `ACTIONS_ID_TOKEN_REQUEST_TOKEN`, and the worker does the same exchange.
 

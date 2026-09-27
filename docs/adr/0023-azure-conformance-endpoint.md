@@ -33,14 +33,15 @@ alternative, and with the suite under an access token it would have left Azure w
 run at all.
 
 The real account's token comes from GitHub OIDC with no secret stored. A user-assigned managed
-identity carries a federated credential for the subject
-`repo:stowage-js/stowage:environment:azure-blob`, and the harness's resolver asks the Actions
-runtime for an OIDC token and exchanges it at the Entra token endpoint as a `client_assertion`. It
-keeps the result until shortly before it expires, fetches a new one on `forceRefresh`, and the
-`workerd` cell receives `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` as
-bindings to do the same. A setup step taking one token would have raced the job's timeout against
-an Entra token lifetime of 60 to 90 minutes, and a client secret would be a long-lived credential in
-the environment when a federated one serves.
+identity carries a federated credential for the subject the job's token carries, which names the
+owner and the repository by name and id:
+`repo:stowage-js@325610168/stowage@1359085380:environment:azure-blob`. The harness's resolver
+asks the Actions runtime for an OIDC token and exchanges it at the Entra token endpoint as a
+`client_assertion`. It keeps the result until shortly before it expires, fetches a new one on
+`forceRefresh`, and the `workerd` cell receives `ACTIONS_ID_TOKEN_REQUEST_URL` and
+`ACTIONS_ID_TOKEN_REQUEST_TOKEN` as bindings to do the same. A setup step taking one token would
+have raced the job's timeout against an Entra token lifetime of 60 to 90 minutes, and a client
+secret would be a long-lived credential in the environment when a federated one serves.
 
 ## Consequences
 
