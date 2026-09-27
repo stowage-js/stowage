@@ -372,8 +372,9 @@ stowage creates the key or only names one (ADR 0010).
   declares `keyBytesPreserved` returns every key byte for byte as it was written; the others
   return a Unicode-equivalent key.
 - An adapter may refuse more than the rule above and reports that as `InvalidKey` too; `adapter-fs`
-  refuses a segment longer than 255 bytes, `adapter-azure-blob` three kinds of writable key
-  (section 8.1). `adapter-memory` enforces the rule exactly.
+  refuses a segment longer than 255 bytes and any name the file system refuses (section 6),
+  `adapter-azure-blob` three kinds of writable key (section 8.1). `adapter-memory` enforces the
+  rule exactly.
 - A violation is `InvalidKey` with `attempts: 0`. `copy` and `move` check both keys before acting
   on either. `delete` reports an invalid key in `failed`.
 - An empty prefix on `deleteAll` deletes every object in the storage.
@@ -643,6 +644,11 @@ export function fsStorage(options: FsAdapterOptions): FsStorage;
   file system holds is `InvalidKey` as well, through the `ENAMETOOLONG` of the mapping below: macOS
   bounds one path at 1024 bytes with the root counted in, so the 1024-byte key of section 9.7 is
   written on Linux and refused there.
+- A name the file system refuses to create is `InvalidKey` for `put` and for the `to` of `copy` and
+  `move`, through the `EILSEQ` of the mapping below. APFS refuses every noncharacter, such as
+  `U+FFFE` or `U+FDD0`, in any segment, so a key holding one is written on Linux and refused on
+  macOS. The adapter passes the refusal on rather than storing the name in another form (ADR 0010),
+  and a read of such a key answers as for an absent object.
 - The content type is derived from the key's extension through a built-in table, and
   `application/octet-stream` where the extension is unknown or absent. The `contentType` handed to
   `put` is validated as a string and not stored, so `stat` may report a type that differs from the
@@ -666,6 +672,7 @@ export function fsStorage(options: FsAdapterOptions): FsStorage;
 - Runs on Node, Bun and Deno, on Linux and macOS. Windows is not named and not promised.
 - `errno` mapping: `ENOENT` is `NotFound`; `EISDIR` and `ENOTDIR` are `NotFound` on read and
   `InvalidRequest` on write; `EACCES` and `EPERM` are `AccessDenied`; `ENAMETOOLONG` is `InvalidKey`;
+  `EILSEQ` is `NotFound` on read and `InvalidKey` on write;
   `EMFILE`, `EBUSY` and `EAGAIN` are `ProviderError` with `retryable: true`; everything else is
   `ProviderError` with `retryable: false`. `providerCode` carries the `errno` string. The adapter
   retries nothing itself.

@@ -21,6 +21,9 @@ const errnoMappings = new Map<string, ErrnoMapping>([
   ["EACCES", { code: "AccessDenied" }],
   ["EPERM", { code: "AccessDenied" }],
   ["ENAMETOOLONG", { code: "InvalidKey" }],
+  // A name the file system refuses to create, as APFS refuses a noncharacter, names no
+  // object it could hold, so a read of it finds nothing rather than an invalid key.
+  ["EILSEQ", { code: "NotFound", onWrite: "InvalidKey" }],
   ["EMFILE", { code: "ProviderError", retryable: true }],
   ["EBUSY", { code: "ProviderError", retryable: true }],
   ["EAGAIN", { code: "ProviderError", retryable: true }],
@@ -66,11 +69,19 @@ export function errnoOf(thrown: unknown): string | undefined {
   return typeof code === "string" ? code : undefined;
 }
 
-/** The key names nothing this storage holds, which is what an absent file amounts to. */
+/** The file system refuses to create the name, as APFS refuses a noncharacter (spec 6). */
+export function refusesName(thrown: unknown): boolean {
+  return errnoOf(thrown) === "EILSEQ";
+}
+
+/**
+ * The key names nothing this storage holds, which is what an absent file amounts to, and
+ * so is a name a file system refuses on a lookup: no file can be held under it.
+ */
 export function isAbsence(thrown: unknown): boolean {
   const errno = errnoOf(thrown);
 
-  return errno === "ENOENT" || errno === "ENOTDIR";
+  return errno === "ENOENT" || errno === "ENOTDIR" || errno === "EILSEQ";
 }
 
 function messageOf(thrown: unknown): string {

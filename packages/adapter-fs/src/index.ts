@@ -404,10 +404,7 @@ class FileSystemStorage implements FsStorage {
 
       await abandoningOnFailure(prepared, async () => {
         options?.signal?.throwIfAborted();
-
-        // The destination has been resolved and its directories created by now, so what a
-        // rename still refuses concerns the source it takes the file away from (spec 4.10).
-        await renameObjectFile(ends.from, source, prepared.path);
+        await renameObjectFile(ends.from, source, { context: ends.to, path: prepared.path });
       });
 
       // The rename carries the file as it stands, so the destination is described by what

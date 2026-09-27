@@ -11,6 +11,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { platform } from "node:process";
 
 import {
   isStorageError,
@@ -299,6 +300,42 @@ test("refuses a segment above the 255 bytes a name holds", async () => {
   expect(await codeOf(storage.put(key, "a body"))).toBe("InvalidKey");
   expect(await codeOf(storage.get(key))).toBe("InvalidKey");
   expect(await codeOf(storage.exists(key))).toBe("InvalidKey");
+});
+
+// APFS refuses every noncharacter in a name it creates, and ext4 holds one like any other
+// character, so the refusal is the file system's and the case has nothing to run on Linux.
+test.runIf(platform === "darwin")("refuses a name APFS does not create", async () => {
+  const root = await temporaryRoot();
+  const storage = fsStorage({ root });
+  const noncharacter = String.fromCodePoint(0xff_fe);
+  const key = `below/noncharacter-${noncharacter}.txt`;
+
+  await storage.put("source", "a body");
+
+  const refused = await storageErrorOf(storage.put(key, "a body"));
+
+  expect(refused).toMatchObject({ code: "InvalidKey", providerCode: "EILSEQ", key });
+  expect(await codeOf(storage.put(`made/${noncharacter}/object`, "a body"))).toBe("InvalidKey");
+  expect(await storageErrorOf(storage.copy("source", key))).toMatchObject({
+    code: "InvalidKey",
+    key,
+  });
+  expect(await storageErrorOf(storage.move("source", key))).toMatchObject({
+    code: "InvalidKey",
+    key,
+  });
+
+  // No such name can be there, so every read of it answers as for an absent object.
+  expect(await codeOf(storage.get(key))).toBe("NotFound");
+  expect(await storage.exists(key)).toBe(false);
+  expect(await storage.delete(key)).toEqual({ requested: 1, failed: [] });
+
+  const page = await storage.list({ delimiter: "/" }).page();
+
+  expect(page.objects.map((entry) => entry.key)).toEqual(["source"]);
+  expect(page.prefixes).toEqual([]);
+  expect(await iterate(storage.list())).toEqual(["source"]);
+  expect(await readdir(root)).toEqual(["source"]);
 });
 
 test("answers for a link leaving the root as for an absent object", async () => {

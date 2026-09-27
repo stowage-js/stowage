@@ -3,7 +3,7 @@ import { lstat, realpath, rename, rmdir, stat, unlink } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 
 import { holdDirectoryMutations } from "./directory-lock.ts";
-import { fsErrorFrom, isAbsence } from "./errno.ts";
+import { fsErrorFrom, isAbsence, refusesName } from "./errno.ts";
 import { type FsAccessContext, pathOf, within } from "./paths.ts";
 
 /**
@@ -88,14 +88,19 @@ export async function removeObjectFile(context: FsAccessContext, file: ObjectFil
 export async function renameObjectFile(
   context: FsAccessContext,
   file: ObjectFile,
-  path: string,
+  destination: { readonly context: FsAccessContext; readonly path: string },
 ): Promise<void> {
   try {
-    await rename(file.path, path);
+    await rename(file.path, destination.path);
   } catch (thrown) {
-    // The lease stays with the caller, which still has to take back the directories it
-    // created for the destination before anyone else may remove or reuse them.
-    throw fsErrorFrom(thrown, { ...context, access: "write" });
+    // Spec 4.10 has a failure name the key it concerns. The source already holds its name,
+    // so a name the file system refuses is the destination's, and anything else the rename
+    // refuses concerns the file it takes away from the source. The lease stays with the
+    // caller, which still has to take back the directories it created for the destination
+    // before anyone else may remove or reuse them.
+    const concerned = refusesName(thrown) ? destination.context : context;
+
+    throw fsErrorFrom(thrown, { ...concerned, access: "write" });
   }
 
   try {
