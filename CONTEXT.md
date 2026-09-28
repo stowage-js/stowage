@@ -232,6 +232,7 @@ _Avoid_: mock, fake, local S3
 **Divergence**:
 A named difference between what an emulator does and what the provider it stands in for does. It is
 recorded against the conformance case it shows up in, and the same case run against the provider is
-what settles it. A difference between two promised providers is not a divergence: nothing settles
+what settles it. Against the emulator the case is expected to fail as recorded, or stays unrun where
+running it would leave the emulator unable to finish the run. A difference between two promised providers is not a divergence: nothing settles
 it, and the spec carries it.
 _Avoid_: known issue, quirk, accepted failure
