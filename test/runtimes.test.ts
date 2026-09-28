@@ -5,7 +5,14 @@ import { expect, test } from "vitest";
 const read = async (path: string): Promise<string> =>
   await readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
-const packages = ["core", "adapter-memory", "adapter-fs", "adapter-s3", "conformance"];
+const packages = [
+  "core",
+  "adapter-memory",
+  "adapter-fs",
+  "adapter-s3",
+  "adapter-azure-blob",
+  "conformance",
+];
 
 // Spec 1: Bun and Deno have no floor, and each README names the version CI last ran green.
 // CI installs the version these two files pin, so a README naming another one names a

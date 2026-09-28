@@ -8,12 +8,28 @@ import {
 import { azureBlobError } from "./storage-error.ts";
 
 /**
- * `accountKey` signs with Shared Key; `accessToken` is an Entra ID bearer token for the
- * scope `https://storage.azure.com/.default`, which the resolver obtained. The field
- * present decides, on every request anew. Checked before signing: exactly one of the two,
- * as a non-empty string, no other field, and an `accountKey` that decodes as base64.
+ * One of two forms, told apart by the field present on every request anew, so a resolver
+ * may answer one form on one call and the other on the next. Checked before signing:
+ * exactly one of the two, as a non-empty string, and no other field; a violation is
+ * `InvalidCredentials` naming the field.
  */
-export type AzureBlobCredentials = { accountKey: string } | { accessToken: string };
+export type AzureBlobCredentials =
+  | {
+      /**
+       * The account's key, base64 as the portal shows it and decoding to at least one byte,
+       * which signs with Shared Key. It cannot sign `presignPut`, and an account that
+       * disallows Shared Key refuses it with `InvalidCredentials`.
+       */
+      accountKey: string;
+    }
+  | {
+      /**
+       * An Entra ID bearer token for the scope `https://storage.azure.com/.default`, which
+       * the resolver obtained; it is opaque and not parsed. After the provider answered
+       * `401 InvalidAuthenticationInfo` it is resolved once again with `{ forceRefresh: true }`.
+       */
+      accessToken: string;
+    };
 
 const credentialFields: ReadonlySet<string> = new Set(["accountKey", "accessToken"]);
 

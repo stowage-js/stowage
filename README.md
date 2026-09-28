@@ -40,15 +40,16 @@ await storage.delete("notes/hello.txt");
 
 ## Packages
 
-| Package                                              | Contents                                                        |
-| ---------------------------------------------------- | --------------------------------------------------------------- |
-| [`@stowage/core`](packages/core)                     | The types of the parity core, `StorageError`, adapter utilities |
-| [`@stowage/adapter-memory`](packages/adapter-memory) | A storage held in process memory                                |
-| [`@stowage/adapter-fs`](packages/adapter-fs)         | A storage rooted in one directory of the local file system      |
-| [`@stowage/adapter-s3`](packages/adapter-s3)         | A storage in one bucket of AWS S3 or Cloudflare R2              |
-| [`@stowage/conformance`](packages/conformance)       | The cases every adapter has to pass                             |
+| Package                                                      | Contents                                                        |
+| ------------------------------------------------------------ | --------------------------------------------------------------- |
+| [`@stowage/core`](packages/core)                             | The types of the parity core, `StorageError`, adapter utilities |
+| [`@stowage/adapter-memory`](packages/adapter-memory)         | A storage held in process memory                                |
+| [`@stowage/adapter-fs`](packages/adapter-fs)                 | A storage rooted in one directory of the local file system      |
+| [`@stowage/adapter-s3`](packages/adapter-s3)                 | A storage in one bucket of AWS S3 or Cloudflare R2              |
+| [`@stowage/adapter-azure-blob`](packages/adapter-azure-blob) | A storage in one container of an Azure Blob Storage account     |
+| [`@stowage/conformance`](packages/conformance)               | The cases every adapter has to pass                             |
 
-The five packages carry one version number and are released together. Which package runs where is
+The six packages carry one version number and are released together. Which package runs where is
 the [runtime matrix](docs/spec.md#2-runtime-matrix).
 
 ## A large upload from a server
