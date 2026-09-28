@@ -11,8 +11,21 @@ const utf8 = new TextEncoder();
 /** Long enough for the case to call the URL, and far below the ceiling of spec 7.10. */
 export const presignLifetime: number = 300;
 
+/** The lifetime of the URL `presign/expired-url` lets run out. */
+export const expiredLifetime: number = 1;
+
 /** Past the second `presign/expired-url` signs for, which is what spec 10.5 waits out. */
-const pastTheLifetime = 2000;
+export const pastTheLifetime: number = 2000;
+
+/**
+ * The control URL `presign/expired-url` signs beside the expired one, far past the wait, so
+ * that only the lifetime tells the two apart. It keeps a URL broken for another reason, such
+ * as `400 MalformedSecurityHeader`, from passing as expired (spec 10.5, ADR 0035).
+ */
+export const controlLifetime: number = 60;
+
+/** GCS answers an expired signature `400 ExpiredToken`, S3, R2 and Azure `403` (spec 9.9). */
+const expiredStatuses: readonly number[] = [400, 403];
 
 /** The seconds spec 7.10 allows `expiresIn`, which the two refused values sit outside. */
 const refusedLifetimes: readonly number[] = [0, 604_801];
@@ -178,11 +191,21 @@ export const presignCases: readonly ConformanceCaseSource[] = [
         contentType: textContentType,
       });
 
-      const url = await presignedGet(ctx, key, { expiresIn: 1 });
+      const expired = await presignedGet(ctx, key, { expiresIn: expiredLifetime });
+      const control = await presignedGet(ctx, key, { expiresIn: controlLifetime });
 
       await delay(pastTheLifetime);
 
-      assertStatus(await statusOf(await fetch(url)), 403, "a signed `GET` that has expired");
+      assertStatus(
+        await statusOf(await fetch(expired)),
+        expiredStatuses,
+        "a signed `GET` that has expired",
+      );
+      assertStatus(
+        await statusOf(await fetch(control)),
+        200,
+        `the signed \`GET\` for ${controlLifetime} seconds beside it`,
+      );
     },
     runWithout: assertNeitherMethod,
   },
@@ -288,8 +311,13 @@ function lifetimeOptions(name: PresignName, expiresIn: number): PresignOptions {
   return { expiresIn, contentType: textContentType, contentLength: 0 };
 }
 
-function assertStatus(status: number, expected: number, what: string): void {
-  assert(status === expected, `${what} was answered ${status} and not ${expected}`);
+function assertStatus(status: number, expected: number | readonly number[], what: string): void {
+  const accepted = typeof expected === "number" ? [expected] : expected;
+
+  assert(
+    accepted.includes(status),
+    `${what} was answered ${status} and not ${accepted.join(" or ")}`,
+  );
 }
 
 /** The status, with the body read, so that the runtime is free to close the connection. */
