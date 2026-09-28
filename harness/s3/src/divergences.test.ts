@@ -94,6 +94,22 @@ describe("withDivergences", () => {
 
     await expect(expected.runWithout(context)).rejects.toThrow("passed against seaweedfs");
   });
+
+  const unrun: Divergence = {
+    case: "list/delimiter",
+    endpoint: "seaweedfs",
+    differs: "It answers a listing below a pseudo-directory with 500",
+    unrunBecause: "What the case leaves behind fails the cleanup of the run the same way",
+    settledBy: "aws-s3",
+  };
+
+  test("leaves a case out against the endpoint an entry keeps it unrun on", () => {
+    expect(withDivergences([passing], "seaweedfs", [unrun])).toEqual([]);
+  });
+
+  test("hands a case over as it is against an endpoint an unrun entry does not name", () => {
+    expect(withDivergences([passing], "aws-s3", [unrun])).toEqual([passing]);
+  });
 });
 
 // ADR 0012: an entry is admissible only where the same case runs against a real endpoint,
