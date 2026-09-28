@@ -32,9 +32,8 @@ export function decodeCursor(cursor: string): string | undefined {
   return position.length > 0 && hexPosition.test(position) ? keyOf(position) : undefined;
 }
 
-// A file name reaches a key as the runtime decoded it, which may hold a lone surrogate
-// that no text encoding carries through, so the position goes out one UTF-16 code unit
-// at a time.
+// `btoa` takes Latin-1 alone, and a key holds any character, so the position goes out
+// one UTF-16 code unit at a time.
 function hexOf(key: string): string {
   const units: string[] = [];
 

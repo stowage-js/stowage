@@ -728,6 +728,9 @@ export function fsStorage(options: FsAdapterOptions): FsStorage;
   `U+FFFE` or `U+FDD0`, in any segment, so a key holding one is written on Linux and refused on
   macOS. The adapter passes the refusal on rather than storing the name in another form (ADR 0010),
   and a read of such a key answers as for an absent object.
+- A name that is no UTF-8, which another tool may write on Linux, has no key. A listing or
+  `deleteAll` it falls below fails with `ProviderError` naming the name as bytes, as section 4.6 has
+  an entry without a key fail, rather than pass over it or list it with `U+FFFD` in its place.
 - The content type is derived from the key's extension through a built-in table, and
   `application/octet-stream` where the extension is unknown or absent. The `contentType` handed to
   `put` is validated as a string and not stored, so `stat` may report a type that differs from the

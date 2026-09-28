@@ -658,6 +658,48 @@ test("passes over what is no object of the storage", async () => {
   expect(await iterate(storage.list())).toEqual(["object"]);
 });
 
+// A name holding U+FFFD is what the runtime also hands out for one that is no UTF-8, so a
+// level holding it reads its names as bytes, which is the one way to tell the two apart.
+test("lists a key holding U+FFFD as written, beside a directory of that name", async () => {
+  const keys = ["\uFFFD", "\uFFFD.txt", "\uFFFDdir/object", "plain"];
+  const storage = await storageWith(...keys);
+
+  expect((await iterate(storage.list())).toSorted()).toEqual(keys.toSorted());
+});
+
+test.runIf(platform === "linux")(
+  "refuses a listing below a file name that is no UTF-8 rather than rewrite it",
+  async () => {
+    const root = await temporaryRoot();
+    const storage = fsStorage({ root });
+    // Another tool may write any bytes as a name on Linux, and stowage names none that
+    // way, so no key can reach the object and none is listed in its place (spec 6).
+    const name = Buffer.concat([
+      Buffer.from("docs/lone-"),
+      Buffer.from([0xff]),
+      Buffer.from(".txt"),
+    ]);
+
+    await storage.put("docs/other.txt", "a body");
+    await storage.put("elsewhere/object", "a body");
+    await writeFile(Buffer.concat([Buffer.from(`${root}/`), name]), "written by another tool");
+
+    for (const failure of [
+      await storageErrorOf(storage.list().page()),
+      await storageErrorOf(iterate(storage.list({ prefix: "docs/lone" }))),
+      await storageErrorOf(storage.deleteAll("docs/")),
+    ]) {
+      expect(failure.code).toBe("ProviderError");
+      expect(failure.retryable).toBe(false);
+      expect(failure.message).toContain(String.raw`"docs/lone-\xFF.txt"`);
+    }
+
+    expect(await iterate(storage.list({ prefix: "docs/other" }))).toEqual(["docs/other.txt"]);
+    expect(await iterate(storage.list({ prefix: "elsewhere/" }))).toEqual(["elsewhere/object"]);
+    expect(await storage.exists("docs/other.txt")).toBe(true);
+  },
+);
+
 test("does not walk an external directory through a prefix link", async () => {
   const root = await temporaryRoot();
   const outside = await temporaryRoot();
