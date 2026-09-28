@@ -4,7 +4,11 @@ import type { AzureBlobCredentials } from "./credentials.ts";
 import { optionError as refuseOption, requireKnownOptions } from "./options.ts";
 
 export interface AzureBlobAdapterOptions {
-  /** Names the endpoint and enters every Shared Key signature; nothing reads it elsewhere. */
+  /**
+   * Names the endpoint and enters every Shared Key signature; nothing reads it elsewhere.
+   * It takes Azure's rule for an account name, 3 to 24 lower-case letters and digits, with an
+   * `endpoint` or without one; anything else is `InvalidOption` at construction.
+   */
   account: string;
   container: string;
   /**
@@ -17,7 +21,9 @@ export interface AzureBlobAdapterOptions {
   credentials: Resolvable<AzureBlobCredentials>;
   /**
    * How often one HTTP request is attempted while its failure is transient: a response of
-   * `408`, `429` or `5xx`, or none at all. `false` sends one attempt.
+   * `408`, `429` or `5xx`, or none at all. `false` sends one attempt. Neither switches off
+   * the one repeat with a fresh access token after the provider answered
+   * `401 InvalidAuthenticationInfo`.
    */
   retry?:
     | false
@@ -25,11 +31,17 @@ export interface AzureBlobAdapterOptions {
         /** 1 to 3, and 3 where absent. Outside that range it is `InvalidOption`. */
         maxAttempts?: number;
       };
-  /** How a stream that fills more than one part is uploaded. */
+  /**
+   * How a stream that fills more than one part is uploaded: staged as blocks, and committed
+   * with one `Put Block List`.
+   */
   multipart?: {
-    /** Bytes per part, 5 MiB to 4,000 MiB, and 8 MiB where absent. */
+    /**
+     * Bytes per part, 5 MiB to 4,000 MiB, and 8 MiB where absent. Outside that range it is
+     * `InvalidOption`. A stream needing more than 50,000 parts is `InvalidRequest`.
+     */
     partSize?: number;
-    /** Parts in flight, 1 to 16, and 4 where absent. */
+    /** Parts in flight, 1 to 16, and 4 where absent. Outside that range it is `InvalidOption`. */
     concurrency?: number;
   };
 }

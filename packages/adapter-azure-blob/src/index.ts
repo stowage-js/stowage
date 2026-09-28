@@ -50,7 +50,22 @@ export type { AzureBlobPresignGetOptions, AzureBlobPresignPutOptions } from "./p
 
 export interface AzureBlobStorage extends Storage {
   readonly provider: "azure-blob";
+  /** Sends at most one Blob Batch request per 256 keys. */
+  delete(...keys: readonly string[]): Promise<DeleteReport>;
+  /**
+   * A SAS a client holding no credential calls with a plain `GET` for this one key until it
+   * expires: a service SAS under an account key, a user delegation SAS under an access
+   * token, which costs one request for the user delegation key. Whoever holds it may read
+   * the object: it is a bearer token, and works against the endpoint that signed it only.
+   */
   presignGet(key: string, options: AzureBlobPresignGetOptions): Promise<string>;
+  /**
+   * A user delegation SAS a client holding no credential calls with a plain `PUT` of one
+   * body under this key until it expires. `contentType` and `contentLength` bind exactly,
+   * so a body of unknown length cannot be uploaded through it. Resolves with the URL and
+   * the `content-type` and `x-ms-blob-type` the `PUT` sends beside the body. Needs an
+   * access token: under an account key it is `InvalidCredentials` before any request.
+   */
   presignPut(key: string, options: AzureBlobPresignPutOptions): Promise<PresignedPut>;
 }
 
