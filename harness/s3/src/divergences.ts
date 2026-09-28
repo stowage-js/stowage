@@ -11,9 +11,7 @@ import type { Emulator, RealEndpoint } from "./configuration.ts";
 export type Divergence<
   Endpoint extends string = Emulator,
   Settling extends string = RealEndpoint,
-> = DivergenceShared<Endpoint, Settling> & (ExpectedFailure | Unrun);
-
-interface DivergenceShared<Endpoint extends string, Settling extends string> {
+> = {
   /** The conformance case the difference shows up in. */
   readonly case: string;
   readonly endpoint: Endpoint;
@@ -23,20 +21,22 @@ interface DivergenceShared<Endpoint extends string, Settling extends string> {
   readonly settledBy: Settling;
   /** Where the difference is tracked upstream, telling a bug being fixed from an intent. */
   readonly upstream?: string;
-}
+} & (ExpectedFailure | Unrun);
 
 interface ExpectedFailure {
   /** Part of the message the case fails with, so that another failure still reads as one. */
   readonly failureMessagePart: string;
+  readonly unrunBecause?: never;
 }
 
 /**
- * An unrun case cannot tell the harness that an upstream fix arrived, so `upstream` is what
- * a change of the image is checked against.
+ * An unrun case cannot show the harness that an upstream fix arrived, so an update of the
+ * image has to look for one by hand.
  */
 interface Unrun {
-  /** Why running the case against the emulator would break more than the case. */
+  /** Why running the case would leave the emulator unable to finish the run. */
   readonly unrunBecause: string;
+  readonly failureMessagePart?: never;
 }
 
 // Kept in the private harness and never in `@stowage/conformance`: it describes an
@@ -62,7 +62,7 @@ export function withDivergences(
 
     if (divergence === undefined) return [source];
 
-    if ("unrunBecause" in divergence) return [];
+    if (divergence.unrunBecause !== undefined) return [];
 
     const run = expectingFailure(divergence, listedIn, async (ctx) => await source.run(ctx));
 
