@@ -241,9 +241,9 @@ export interface ListOptions extends OperationOptions {
 - `contentType` absent: `adapter-memory`, `adapter-s3` and `adapter-azure-blob` store
   `application/octet-stream`; `adapter-fs` derives the type from the key (section 6).
 - `userMetadata` is stored where the storage declares `userMetadata`. Keys are compared
-  case-insensitively. Values may hold any Unicode character; a value that would not travel in a header as
-  written is RFC 2047-encoded. A `userMetadata` with at least one entry is checked in this order,
-  each before signing and with `attempts: 0`:
+  case-insensitively. Values may hold any Unicode character; a value that would not travel in a
+  header as written is RFC 2047-encoded. A `userMetadata` with at least one entry is checked in this
+  order, each before signing and with `attempts: 0`:
   1. Where the storage does not declare `userMetadata`, it is `Unsupported` naming `userMetadata`.
      `undefined` and `{}` pass on every storage.
   2. A key that is not a non-empty ASCII HTTP token, including one holding a space, control,
@@ -365,12 +365,13 @@ stowage creates the key or only names one (ADR 0010).
 | ------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `writable`    | `put`, the `to` of `copy` and `move`, `presignPut`                               | 1 to 1024 bytes; no `.` or `..` as a segment; no leading `/`; no empty segment (`//`); no trailing `/`; no backslash; no character in `U+0000` to `U+001F` and no `U+007F`; no lone surrogate  |
 | `addressable` | `get`, `stat`, `exists`, `delete`, the `from` of `copy` and `move`, `presignGet` | At least 1 byte; no `.` or `..` as a segment; no leading `/`; no empty segment; no control character; no lone surrogate. A trailing `/`, a backslash and a length above 1024 bytes are allowed |
-| `prefix`      | `list`, `deleteAll`                                                              | The `addressable` rule, except that it may be empty, may end in `/`, and may end in the middle of a segment                                                                                    |
+| `prefix`      | `list`, `deleteAll`                                                              | The `addressable` rule, so no lone surrogate either, except that it may be empty, may end in `/`, and may end in the middle of a segment                                                       |
 
 - There is no allowlist. `#`, `%`, `?`, `+`, a space, `'` and every character above ASCII are legal.
   An adapter encodes a key itself and never builds a request path through the `URL` constructor.
 - A lone surrogate, which a JavaScript string can hold, is no Unicode character and has no UTF-8
-  form, so every rule refuses it: an encoder would rewrite it or fail on it, and no provider holds it.
+  form, so every rule refuses it: an encoder would rewrite it or fail on it, and no provider holds
+  it.
 - Nothing normalizes the Unicode form. Two keys that are equivalent under Unicode without being
   equal byte for byte may name one object or two, depending on the provider. A storage that
   declares `keyBytesPreserved` returns every key byte for byte as it was written; the others
