@@ -617,8 +617,8 @@ export interface PresignedPut {
   `adapter-memory` read up to `lastByteOf`. `rangeHeader`, `wholeSizeOf` and `rangeCoversWhole`
   are the one definition of a range on the wire: a `200` answering a ranged request is the body
   asked for exactly where `rangeCoversWhole` holds.
-- Every adapter runs `checkUserMetadata` before a `put` is signed, raises its refusal with
-  `attempts: 0`, and stores `held`.
+- `adapter-memory`, `adapter-s3` and `adapter-azure-blob` run `checkUserMetadata` before a `put`
+  writes or sends anything, raise its refusal with `attempts: 0`, and store `held`.
 - What two adapters need on the wire is defined here once; what one adapter alone needs stays in
   that adapter, the signers among it (ADR 0019).
 - `parseXml` reads elements, attributes, text, comments, the five named entities and a numeric
