@@ -49,6 +49,15 @@ export interface StorageErrorFields {
   readonly cause?: unknown;
 }
 
+/**
+ * A failure the rules of spec section 4 decide, stated without the adapter that raises it:
+ * the adapter adds what only it knows, its bucket, the operation and the attempts, and
+ * raises it through its own error factory (spec 4.13).
+ */
+export type Refusal =
+  | { readonly code: "Unsupported"; readonly message: string; readonly capability: CapabilityName }
+  | { readonly code: "InvalidRequest" | "InvalidOption"; readonly message: string };
+
 // ADR 0005: two copies of `@stowage/core` in one dependency tree produce two
 // constructors, so the guard tests a brand under a registered symbol instead of the
 // constructor `instanceof` would compare.

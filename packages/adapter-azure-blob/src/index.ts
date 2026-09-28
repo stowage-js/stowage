@@ -10,6 +10,7 @@ import {
   type PresignedPut,
   type PutBody,
   type PutOptions,
+  rangeHeader,
   type Storage,
   type StoredObject,
 } from "@stowage/core";
@@ -37,7 +38,7 @@ import {
   presignGet,
   presignPut,
 } from "./presign.ts";
-import { rangeAnswerFailure, rangeHeader, requireRange } from "./range.ts";
+import { rangeAnswerFailure, requireRange } from "./range.ts";
 import { send } from "./request.ts";
 import { azureBlobError } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
@@ -140,6 +141,8 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
       method: "GET",
       operation: "get",
       key,
+      // Azure reads `Range` beside its own `x-ms-range`, and Shared Key signs it among its
+      // standard headers.
       headers: range === undefined ? [] : [["range", rangeHeader(range)]],
       signal: options?.signal,
     });

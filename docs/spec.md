@@ -561,6 +561,24 @@ export function parseXml(document: string): XmlElement;
 /** The variable read through `process.env`, or `""` where it is unset or cannot be read. */
 export function readEnvironment(name: string): string;
 
+/** A failure the rules of section 4 decide, which an adapter raises as its own `StorageError`. */
+export type Refusal =
+  | { readonly code: "Unsupported"; readonly message: string; readonly capability: CapabilityName }
+  | { readonly code: "InvalidRequest" | "InvalidOption"; readonly message: string };
+
+/** `InvalidOption` naming `range` where the bounds break section 4.3, else `undefined`. */
+export function rangeBoundsRefusal(range: ByteRange | undefined): Refusal | undefined;
+/** `InvalidRequest` where the range starts at or beyond the object's `size` bytes. */
+export function rangeStartRefusal(range: ByteRange, size: number, key: string): Refusal | undefined;
+/** The last byte the range names, both ends inclusive, clipped to the object's `size` bytes. */
+export function lastByteOf(range: ByteRange | undefined, size: number): number;
+/** Whether the whole object is the body the range asks for, clipped as section 4.3 clips it. */
+export function rangeCoversWhole(range: ByteRange, size: number): boolean;
+/** The `Range` field of RFC 9110, both ends inclusive as `ByteRange` is. */
+export function rangeHeader(range: ByteRange): string;
+/** The whole object's size out of a `Content-Range` value, or `undefined` where it names none. */
+export function wholeSizeOf(contentRange: string | null): number | undefined;
+
 export type UserMetadataKeyRule = "token" | "identifier";
 export function isUserMetadataKey(name: string, rule: UserMetadataKeyRule): boolean;
 /** The value as a header carries it: as written where it travels so, else as encoded words. */
@@ -569,6 +587,13 @@ export function encodeUserMetadataValue(value: string, options?: { always?: bool
 export function decodeUserMetadataValue(value: string): string;
 /** What section 4.3 bounds at 2 KB: every key and its value as `encodeUserMetadataValue` writes it. */
 export function userMetadataByteLength(userMetadata: Readonly<Record<string, string>>): number;
+export type UserMetadataCheck =
+  { readonly held: Readonly<Record<string, string>> } | { readonly refusal: Refusal };
+/** Runs the checks of section 4.3 in order; `held` has its keys folded to lower case. */
+export function checkUserMetadata(
+  userMetadata: Record<string, string> | undefined,
+  capabilities: readonly CapabilityName[],
+): UserMetadataCheck;
 
 export interface PresignedPut {
   readonly url: string;
@@ -584,6 +609,16 @@ export interface PresignedPut {
   `adapter-fs` and `adapter-memory` do not call it.
 - A `StorageError` with code `Unsupported` requires `capability`; the constructor rejects one
   without it.
+- A `Refusal` states what a rule of section 4 decides and leaves the error to the adapter, which
+  raises it through its own factory with its bucket, the operation, the key and the attempts, as
+  `invalidKeyReason` leaves the `InvalidKey` to it.
+- Every adapter refuses the bounds `rangeBoundsRefusal` names before the object is looked up, and
+  a start `rangeStartRefusal` names once the object's size is known; `adapter-fs` and
+  `adapter-memory` read up to `lastByteOf`. `rangeHeader`, `wholeSizeOf` and `rangeCoversWhole`
+  are the one definition of a range on the wire: a `200` answering a ranged request is the body
+  asked for exactly where `rangeCoversWhole` holds.
+- `adapter-memory`, `adapter-s3` and `adapter-azure-blob` run `checkUserMetadata` before a `put`
+  writes or sends anything, raise its refusal with `attempts: 0`, and store `held`.
 - What two adapters need on the wire is defined here once; what one adapter alone needs stays in
   that adapter, the signers among it (ADR 0019).
 - `parseXml` reads elements, attributes, text, comments, the five named entities and a numeric

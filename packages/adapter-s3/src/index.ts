@@ -10,6 +10,7 @@ import {
   type PresignedPut,
   type PutBody,
   type PutOptions,
+  rangeHeader,
   type Storage,
   type StoredObject,
 } from "@stowage/core";
@@ -34,7 +35,7 @@ import {
   requireKnownOptions,
 } from "./options.ts";
 import { send } from "./request.ts";
-import { partialContent, rangeHeader, requireRange, wholeAnswerFailure } from "./range.ts";
+import { partialContent, requireRange, wholeAnswerFailure } from "./range.ts";
 import { s3Error } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
 import { type ObjectWrite, putObject, uploadStream } from "./upload.ts";
