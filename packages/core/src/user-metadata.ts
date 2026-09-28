@@ -1,3 +1,6 @@
+import type { CapabilityName } from "./capabilities.ts";
+import type { Refusal } from "./errors.ts";
+
 export type UserMetadataKeyRule = "token" | "identifier";
 
 const keyPatterns: Readonly<Record<UserMetadataKeyRule, RegExp>> = {
@@ -54,6 +57,77 @@ export function userMetadataByteLength(userMetadata: Readonly<Record<string, str
   }
 
   return bytes;
+}
+
+export type UserMetadataCheck =
+  | { readonly held: Readonly<Record<string, string>> }
+  | { readonly refusal: Refusal };
+
+/** Spec 4.3 bounds the set at 2 KB of the header bytes it costs once it is encoded. */
+const headerByteLimit = 2048;
+
+const noUserMetadata: UserMetadataCheck = { held: Object.freeze(Object.create(null)) };
+
+/**
+ * The user metadata as a storage holds it, keys folded to lower case as a header field name
+ * is, or the first refusal of spec 4.3, read off what the storage declares.
+ */
+export function checkUserMetadata(
+  userMetadata: Record<string, string> | undefined,
+  capabilities: readonly CapabilityName[],
+): UserMetadataCheck {
+  const entries = Object.entries(userMetadata ?? {});
+
+  if (entries.length === 0) return noUserMetadata;
+
+  if (!capabilities.includes("userMetadata")) {
+    return unsupported("userMetadata", "This storage holds no user metadata");
+  }
+
+  const held: Record<string, string> = Object.create(null);
+
+  for (const [name, value] of entries) {
+    if (!isUserMetadataKey(name, "token")) {
+      return refused(`The user metadata key ${JSON.stringify(name)} is no ASCII HTTP token`);
+    }
+
+    const folded = name.toLowerCase();
+
+    // Folding two keys into one would drop a value the caller handed over, and a write
+    // that succeeds while losing what it carried is the failure a caller never sees.
+    if (folded in held) {
+      return refused(`The user metadata key ${JSON.stringify(folded)} is given more than once`);
+    }
+
+    held[folded] = value;
+  }
+
+  const headerBytes = userMetadataByteLength(held);
+
+  if (headerBytes > headerByteLimit) {
+    return refused(
+      `The user metadata is ${headerBytes} encoded header bytes, above the limit of ${headerByteLimit}`,
+    );
+  }
+
+  const beyondIdentifiers = entries.find(([name]) => !isUserMetadataKey(name, "identifier"));
+
+  if (beyondIdentifiers !== undefined && !capabilities.includes("userMetadataTokenKeys")) {
+    return unsupported(
+      "userMetadataTokenKeys",
+      `This storage holds no user metadata key beyond identifiers, such as ${JSON.stringify(beyondIdentifiers[0])}`,
+    );
+  }
+
+  return { held: Object.freeze(held) };
+}
+
+function refused(message: string): UserMetadataCheck {
+  return { refusal: { code: "InvalidRequest", message } };
+}
+
+function unsupported(capability: CapabilityName, message: string): UserMetadataCheck {
+  return { refusal: { code: "Unsupported", message, capability } };
 }
 
 /** The UTF-8 bytes in pieces of at most one encoded word, each ending on a character. */

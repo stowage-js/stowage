@@ -3,12 +3,21 @@ export type { Resolvable, ResolverOptions } from "./credentials.ts";
 export { readEnvironment } from "./environment.ts";
 export {
   isStorageError,
+  type Refusal,
   StorageError,
   type StorageErrorCode,
   type StorageErrorFields,
 } from "./errors.ts";
 export { invalidKeyReason, type KeyRule } from "./keys.ts";
 export type { PresignedPut } from "./presigned-put.ts";
+export {
+  lastByteOf,
+  rangeBoundsRefusal,
+  rangeCoversWhole,
+  rangeHeader,
+  rangeStartRefusal,
+  wholeSizeOf,
+} from "./range.ts";
 export { type RetryOptions, withRetry } from "./retry.ts";
 export { errorCodeForStatus, isTransientStatus } from "./status.ts";
 export type {
@@ -27,10 +36,12 @@ export type {
   StoredObject,
 } from "./storage.ts";
 export {
+  checkUserMetadata,
   decodeUserMetadataValue,
   encodeUserMetadataValue,
   isUserMetadataKey,
   userMetadataByteLength,
+  type UserMetadataCheck,
   type UserMetadataKeyRule,
 } from "./user-metadata.ts";
 export { parseXml, type XmlElement, XmlSyntaxError } from "./xml.ts";
