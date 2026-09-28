@@ -107,3 +107,6 @@ covers the object, and anything else is `ProviderError`, whose message here name
 - ADR 0038 narrows the `404` that counts as deleted to one carrying the reason `notFound`: any
   other `404` on a JSON path is `ProviderError`, so a wrong `endpoint` is not read as an empty
   bucket.
+- ADR 0040 replaces the repeat of `get` after a generation mismatch with at most two requests
+  pinned to a generation, and refuses every range on an object stored with a content coding,
+  whose `size` stays the stored size.
