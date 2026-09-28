@@ -141,6 +141,8 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
       method: "GET",
       operation: "get",
       key,
+      // Azure reads `Range` beside its own `x-ms-range`, and Shared Key signs it among its
+      // standard headers.
       headers: range === undefined ? [] : [["range", rangeHeader(range)]],
       signal: options?.signal,
     });
