@@ -1,7 +1,8 @@
 name: Release
 
 # ADR 0008: Changesets keeps a version pull request open on `main`, and merging it publishes
-# the six packages from here through npm trusted publishing, so no npm token exists anywhere.
+# the packages of the fixed group from here through npm trusted publishing, so no npm token
+# exists anywhere.
 # npm matches this file's name, `release.yml`, against the trusted publisher of each package.
 on:
   push:
