@@ -161,6 +161,13 @@ latest when the credential that signed it expires. A client may have to send hea
 that the signature names. Azure Blob calls its form a shared access signature.
 _Avoid_: signed URL, temporary link, upload URL
 
+**Signer**:
+Whoever signs a storage's presigned URLs: a key held by the caller, or an identity the provider
+signs as on request. Where the credential can sign, it is the signer too; on Google Cloud Storage an
+access token cannot, so a signer is named beside the credential, and a storage without one has no
+presigned URLs.
+_Avoid_: signing credential, URL credential
+
 **Error code**:
 The name stowage gives a failure, drawn from a closed set that means the same thing in every
 adapter. It is what a caller branches on.
