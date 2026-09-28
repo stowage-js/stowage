@@ -50,23 +50,24 @@ const measurementTimeout = 60_000;
 /** How often a run samples, in bytes passed: often enough to see every part in flight. */
 const sampleInterval = 8 * mebibyte;
 
+function liveBufferBytes(): number {
+  collectGarbage();
+
+  return memoryUsage().arrayBuffers;
+}
+
 /**
  * The largest amount of buffer memory alive at any sample, above what was alive before.
  * `memoryUsage()` counts the whole process, which Vitest's default `forks` pool gives this
  * file to itself; under the `threads` pool the other files' buffers would count as well.
  */
 function bufferMeter(): { sample: () => void; growth: () => number } {
-  const live = (): number => {
-    collectGarbage();
-
-    return memoryUsage().arrayBuffers;
-  };
-  const baseline = live();
+  const baseline = liveBufferBytes();
   let peak = baseline;
 
   return {
     sample() {
-      peak = Math.max(peak, live());
+      peak = Math.max(peak, liveBufferBytes());
     },
     growth: () => peak - baseline,
   };

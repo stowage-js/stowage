@@ -77,70 +77,6 @@ describe.skipIf(!scheduled)(firstRunSuite, () => {
     return uploadId;
   }
 
-  async function sendPart(key: string, uploadId: string, number: number): Promise<string> {
-    const response = await send(endpointConfiguration(), {
-      method: "PUT",
-      operation: "put",
-      key,
-      query: [
-        ["partNumber", String(number)],
-        ["uploadId", uploadId],
-      ],
-      body: new Uint8Array(1),
-    });
-
-    await response.body?.cancel();
-
-    return response.headers.get("etag") ?? "";
-  }
-
-  async function completeUpload(
-    key: string,
-    uploadId: string,
-    parts: readonly { number: number; etag: string }[],
-  ): Promise<void> {
-    const listed = parts
-      .map(
-        ({ number, etag }) =>
-          `<Part><PartNumber>${number}</PartNumber><ETag>${escapeXml(etag)}</ETag></Part>`,
-      )
-      .join("");
-    const response = await send(endpointConfiguration(), {
-      method: "POST",
-      operation: "put",
-      key,
-      query: [["uploadId", uploadId]],
-      headers: [["content-type", "application/xml"]],
-      body: utf8.encode(
-        `<CompleteMultipartUpload xmlns="http://s3.amazonaws.com/doc/2006-03-01/">${listed}</CompleteMultipartUpload>`,
-      ),
-    });
-
-    // A completion may carry its failure inside a `200` (spec 7.2), which is where the
-    // adapter reads it too.
-    await readAnswerDocument(
-      answered(key, "the completion of the upload"),
-      response,
-      "CompleteMultipartUploadResult",
-    );
-  }
-
-  async function abortUpload(key: string, uploadId: string): Promise<void> {
-    await send(endpointConfiguration(), {
-      method: "DELETE",
-      operation: "put",
-      key,
-      query: [["uploadId", uploadId]],
-    }).then(
-      async (response) => await response.body?.cancel(),
-      () => {},
-    );
-  }
-
-  function answered(key: string, subject: string): AnsweredRequest {
-    return { bucket: endpointConfiguration().bucket, operation: "put", key, subject };
-  }
-
   // The adapter never sends a part below 5 MiB but the last, so the provider is asked
   // directly, through the adapter's signing, for the answer spec 7.9 maps.
   test(probeNames.entityTooSmall, async () => {
@@ -248,6 +184,70 @@ describe.skipIf(!scheduled)(firstRunSuite, () => {
 });
 
 const endpointConfiguration = (): S3Configuration => readConfiguration(endpointOrFail());
+
+async function sendPart(key: string, uploadId: string, number: number): Promise<string> {
+  const response = await send(endpointConfiguration(), {
+    method: "PUT",
+    operation: "put",
+    key,
+    query: [
+      ["partNumber", String(number)],
+      ["uploadId", uploadId],
+    ],
+    body: new Uint8Array(1),
+  });
+
+  await response.body?.cancel();
+
+  return response.headers.get("etag") ?? "";
+}
+
+async function completeUpload(
+  key: string,
+  uploadId: string,
+  parts: readonly { number: number; etag: string }[],
+): Promise<void> {
+  const listed = parts
+    .map(
+      ({ number, etag }) =>
+        `<Part><PartNumber>${number}</PartNumber><ETag>${escapeXml(etag)}</ETag></Part>`,
+    )
+    .join("");
+  const response = await send(endpointConfiguration(), {
+    method: "POST",
+    operation: "put",
+    key,
+    query: [["uploadId", uploadId]],
+    headers: [["content-type", "application/xml"]],
+    body: utf8.encode(
+      `<CompleteMultipartUpload xmlns="http://s3.amazonaws.com/doc/2006-03-01/">${listed}</CompleteMultipartUpload>`,
+    ),
+  });
+
+  // A completion may carry its failure inside a `200` (spec 7.2), which is where the
+  // adapter reads it too.
+  await readAnswerDocument(
+    answered(key, "the completion of the upload"),
+    response,
+    "CompleteMultipartUploadResult",
+  );
+}
+
+async function abortUpload(key: string, uploadId: string): Promise<void> {
+  await send(endpointConfiguration(), {
+    method: "DELETE",
+    operation: "put",
+    key,
+    query: [["uploadId", uploadId]],
+  }).then(
+    async (response) => await response.body?.cancel(),
+    () => {},
+  );
+}
+
+function answered(key: string, subject: string): AnsweredRequest {
+  return { bucket: endpointConfiguration().bucket, operation: "put", key, subject };
+}
 
 function zeroes(size: number): ReadableStream<Uint8Array> {
   let pulled = 0;
