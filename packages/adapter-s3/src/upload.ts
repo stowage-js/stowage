@@ -1,10 +1,16 @@
-import { isStorageError, type ObjectStat, type StorageError, type XmlElement } from "@stowage/core";
+import {
+  isStorageError,
+  type ObjectStat,
+  type SendParts,
+  type StorageError,
+  uploadStream,
+  type XmlElement,
+} from "@stowage/core";
 
 import { type AnsweredRequest, readAnswerDocument, textOf } from "./answer-document.ts";
 import type { HeaderField } from "./canonical.ts";
 import type { S3Configuration } from "./configuration.ts";
 import { describeWrite, unquotedEtag } from "./description.ts";
-import { type Part, PartReader } from "./part-reader.ts";
 import { send } from "./request.ts";
 import { s3Error } from "./storage-error.ts";
 import type { UserMetadataHeaders } from "./user-metadata.ts";
@@ -54,26 +60,27 @@ export async function putObject(
  * Spec 7.6: a stream is read into parts of `partSize`, and one that ends within the first
  * goes as the `PUT` held bytes get.
  */
-export async function uploadStream(
+export async function putStream(
   configuration: S3Configuration,
   write: ObjectWrite,
   stream: ReadableStream<Uint8Array>,
 ): Promise<ObjectStat> {
-  const parts = new PartReader(stream, configuration.partSize, write.signal);
-
-  try {
-    const first = await parts.next();
-
-    if (first.last) return await putObject(configuration, write, first.bytes);
-
-    return await multipartUpload(configuration, write, parts, first);
-  } catch (failure) {
-    await parts.cancel(failure);
-
-    throw failure;
-  } finally {
-    parts.release();
-  }
+  return await uploadStream(
+    stream,
+    {
+      partSize: configuration.partSize,
+      concurrency: configuration.concurrency,
+      maxParts,
+      bucket: configuration.bucket,
+      provider: "s3",
+      key: write.key,
+      signal: write.signal,
+    },
+    {
+      whole: async (bytes) => await putObject(configuration, write, bytes),
+      multipart: async (sendParts) => await multipartUpload(configuration, write, sendParts),
+    },
+  );
 }
 
 interface UploadedPart {
@@ -86,12 +93,6 @@ const s3Namespace = "http://s3.amazonaws.com/doc/2006-03-01/";
 /** The provider's limit on both sides, which ADR 0016 leaves no option to lift. */
 const maxParts = 10_000;
 
-interface SentParts {
-  /** In part-number order, which is how `CompleteMultipartUpload` lists them. */
-  readonly uploaded: readonly UploadedPart[];
-  readonly size: number;
-}
-
 /**
  * Spec 7.6: a multipart upload aborts itself once it failed, after the parts in flight
  * and the source stream were canceled.
@@ -99,92 +100,25 @@ interface SentParts {
 async function multipartUpload(
   configuration: S3Configuration,
   write: ObjectWrite,
-  parts: PartReader,
-  first: Part,
+  sendParts: SendParts,
 ): Promise<ObjectStat> {
   const uploadId = await createUpload(configuration, write);
-  let sent: SentParts;
+  let sent: { readonly results: readonly UploadedPart[]; readonly size: number };
 
   try {
-    sent = await sendParts(configuration, write, uploadId, parts, first);
+    sent = await sendParts(async (index, bytes, signal) => {
+      const number = index + 1;
+      const etag = await uploadPart(configuration, { ...write, signal }, uploadId, number, bytes);
+
+      return { number, etag };
+    });
   } catch (failure) {
-    await parts.cancel(failure);
     await abortUpload(configuration, write, uploadId);
 
     throw failure;
   }
 
-  return await completeUpload(configuration, write, uploadId, sent);
-}
-
-/**
- * Spec 7.6: `concurrency` parts in flight, and the next part read only once one of them
- * settled, so the part buffers never outnumber the parts in flight. The first failure
- * stops the parts still in flight, and is what the upload rejects with once they settled.
- */
-async function sendParts(
-  configuration: S3Configuration,
-  write: ObjectWrite,
-  uploadId: string,
-  parts: PartReader,
-  first: Part,
-): Promise<SentParts> {
-  const stop = new AbortController();
-  const partWrite: ObjectWrite = {
-    ...write,
-    signal: write.signal === undefined ? stop.signal : AbortSignal.any([write.signal, stop.signal]),
-  };
-  const inFlight = new Set<Promise<void>>();
-  const uploaded: UploadedPart[] = [];
-  let failure: { readonly reason: unknown } | undefined;
-  let size = 0;
-
-  // The source is canceled along with the parts, because a stream that stalls would
-  // otherwise hold the upload at the read of a part that is never sent.
-  const fail = (reason: unknown): void => {
-    failure ??= { reason };
-    stop.abort();
-    void parts.cancel(reason);
-  };
-  const sendPart = async (number: number, part: Part): Promise<void> => {
-    try {
-      const etag = await uploadPart(configuration, partWrite, uploadId, number, part);
-
-      uploaded.push({ number, etag });
-    } catch (reason) {
-      fail(reason);
-    } finally {
-      parts.recycle(part);
-    }
-  };
-
-  try {
-    for (let number = 1, part = first; !stop.signal.aborted; number += 1) {
-      if (number === maxParts && !part.last) throw tooManyParts(configuration, write);
-
-      const sending = sendPart(number, part);
-
-      inFlight.add(sending);
-      void sending.finally(() => inFlight.delete(sending));
-      size += part.bytes.byteLength;
-
-      if (part.last) break;
-
-      // oxlint-disable-next-line no-await-in-loop -- a free slot is what lets the next part go
-      while (inFlight.size >= configuration.concurrency) await Promise.race(inFlight);
-
-      // oxlint-disable-next-line no-await-in-loop -- the next part is read into the free slot
-      part = await parts.next();
-    }
-  } catch (reason) {
-    fail(reason);
-  }
-
-  await Promise.all(inFlight);
-
-  if (failure !== undefined) throw failure.reason;
-
-  return { uploaded: uploaded.toSorted((one, other) => one.number - other.number), size };
+  return await completeUpload(configuration, write, uploadId, sent.results, sent.size);
 }
 
 async function createUpload(configuration: S3Configuration, write: ObjectWrite): Promise<string> {
@@ -216,7 +150,7 @@ async function uploadPart(
   write: ObjectWrite,
   uploadId: string,
   number: number,
-  part: Part,
+  bytes: Uint8Array<ArrayBuffer>,
 ): Promise<string> {
   const response = await send(configuration, {
     method: "PUT",
@@ -226,7 +160,7 @@ async function uploadPart(
       ["partNumber", String(number)],
       ["uploadId", uploadId],
     ],
-    body: part.bytes,
+    body: bytes,
     signal: write.signal,
   });
 
@@ -245,7 +179,8 @@ async function completeUpload(
   configuration: S3Configuration,
   write: ObjectWrite,
   uploadId: string,
-  { uploaded, size }: SentParts,
+  uploaded: readonly UploadedPart[],
+  size: number,
 ): Promise<ObjectStat> {
   let response: Response;
   let document: XmlElement;
@@ -339,20 +274,6 @@ function answeredRequest(
   subject: string,
 ): AnsweredRequest {
   return { bucket: configuration.bucket, operation: "put", key: write.key, subject };
-}
-
-/**
- * Spec 7.6: known once the last part the provider takes is full and the stream goes on.
- * ADR 0016 fixes the part size before the first part, so the way past it is a larger one.
- */
-function tooManyParts(configuration: S3Configuration, write: ObjectWrite): StorageError {
-  return s3Error(configuration.bucket, {
-    code: "InvalidRequest",
-    message: `The stream needs more than ${maxParts} parts of the configured \`partSize\` of ${configuration.partSize} bytes; a larger \`multipart.partSize\` carries it`,
-    operation: "put",
-    key: write.key,
-    attempts: 0,
-  });
 }
 
 // An answer that leaves out what the next request of the upload needs cannot be carried

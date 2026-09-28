@@ -42,7 +42,7 @@ import { rangeAnswerFailure, requireRange } from "./range.ts";
 import { send } from "./request.ts";
 import { azureBlobError } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
-import { putBlob, uploadStream } from "./upload.ts";
+import { putBlob, putStream } from "./upload.ts";
 import { userMetadataHeaders } from "./user-metadata.ts";
 
 export type { AzureBlobAdapterOptions } from "./configuration.ts";
@@ -122,7 +122,7 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
 
     const write = { key, contentType, userMetadata, signal: options?.signal };
 
-    if (isStream(body)) return await uploadStream(this.#configuration, write, body);
+    if (isStream(body)) return await putStream(this.#configuration, write, body);
 
     return await putBlob(this.#configuration, write, bytesOf(body));
   }

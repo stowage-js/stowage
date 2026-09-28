@@ -38,7 +38,7 @@ import { send } from "./request.ts";
 import { partialContent, requireRange, wholeAnswerFailure } from "./range.ts";
 import { s3Error } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
-import { type ObjectWrite, putObject, uploadStream } from "./upload.ts";
+import { type ObjectWrite, putObject, putStream } from "./upload.ts";
 import { userMetadataHeaders } from "./user-metadata.ts";
 
 export type { S3AdapterOptions } from "./configuration.ts";
@@ -122,7 +122,7 @@ class SimpleStorageServiceStorage implements S3Storage {
     // Spec 4.3: a signal that already fired rejects before the request goes out.
     options?.signal?.throwIfAborted();
 
-    if (isStream(body)) return await uploadStream(this.#configuration, write, body);
+    if (isStream(body)) return await putStream(this.#configuration, write, body);
 
     return await putObject(this.#configuration, write, bytesOf(body));
   }
