@@ -2,7 +2,7 @@
 const initialCapacity = 64 * 1024;
 
 export interface Part {
-  /** Held whole, because a repeat of its request sends it again (ADR 0009, spec 8.4). */
+  /** Held whole, because a repeat sends it again and `adapter-s3` hashes it to sign (ADR 0009). */
   readonly bytes: Uint8Array<ArrayBuffer>;
   /** Whether the stream ended with this part, which decides between one request and many. */
   readonly last: boolean;

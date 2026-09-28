@@ -27,7 +27,7 @@ export type SendParts = <R>(
 /**
  * Reads the stream into parts of `partSize` and hands a stream that ends within the first
  * to `whole`, any other to `multipart`. The reader, its buffers and the cancellation of
- * the source stay here, so an adapter promises one call rather than the order of five
+ * the source stay here, so the spec promises one call rather than the order of five
  * (ADR 0030).
  *
  * The source is canceled wherever the upload settles before the stream ended, as spec 4.2
@@ -41,9 +41,9 @@ export async function uploadStream<T>(
   const parts = new PartReader(stream, options.partSize, options.signal);
   // Aborted once the upload settled, so a `sendParts` that `multipart` did not wait for,
   // or kept to call later, stops rather than sending the part the canceled stream cut short.
-  const settled = new AbortController();
+  const uploadSettled = new AbortController();
   let readToEnd = false;
-  let outcome: unknown = new Error("The upload settled before the stream ended");
+  let cancelReason: unknown = new Error("The upload settled before the stream ended");
 
   try {
     const first = await parts.next();
@@ -56,13 +56,13 @@ export async function uploadStream<T>(
 
     let called = false;
     const sendParts: SendParts = async (send) => {
-      settled.signal.throwIfAborted();
+      uploadSettled.signal.throwIfAborted();
 
       if (called) throw new Error("`sendParts` sends the parts of one upload once");
 
       called = true;
 
-      const sent = await sendAll(parts, first, options, settled.signal, send);
+      const sent = await sendAll(parts, first, options, uploadSettled.signal, send);
 
       readToEnd = true;
 
@@ -71,12 +71,12 @@ export async function uploadStream<T>(
 
     return await upload.multipart(sendParts);
   } catch (failure) {
-    outcome = failure;
+    cancelReason = failure;
 
     throw failure;
   } finally {
-    settled.abort(outcome);
-    if (!readToEnd) await parts.cancel(outcome);
+    uploadSettled.abort(cancelReason);
+    if (!readToEnd) await parts.cancel(cancelReason);
     parts.release();
   }
 }
@@ -90,7 +90,7 @@ async function sendAll<R>(
   parts: PartReader,
   first: Part,
   options: StreamUploadOptions,
-  settled: AbortSignal,
+  uploadSettled: AbortSignal,
   send: (index: number, bytes: Uint8Array<ArrayBuffer>, signal: AbortSignal) => Promise<R>,
 ): Promise<{ readonly results: readonly R[]; readonly size: number }> {
   const stop = new AbortController();
@@ -121,10 +121,10 @@ async function sendAll<R>(
   };
 
   const stopWithUpload = (): void => {
-    fail(settled.reason);
+    fail(uploadSettled.reason);
   };
 
-  settled.addEventListener("abort", stopWithUpload, { once: true });
+  uploadSettled.addEventListener("abort", stopWithUpload, { once: true });
 
   try {
     for (let index = 0, part = first; !stop.signal.aborted; index += 1) {
@@ -149,9 +149,11 @@ async function sendAll<R>(
   }
 
   await Promise.all(inFlight);
-  settled.removeEventListener("abort", stopWithUpload);
+  uploadSettled.removeEventListener("abort", stopWithUpload);
 
   if (failure !== undefined) {
+    // `fail` only started the cancel. It has finished before the adapter hears of the
+    // failure, since spec 7.6 has the source canceled before the upload is aborted.
     await parts.cancel(failure.reason);
 
     throw failure.reason;
