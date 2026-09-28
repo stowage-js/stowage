@@ -2,14 +2,14 @@
 const initialCapacity = 64 * 1024;
 
 export interface Part {
-  /** Held whole, because Azure refuses a chunked `Put Blob` and a repeat sends it again (spec 8.4). */
+  /** Held whole, because a repeat sends it again and `adapter-s3` hashes it to sign (ADR 0009). */
   readonly bytes: Uint8Array<ArrayBuffer>;
-  /** Whether the stream ended with this part, which decides between one `Put Blob` and blocks. */
+  /** Whether the stream ended with this part, which decides between one request and many. */
   readonly last: boolean;
 }
 
 /**
- * A stream read into parts of one size (spec 8.6). A part is known to be the last only
+ * A stream read into parts of one size (spec 4.13). A part is known to be the last only
  * once the stream has ended behind it, so a full part looks one chunk ahead; that chunk
  * is the stream's own and becomes the start of the next part.
  *
@@ -19,7 +19,7 @@ export interface Part {
  *
  * Until a part has filled, the buffer grows by doubling, because ADR 0009 has a body
  * shorter than a part allocate only what it needs. Once one has, the stream is known to
- * go as blocks, and every buffer after it starts at the full part size.
+ * go as a multipart upload, and every buffer after it starts at the full part size.
  */
 export class PartReader {
   readonly #reader: ReadableStreamDefaultReader<Uint8Array>;

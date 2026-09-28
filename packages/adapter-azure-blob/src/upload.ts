@@ -1,10 +1,8 @@
-import type { ObjectStat, StorageError } from "@stowage/core";
+import { type ObjectStat, type SendParts, uploadStream } from "@stowage/core";
 
 import type { AzureBlobConfiguration } from "./configuration.ts";
 import { describeWrite } from "./description.ts";
-import { type Part, PartReader } from "./part-reader.ts";
 import { send } from "./request.ts";
-import { azureBlobError } from "./storage-error.ts";
 import type { UserMetadataHeaders } from "./user-metadata.ts";
 
 /** What `put` writes, apart from the body. */
@@ -50,26 +48,27 @@ export async function putBlob(
  * Spec 8.6: a stream is read into parts of `partSize`, and one that ends within the first
  * goes as the `Put Blob` held bytes get.
  */
-export async function uploadStream(
+export async function putStream(
   configuration: AzureBlobConfiguration,
   write: ObjectWrite,
   stream: ReadableStream<Uint8Array>,
 ): Promise<ObjectStat> {
-  const parts = new PartReader(stream, configuration.partSize, write.signal);
-
-  try {
-    const first = await parts.next();
-
-    if (first.last) return await putBlob(configuration, write, first.bytes);
-
-    return await blockUpload(configuration, write, parts, first);
-  } catch (failure) {
-    await parts.cancel(failure);
-
-    throw failure;
-  } finally {
-    parts.release();
-  }
+  return await uploadStream(
+    stream,
+    {
+      partSize: configuration.partSize,
+      concurrency: configuration.concurrency,
+      maxParts,
+      bucket: configuration.container,
+      provider: "azure-blob",
+      key: write.key,
+      signal: write.signal,
+    },
+    {
+      whole: async (bytes) => await putBlob(configuration, write, bytes),
+      multipart: async (sendParts) => await blockUpload(configuration, write, sendParts),
+    },
+  );
 }
 
 /** Azure's limit on the committed blocks of one blob, which ADR 0024 leaves no option to lift. */
@@ -92,89 +91,18 @@ const partIndexBytes = 4;
 async function blockUpload(
   configuration: AzureBlobConfiguration,
   write: ObjectWrite,
-  parts: PartReader,
-  first: Part,
+  sendParts: SendParts,
 ): Promise<ObjectStat> {
   const uploadNonce = crypto.getRandomValues(new Uint8Array(uploadNonceBytes));
-  const { blockIds, size } = await stageBlocks(configuration, write, parts, first, uploadNonce);
+  const { results: blockIds, size } = await sendParts(async (index, bytes, signal) => {
+    const blockId = blockIdOf(uploadNonce, index);
+
+    await putBlock(configuration, { ...write, signal }, blockId, bytes);
+
+    return blockId;
+  });
 
   return await commitBlocks(configuration, write, blockIds, size);
-}
-
-interface StagedBlocks {
-  /** In part order, which is the order `Put Block List` commits them in. */
-  readonly blockIds: readonly string[];
-  readonly size: number;
-}
-
-/**
- * Spec 8.6: `concurrency` parts in flight, and the next part read only once one of them
- * settled, so the part buffers never outnumber the parts in flight. The first failure
- * stops the parts still in flight, and is what the upload rejects with once they settled.
- */
-async function stageBlocks(
-  configuration: AzureBlobConfiguration,
-  write: ObjectWrite,
-  parts: PartReader,
-  first: Part,
-  uploadNonce: Uint8Array,
-): Promise<StagedBlocks> {
-  const stop = new AbortController();
-  const partWrite: ObjectWrite = {
-    ...write,
-    signal: write.signal === undefined ? stop.signal : AbortSignal.any([write.signal, stop.signal]),
-  };
-  const inFlight = new Set<Promise<void>>();
-  const blockIds: string[] = [];
-  let failure: { readonly reason: unknown } | undefined;
-  let size = 0;
-
-  // The source is canceled along with the parts, because a stream that stalls would
-  // otherwise hold the upload at the read of a part that is never sent.
-  const fail = (reason: unknown): void => {
-    failure ??= { reason };
-    stop.abort();
-    void parts.cancel(reason);
-  };
-  const stageBlock = async (blockId: string, part: Part): Promise<void> => {
-    try {
-      await putBlock(configuration, partWrite, blockId, part);
-    } catch (reason) {
-      fail(reason);
-    } finally {
-      parts.recycle(part);
-    }
-  };
-
-  try {
-    for (let index = 0, part = first; !stop.signal.aborted; index += 1) {
-      if (index === maxParts - 1 && !part.last) throw tooManyParts(configuration, write);
-
-      const blockId = blockIdOf(uploadNonce, index);
-      const staging = stageBlock(blockId, part);
-
-      blockIds.push(blockId);
-      inFlight.add(staging);
-      void staging.finally(() => inFlight.delete(staging));
-      size += part.bytes.byteLength;
-
-      if (part.last) break;
-
-      // oxlint-disable-next-line no-await-in-loop -- a free slot is what lets the next part go
-      while (inFlight.size >= configuration.concurrency) await Promise.race(inFlight);
-
-      // oxlint-disable-next-line no-await-in-loop -- the next part is read into the free slot
-      part = await parts.next();
-    }
-  } catch (reason) {
-    fail(reason);
-  }
-
-  await Promise.all(inFlight);
-
-  if (failure !== undefined) throw failure.reason;
-
-  return { blockIds, size };
 }
 
 /** ADR 0024: the upload's nonce and the part index big-endian, as the Base64 of twenty bytes. */
@@ -191,7 +119,7 @@ async function putBlock(
   configuration: AzureBlobConfiguration,
   write: ObjectWrite,
   blockId: string,
-  part: Part,
+  bytes: Uint8Array<ArrayBuffer>,
 ): Promise<void> {
   const response = await send(configuration, {
     method: "PUT",
@@ -201,7 +129,7 @@ async function putBlock(
       ["comp", "block"],
       ["blockid", blockId],
     ],
-    body: part.bytes,
+    body: bytes,
     signal: write.signal,
   });
 
@@ -248,18 +176,4 @@ function blockListDocument(blockIds: readonly string[]): string {
   const latest = blockIds.map((blockId) => `<Latest>${blockId}</Latest>`).join("");
 
   return `<?xml version="1.0" encoding="utf-8"?><BlockList>${latest}</BlockList>`;
-}
-
-/**
- * Spec 8.6: known once the last part the provider takes is full and the stream goes on.
- * ADR 0016 fixes the part size before the first part, so the way past it is a larger one.
- */
-function tooManyParts(configuration: AzureBlobConfiguration, write: ObjectWrite): StorageError {
-  return azureBlobError(configuration.container, {
-    code: "InvalidRequest",
-    message: `The stream needs more than ${maxParts} parts of the configured \`partSize\` of ${configuration.partSize} bytes; a larger \`multipart.partSize\` carries it`,
-    operation: "put",
-    key: write.key,
-    attempts: 0,
-  });
 }
