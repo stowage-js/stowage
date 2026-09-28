@@ -30,7 +30,13 @@ export function decodeCursor(cursor: string): string | undefined {
 
   const position = decoded.slice(cursorTag.length);
 
-  return position.length > 0 && hexPosition.test(position) ? markerOf(position) : undefined;
+  if (position.length === 0 || !hexPosition.test(position)) return undefined;
+
+  const marker = markerOf(position);
+
+  // The marker goes out percent-encoded, which a lone surrogate has no UTF-8 form for; the
+  // provider hands out none, so only a crafted cursor holds one.
+  return marker.isWellFormed() ? marker : undefined;
 }
 
 // Azure does not promise the marker stays ASCII, and `btoa` takes nothing else, so the

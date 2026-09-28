@@ -1081,7 +1081,8 @@ test("a page's cursor continues the listing from a new `list`", async () => {
 
 // Spec 4.3: a cursor the storage did not produce is `InvalidOption` naming `cursor`,
 // whether stowage tells it apart itself or the provider refuses the position inside.
-test.each(["not-a-cursor", btoa("stowage-memory-1:0061"), ""])(
+// A crafted cursor may decode to a lone surrogate, which no query string can encode.
+test.each(["not-a-cursor", btoa("stowage-memory-1:0061"), "", btoa("stowage-s3-1:0061d800")])(
   "the cursor %j is refused by name before any request",
   async (cursor) => {
     const sent = stubFetch(() => listed([]));
