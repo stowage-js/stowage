@@ -78,6 +78,11 @@ this repository happens to test against and nothing about the API a third-party 
   listing by name. Both tiers ran green against it on Node, Bun, Deno and `workerd`, so none of
   the three is admissible. An entry names the upstream issue where one exists, so the next person
   to read it can tell a bug that is being fixed from a difference that is intended.
+- An entry whose case would leave the emulator unable to finish the run keeps the case unrun
+  against that endpoint instead of expecting it to fail. Azurite lists no name holding `U+FFFE`,
+  and the blob `list/noncharacter-key` leaves behind fails the run's `cleanup` the same way
+  (issue 171). Such an entry cannot report an upstream fix, so an update of the image looks for
+  one by hand, and it stays admissible by the same rule: the real endpoint runs the case.
 - The CI bucket at each provider holds nothing else and carries a lifecycle rule that expires
   objects after one day and aborts incomplete multipart uploads after one day. ADR 0006 gives each
   run its own `keyPrefix` and a `cleanup()` that deletes below it; the lifecycle rule is what
