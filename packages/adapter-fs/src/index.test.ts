@@ -11,6 +11,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { platform } from "node:process";
 
 import {
   isStorageError,
@@ -301,6 +302,42 @@ test("refuses a segment above the 255 bytes a name holds", async () => {
   expect(await codeOf(storage.exists(key))).toBe("InvalidKey");
 });
 
+// APFS refuses every noncharacter in a name it creates, and ext4 holds one like any other
+// character, so the refusal is the file system's and the case has nothing to run on Linux.
+test.runIf(platform === "darwin")("refuses a name APFS does not create", async () => {
+  const root = await temporaryRoot();
+  const storage = fsStorage({ root });
+  const noncharacter = String.fromCodePoint(0xff_fe);
+  const key = `below/noncharacter-${noncharacter}.txt`;
+
+  await storage.put("source", "a body");
+
+  const refused = await storageErrorOf(storage.put(key, "a body"));
+
+  expect(refused).toMatchObject({ code: "InvalidKey", providerCode: "EILSEQ", key });
+  expect(await codeOf(storage.put(`made/${noncharacter}/object`, "a body"))).toBe("InvalidKey");
+  expect(await storageErrorOf(storage.copy("source", key))).toMatchObject({
+    code: "InvalidKey",
+    key,
+  });
+  expect(await storageErrorOf(storage.move("source", key))).toMatchObject({
+    code: "InvalidKey",
+    key,
+  });
+
+  // No such name can be there, so every read of it answers as for an absent object.
+  expect(await codeOf(storage.get(key))).toBe("NotFound");
+  expect(await storage.exists(key)).toBe(false);
+  expect(await storage.delete(key)).toEqual({ requested: 1, failed: [] });
+
+  const page = await storage.list({ delimiter: "/" }).page();
+
+  expect(page.objects.map((entry) => entry.key)).toEqual(["source"]);
+  expect(page.prefixes).toEqual([]);
+  expect(await iterate(storage.list())).toEqual(["source"]);
+  expect(await readdir(root)).toEqual(["source"]);
+});
+
 test("answers for a link leaving the root as for an absent object", async () => {
   const root = await temporaryRoot();
   const outside = join(await temporaryRoot(), "secret");
@@ -473,6 +510,29 @@ test("writes nothing where the signal fires during the upload", async () => {
   expect(nameOf(thrown)).toBe("AbortError");
   expect(await storage.exists("object")).toBe(false);
   expect(await readdir(root)).toEqual([]);
+});
+
+test("removes the directories a write that broke created, and none it found", async () => {
+  const root = await temporaryRoot();
+  const storage = fsStorage({ root });
+
+  await mkdir(join(root, "found"));
+
+  const controller = new AbortController();
+  const body = new ReadableStream<Uint8Array>({
+    pull(streamController) {
+      streamController.enqueue(new Uint8Array(1024));
+      controller.abort();
+    },
+  });
+
+  const thrown = await rejection(
+    storage.put("found/made/deeper/object", body, { signal: controller.signal }),
+  );
+
+  expect(nameOf(thrown)).toBe("AbortError");
+  expect(await readdir(root)).toEqual(["found"]);
+  expect(await readdir(join(root, "found"))).toEqual([]);
 });
 
 test("checks for abortion after the last body write", async () => {
@@ -762,6 +822,20 @@ test("does not land a copy after its signal aborts", async () => {
   expect(nameOf(thrown)).toBe("AbortError");
   expect(await (await storage.get("source")).text()).toBe("source");
   expect(await (await storage.get("destination")).text()).toBe("destination");
+});
+
+test("removes the directories a copy or a move that broke created", async () => {
+  const root = await temporaryRoot();
+  const storage = fsStorage({ root });
+
+  await storage.put("source", "a body");
+
+  const copied = await rejection(storage.copy("source", "copies/one/object", abortBeforeCommit()));
+  const moved = await rejection(storage.move("source", "moves/one/object", abortBeforeCommit()));
+
+  expect(nameOf(copied)).toBe("AbortError");
+  expect(nameOf(moved)).toBe("AbortError");
+  expect(await readdir(root)).toEqual(["source"]);
 });
 
 test("refuses a copy onto itself before it touches the file system", async () => {

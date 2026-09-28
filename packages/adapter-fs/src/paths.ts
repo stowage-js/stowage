@@ -1,4 +1,4 @@
-import { mkdir, realpath } from "node:fs/promises";
+import { mkdir, realpath, rmdir } from "node:fs/promises";
 import { basename, dirname, join, sep } from "node:path";
 
 import type { StorageError } from "@stowage/core";
@@ -91,23 +91,56 @@ export async function resolveObject(context: FsAccessContext): Promise<string> {
 /**
  * The path a write lands under, with the directories above it in place. The nearest
  * existing directory is resolved before anything is created, so a link leaving the root
- * cannot cause this storage to create directories outside it.
+ * cannot cause this storage to create directories outside it. The caller holds the
+ * directory lock until the write's file is in place, since a prune may otherwise remove a
+ * directory this found in place before anything lies in it.
  */
-export async function prepareWrite(context: FsAccessContext): Promise<string> {
+export async function prepareWrite(context: FsAccessContext): Promise<PreparedWrite> {
   const path = pathOf(context.realRoot, context.key);
 
   // A writable key ends in no slash (spec 4.8), so the key names a file at this point.
   if (path === undefined) throw absent(context, 0);
 
-  const directory = await makeDirectory(dirname(path), context);
+  const { directory, created } = await makeDirectory(dirname(path), context);
+  const abandon = async (): Promise<void> => await removeCreated(created);
 
-  const target = join(directory, basename(path));
+  try {
+    const target = join(directory, basename(path));
 
-  // A link at the key leaves the root as much as one on the way to it, so the write is
-  // refused rather than following it or replacing it (spec 6).
-  if (!(await resolvesWithin(context, target))) throw absent(context, 1);
+    // A link at the key leaves the root as much as one on the way to it, so the write is
+    // refused rather than following it or replacing it (spec 6).
+    if (!(await resolvesWithin(context, target))) throw absent(context, 1);
 
-  return target;
+    return { path: target, abandon };
+  } catch (thrown) {
+    await abandon();
+
+    throw thrown;
+  }
+}
+
+export interface PreparedWrite {
+  readonly path: string;
+  /**
+   * Removes the directories this write created, where they are still empty, so a write that
+   * broke leaves no pseudo-directory behind that holds nothing (spec 6). The caller holds
+   * the directory lock: another write may have found one of them in place and not yet put
+   * its file there.
+   */
+  readonly abandon: () => Promise<void>;
+}
+
+async function removeCreated(created: readonly string[]): Promise<void> {
+  for (const directory of created.toReversed()) {
+    try {
+      // oxlint-disable-next-line no-await-in-loop -- one branch, emptied from the leaf up
+      await rmdir(directory);
+    } catch {
+      // Nothing above a directory that holds something is empty, and a directory this
+      // storage may not remove is one it leaves where it is: the write failed either way.
+      return;
+    }
+  }
 }
 
 async function resolvesWithin(context: FsAccessContext, path: string): Promise<boolean> {
@@ -121,7 +154,12 @@ async function resolvesWithin(context: FsAccessContext, path: string): Promise<b
   }
 }
 
-async function makeDirectory(directory: string, context: FsAccessContext): Promise<string> {
+interface MadeDirectory {
+  readonly directory: string;
+  readonly created: readonly string[];
+}
+
+async function makeDirectory(directory: string, context: FsAccessContext): Promise<MadeDirectory> {
   const missing: string[] = [];
   let existing = directory;
 
@@ -143,31 +181,41 @@ async function makeDirectory(directory: string, context: FsAccessContext): Promi
 
   if (!within(context.realRoot, existing)) throw absent(context, 1);
 
-  // A non-recursive mkdir does not follow a link at the segment it creates. Resolving
-  // each result also catches a segment another actor placed between the checks.
-  for (const segment of missing) {
-    const path = join(existing, segment);
+  const created: string[] = [];
 
-    try {
-      // oxlint-disable-next-line no-await-in-loop -- one path, created from the root down
-      await mkdir(path);
-    } catch (thrown) {
-      // EEXIST can mean another actor created this segment. Its real path is checked
-      // below; a regular file is reported when the next segment or temporary file is made.
-      if (errnoOf(thrown) !== "EEXIST") {
+  try {
+    // A non-recursive mkdir does not follow a link at the segment it creates. Resolving
+    // each result also catches a segment another actor placed between the checks.
+    for (const segment of missing) {
+      const path = join(existing, segment);
+
+      try {
+        // oxlint-disable-next-line no-await-in-loop -- one path, created from the root down
+        await mkdir(path);
+        created.push(path);
+      } catch (thrown) {
+        // EEXIST can mean another actor created this segment. Its real path is checked
+        // below; a regular file is reported when the next segment or temporary file is made.
+        if (errnoOf(thrown) !== "EEXIST") {
+          throw fsErrorFrom(thrown, { ...context, access: "write" });
+        }
+      }
+
+      try {
+        // oxlint-disable-next-line no-await-in-loop -- each segment guards the next mkdir
+        existing = await realpath(path);
+      } catch (thrown) {
         throw fsErrorFrom(thrown, { ...context, access: "write" });
       }
-    }
 
-    try {
-      // oxlint-disable-next-line no-await-in-loop -- each segment guards the next mkdir
-      existing = await realpath(path);
-    } catch (thrown) {
-      throw fsErrorFrom(thrown, { ...context, access: "write" });
+      if (!within(context.realRoot, existing)) throw absent(context, 1);
     }
+  } catch (thrown) {
+    // A segment the file system refuses halfway down leaves the ones above it behind.
+    await removeCreated(created);
 
-    if (!within(context.realRoot, existing)) throw absent(context, 1);
+    throw thrown;
   }
 
-  return existing;
+  return { directory: existing, created };
 }

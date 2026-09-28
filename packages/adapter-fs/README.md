@@ -42,6 +42,10 @@ The bundle measures 5.7 kB minified and gzipped, `@stowage/core` included.
   ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.2.0/docs/spec.md#49-capabilities)).
 - A key segment longer than 255 bytes is `InvalidKey`, and so is a key whose whole path is longer
   than the file system holds. macOS bounds one path at 1024 bytes with the root counted in
+  ([spec 6](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.1.0/docs/spec.md#6-stowageadapter-fs)).
+- A name the file system refuses to create is `InvalidKey` on `put` and on the destination of
+  `copy` and `move`. APFS refuses every noncharacter, so a key holding `U+FFFE` is written on
+  Linux and refused on macOS
   ([spec 6](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.2.0/docs/spec.md#6-stowageadapter-fs)).
 - APFS keeps a name in the Unicode form it was written in, and folds the forms when it looks a name
   up, so a key in NFD reaches the object its NFC form wrote. A case-insensitive file system collides

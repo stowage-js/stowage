@@ -1,7 +1,7 @@
 import { isStorageError, StorageError, type StorageErrorCode } from "@stowage/core";
 import { expect, test } from "vitest";
 
-import { asFailure, type FsAccess, fsErrorFrom } from "./errno.ts";
+import { asFailure, type FsAccess, fsErrorFrom, isAbsence } from "./errno.ts";
 
 const failure = { root: "/root", operation: "get", access: "read" } as const;
 
@@ -24,6 +24,8 @@ const rows: readonly {
   { errno: "EACCES", access: "read", code: "AccessDenied", retryable: false },
   { errno: "EPERM", access: "write", code: "AccessDenied", retryable: false },
   { errno: "ENAMETOOLONG", access: "read", code: "InvalidKey", retryable: false },
+  { errno: "EILSEQ", access: "read", code: "NotFound", retryable: false },
+  { errno: "EILSEQ", access: "write", code: "InvalidKey", retryable: false },
   { errno: "EMFILE", access: "read", code: "ProviderError", retryable: true },
   { errno: "EBUSY", access: "write", code: "ProviderError", retryable: true },
   { errno: "EAGAIN", access: "read", code: "ProviderError", retryable: true },
@@ -74,4 +76,11 @@ test("carries a refusal it already shaped and the runtime's AbortError through",
   expect(asFailure(refusal, failure)).toBe(refusal);
   expect(asFailure(aborted, failure)).toBe(aborted);
   expect(isStorageError(asFailure(syscallError("ENOENT"), failure))).toBe(true);
+});
+
+test("counts a name the file system refuses on a lookup as naming nothing", () => {
+  // APFS answers ENOENT there, and a file system that answers EILSEQ still holds no file
+  // under the name, so `delete` succeeds and a copy from it is `NotFound` (spec 4.7).
+  expect(isAbsence(syscallError("EILSEQ"))).toBe(true);
+  expect(isAbsence(syscallError("EACCES"))).toBe(false);
 });

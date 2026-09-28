@@ -8,12 +8,14 @@ nothing else.
 
 **Provider**:
 The vendor or service that stores the bytes: Amazon S3, Cloudflare R2, Azure Blob, the local
-file system.
+file system. For the local file system it is the file system the root lies on, whose limits on
+names differ from one file system to the next and are reported rather than repaired.
 _Avoid_: cloud, backend, service
 
 **Promised provider**:
 A provider stowage keeps its promises against: AWS S3, Cloudflare R2 and Azure Blob Storage, the
-last as a general-purpose v2 account without hierarchical namespace in the public cloud. Another
+last as a general-purpose v2 account without hierarchical namespace in the public cloud, and the
+local file systems of Linux and macOS. Another
 endpoint speaking the same wire protocol can be configured and is not promised. An adapter is not
 told which promised provider it faces.
 _Avoid_: supported provider, tested provider, official provider
@@ -94,8 +96,9 @@ _Avoid_: path, filename, id
 
 **Writable key**:
 A key stowage creates: what `put`, the destination of `copy` and `move` and a presigned `PUT`
-accept. It is the narrowest key space every adapter can hold, so a key written against one
-adapter can be written against all of them. An adapter may refuse beyond it.
+accept. It is the key space stowage promises across adapters, so a key outside it is refused by
+every one of them. An adapter, or the provider behind it, may refuse beyond it, and does so as it
+refuses a key outside it.
 _Avoid_: valid key, safe key, allowed key
 
 **Addressable key**:

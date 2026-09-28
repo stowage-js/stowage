@@ -20,6 +20,7 @@ import {
 
 import { cancelBody, writeBody } from "./body.ts";
 import { contentTypeOf } from "./content-type.ts";
+import { withDirectoryMutations } from "./directory-lock.ts";
 import { createListing } from "./listing.ts";
 import { asFailure } from "./errno.ts";
 import { requireKey } from "./key.ts";
@@ -38,7 +39,14 @@ import {
   putOptionKeys,
   requireKnownOptions,
 } from "./options.ts";
-import { absent, type FsAccessContext, prepareWrite, resolveObject, resolveRoot } from "./paths.ts";
+import {
+  absent,
+  type FsAccessContext,
+  type PreparedWrite,
+  prepareWrite,
+  resolveObject,
+  resolveRoot,
+} from "./paths.ts";
 import { lastByteOf, requireRange } from "./range.ts";
 import { fsError } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
@@ -64,6 +72,13 @@ export function fsStorage(options: FsAdapterOptions): FsStorage {
 // One frozen array behind every storage: the declaration is fixed once the storage is
 // constructed, and a caller reaching past the `readonly` type reaches all of them.
 const fsCapabilities: readonly CapabilityName[] = Object.freeze(["rangeReads"] as const);
+
+/** A write whose directories and temporary file are in place, and whose bytes are not. */
+interface ReservedWrite {
+  readonly prepared: PreparedWrite;
+  readonly temporary: string;
+  readonly handle: FileHandle;
+}
 
 /** Where the file the key names lies, together with what a read of it reports. */
 interface FoundObject {
@@ -110,23 +125,47 @@ class FileSystemStorage implements FsStorage {
     options?.signal?.throwIfAborted();
 
     const context = await this.#context(key, "put", "write");
-    const path = await prepareWrite(context);
+    const reserved = await withDirectoryMutations(
+      context.realRoot,
+      async () => await this.#reserve(context),
+    );
 
-    return await this.#write(context, path, body, options?.signal);
+    try {
+      return await this.#write(context, reserved, body, options?.signal);
+    } catch (thrown) {
+      await withDirectoryMutations(context.realRoot, reserved.prepared.abandon);
+
+      throw thrown;
+    }
+  }
+
+  /**
+   * The directories a write needs and the file its bytes land in, created while the caller
+   * holds the directory lock: once that file is there, no prune removes the directory it
+   * lies in, so the body streams in without the lock.
+   */
+  async #reserve(context: FsAccessContext): Promise<ReservedWrite> {
+    const prepared = await prepareWrite(context);
+    const temporary = temporaryPathIn(dirname(prepared.path));
+    const handle = await abandoningOnFailure(
+      prepared,
+      async () => await this.#openTemporary(context, temporary),
+    );
+
+    return { prepared, temporary, handle };
   }
 
   async #write(
     context: FsAccessContext,
-    path: string,
+    { prepared, temporary, handle }: ReservedWrite,
     body: PutBody,
     signal?: AbortSignal,
   ): Promise<ObjectStat> {
     return await this.#land(
       context,
-      path,
-      async (temporary) => {
-        const handle = await this.#openTemporary(context, temporary);
-
+      prepared.path,
+      temporary,
+      async () => {
         try {
           await writeBody(handle, body, signal);
           signal?.throwIfAborted();
@@ -156,13 +195,12 @@ class FileSystemStorage implements FsStorage {
   async #land(
     context: FsAccessContext,
     path: string,
-    fill: (temporary: string) => Promise<Stats>,
+    temporary: string,
+    fill: () => Promise<Stats>,
     signal?: AbortSignal,
   ): Promise<ObjectStat> {
-    const temporary = temporaryPathIn(dirname(path));
-
     try {
-      const written = await fill(temporary);
+      const written = await fill();
 
       signal?.throwIfAborted();
       await rename(temporary, path);
@@ -319,19 +357,26 @@ class FileSystemStorage implements FsStorage {
     const source = await this.#requireFile(ends.from);
 
     try {
-      const path = await prepareWrite(ends.to);
+      // The source's lease holds the directory lock until the copy has landed or failed.
+      const prepared = await prepareWrite(ends.to);
+      const temporary = temporaryPathIn(dirname(prepared.path));
 
-      return await this.#land(
-        ends.to,
-        path,
-        async (temporary) => {
-          await this.#read(ends.from, source.path, temporary);
+      return await abandoningOnFailure(
+        prepared,
+        async () =>
+          await this.#land(
+            ends.to,
+            prepared.path,
+            temporary,
+            async () => {
+              await this.#read(ends.from, source.path, temporary);
 
-          // The bytes of the copy are what the destination holds, whatever another writer
-          // renamed over the source in the meantime.
-          return await stat(temporary);
-        },
-        options?.signal,
+              // The bytes of the copy are what the destination holds, whatever another
+              // writer renamed over the source in the meantime.
+              return await stat(temporary);
+            },
+            options?.signal,
+          ),
       );
     } finally {
       releaseObjectFile(source);
@@ -354,13 +399,13 @@ class FileSystemStorage implements FsStorage {
     const source = await this.#requireFile(ends.from);
 
     try {
-      const path = await prepareWrite(ends.to);
+      // The source's lease holds the directory lock, and a rename that fails leaves it held.
+      const prepared = await prepareWrite(ends.to);
 
-      options?.signal?.throwIfAborted();
-
-      // The destination has been resolved and its directories created by now, so what a
-      // rename still refuses concerns the source it takes the file away from (spec 4.10).
-      await renameObjectFile(ends.from, source, path);
+      await abandoningOnFailure(prepared, async () => {
+        options?.signal?.throwIfAborted();
+        await renameObjectFile(ends.from, source, { context: ends.to, path: prepared.path });
+      });
 
       // The rename carries the file as it stands, so the destination is described by what
       // the source held: its bytes and the time they were last written.
@@ -490,4 +535,17 @@ function readRoot(options: FsAdapterOptions): string {
 // metadata, so a description is the file's size and modification time and nothing else.
 function describe(key: string, size: number, lastModified: Date): ObjectStat {
   return { key, size, lastModified, contentType: contentTypeOf(key), userMetadata: noUserMetadata };
+}
+
+async function abandoningOnFailure<T>(
+  prepared: PreparedWrite,
+  write: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await write();
+  } catch (thrown) {
+    await prepared.abandon();
+
+    throw thrown;
+  }
 }
