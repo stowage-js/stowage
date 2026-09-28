@@ -1,6 +1,6 @@
 {
   "name": "@stowage/adapter-memory",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "stowage adapter holding a storage in process memory, and the implementation a third-party adapter is read against.",
   "keywords": [
     "adapter",
