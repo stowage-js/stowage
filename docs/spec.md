@@ -1560,7 +1560,8 @@ lists for the rule named. A key is given as its characters; its length is measur
   `it's`; `Grüße/日本語/ключ.txt`; a key of 1024 bytes in segments of at most 255 bytes; a key of
   exactly 255 bytes in one segment.
 - Refused as writable: the empty string; `/a`; `a/`; `a//b`; `./a`; `a/../b`; `..`; `a\b`; a key
-  holding `U+0000`; a key holding `U+001F`; a key holding `U+007F`; a key of 1025 bytes.
+  holding `U+0000`; a key holding `U+001F`; a key holding `U+007F`; `a\uD800b` and `a\uDC00b`, a
+  key holding a lone high and a lone low surrogate; a key of 1025 bytes.
 - Refused as addressable: the empty string; `/a`; `a//b`; `./a`; `a/../b`; `.`; a key holding
   `U+0000`.
 - Accepted as addressable and refused as writable: `a/`; `a\b`; a key of 1025 bytes.

@@ -30,6 +30,13 @@ test("every key of the refused writable list of spec 9.7 is one `put` refuses", 
   }
 });
 
+test("the refused writable list holds a lone high and a lone low surrogate", () => {
+  const labels = refusedWritableKeys(prefix).map((one) => one.label);
+
+  expect(labels).toContain("a key holding U+D800");
+  expect(labels).toContain("a key holding U+DC00");
+});
+
 test("a refused key the case asks `exists` about is one the addressable rule allows", () => {
   const asked = refusedWritableKeys(prefix).filter((one) => one.existsAnswers !== "unasked");
 
