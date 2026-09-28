@@ -52,6 +52,9 @@ A cell is supported where the conformance suite covers it in CI. There is no wea
   `slow` tier runs on a schedule, on demand and before every release; on Node and `workerd` it
   runs against a real AWS S3 bucket, a real R2 bucket and a real Azure Blob Storage account, on Bun
   and Deno against the emulators (ADR 0012, ADR 0023, ADR 0026).
+- `adapter-fs` is covered on the file systems of Linux and of macOS (section 6). On macOS the
+  suite runs without the endpoint tiers (ADR 0012): the `fast` tier on every pull request, both
+  tiers wherever the `slow` tier runs.
 - On `workerd` the whole suite runs under `no_nodejs_compat` and `no_nodejs_compat_v2`, and the
   `fast` tier runs a second time under the date's default flags.
 - Hosts such as Cloudflare's network, Deno Deploy or AWS Lambda are not named in the matrix and
