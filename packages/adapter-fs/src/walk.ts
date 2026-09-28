@@ -105,24 +105,28 @@ async function entriesOf(directory: string): Promise<readonly LevelEntry[]> {
   // Bun hands out no `Dirent` for names read as bytes, so the type comes from `lstat`,
   // which reads a link as a link, as a `Dirent` does.
   const names = await readdir(directory, { encoding: "buffer" });
-  const entries = await Promise.all(
-    names.map(async (bytes): Promise<LevelEntry | undefined> => {
-      const name = utf8NameOf(bytes);
+  const entries: LevelEntry[] = [];
 
-      if (name === undefined) return { bytes };
+  for (const bytes of names) {
+    const name = utf8NameOf(bytes);
 
-      try {
-        return { name, directory: (await lstat(join(directory, name))).isDirectory() };
-      } catch (thrown) {
-        // Removed by another writer since the level was read, as `describe` passes over.
-        if (isAbsence(thrown)) return undefined;
+    if (name === undefined) {
+      entries.push({ bytes });
+      continue;
+    }
 
-        throw thrown;
-      }
-    }),
-  );
+    try {
+      // oxlint-disable-next-line no-await-in-loop -- keep fallback stats bounded
+      entries.push({ name, directory: (await lstat(join(directory, name))).isDirectory() });
+    } catch (thrown) {
+      // Removed by another writer since the level was read, as `describe` passes over.
+      if (isAbsence(thrown)) continue;
 
-  return entries.filter((entry) => entry !== undefined);
+      throw thrown;
+    }
+  }
+
+  return entries;
 }
 
 function utf8NameOf(bytes: Uint8Array): string | undefined {
