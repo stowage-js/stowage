@@ -19,6 +19,7 @@ request may have created is left behind. ADR 0005 already says that parts stay a
 when a failed upload cannot abort itself, and the remedy is the same one: a lifecycle rule for
 incomplete uploads on the bucket, which ADR 0012 requires on the conformance buckets anyway.
 ADR 0024 keeps the exception to S3: Azure's `Put Block List` is repeated like any other request.
+ADR 0036 does the same for the last chunk of a resumable session on GCS.
 
 What may be repeated at all is decided by the body. A part is held whole in memory in order to be
 signed (ADR 0009), so it goes out again from that buffer. A body the caller supplied as a stream

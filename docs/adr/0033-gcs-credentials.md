@@ -76,4 +76,5 @@ two parsers for the same refusal and left `HEAD` without one.
 - The slow tier of ADR 0012 exercises the access token against the real bucket. How the scheduled
   run obtains it is decided with the conformance endpoint.
 - Whether a chunk sent to a resumable upload's session URI carries the token is decided with
-  uploads. Where it does, each chunk carries a freshly resolved one, as ADR 0007 has it for parts.
+  uploads. ADR 0036 decides that it carries none, since the session URI authorizes it and the
+  service checks no token there; the credential is resolved once, for the session's start.
