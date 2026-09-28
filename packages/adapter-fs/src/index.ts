@@ -47,7 +47,7 @@ import {
   resolveObject,
   resolveRoot,
 } from "./paths.ts";
-import { lastByteOf, requireRange } from "./range.ts";
+import { lastByteToRead, requireRange } from "./range.ts";
 import { fsError } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
 import { temporaryPathIn } from "./temporary.ts";
@@ -226,7 +226,7 @@ class FileSystemStorage implements FsStorage {
     return createStoredObject(context, found.description, {
       path: found.path,
       start: options?.range?.start ?? 0,
-      end: lastByteOf(this.#root, options?.range, found.description.size, key),
+      end: lastByteToRead(this.#root, options?.range, found.description.size, key),
     });
   }
 
