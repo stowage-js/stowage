@@ -4,7 +4,7 @@ import { conformanceCases, conformanceCaseSources } from "./index.ts";
 
 type SpecifiedCase = readonly [name: string, requires: readonly string[], cost: string];
 
-/** The rows of spec 9.5 and 9.6 the suite holds, in the order the specs list them. */
+/** The rows of spec 10.5 and 10.6 the suite holds, in the order the specs list them. */
 const specified: readonly SpecifiedCase[] = [
   ["declaration/valid-names", [], "fast"],
   ["declaration/identity", [], "fast"],
@@ -89,7 +89,7 @@ const specified: readonly SpecifiedCase[] = [
   ["flow/5-prefix-move", [], "fast"],
 ];
 
-test("the suite holds the cases of spec 9.5, each with the requirement and the cost of its row", () => {
+test("the suite holds the cases of spec 10.5, each with the requirement and the cost of its row", () => {
   const held = conformanceCaseSources.map((source): SpecifiedCase => [
     source.name,
     source.requires,
@@ -105,7 +105,7 @@ test("every case naming a capability carries the `runWithout` half of its row", 
   }
 });
 
-test("the cases hanging on a credential factory of spec 9.3 name the one their row marks", () => {
+test("the cases hanging on a credential factory of spec 10.3 name the one their row marks", () => {
   const marked = conformanceCaseSources
     .filter((source) => source.factory !== undefined)
     .map((source) => [source.name, source.factory]);
@@ -118,7 +118,7 @@ test("the cases hanging on a credential factory of spec 9.3 name the one their r
 });
 
 test("no two cases share a name", () => {
-  // Spec 9.5: names are stable, so a renamed case is a removed one and an added one.
+  // Spec 10.5: names are stable, so a renamed case is a removed one and an added one.
   const names = conformanceCases.map((source) => source.name);
 
   expect(new Set(names).size).toBe(names.length);

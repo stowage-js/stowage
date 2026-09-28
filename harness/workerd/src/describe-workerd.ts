@@ -112,7 +112,7 @@ interface Workerd {
 }
 
 /**
- * Spec 13 and ADR 0026: the 17 MiB upload of flow 1 on `workerd` against the account, and
+ * Spec 14 and ADR 0026: the 17 MiB upload of flow 1 on `workerd` against the account, and
  * what it spends there, which the host note of spec 2 reads against a paid plan's limits.
  * Both numbers overstate the upload: the worker's resolver serves one request, so the
  * measured one exchanges the job's OIDC token first, and `/proc` counts the whole process

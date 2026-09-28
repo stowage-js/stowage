@@ -52,7 +52,7 @@ two parsers for the same refusal and left `HEAD` without one.
   `fetch` asserts the repeat: one `401` with `error=invalid_token`, one resolver call with
   `forceRefresh: true`, then success, or `InvalidCredentials` after a second `401`.
 - What an expired token answers was not measured, since that needs a token past its hour. It joins
-  the open points of spec section 13 for a scheduled run. Should it carry a signal of its own, such
+  the open points of spec section 14 for a scheduled run. Should it carry a signal of its own, such
   as an `error_description`, a genuine `Expired` can be added in a minor release.
 - `adapter-gcs` exports no `fromEnv`. An access token in an environment variable is a snapshot that
   stops working within an hour, the reason ADR 0021 did not read one, and

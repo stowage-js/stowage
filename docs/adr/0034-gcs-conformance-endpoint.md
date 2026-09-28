@@ -72,7 +72,7 @@ federated principal cannot sign, and `signBlob` needs a service account to sign 
   leaves it out on APFS, and it is no divergence: GCS refuses the key the case writes (ADR 0032), so
   no real endpoint runs the case that would settle an entry.
 - The conformance bucket is `stowage-conformance` in the project `stowage-conformance`, beside the
-  measurement bucket, which stays for spikes and the open points of spec section 13. It is regional
+  measurement bucket, which stays for spikes and the open points of spec section 14. It is regional
   in `europe-north2` with the class `STANDARD`, uniform bucket-level access, public access
   prevention enforced, soft delete at 0, versioning off and no hierarchical namespace. A lifecycle
   rule deletes an object at `age: 1`, which is ADR 0012's one-day rule on GCS. There is no rule for

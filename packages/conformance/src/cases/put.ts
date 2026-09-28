@@ -494,7 +494,7 @@ function assertNoMetadata(held: Readonly<Record<string, string>>, where: string)
   );
 }
 
-// Spec 9.5 has `exists` answer `false` for a key `put` refused, where the key is one a
+// Spec 10.5 has `exists` answer `false` for a key `put` refused, where the key is one a
 // caller may address at all.
 async function assertNothingWasWritten(
   ctx: ConformanceContext,

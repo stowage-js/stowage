@@ -110,7 +110,7 @@ origin carries the rule's `access-control-allow-origin`.
   API; the reason no longer holds, because `adapter-gcs` signs XML-host URLs too and GCS is promised,
   so the case must pass there. The control URL closes the loosening ADR 0031 feared: a URL broken
   for another reason, such as `400 MalformedSecurityHeader`, fails the control rather than passing
-  as expired. Spec 9.5 changes for every provider; AWS S3, R2 and Azure still answer `403`.
+  as expired. Spec 10.5 changes for every provider; AWS S3, R2 and Azure still answer `403`.
 - The GCS target signs with a `privateKey` against fake-gcs-server, a `CryptoKey` the harness
   generates at the start of the run, and with `signBlob` against the real bucket, under the second
   token of ADR 0034 at the scope `iam`. Google's 40 RSA V4 vectors check the local signer per commit.

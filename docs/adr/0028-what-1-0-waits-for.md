@@ -30,13 +30,13 @@ stay as they are.
 
 ## Consequences
 
-- Section 13 of the spec holds three lists: the promises, which the gate waits for; what a run only
+- Section 14 of the spec holds three lists: the promises, which the gate waits for; what a run only
   records; and what a run may add or loosen. A point states which list it is on by where it stands.
 - A promise is a point a run could disprove against what the spec says to a caller today. Flow 1 on
   `workerd` against Azure counts, although its result can only change the host note of section 2,
   because ADR 0017 counted the same measurement on S3. The `409` code of a copy above 5,000 MiB and
   the code for a stale `marker` only record, since the spec already maps both without them.
-- A new provider's open points join the gate by landing in section 13, and nothing in section 10
+- A new provider's open points join the gate by landing in section 14, and nothing in section 11
   changes for them.
-- Section 10 says that 1.0 waits until section 13 holds no promise, besides a shape for the `raw`
+- Section 11 says that 1.0 waits until section 14 holds no promise, besides a shape for the `raw`
   escape hatch and the author having used stowage in a project of their own.

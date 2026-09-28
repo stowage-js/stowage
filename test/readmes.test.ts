@@ -23,14 +23,14 @@ const readmeOf = async (manifest: { readonly name: string }): Promise<string> =>
 
 const published = [core, adapterMemory, adapterFs, adapterS3, adapterAzureBlob, conformance];
 
-/** Spec 11 gives `@stowage/conformance` a shape of its own and these five the same sections. */
+/** Spec 12 gives `@stowage/conformance` a shape of its own and these five the same sections. */
 const sectioned = [core, adapterMemory, adapterFs, adapterS3, adapterAzureBlob];
 
-/** Spec 11: the sections a README carries, in this order, before anything else it holds. */
+/** Spec 12: the sections a README carries, in this order, before anything else it holds. */
 const packageSections = ["Install", "Example", "Runtimes", "Limits", "Notes", "Specification"];
 
 test.each(sectioned)(
-  "the README of $name carries the sections of spec 11 in order",
+  "the README of $name carries the sections of spec 12 in order",
   async (manifest) => {
     const headings = headingsOf(await readmeOf(manifest));
 
@@ -38,7 +38,7 @@ test.each(sectioned)(
   },
 );
 
-test("the README of @stowage/conformance carries the shape spec 11 gives it", async () => {
+test("the README of @stowage/conformance carries the shape spec 12 gives it", async () => {
   const text = await readmeOf(conformance);
 
   expect(text).toContain("describeConformance");
@@ -96,7 +96,7 @@ test("the README of @stowage/adapter-azure-blob writes its example with an acces
   expect(example).not.toContain("accountKey");
 });
 
-test("the README of @stowage/adapter-azure-blob names the limits of spec 11", async () => {
+test("the README of @stowage/adapter-azure-blob names the limits of spec 12", async () => {
   const limits = sectionOf(await readmeOf(adapterAzureBlob), "Limits");
 
   expect(limits).toContain("`userMetadataTokenKeys` is not declared");
@@ -108,9 +108,9 @@ test("the README of @stowage/adapter-azure-blob names the limits of spec 11", as
   expect(limits).toContain("#82-promised-provider");
 });
 
-// Spec 11 orders the notes of `adapter-azure-blob`; each marker is where one note first
+// Spec 12 orders the notes of `adapter-azure-blob`; each marker is where one note first
 // shows, so a note moved out of its place moves its marker past the next one.
-test("the README of @stowage/adapter-azure-blob orders its notes as spec 11 does", async () => {
+test("the README of @stowage/adapter-azure-blob orders its notes as spec 12 does", async () => {
   const notes = sectionOf(await readmeOf(adapterAzureBlob), "Notes");
   const positions = [
     "getToken",
@@ -140,7 +140,7 @@ function compareVersions(left: string, right: string): number {
   return 0;
 }
 
-// Spec 11 links the spec at the tag of the package's release, which changesets names
+// Spec 12 links the spec at the tag of the package's release, which changesets names
 // `<name>@<version>`. The version the tag names is the release the README goes out with, so
 // it is never older than the manifest's: a version bump that leaves the link behind fails
 // here instead of sending a caller to promises an older release made. The links are written
