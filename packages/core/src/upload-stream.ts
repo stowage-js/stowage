@@ -103,7 +103,9 @@ async function sendAll<R>(
   // otherwise hold the upload at the read of a part that is never sent.
   const fail = (reason: unknown): void => {
     failure ??= { reason };
-    stop.abort(reason);
+    // Without a reason of its own, so a part still in flight is stopped with the runtime's
+    // `AbortError`, which the adapters' requests tell apart from a failure to repeat.
+    stop.abort();
     void parts.cancel(reason);
   };
   const sendPart = async (index: number, part: Part): Promise<void> => {

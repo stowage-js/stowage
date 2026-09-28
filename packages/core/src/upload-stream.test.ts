@@ -340,3 +340,25 @@ test("a stream that ended is not canceled", async () => {
 
   expect(source.canceled()).toBeUndefined();
 });
+
+test("the parts still in flight after a failure are stopped with an `AbortError`", async () => {
+  const source = countedStream(10);
+  const reasons: unknown[] = [];
+
+  await rejection(
+    async () =>
+      await uploadStream(source.body, options, {
+        whole: unexpected,
+        multipart: async (sendParts) =>
+          await sendParts(async (index, _bytes, signal) => {
+            if (index === 1) throw new Error("The part was refused");
+
+            await abortOf(signal).catch((reason: unknown) => reasons.push(reason));
+          }),
+      }),
+  );
+
+  expect(reasons).toHaveLength(1);
+  expect(reasons[0]).toBeInstanceOf(DOMException);
+  expect(reasons[0]).toMatchObject({ name: "AbortError" });
+});
