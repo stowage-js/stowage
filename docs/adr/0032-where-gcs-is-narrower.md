@@ -55,7 +55,7 @@ it apart: "The specified bucket does not exist." against "No such object". The a
 message and rejects the whole call with `NotFound`, as spec 4.7 requires of a failure of the
 request as a whole. Checking the bucket first needs `storage.buckets.get`, which a role scoped to
 objects lacks, and accepting a report of every key deleted would have been a withdrawal of 4.7.
-Reading a message is fragile, so a conformance case against the real bucket pins it.
+Reading a message is fragile, so a test against the real bucket pins it.
 
 `get` sends two requests side by side: the object's resource and its media download. The media
 download carries the content type, the ETag and the generation, and no user metadata, so spec 4.5,
@@ -104,3 +104,6 @@ covers the object, and anything else is `ProviderError`, whose message here name
   of 100, the two requests of `get`, the objects stored compressed, and raw metadata values that
   XML readers see garbled.
 - `adapter-memory` refuses none of the GCS keys, as it refuses none of the Azure keys.
+- ADR 0038 narrows the `404` that counts as deleted to one carrying the reason `notFound`: any
+  other `404` on a JSON path is `ProviderError`, so a wrong `endpoint` is not read as an empty
+  bucket.

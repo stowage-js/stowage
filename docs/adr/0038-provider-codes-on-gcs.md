@@ -24,16 +24,16 @@ serve, an XML `AccessDenied`; the message then names the status. Where no reason
 `notFound` for a media `404`, was the alternative, and it would put stowage's string where spec
 4.10 promises the provider's own.
 
-| Reason                                                   | Error code           | Note                                                                               |
-| -------------------------------------------------------- | -------------------- | ---------------------------------------------------------------------------------- |
-| `notFound`                                               | `NotFound`           | A missing bucket by its message, without `key`                                     |
-| `forbidden`, `insufficientPermissions`                   | `AccessDenied`       | ADR 0033                                                                           |
-| `objectUnderActiveHold`, `retentionPolicyNotMet`         | `ProviderError`      | A state of the object stowage does not create                                      |
-| `authError`, `required`                                  | `InvalidCredentials` | After the one repeat of ADR 0033 where `WWW-Authenticate` carries `invalid_token`  |
-| `invalidArgument`, `requestedRangeNotSatisfiable`        | `InvalidRequest`     |                                                                                    |
-| `uploadTooLarge`                                         | `InvalidRequest`     | Above the 5 TiB an object holds; `copyTo` is not sent (ADR 0037)                   |
-| `invalid`                                                | `ProviderError`      | `InvalidOption` naming `cursor` when answered to a `list` that carried a cursor    |
-| `conditionNotMet`, `conflict`, `clientClosedRequest`     | `ProviderError`      | By status; stowage sends no precondition, and `499` ends a session (ADR 0036)      |
+| Reason                                               | Error code           | Note                                                                              |
+| ---------------------------------------------------- | -------------------- | --------------------------------------------------------------------------------- |
+| `notFound`                                           | `NotFound`           | A missing bucket by its message, without `key`                                    |
+| `forbidden`, `insufficientPermissions`               | `AccessDenied`       | ADR 0033                                                                          |
+| `objectUnderActiveHold`, `retentionPolicyNotMet`     | `ProviderError`      | A state of the object stowage does not create                                     |
+| `authError`, `required`                              | `InvalidCredentials` | After the one repeat of ADR 0033 where `WWW-Authenticate` carries `invalid_token` |
+| `invalidArgument`, `requestedRangeNotSatisfiable`    | `InvalidRequest`     |                                                                                   |
+| `uploadTooLarge`                                     | `InvalidRequest`     | Above the 5 TiB an object holds; `copyTo` is not sent (ADR 0037)                  |
+| `invalid`                                            | `ProviderError`      | `InvalidOption` naming `cursor` when answered to a `list` that carried a cursor   |
+| `conditionNotMet`, `conflict`, `clientClosedRequest` | `ProviderError`      | By status; stowage sends no precondition, and `499` ends a session (ADR 0036)     |
 
 `retryable` follows the status alone, as ADR 0013 has it: no reason adds to the group of `408`,
 `429` and every `5xx`, and none removes from it. The `503` in plain text that a chunk leaving a gap

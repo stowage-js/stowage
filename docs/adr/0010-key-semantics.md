@@ -13,7 +13,7 @@ One key space holds for every adapter, and an adapter may refuse more than it. T
 the part every adapter carries, so a key that works against `adapter-memory` works against S3.
 Above it, `adapter-fs` refuses a segment longer than 255 bytes, which is what a file system
 allows, and reports that as `InvalidKey` as well. ADR 0020 has the Azure adapter refuse three more
-kinds of writable key. The alternative — a core that only refuses what
+kinds of writable key, ADR 0032 the GCS adapter two. The alternative — a core that only refuses what
 breaks everywhere, and each adapter defining the rest — moves the question into reference flow 5,
 where a prefix moves from `fs` to S3 and the answer arrives halfway through the move.
 

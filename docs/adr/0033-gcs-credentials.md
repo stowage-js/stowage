@@ -78,3 +78,5 @@ two parsers for the same refusal and left `HEAD` without one.
 - Whether a chunk sent to a resumable upload's session URI carries the token is decided with
   uploads. ADR 0036 decides that it carries none, since the session URI authorizes it and the
   service checks no token there; the credential is resolved once, for the session's start.
+- ADR 0038 narrows `403` to `AccessDenied` except for an object under a hold or a retention
+  policy, which is `ProviderError`.

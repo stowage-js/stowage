@@ -21,7 +21,7 @@ belong to service accounts and which organizations created since 2024-05-03 bloc
 where Google recommends OAuth tokens. The scheduled run reaches its bucket through workload
 identity federation, which yields a bearer token and not an HMAC key, so a promise on HMAC would
 have the run store a key or mint one per run. Third, an expired presigned URL answers
-`400 ExpiredToken` where spec 7.10 asserts `403`, and accepting both would loosen the case for
+`400 ExpiredToken` where spec 10.5 asserts `403`, and accepting both would loosen the case for
 every provider.
 
 An own adapter on the XML API would have kept the S3 shape with bearer tokens, and it would be a
@@ -80,3 +80,6 @@ bound and not a withdrawal.
   conformance suite. It would carry its own ADR, join the same version group and pass the same
   conformance suite. Until Google ships a build without Node APIs, its `workerd` cell would need
   `nodejs_compat`.
+- ADR 0035 accepts `400` or `403` for an expired URL after all, because `adapter-gcs` signs URLs
+  for the XML host as well, and closes the loosening feared above with a control URL that must
+  answer `200` in the same case.

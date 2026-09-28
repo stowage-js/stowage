@@ -94,3 +94,7 @@ something to check it against.
   signs one in about 130 lines and `@aws-sdk/s3-presigned-post` in about 149.
 - AWS has removed the SigV4 chapter covering POST policies and query-string signing from the live S3
   API reference. Where this repository cites either, it cites an Internet Archive capture.
+- ADR 0035 carries this over to GCS with a signer named beside the credential, since an access
+  token cannot sign. Signing through `signBlob` sends one request per URL, and an expired URL on
+  GCS answers `400`, so the expired-URL case accepts `400` or `403` beside a control URL that must
+  answer `200`.

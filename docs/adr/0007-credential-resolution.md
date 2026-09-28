@@ -105,3 +105,6 @@ call sites do not change, not because a string can be swapped.
   token to the `Expired` case. The case does not infer expiration from how long the rest of the
   suite took. Against R2 it reports itself skipped, so `Expired` is a code v0.1 has observed against
   S3 alone.
+- ADR 0036 departs from "resolved before every request" for the GCS adapter: the chunks, the
+  commit and the cancel of a resumable session carry no credential, since the session URI
+  authorizes them, so a streamed `put` resolves the credential once, for the session's start.
