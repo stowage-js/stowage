@@ -40,6 +40,8 @@ test.each([
   ["a null character", "a\u0000b", /U\+0000/],
   ["a unit separator", "a\u001Fb", /U\+001F/],
   ["a delete character", "a\u007Fb", /U\+007F/],
+  ["a lone high surrogate", "a\uD800b", /lone surrogate U\+D800/],
+  ["a lone low surrogate", "a\uDC00b", /lone surrogate U\+DC00/],
   ["1025 bytes", "a".repeat(1025), /1025/],
 ])("refuses a key holding %s as writable", (_name, key, reason) => {
   expect(invalidKeyReason(key, "writable")).toMatch(reason);
@@ -62,6 +64,8 @@ test.each([
   ["a dot-dot segment", "a/../b", /"\.\."/],
   ["nothing but a dot segment", ".", /"\."/],
   ["a null character", "a\u0000b", /U\+0000/],
+  ["a lone high surrogate", "a\uD800b", /lone surrogate U\+D800/],
+  ["a lone low surrogate", "a\uDC00b", /lone surrogate U\+DC00/],
 ])("refuses a key holding %s as addressable", (_name, key, reason) => {
   expect(invalidKeyReason(key, "addressable")).toMatch(reason);
 });
@@ -80,6 +84,7 @@ test.each([
   ["an empty segment", "docs//2026", /empty segment/],
   ["a dot-dot segment", "docs/../2026", /"\.\."/],
   ["a null character", "docs\u0000", /U\+0000/],
+  ["a lone high surrogate at its end", "docs/\uD83D", /lone surrogate U\+D83D/],
 ])("refuses a prefix holding %s", (_name, prefix, reason) => {
   expect(invalidKeyReason(prefix, "prefix")).toMatch(reason);
 });
@@ -97,4 +102,14 @@ test("measures the Unicode form it was given rather than a normalized one", () =
 
   expect(invalidKeyReason(decomposed, "writable")).toMatch(/1026/);
   expect(invalidKeyReason(decomposed.normalize("NFC"), "writable")).toBeUndefined();
+});
+
+test("accepts a character above the Basic Multilingual Plane, which is a surrogate pair", () => {
+  expect(invalidKeyReason("emoji/😀.png", "writable")).toBeUndefined();
+});
+
+// A lone surrogate has no UTF-8 form, so the length measured below it would count the
+// U+FFFD an encoder writes in its place rather than the key.
+test("refuses a lone surrogate before it measures the length", () => {
+  expect(invalidKeyReason(`${"a".repeat(1025)}\uD800`, "writable")).toMatch(/lone surrogate/);
 });

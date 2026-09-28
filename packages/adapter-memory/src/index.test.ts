@@ -638,6 +638,7 @@ test.each([
   ["a dot-dot segment", "greetings/../formal"],
   ["a backslash", "greetings\\formal"],
   ["a control character", "greeting\u0000"],
+  ["a lone surrogate", "greeting-\uD800"],
   ["1025 bytes", "a".repeat(1025)],
 ])("refuses to put under a key holding %s", async (_name, key) => {
   const error = await storageErrorOf(memoryStorage().put(key, "hello"));
@@ -656,6 +657,7 @@ test.each([
   ["a dot-dot segment", "greetings/../formal"],
   ["nothing but a dot segment", "."],
   ["a control character", "greeting\u0000"],
+  ["a lone surrogate", "greeting-\uDC00"],
 ])("refuses to address a key holding %s", async (_name, key) => {
   const error = await storageErrorOf(memoryStorage().get(key));
 
@@ -1076,8 +1078,11 @@ test("keeps the value of a refused option out of the message", async () => {
   expect(error.message).not.toContain("4096");
 });
 
-test("refuses a prefix that is no prefix", async () => {
-  const error = await storageErrorOf(memoryStorage().list({ prefix: "/leading" }).page());
+test.each([
+  ["a leading slash", "/leading"],
+  ["a lone surrogate", "lone-\uD800"],
+])("refuses a prefix holding %s", async (_name, prefix) => {
+  const error = await storageErrorOf(memoryStorage().list({ prefix }).page());
 
   expect(error.code).toBe("InvalidKey");
   expect(error.operation).toBe("list");
@@ -1103,10 +1108,9 @@ test("continues from a cursor without the storage that handed it out", async () 
   expect([...objects.map((entry) => entry.key), ...rest].toSorted()).toEqual(keys);
 });
 
-test("carries a key holding a lone surrogate through a cursor", async () => {
-  // Spec 4.8 rules out the control characters alone, so a lone surrogate is a key the
-  // storage holds and a cursor has to name.
-  const keys = ["lone/\uD800", "lone/\uDFFF", "pair/\u{1F600}"];
+test("carries a key above the Basic Multilingual Plane through a cursor", async () => {
+  // Such a character is two code units, which a cursor has to carry as one.
+  const keys = ["pair/\u{1F600}", "pair/\u{10FFFF}", "pair/a"];
   const storage = await storageWith(...keys);
   const { objects, cursor } = await storage.list({ pageSize: 1 }).page();
   const rest = await iterate(storage.list({ cursor }));

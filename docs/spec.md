@@ -359,14 +359,16 @@ Every key is a string of Unicode characters measured in UTF-8 bytes. The core va
 before an adapter sends a request and never rewrites it. Which rule applies depends on whether
 stowage creates the key or only names one (ADR 0010).
 
-| Rule          | Applies to                                                                       | Requirements                                                                                                                                                                |
-| ------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `writable`    | `put`, the `to` of `copy` and `move`, `presignPut`                               | 1 to 1024 bytes; no `.` or `..` as a segment; no leading `/`; no empty segment (`//`); no trailing `/`; no backslash; no character in `U+0000` to `U+001F` and no `U+007F`  |
-| `addressable` | `get`, `stat`, `exists`, `delete`, the `from` of `copy` and `move`, `presignGet` | At least 1 byte; no `.` or `..` as a segment; no leading `/`; no empty segment; no control character. A trailing `/`, a backslash and a length above 1024 bytes are allowed |
-| `prefix`      | `list`, `deleteAll`                                                              | The `addressable` rule, except that it may be empty, may end in `/`, and may end in the middle of a segment                                                                 |
+| Rule          | Applies to                                                                       | Requirements                                                                                                                                                                                   |
+| ------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `writable`    | `put`, the `to` of `copy` and `move`, `presignPut`                               | 1 to 1024 bytes; no `.` or `..` as a segment; no leading `/`; no empty segment (`//`); no trailing `/`; no backslash; no character in `U+0000` to `U+001F` and no `U+007F`; no lone surrogate  |
+| `addressable` | `get`, `stat`, `exists`, `delete`, the `from` of `copy` and `move`, `presignGet` | At least 1 byte; no `.` or `..` as a segment; no leading `/`; no empty segment; no control character; no lone surrogate. A trailing `/`, a backslash and a length above 1024 bytes are allowed |
+| `prefix`      | `list`, `deleteAll`                                                              | The `addressable` rule, except that it may be empty, may end in `/`, and may end in the middle of a segment                                                                                    |
 
 - There is no allowlist. `#`, `%`, `?`, `+`, a space, `'` and every character above ASCII are legal.
   An adapter encodes a key itself and never builds a request path through the `URL` constructor.
+- A lone surrogate, which a JavaScript string can hold, is no Unicode character and has no UTF-8
+  form, so every rule refuses it: an encoder would rewrite it or fail on it, and no provider holds it.
 - Nothing normalizes the Unicode form. Two keys that are equivalent under Unicode without being
   equal byte for byte may name one object or two, depending on the provider. A storage that
   declares `keyBytesPreserved` returns every key byte for byte as it was written; the others

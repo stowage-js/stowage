@@ -28,11 +28,15 @@ then refuses, which would leave a file browser unable to open what it displays.
 
 A key is a string of Unicode characters whose length is measured in UTF-8 bytes, from 1 to 1024,
 which is how S3 measures it. Counting characters instead would place the limit differently
-depending on the script a key is written in. Nothing normalizes the Unicode form, which follows
-from the first paragraph and costs something concrete on both sides of the parity core: a file
-system that stores names in NFD, as HFS+ did, returns a key in a different form from the one it
-was given, APFS keeps the form but folds the two when it looks a name up, and R2, which normalizes
-to NFC before storing, holds one object where S3 holds two.
+depending on the script a key is written in. A JavaScript string can also hold a lone surrogate,
+which is no Unicode character: it has no UTF-8 form, so every encoder on the way to a provider
+would rewrite it, as `TextEncoder` writes `U+FFFD` in its place, or fail on it, as
+`encodeURIComponent` throws. The rule refuses it rather than let an adapter store another key.
+Nothing normalizes the Unicode form, which follows from the first paragraph and costs something
+concrete on both sides of the parity core: a file system that stores names in NFD, as HFS+ did,
+returns a key in a different form from the one it was given, APFS keeps the form but folds the two
+when it looks a name up, and R2, which normalizes to NFC before storing, holds one object where S3
+holds two.
 
 There is no allowlist of characters. `#`, `%`, `?`, `+`, a space and any character above ASCII
 are all legal in a key, so an adapter has to encode a key itself, segment by segment, and may
@@ -56,10 +60,12 @@ already changed.
   way, as ADR 0005 describes. `copy` and `move` check source and destination before acting on
   either.
 - A writable key holds 1 to 1024 UTF-8 bytes and contains no `..` or `.` as a segment, no leading
-  `/`, no empty segment, no trailing `/`, no backslash, and no character in `U+0000`–`U+001F` or
-  `U+007F`. A backslash is a separator on Windows and reads as one in any listing; `NUL` is in no
-  file name.
-- An addressable key drops from that rule the trailing `/`, the backslash and the length limit.
+  `/`, no empty segment, no trailing `/`, no backslash, no character in `U+0000`–`U+001F` or
+  `U+007F`, and no lone surrogate. A backslash is a separator on Windows and reads as one in any
+  listing; `NUL` is in no file name.
+- An addressable key drops from that rule the trailing `/`, the backslash and the length limit,
+  and keeps the rest, the lone surrogate included: no provider holds a key with one, so refusing it
+  leaves no object unreachable.
   `list` therefore returns pseudo-directory markers and keys from other tools, and `get`, `delete`
   and the source of a copy accept them. The provider may still refuse what it cannot hold: S3
   answers a key above 1024 bytes with `KeyTooLongError`, which `adapter-s3` reports as `InvalidKey`,
