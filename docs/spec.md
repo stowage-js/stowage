@@ -1341,8 +1341,8 @@ export function gcsStorage(options: GcsAdapterOptions): GcsStorage;
   call (section 9.9).
 - `gcsStorage` is overloaded on `signer`. With one it returns `GcsSigningStorage`, which carries
   `presignGet` and `presignPut`; without one it returns `GcsStorage`, which carries neither. A
-  `signer` passed from a value typed `GcsSigner | undefined` yields `GcsStorage`, narrower than the
-  storage at runtime (ADR 0035).
+  caller whose `signer` may be absent gets `GcsStorage`, narrower than the storage at runtime (ADR
+  0035).
 - `put` on `GcsStorage` accepts the `PutOptions` of section 4.3 and nothing more. Storage classes,
   ACLs, preconditions, object versioning, holds, retention policies, customer-managed and
   customer-supplied encryption keys and Autoclass are not offered.
