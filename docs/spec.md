@@ -148,7 +148,7 @@ A worker answers a client `GET` and passes the client's `Range` on to the provid
 - Holds when: nothing is buffered, so memory stays flat for an object of any size; a range returns
   partial content; the client disconnecting cancels the stream and reaches the provider.
 - Fails as: missing key (`NotFound`); range not satisfiable (`InvalidRequest`); on GCS, a range on
-  an object another tool stored gzip-compressed (`ProviderError`, section 9.2).
+  an object another tool stored with a content coding (`ProviderError`, section 9.2).
 
 ### Flow 5: move a prefix from the file system to a cloud provider
 
@@ -300,8 +300,10 @@ export interface ObjectStat extends ObjectEntry {
 
 - `put`, `stat`, `copy`, `move` and `get` produce an `ObjectStat`. A listing yields `ObjectEntry`,
   because a listing response carries neither content type nor metadata.
-- `size` counts bytes. After `put` it is the number of bytes written; after a ranged `get` it is
-  the size of the whole object, not of the range.
+- `size` counts the bytes the storage holds. After `put` it is the number of bytes written; after
+  a ranged `get` it is the size of the whole object, not of the range. An object another tool
+  stored with a content coding may arrive decoded and longer than `size`, since `fetch` decodes
+  content codings on every response; stowage never writes one (ADR 0040).
 - `lastModified` after `put`, `copy` and `move` is the time the provider reported when it accepted
   the object; a later `stat` may differ from it by the provider's rounding, one second on S3.
 - `etag` is set where the provider sends one. `adapter-fs` sends none. Its value is opaque and is
@@ -323,7 +325,8 @@ export interface StoredObject {
 
 - `stat` describes the object whose bytes the body carries. What `get` costs is stated per
   adapter: one request on `adapter-s3` and `adapter-azure-blob`, two sent side by side on
-  `adapter-gcs` (section 9.4, ADR 0032).
+  `adapter-gcs`, and at most two more, one after the other, where a writer replaced the object
+  between them (section 9.4, ADR 0032, ADR 0040).
 - The body is read once. A second call to any of the four readers rejects with `InvalidRequest`.
 - `text()` decodes UTF-8. `json()` parses the text; a parse failure rejects with the runtime's
   `SyntaxError`, which is not a `StorageError`.
@@ -1375,7 +1378,7 @@ reached through `adapter-s3` over the XML API is an S3-compatible endpoint like 
 | Writes per key                     | GCS answers `429` above one write per second and name; the retry of section 9.5 may recover a collision, but does not guarantee it. The later commit wins |
 | Incomplete uploads                 | A session whose cancel did not arrive keeps its bytes until GCS removes it a week after it started; stowage removes none                                  |
 | Storage class                      | `put` and `copy` write the bucket's default class; `move` keeps the source's                                                                              |
-| Objects stored compressed          | An object another tool stored with `Content-Encoding: gzip` is read decoded; a range on it is `ProviderError` unless it covers the whole object           |
+| Objects stored compressed          | An object another tool stored with a content coding is read decoded, longer than its `size`, which is the stored size; any range on it is `ProviderError` |
 | Presigned URL host                 | The configured endpoint, path-style                                                                                                                       |
 | Response overrides on `presignGet` | Answered as the two response headers; GCS ignores `response-cache-control` and `response-expires`, so `GcsPresignGetOptions` carries neither              |
 
@@ -1418,16 +1421,24 @@ reached through `adapter-s3` over the XML API is an S3-compatible endpoint like 
   another storage is `InvalidOption` naming `cursor` before any request.
 - `stat` and `exists` read the object's resource. `get` sends the resource request and the media
   download side by side, since the media download carries no user metadata. Where the two name
-  different generations, because a writer replaced the object between them, the body is canceled
-  and both are sent again, so `stat` describes the bytes the body carries (ADR 0032).
+  different generations, because a writer replaced the object between them, the resource is read
+  again pinned to the media download's generation, and the body is kept. Where that answers
+  `404 notFound`, the body is canceled and the media download is sent again pinned to the first
+  resource's generation, with the range. Where that answers `404` as well, `get` rejects with
+  `NotFound` whose `key` is set, although the key may hold a newer object. Each of the two is one
+  request on the budget of section 9.5, and `stat` describes the bytes the body carries. Which
+  generation is newer is not read from their numbers, which GCS does not promise to increase (ADR
+  0032, ADR 0040).
 - A `userMetadata` key is sent folded to lower case, and values travel in the JSON body as
   written, raw Unicode included. Keys are handed back as stored, so an object another tool wrote
   with `A` and `a` returns both. A stored value that holds RFC 2047 encoded words is decoded on the
   way back, so an object `adapter-s3` wrote through the XML API reads the same (ADR 0032).
-- An object stored with `Content-Encoding: gzip` is read decoded. A `range` on it is answered with
-  the whole body, which stands where the range covers the object, as section 4.13 has it; any other
-  range is `ProviderError` whose message names `x-goog-stored-content-encoding: gzip`. stowage
-  never writes `Content-Encoding` itself.
+- An object stored with a content coding is read decoded: GCS decodes gzip, and `fetch` decodes
+  any coding GCS serves as stored. `size` stays the stored size, so the body may be longer. Every
+  `range` on such an object is `ProviderError`, its body canceled, whose message names the stored
+  coding the resource's `contentEncoding` or the media download's
+  `x-goog-stored-content-encoding` carries; `rangeStartRefusal` does not run on it. stowage never
+  writes `Content-Encoding` itself (ADR 0040).
 - `delete` sends batch requests of at most 100 deletes. A subresponse answered `404 notFound`
   counts as deleted. A missing bucket, which a batch answers with the same `404 notFound`, is told
   apart by its message and rejects the whole call with `NotFound`. Any other failed subresponse
@@ -1546,7 +1557,9 @@ section 4.10 has it, except for a `404`. `retryable` follows the status alone (A
 - In `get`, where the resource request fails, its failure is reported, and a failure of the media
   download only where the resource succeeded; either failure aborts the other request. `attempts`
   counts the request whose failure is reported. A `get` racing the creation or deletion of its key
-  may answer `NotFound`.
+  may answer `NotFound`. After a generation mismatch, a `404` of the resource pinned to the media
+  download's generation is no failure, and a `404` of the media download pinned after it is
+  `NotFound` with `key`, its message word for word (section 9.4, ADR 0040).
 - A media `416` is reported as `rangeStartRefusal` of section 4.13 for the size the resource named:
   `InvalidRequest`, `status: 416`, no `providerCode`.
 - `status` is set on every error that carries a response, the message where a body carries one.
@@ -2001,7 +2014,8 @@ that disagrees with this document is corrected without a changeset.
     `adapter-azure-blob` the missing `userMetadataTokenKeys`, the three refused kinds of writable
     key and the batch of 256 of section 8.1, and the rows of section 8.2; for `adapter-gcs`
     `presignedUrls` only with a `signer`, the two refused kinds of writable key and the batch of 100
-    of section 9.1, the two requests of `get`, the metadata values that XML readers see garbled,
+    of section 9.1, the requests of `get`, up to four where a writer replaces the object, the
+    metadata values that XML readers see garbled,
     and a cursor handed to a listing of another prefix yielding an empty page, and the rows of
     section 9.2.
   - Notes, what a caller writes themselves: for `adapter-s3` how a connection URL is split into
@@ -2090,6 +2104,9 @@ Promises:
 - `adapter-gcs`: a `308` reaches the adapter as it is on `workerd`, as it did on Node, Bun and
   Deno, so a resumable session runs there. `put/multipart-round-trip` against the real bucket on
   `workerd` shows it (ADR 0036).
+- `adapter-gcs`: `objects.get` pinned to a generation that a writer replaced answers
+  `404 notFound`, which the two pinned requests of section 9.4 read. The reference names no answer
+  for it and no measurement asked; a test of the adapter against the real bucket does (ADR 0040).
 
 Recorded only, since this document already states what follows from any answer:
 
