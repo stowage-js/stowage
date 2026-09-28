@@ -110,7 +110,9 @@ federated principal cannot sign, and `signBlob` needs a service account to sign 
   unverified; if it does not, that point stays open.
 - storage-testbench is not an endpoint of the suite: it has no paged listing and no batch endpoint.
   Whether a test of the adapter uses its fault injection for retries or its multi-call `rewrite` is
-  for the decisions on uploads, copies and provider codes.
+  for the decisions on uploads, copies and provider codes. ADR 0036 and ADR 0037 use neither.
+- ADR 0037 puts `move/round-trip` and `move/missing-source` on the divergence list, since
+  fake-gcs-server 1.56.1 serves no `moveTo`.
 - This asks two things of the decision on presigned URLs: a signer taking a key of the caller's
   own, which signs without a request, and a configurable host for the URLs the adapter signs, as
   `endpoint` is for its requests. If that decision admits no local signer, the emulator's target
