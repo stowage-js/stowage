@@ -10,6 +10,7 @@ import {
   type PresignedPut,
   type PutBody,
   type PutOptions,
+  rangeHeader,
   type Storage,
   type StoredObject,
 } from "@stowage/core";
@@ -37,7 +38,7 @@ import {
   presignGet,
   presignPut,
 } from "./presign.ts";
-import { rangeAnswerFailure, rangeHeader, requireRange } from "./range.ts";
+import { rangeAnswerFailure, requireRange } from "./range.ts";
 import { send } from "./request.ts";
 import { azureBlobError } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";

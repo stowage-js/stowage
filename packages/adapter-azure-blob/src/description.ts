@@ -1,6 +1,6 @@
-import type { ObjectStat, StorageError } from "@stowage/core";
+import { type ObjectStat, type StorageError, wholeSizeOf } from "@stowage/core";
 
-import { partialContent, wholeSizeOf } from "./range.ts";
+import { partialContent } from "./range.ts";
 import { azureBlobError } from "./storage-error.ts";
 import { readUserMetadata } from "./user-metadata.ts";
 
@@ -62,7 +62,7 @@ export function unquotedEtag(etag: string): string {
 
 function sizeOf(container: string, key: string, operation: string, response: Response): number {
   if (response.status === partialContent) {
-    const size = wholeSizeOf(response);
+    const size = wholeSizeOf(response.headers.get("content-range"));
 
     if (size === undefined) {
       throw incomplete(container, key, operation, "no size of the whole object");
