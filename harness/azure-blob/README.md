@@ -156,4 +156,6 @@ case passes where it fails as the entry says and fails where it passes. The six 
 a copy are on it while the pinned Azurite lacks `Put Blob From URL` and ignores
 `x-ms-copy-source-authorization` (ADR 0025). `presign/put` and `flow/2-presigned-put` are on it
 because Azurite leaves the headers `srh` names out of the string to sign of a user delegation SAS,
-and so refuses the upload the real account accepts (ADR 0022).
+and so refuses the upload the real account accepts (ADR 0022). `list/noncharacter-key` stays
+unrun against Azurite, which answers a listing of a name holding `U+FFFE` with `500`: the blob
+the case leaves behind would fail the run's `cleanup` the same way (#171).
