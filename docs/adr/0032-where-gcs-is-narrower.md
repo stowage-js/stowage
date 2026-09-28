@@ -93,11 +93,13 @@ covers the object, and anything else is `ProviderError`, whose message here name
 - A configuration without a way to sign declares no `presignedUrls`, while spec 4.9 ties a missing
   declaration to missing methods. Which type such a storage carries, and how a signer is
   configured, is left to the decisions on credentials and presigned URLs.
-- `list/noncharacter-key` stays unrun against GCS, as it does for `adapter-fs` on macOS, and the
-  divergence list of the conformance endpoint carries it. What fake-gcs-server answers for a
-  missing bucket goes on that list as well.
-- A conformance case for GCS against the real bucket asserts that `delete` in a missing bucket
-  rejects with `NotFound` instead of reporting its keys deleted.
+- `list/noncharacter-key` stays unrun against GCS, as it does for `adapter-fs` on macOS: the GCS
+  target leaves it out on both endpoints. It is no divergence, since no real endpoint runs the case
+  that would settle an entry (ADR 0034).
+- A test of the adapter in the harness asserts, against the real bucket alone, that `delete` in a
+  missing bucket rejects with `NotFound` instead of reporting its keys deleted. It pins the
+  service's message, which fake-gcs-server need not share, so nothing goes on the divergence list
+  for it (ADR 0034).
 - The README of the GCS adapter lists as limits the two refused kinds of writable key, the batch
   of 100, the two requests of `get`, the objects stored compressed, and raw metadata values that
   XML readers see garbled.
