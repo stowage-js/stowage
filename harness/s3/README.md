@@ -45,6 +45,8 @@ Without them the case that needs it reports as skipped.
 
 Docker is required. Without `STOWAGE_S3_ENDPOINT` the run fails rather than passing with
 the tier skipped (ADR 0012), and CI starts `compose.yml` itself before the harnesses run.
+A machine without Docker sets `STOWAGE_CONFORMANCE_ENDPOINTS` to `none`, which leaves both
+endpoint tiers out and runs the cells that need no endpoint, as the macOS jobs of CI do.
 
 The credentials in `s3.json` are this container's and nothing else's: they authenticate a
 local emulator holding a run's throwaway objects.

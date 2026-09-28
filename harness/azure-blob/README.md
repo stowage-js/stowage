@@ -18,6 +18,8 @@ beside it. `pnpm test:bun`, `pnpm test:deno` and `pnpm test:workerd` run the sam
 three columns, against the same endpoint. Docker and `openssl` are required. Without
 `STOWAGE_AZURE_BLOB_ACCOUNT` and `STOWAGE_AZURE_BLOB_CONTAINER` the run fails rather than passing
 with the tier skipped (ADR 0012), and CI starts `compose.yml` itself before the harnesses run.
+A machine without Docker sets `STOWAGE_CONFORMANCE_ENDPOINTS` to `none`, as `harness/s3/README.md`
+describes.
 
 Azurite listens on `127.0.0.1:10000`. Where that port is taken, `STOWAGE_AZURE_BLOB_PORT` names
 another one, and the printed endpoint follows it.
