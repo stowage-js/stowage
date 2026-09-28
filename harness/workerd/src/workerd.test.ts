@@ -7,9 +7,9 @@ import { describeWorkerd, observationOf } from "./describe-workerd.ts";
 const { probes, flowOne } = await describeWorkerd({ describe, test });
 
 /* oxlint-disable vitest/valid-title -- the measurement's block and name are the ones the
-   spec 13 report reads, kept once in `first-run.ts` for both */
+   spec 14 report reads, kept once in `first-run.ts` for both */
 
-// Spec 13 asks what flow 1 costs here, which a failure of the case answers as well: the
+// Spec 14 asks what flow 1 costs here, which a failure of the case answers as well: the
 // case's own result is reported beside the others, and this carries the measurement.
 describe.skipIf(flowOne === undefined)(firstRunSuite, () => {
   // oxlint-disable-next-line vitest/expect-expect -- a measurement, which passes whatever it measured

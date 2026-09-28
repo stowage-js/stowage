@@ -275,9 +275,9 @@ jobs:
 
       - run: ${{ matrix.command }}
 
-  # Spec 13: the run reports on each point it settles, one column per endpoint and runtime.
+  # Spec 14: the run reports on each point it settles, one column per endpoint and runtime.
   report:
-    name: Report on spec 13
+    name: Report on spec 14
     needs: [real-endpoints]
     if: always()
     runs-on: ubuntu-latest

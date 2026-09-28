@@ -78,3 +78,6 @@ per adapter, and R2 speaking S3's wire protocol makes that key a question of its
 - The stub the decision came from is on the branch `spike/core-api`, commit `cfc771c`: four
   shapes, the five reference flows written against each, and the type errors each shape does and
   does not produce.
+- ADR 0032 moves the number of requests `get` costs out of the core: the stored object still
+  describes the object whose bytes its body carries, and the GCS adapter sends two requests side by
+  side for it, since its media download carries no user metadata.

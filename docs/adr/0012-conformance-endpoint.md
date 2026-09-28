@@ -113,3 +113,6 @@ this repository happens to test against and nothing about the API a third-party 
   worth deciding again.
 - ADR 0023 carries this over to Azure Blob, with Azurite per commit and a real account in the
   `slow` tier.
+- ADR 0034 carries this over to GCS, with fake-gcs-server per commit and a real bucket in the
+  `slow` tier, and names an exception: no GCS emulator checks a credential or a signature, so those
+  cases run against the real bucket alone.

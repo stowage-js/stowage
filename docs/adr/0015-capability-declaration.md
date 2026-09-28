@@ -112,3 +112,6 @@ would pass because its calls all fail correctly.
 - The core exports no guard the adapters call. An adapter knows without asking what it does not
   support, and a function wrapping `capabilities.includes()` would move nothing; what the core
   owns is the error, so the code, the message and the `capability` field are the same everywhere.
+- ADR 0032 has the GCS adapter declare `presignedUrls` only where its configuration names a signer,
+  and ADR 0035 overloads its constructor on that option, so the type carries the two methods
+  exactly where the capability is declared.

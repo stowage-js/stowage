@@ -122,3 +122,5 @@ a conformance suite that can only match on a message is the most fragile suite t
   arrive with `retryable` set and its retries already spent, and a failure in a stream that cannot
   be replayed arrives without having been retried at all. `attempts` counts the requests that went
   out, so those two cases are told apart. Which codes are transient, and with what backoff, is ADR 0013.
+- ADR 0038 has the GCS adapter's `exists` rethrow a missing bucket, a `NotFound` without `key`,
+  since GCS names it apart on every path; the other adapters answer `false` for it.

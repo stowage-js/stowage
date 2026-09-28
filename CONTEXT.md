@@ -7,16 +7,16 @@ nothing else.
 ## Language
 
 **Provider**:
-The vendor or service that stores the bytes: Amazon S3, Cloudflare R2, Azure Blob, the local
-file system. For the local file system it is the file system the root lies on, whose limits on
+The vendor or service that stores the bytes: Amazon S3, Cloudflare R2, Azure Blob, Google Cloud
+Storage, the local file system. For the local file system it is the file system the root lies on, whose limits on
 names differ from one file system to the next and are reported rather than repaired.
 _Avoid_: cloud, backend, service
 
 **Promised provider**:
-A provider stowage keeps its promises against: AWS S3, Cloudflare R2 and Azure Blob Storage, the
-last as a general-purpose v2 account without hierarchical namespace in the public cloud, and the
-local file systems of Linux and macOS. Another
-endpoint speaking the same wire protocol can be configured and is not promised. An adapter is not
+A provider stowage keeps its promises against: AWS S3; Cloudflare R2; Azure Blob Storage, as a
+general-purpose v2 account without hierarchical namespace in the public cloud; Google Cloud
+Storage, as a bucket with uniform bucket-level access and without hierarchical namespace in the
+public cloud; and the local file systems of Linux and macOS. Another endpoint speaking the same wire protocol can be configured and is not promised. An adapter is not
 told which promised provider it faces.
 _Avoid_: supported provider, tested provider, official provider
 
@@ -33,7 +33,8 @@ _Avoid_: disk, client, connection
 
 **Account**:
 The Azure Blob namespace a container belongs to. A storage names it where it is constructed,
-beside the container, and it is not part of the credential. S3 has no counterpart.
+beside the container, and it is not part of the credential. S3 and Google Cloud Storage have no
+counterpart.
 _Avoid_: tenant, subscription, storage account
 
 **Wire protocol**:
@@ -74,8 +75,9 @@ _Avoid_: metadata, tags, attributes, headers
 **Part**:
 One piece of an upload, sent as a request of its own and assembled by the provider into a single
 object. Its size is the memory cost of one in-flight part, because an adapter holds a part whole
-in order to sign it. Total upload memory is the part size multiplied by the number of parts in
-flight. A provider may name it otherwise; Azure Blob calls it a block.
+in order to sign it or to send it again. Total upload memory is the part size multiplied by the
+number of parts in flight. A provider may name it otherwise; Azure Blob calls it a block, Google
+Cloud Storage a chunk.
 _Avoid_: chunk, block, segment
 
 **Multipart upload**:
@@ -83,7 +85,7 @@ An upload sent as several parts and committed in one final request. It belongs t
 nothing about it reaches the API, so there is no upload to resume and no count of parts to read,
 and an upload that does not complete leaves its parts with the provider, which charges for them
 until it or a lifecycle rule discards them. Whether an upload can abort itself is the provider's
-to offer, not part of the term.
+to offer, not part of the term. Google Cloud Storage calls its form a resumable upload.
 _Avoid_: chunked upload, resumable upload, streaming upload
 
 **Key**:
@@ -157,9 +159,16 @@ _Avoid_: feature, feature flag, extension
 **Presigned URL**:
 A URL that carries its own authorization, so a client holding no credential can call it. It is bound
 to one operation on one key, to the content it may carry, and to a moment it stops working — at the
-latest when the credential that signed it expires. A client may have to send headers beside it
+latest when the key of its signer expires. A client may have to send headers beside it
 that the signature names. Azure Blob calls its form a shared access signature.
 _Avoid_: signed URL, temporary link, upload URL
+
+**Signer**:
+Whoever signs a storage's presigned URLs: a key held by the caller, or an identity the provider
+signs as on request. Where the credential can sign, it is the signer too; on Google Cloud Storage an
+access token cannot, so a signer is named beside the credential, and a storage without one has no
+presigned URLs.
+_Avoid_: signing credential, URL credential
 
 **Error code**:
 The name stowage gives a failure, drawn from a closed set that means the same thing in every

@@ -121,7 +121,7 @@ export function azureBlobTarget(
 
     createStorageWithBadCredentials: () => azureBlobStorage(storageWithBadCredentials(configured)),
 
-    // Spec 9.2 keeps the case out of a run where the target supplies no factory, which is
+    // Spec 10.2 keeps the case out of a run where the target supplies no factory, which is
     // what Azurite, checking no role, leaves (ADR 0023).
     ...(denied === undefined
       ? {}

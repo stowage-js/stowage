@@ -16,10 +16,10 @@ import { scheduledAgainstAccount } from "./configuration.ts";
 import { configuredStorage, endpointOrFail } from "./environment.ts";
 import { azureProbeNames } from "./first-run.ts";
 
-/* oxlint-disable vitest/valid-title -- the titles are the names the spec 13 report reads,
+/* oxlint-disable vitest/valid-title -- the titles are the names the spec 14 report reads,
    kept once in `first-run.ts` for both */
 
-// Spec 13 and spec 9.4: what only the account can answer, asked of it by the scheduled run
+// Spec 14 and spec 10.4: what only the account can answer, asked of it by the scheduled run
 // under the access token the suite runs under. Azurite applies response overrides to any
 // `GET`, carries no CORS rule and differs from the service where these probes look, so they
 // run against the account alone. The requests go through the adapter's own signing and
@@ -221,7 +221,7 @@ describe.skipIf(!scheduled)(firstRunSuite, () => {
 
   // A cursor of this adapter's own around a marker the service never handed out, which is
   // the nearest a run comes to one the service no longer continues from.
-  // oxlint-disable-next-line vitest/expect-expect -- spec 13 records what the service answers, so any answer passes
+  // oxlint-disable-next-line vitest/expect-expect -- spec 14 records what the service answers, so any answer passes
   test(azureProbeNames.staleMarker, async ({ task }) => {
     await storage().put(`${prefix}listed/one`, "listed");
 
@@ -242,7 +242,7 @@ describe.skipIf(!scheduled)(firstRunSuite, () => {
 
   // Spec 4.8 leaves it to the provider; one object under both names means the service
   // normalizes, and two mean `keyBytesPreserved` can be declared.
-  // oxlint-disable-next-line vitest/expect-expect -- spec 13 records what the service answers, so any answer passes
+  // oxlint-disable-next-line vitest/expect-expect -- spec 14 records what the service answers, so any answer passes
   test(azureProbeNames.unicodeEquivalentNames, async ({ task }) => {
     const below = `${prefix}unicode/`;
     // Built from code points, since an editor may save either form as the other.
@@ -267,7 +267,7 @@ describe.skipIf(!scheduled)(firstRunSuite, () => {
   // reads what the service did with the name. The C1 range goes one character at a time,
   // since the reference forbids `U+0081` alone and a refusal is loosened only where the run
   // shows it needless.
-  // oxlint-disable-next-line vitest/expect-expect -- spec 13 records what the service answers, so any answer passes
+  // oxlint-disable-next-line vitest/expect-expect -- spec 14 records what the service answers, so any answer passes
   test(azureProbeNames.refusedWritableKeys, async ({ task }) => {
     const below = `${prefix}refused/`;
     const keys: readonly (readonly [kind: string, key: string])[] = [

@@ -17,7 +17,8 @@ identities whenever both outputs end up in one graph: ADR 0005 branded the error
 `Symbol.for`, so matching on `code` survives that, but `instanceof` does not.
 
 The five carry one version, as a `fixed` group in Changesets, and ADR 0019 adds
-`@stowage/adapter-azure-blob` as the sixth. ADR 0006 requires
+`@stowage/adapter-azure-blob` as the sixth and ADR 0031 `@stowage/adapter-gcs` as the seventh.
+ADR 0006 requires
 `@stowage/conformance` to carry the version of `@stowage/core`, and extending that to the
 adapters removes the question of whether `adapter-s3@0.4` runs against `core@0.6`. The price is a
 release of `adapter-fs` that changed nothing, paid in 0.x against a compatibility matrix that

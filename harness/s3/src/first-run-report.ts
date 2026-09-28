@@ -40,7 +40,7 @@ export interface FirstRunRun {
 }
 
 /**
- * Spec 13: the run reports on each point it settles, one column per endpoint and runtime.
+ * Spec 14: the run reports on each point it settles, one column per endpoint and runtime.
  * A promise it disproves is withdrawn by hand; the table is what that decision reads.
  */
 export function firstRunReport(runs: readonly FirstRunRun[]): string {
@@ -58,7 +58,7 @@ export function firstRunReport(runs: readonly FirstRunRun[]): string {
     tableRow(header.map(() => "---")),
     ...rows.map(tableRow),
     "",
-    "A promise this run disproves is withdrawn from `docs/spec.md` in a minor release (spec 10).",
+    "A promise this run disproves is withdrawn from `docs/spec.md` in a minor release (spec 11).",
     "",
   ].join("\n");
 }
