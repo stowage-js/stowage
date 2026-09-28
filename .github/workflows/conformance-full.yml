@@ -219,6 +219,62 @@ jobs:
         if: always()
         run: ./harness/azure-blob/stop.sh
 
+  # Spec 6 and ADR 0010: `adapter-fs` on macOS, as the per-commit run has it, with both tiers.
+  # The runners have no Docker, so the endpoint tiers stay out (ADR 0012). This job's name
+  # differs from the macOS jobs of `ci.yml` because `main` requires those by name, and a run
+  # dispatched on a pull request's branch would otherwise answer for them.
+  macos:
+    name: ${{ matrix.name }} against the macOS file system
+    runs-on: macos-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Vitest and `bun test` stop a test after five seconds, which leaves the
+          # thousand-object cases of the slow tier little room on a shared runner.
+          - name: Node 24
+            node: "24"
+            command: pnpm exec vitest run harness/node --testTimeout=600000
+          - name: Node 26
+            node: "26"
+            command: pnpm exec vitest run harness/node --testTimeout=600000
+          - name: Bun
+            node: "24"
+            command: pnpm --filter @stowage/harness-bun exec bun test src --timeout 600000
+          - name: Deno
+            node: "24"
+            command: pnpm run test:deno
+    env:
+      STOWAGE_CONFORMANCE_ENDPOINTS: none
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - if: matrix.name == 'Bun'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - if: matrix.name == 'Deno'
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version-file: .dvmrc
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm run build
+
+      - run: ${{ matrix.command }}
+
   # Spec 13: the run reports on each point it settles, one column per endpoint and runtime.
   report:
     name: Report on spec 13

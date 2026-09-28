@@ -127,3 +127,56 @@ jobs:
       - name: Stop the Azure Blob endpoint
         if: always()
         run: ./harness/azure-blob/stop.sh
+
+  # Spec 6 promises `adapter-fs` on macOS, whose file system refuses names Linux holds, and
+  # ADR 0010 counts that as supported only where CI covers it. ADR 0012: GitHub's macOS
+  # runners have no Docker, so these runs leave the endpoint tiers out and run the cells
+  # that need no endpoint. `main` requires these jobs by name, so a new name must stay apart
+  # from the macOS jobs of `conformance-full.yml`, and the required checks follow it.
+  macos:
+    name: ${{ matrix.name }} on macOS
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The tests of `adapter-fs` itself hold what only APFS does, beside the harness.
+          - name: Node 24
+            node: "24"
+            command: pnpm exec vitest run packages/adapter-fs harness/node
+          - name: Node 26
+            node: "26"
+            command: pnpm exec vitest run packages/adapter-fs harness/node
+          - name: Bun
+            node: "24"
+            command: pnpm run test:bun
+          - name: Deno
+            node: "24"
+            command: pnpm run test:deno
+    env:
+      STOWAGE_CONFORMANCE_ENDPOINTS: none
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - if: matrix.name == 'Bun'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - if: matrix.name == 'Deno'
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version-file: .dvmrc
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm run build
+
+      - run: ${{ matrix.command }}
