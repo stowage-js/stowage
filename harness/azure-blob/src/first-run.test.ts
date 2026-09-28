@@ -299,88 +299,88 @@ describe.skipIf(!scheduled)(firstRunSuite, () => {
       ...(unmatched.length === 0 ? [] : [`listed besides: ${JSON.stringify(unmatched)}`]),
     ].join("; ");
   });
-
-  function storage(): ReturnType<typeof azureBlobStorage> {
-    return azureBlobStorage(endpointOrFail(configured));
-  }
-
-  function endpointConfiguration(): AzureBlobConfiguration {
-    return readConfiguration(endpointOrFail(configured));
-  }
-
-  async function putBlock(key: string, id: string, bytes: Uint8Array<ArrayBuffer>): Promise<void> {
-    const response = await send(endpointConfiguration(), {
-      method: "PUT",
-      operation: "put",
-      key,
-      query: [
-        ["comp", "block"],
-        ["blockid", id],
-      ],
-      body: bytes,
-    });
-
-    await response.body?.cancel();
-  }
-
-  async function commit(key: string, ids: readonly string[]): Promise<number> {
-    const latest = ids.map((id) => `<Latest>${id}</Latest>`).join("");
-    const response = await send(endpointConfiguration(), {
-      method: "PUT",
-      operation: "put",
-      key,
-      query: [["comp", "blocklist"]],
-      headers: [["x-ms-blob-content-type", "application/octet-stream"]],
-      body: utf8.encode(`<?xml version="1.0" encoding="utf-8"?><BlockList>${latest}</BlockList>`),
-    });
-
-    await response.body?.cancel();
-
-    return response.status;
-  }
-
-  async function uncommittedBlocks(key: string): Promise<readonly string[]> {
-    const response = await send(endpointConfiguration(), {
-      method: "GET",
-      operation: "get",
-      key,
-      query: [
-        ["comp", "blocklist"],
-        ["blocklisttype", "uncommitted"],
-      ],
-    });
-    const list = parseXml(await response.text());
-    const uncommitted = list.children.find((child) => child.name === "UncommittedBlocks");
-
-    return (uncommitted?.children ?? []).map(
-      (block) => block.children.find((child) => child.name === "Name")?.text ?? "",
-    );
-  }
-
-  /** The refusal the service answered a `Put Blob` of the key with, or nothing where it took it. */
-  async function rawPut(key: string): Promise<string | undefined> {
-    try {
-      const response = await send(endpointConfiguration(), {
-        method: "PUT",
-        operation: "put",
-        key,
-        headers: [
-          ["content-type", "text/plain"],
-          ["x-ms-blob-type", "BlockBlob"],
-        ],
-        body: utf8.encode("written past the refusal of spec 8.1"),
-      });
-
-      await response.body?.cancel();
-
-      return undefined;
-    } catch (thrown) {
-      if (!isStorageError(thrown)) throw thrown;
-
-      return `refused, ${thrown.status} \`${thrown.providerCode}\``;
-    }
-  }
 });
+
+function storage(): ReturnType<typeof azureBlobStorage> {
+  return azureBlobStorage(endpointOrFail(configured));
+}
+
+function endpointConfiguration(): AzureBlobConfiguration {
+  return readConfiguration(endpointOrFail(configured));
+}
+
+async function putBlock(key: string, id: string, bytes: Uint8Array<ArrayBuffer>): Promise<void> {
+  const response = await send(endpointConfiguration(), {
+    method: "PUT",
+    operation: "put",
+    key,
+    query: [
+      ["comp", "block"],
+      ["blockid", id],
+    ],
+    body: bytes,
+  });
+
+  await response.body?.cancel();
+}
+
+async function commit(key: string, ids: readonly string[]): Promise<number> {
+  const latest = ids.map((id) => `<Latest>${id}</Latest>`).join("");
+  const response = await send(endpointConfiguration(), {
+    method: "PUT",
+    operation: "put",
+    key,
+    query: [["comp", "blocklist"]],
+    headers: [["x-ms-blob-content-type", "application/octet-stream"]],
+    body: utf8.encode(`<?xml version="1.0" encoding="utf-8"?><BlockList>${latest}</BlockList>`),
+  });
+
+  await response.body?.cancel();
+
+  return response.status;
+}
+
+async function uncommittedBlocks(key: string): Promise<readonly string[]> {
+  const response = await send(endpointConfiguration(), {
+    method: "GET",
+    operation: "get",
+    key,
+    query: [
+      ["comp", "blocklist"],
+      ["blocklisttype", "uncommitted"],
+    ],
+  });
+  const list = parseXml(await response.text());
+  const uncommitted = list.children.find((child) => child.name === "UncommittedBlocks");
+
+  return (uncommitted?.children ?? []).map(
+    (block) => block.children.find((child) => child.name === "Name")?.text ?? "",
+  );
+}
+
+/** The refusal the service answered a `Put Blob` of the key with, or nothing where it took it. */
+async function rawPut(key: string): Promise<string | undefined> {
+  try {
+    const response = await send(endpointConfiguration(), {
+      method: "PUT",
+      operation: "put",
+      key,
+      headers: [
+        ["content-type", "text/plain"],
+        ["x-ms-blob-type", "BlockBlob"],
+      ],
+      body: utf8.encode("written past the refusal of spec 8.1"),
+    });
+
+    await response.body?.cancel();
+
+    return undefined;
+  } catch (thrown) {
+    if (!isStorageError(thrown)) throw thrown;
+
+    return `refused, ${thrown.status} \`${thrown.providerCode}\``;
+  }
+}
 
 /** The C1 control characters, `U+0080` to `U+009F`, which spec 8.1 refuses in a writable key. */
 const c1Controls = Array.from({ length: 0x20 }, (_, offset) => 0x80 + offset);
