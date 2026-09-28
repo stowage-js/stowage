@@ -12,7 +12,7 @@ import { isTemporaryName } from "./temporary.ts";
 /** One name of a level, or the bytes of one that is no UTF-8 and so names no key. */
 type LevelEntry =
   | { readonly name: string; readonly directory: boolean }
-  | { readonly name?: undefined; readonly bytes: Uint8Array };
+  | { readonly bytes: Uint8Array };
 
 const utf8 = new TextEncoder();
 const strictUtf8 = new TextDecoder("utf-8", { fatal: true });
@@ -66,8 +66,8 @@ async function collect(walk: Walk, directory: string, keyPrefix: string): Promis
   }
 
   for (const entry of held) {
-    if (entry.name === undefined) {
-      refuseUnnamed(walk, keyPrefix, entry.bytes);
+    if ("bytes" in entry) {
+      refuseUndecodableName(walk, keyPrefix, entry.bytes);
       continue;
     }
 
@@ -139,7 +139,7 @@ function utf8NameOf(bytes: Uint8Array): string | undefined {
  * in silence, so a listing it falls below fails as one whose entry arrived without a key
  * (spec 4.6); a listing beside it goes on.
  */
-function refuseUnnamed(walk: Walk, keyPrefix: string, bytes: Uint8Array): void {
+function refuseUndecodableName(walk: Walk, keyPrefix: string, bytes: Uint8Array): void {
   const path = new Uint8Array([...utf8.encode(keyPrefix), ...bytes]);
 
   if (!startsWith(path, walk.prefix)) return;
@@ -157,7 +157,6 @@ function startsWith(bytes: Uint8Array, start: Uint8Array): boolean {
   return start.length <= bytes.length && start.every((byte, index) => bytes[index] === byte);
 }
 
-/** The bytes in quotes, printable ASCII as it stands and every other byte as `\xNN`. */
 function escapedBytesOf(bytes: Uint8Array): string {
   const escaped = Array.from(bytes, (byte) =>
     standsAsItIs(byte)
