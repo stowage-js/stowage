@@ -136,8 +136,7 @@ after a preflight from the rule's origin. It runs only where `STOWAGE_CONFORMANC
 `true` and `STOWAGE_AZURE_BLOB_ENDPOINT_NAME` is `azure-blob`. The upload of 5,000 MiB that
 records the refusal of a copy above the service's limit runs on Node 24 alone. The `workerd`
 harness runs `flow/1-large-upload` once more on its own there and reports its duration and the
-CPU the `workerd` process spent. `list/noncharacter-key` runs against the account and not against
-Azurite (#171).
+CPU the `workerd` process spent.
 
 The last job of the workflow writes the points into the same table as the S3 ones, in the columns
 `azure-blob-node-24`, `azure-blob-node-26` and `azure-blob-workerd`.
