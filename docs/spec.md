@@ -600,6 +600,32 @@ export interface PresignedPut {
   /** The headers the client sends beside the body. `Content-Length` is never among them. */
   readonly headers: Readonly<Record<string, string>>;
 }
+
+export interface StreamUploadOptions {
+  readonly partSize: number;
+  readonly concurrency: number;
+  /** The provider's limit on the parts of one upload. */
+  readonly maxParts: number;
+  /** What the `InvalidRequest` for a stream above `maxParts` is told against. */
+  readonly bucket: string;
+  readonly provider: string;
+  readonly key: string;
+  readonly signal?: AbortSignal;
+}
+export interface StreamUpload<T> {
+  /** The stream ended within the first part: the bytes go as one request. */
+  whole(bytes: Uint8Array<ArrayBuffer>): Promise<T>;
+  /** The first part filled: the adapter starts, sends through `sendParts`, and commits. */
+  multipart(sendParts: SendParts): Promise<T>;
+}
+export type SendParts = <R>(
+  send: (index: number, bytes: Uint8Array<ArrayBuffer>, signal: AbortSignal) => Promise<R>,
+) => Promise<{ readonly results: readonly R[]; readonly size: number }>;
+export function uploadStream<T>(
+  stream: ReadableStream<Uint8Array>,
+  options: StreamUploadOptions,
+  upload: StreamUpload<T>,
+): Promise<T>;
 ```
 
 - Every adapter calls `invalidKeyReason` as the first act of every operation and rejects with
@@ -634,6 +660,20 @@ export interface PresignedPut {
   not depend on what an adapter encodes beyond the rule.
 - `PresignedPut` is what `presignPut` returns on every adapter that declares `presignedUrls`, so the
   code that uploads through it never names the provider (ADR 0022).
+- `uploadStream` is the one definition of reading a streamed body into parts, used by sections 7.6
+  and 8.6 (ADR 0030). A stream that ends within the first part goes to `whole`; any other goes to
+  `multipart`, which may call `sendParts` once, and a second call rejects with an `Error`.
+  `sendParts` keeps `concurrency` parts in flight and reads the next part only once one settled, so
+  the part buffers stay at `partSize × concurrency` (ADR 0016). `send` receives the part's index
+  from zero, its bytes, and a signal that fires on the first failure of a part and on the caller's
+  abort. `sendParts` settles once every part in flight settled, resolves with the results in part
+  order and the bytes sent, and rejects with the first failure.
+- A stream above `maxParts` rejects with `InvalidRequest`, `attempts: 0`, told against the options'
+  `bucket`, `provider` and `key` and naming the configured `partSize` and a larger
+  `multipart.partSize` as the way past it. The part that would be the last one allowed is not sent.
+- `uploadStream` cancels the source wherever it settles before the stream ended: when `multipart`
+  rejects, when a part fails, on the caller's abort, and when `multipart` returns without calling
+  `sendParts`. The part reader is not exported.
 
 ## 5. `@stowage/adapter-memory`
 

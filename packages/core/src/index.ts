@@ -36,6 +36,12 @@ export type {
   StoredObject,
 } from "./storage.ts";
 export {
+  type SendParts,
+  type StreamUpload,
+  type StreamUploadOptions,
+  uploadStream,
+} from "./upload-stream.ts";
+export {
   checkUserMetadata,
   decodeUserMetadataValue,
   encodeUserMetadataValue,
