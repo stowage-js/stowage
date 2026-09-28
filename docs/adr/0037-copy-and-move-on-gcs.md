@@ -79,8 +79,10 @@ not observe.
 answers `404` for its source when sent again. The adapter repeats it on ADR 0013's budget and
 condition, and a `404` on an attempt after one that received no answer or a `5xx` rejects with that
 earlier failure instead of `NotFound`, since the move may have happened: `NetworkError` or
-`ProviderError`, `retryable: true`, with `attempts` counting all of them. `stat` of `to` settles
-which, as `stat` settles the one ambiguous outcome of section 7.7 for S3. There is no field for it
+`ProviderError`, `retryable: true`, with `attempts` counting all of them. That later `404` remains
+ambiguous unless the adapter can identify the destination as the object committed by this move.
+`stat(to)` alone is insufficient when the destination may have pre-existed: finding an object
+there does not establish that the move committed. There is no field for it
 and no code of its own, for the reason ADR 0016 gives. Not repeating `objects.move` after an
 unanswered attempt was the other way, as ADR 0013 does for `CompleteMultipartUpload`, and it would
 give up the repeat for the common failure in which nothing was moved.

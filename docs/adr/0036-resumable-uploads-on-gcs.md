@@ -63,16 +63,18 @@ The commit can be repeated as well. Measured, the last chunk sent again after it
 `200` with the same object and generation, also with other bytes in it, and so does a status query;
 the first commit stands. ADR 0013's exception for `CompleteMultipartUpload`, and the ambiguous
 outcome of spec 7.7 that ADR 0016 draws from it, do not exist here. One case is left: the commit's
-budget spent without a single answer. The adapter then sends the session's `DELETE` without a
-signal and reads its answer. A committed session answers `200` with the object and keeps it, as
+budget spent without a single answer. The adapter then sends the session's `DELETE` with an
+independent 10-second timeout covering all attempts, backoff and reading the answer. This bounds
+cleanup even when the caller's signal has already fired, and is an exception to ADR 0013's lack
+of a time budget. A committed session answers `200` with the object and keeps it, as
 measured, and `put` resolves with that object. An open session answers `499` and is gone, and `put`
-rejects with the commit's `NetworkError`. No answer to the `DELETE` either leaves `put` rejecting
-with that `NetworkError`, as any request whose budget went unanswered does. The `DELETE` is the one
+rejects with the commit's `NetworkError`. A failed or timed-out `DELETE` leaves `put` rejecting
+with the original commit error; neither a cleanup error nor its timeout replaces it. The `DELETE` is the one
 the failure path sends anyway, so settling the commit costs no request of its own.
 
 A failed or aborted upload cancels itself, which keeps ADR 0005's rule rather than ADR 0024's
 exception. When a part has spent its budget, the source stream is canceled, the session's `DELETE`
-goes out without a signal, and `put` rejects with that part's error; the caller's abort does the
+uses the same independent timeout, and `put` rejects with that part's error; the caller's abort does the
 same and rejects with `AbortError`. A failure of the `DELETE` is not reported. `DELETE` answers
 `499 clientClosedRequest`, and every later request to the URI answers the same. Where the `DELETE`
 does not arrive, what is left is a session holding the bytes persisted so far, which `stat`, `get`
@@ -104,7 +106,8 @@ What the API cannot show becomes tests of the adapter against a stubbed `fetch`,
 ADR 0013 already put the backoff curve and the broken stream: a chunk repeated whole after a lost
 answer, a short acknowledgement answered with the rest of the part, a `308` that moves nothing
 spending an attempt, a repeated commit, and the `DELETE` after an unanswered commit meeting `200`
-and `499`. The answers they stub are the spike's. storage-testbench is not used. The cases of ADR
+and `499`. A `DELETE` that never answers must time out and leave `put` rejecting with the original
+commit error. The answers they stub are the spike's. storage-testbench is not used. The cases of ADR
 0016 hold unchanged and run against both endpoints of ADR 0034. fake-gcs-server ignores a chunk's
 offset, so a repeated chunk would be appended twice there, and the per-commit run injects no
 failure that would repeat one.

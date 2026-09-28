@@ -1449,7 +1449,7 @@ reached through `adapter-s3` over the XML API is an S3-compatible endpoint like 
 
 - Section 7.5 holds here: the transient conditions, the budget of three attempts per HTTP request,
   `maxAttempts`, the curve, `retry: false`, no `Retry-After`, which GCS does not send, no total
-  time budget and no timeout per attempt.
+  time budget and no timeout per attempt, except for the cleanup timeout of section 9.6.
 - Every request of a resumable session is repeated as it was sent, its commit included: GCS
   ignores persisted bytes sent again and answers a repeated commit with the same object. The
   adapter never sends a status query. The start of a session is repeated as
@@ -1459,7 +1459,9 @@ reached through `adapter-s3` over the XML API is an S3-compatible endpoint like 
 - `move` is repeated like every other request. A `404` answered to an attempt after one that
   received no response or a `5xx` rejects with that earlier failure, `NetworkError` or
   `ProviderError`, `retryable: true`, with `attempts` counting every attempt, since the move may
-  have happened. `stat` of `to` settles which. It is the one ambiguous outcome on GCS (ADR 0037).
+  have happened. That later `404` remains ambiguous unless the adapter can identify the destination
+  as the object committed by this move; `stat(to)` alone is insufficient when the destination may
+  have pre-existed. It is the one ambiguous outcome on GCS (ADR 0037).
 - The repeat after `401` of section 9.3 doubles an attempt as the `Expired` repeat does on S3, so
   one request that carries the credential costs at most six HTTP requests.
 - A per-key failure in `delete` is reported, not repeated. A body stream that breaks during `get` is
@@ -1485,13 +1487,15 @@ reached through `adapter-s3` over the XML API is an S3-compatible endpoint like 
   acknowledges nothing new is a failed attempt, and a range that falls outside what was sent is
   `ProviderError`.
 - A part that fails is repeated on the budget of section 9.5. Once one part has spent its budget,
-  the source stream is canceled, the session is canceled with a request that carries no signal,
+  the source stream is canceled, the session is canceled with an independent 10-second timeout
+  covering all attempts, backoff and reading the answer,
   and `put` rejects with that part's error. The caller's abort cancels the source and the session
   the same way and rejects with `AbortError`. A failure of the cancel is not reported.
 - Where a commit spent its budget without a response, the adapter cancels the session and reads
   the answer: a committed session answers with its object, which `put` resolves with; an open one
   is gone, and `put` rejects with the commit's `NetworkError`. Only where the cancel receives no
-  response either does the outcome stay open, and `put` rejects with that `NetworkError`.
+  response either does the outcome stay open. A failed or timed-out cancel rejects `put` with the
+  original commit error; neither the cleanup error nor its timeout replaces it.
 - A session whose cancel did not arrive holds the bytes persisted so far until GCS removes it a week
   after it started. The API does not see it: `stat`, `get` and `list` answer as before the upload.
 - The chunks, the commit and the cancel carry no credential: the session URI authorizes them, and
