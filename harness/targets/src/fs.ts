@@ -14,7 +14,7 @@ import type { ConformanceTarget } from "../../../packages/conformance/src/target
 /**
  * What one path may measure, the root counted in. macOS bounds it at 1024 bytes, and the
  * boundary key of spec 9.2 measures 1024 on its own, so no root leaves room for it there
- * and spec 6 has the adapter refuse it. Linux, where CI runs this cell, holds it.
+ * and spec 6 has the adapter refuse it. Linux holds it.
  */
 const pathByteLimit = platform === "darwin" ? 1024 : 4096;
 
