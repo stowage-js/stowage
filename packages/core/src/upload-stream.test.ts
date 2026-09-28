@@ -1,7 +1,7 @@
 import { expect, test, vi } from "vitest";
 
 import { StorageError } from "./errors.ts";
-import { type StreamUploadOptions, uploadStream } from "./upload-stream.ts";
+import { type SendParts, type StreamUploadOptions, uploadStream } from "./upload-stream.ts";
 
 const options: StreamUploadOptions = {
   partSize: 4,
@@ -339,6 +339,30 @@ test("a stream that ended is not canceled", async () => {
   });
 
   expect(source.canceled()).toBeUndefined();
+});
+
+test("a `sendParts` called after the upload settled sends nothing and rejects", async () => {
+  const source = countedStream(10);
+  const sent: number[] = [];
+  let keptSendParts: SendParts | undefined;
+
+  await uploadStream(source.body, options, {
+    whole: unexpected,
+    multipart: async (sendParts) => {
+      keptSendParts = sendParts;
+
+      return await Promise.resolve();
+    },
+  });
+
+  const late = keptSendParts?.(async (index) => {
+    sent.push(index);
+
+    return await Promise.resolve(index);
+  });
+
+  expect(await rejection(async () => await late)).toBeInstanceOf(Error);
+  expect(sent).toEqual([]);
 });
 
 test("the parts still in flight after a failure are stopped with an `AbortError`", async () => {

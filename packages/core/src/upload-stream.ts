@@ -39,8 +39,8 @@ export async function uploadStream<T>(
   upload: StreamUpload<T>,
 ): Promise<T> {
   const parts = new PartReader(stream, options.partSize, options.signal);
-  // Aborted once the upload settled, so a `sendParts` that `multipart` did not wait for
-  // stops rather than sending the part the canceled stream cut short.
+  // Aborted once the upload settled, so a `sendParts` that `multipart` did not wait for,
+  // or kept to call later, stops rather than sending the part the canceled stream cut short.
   const settled = new AbortController();
   let readToEnd = false;
   let outcome: unknown = new Error("The upload settled before the stream ended");
@@ -56,6 +56,8 @@ export async function uploadStream<T>(
 
     let called = false;
     const sendParts: SendParts = async (send) => {
+      settled.signal.throwIfAborted();
+
       if (called) throw new Error("`sendParts` sends the parts of one upload once");
 
       called = true;
