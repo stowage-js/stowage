@@ -78,7 +78,7 @@ export async function deleteKeys(
   const alone: string[] = [];
 
   for (const key of keys) {
-    const refusal = refusalOf(configuration.bucket, key, call.operation);
+    const refusal = keyError(configuration.bucket, key, "addressable", call.operation);
 
     if (refusal !== undefined) failed.push(refusal);
     else if (outsideXmlChar.test(key)) alone.push(key);
@@ -132,24 +132,6 @@ export async function deleteBelow(
   }
 
   return { requested, failed };
-}
-
-function refusalOf(bucket: string, key: string, operation: string): StorageError | undefined {
-  const invalid = keyError(bucket, key, "addressable", operation);
-
-  if (invalid !== undefined) return invalid;
-
-  // A lone surrogate has no UTF-8 form, and the encoder would send U+FFFD in its place:
-  // a request that deletes another object than the one the caller named.
-  if (key.isWellFormed()) return undefined;
-
-  return s3Error(bucket, {
-    code: "InvalidKey",
-    message: `The key ${JSON.stringify(key)} holds a lone surrogate, which has no UTF-8 form`,
-    operation,
-    key,
-    attempts: 0,
-  });
 }
 
 async function deleteBatch(

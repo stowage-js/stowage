@@ -13,6 +13,12 @@ export function invalidKeyReason(key: string, rule: KeyRule): string | undefined
 
   if (controlCharacter !== undefined) return `holds the control character ${controlCharacter}`;
 
+  // A lone surrogate has no UTF-8 form, so every encoder downstream would rewrite it or
+  // fail on it, and no provider can hold the key (ADR 0010).
+  const loneSurrogate = firstLoneSurrogate(key);
+
+  if (loneSurrogate !== undefined) return `holds the lone surrogate ${loneSurrogate}`;
+
   // The three requirements an addressable key and a prefix drop, so that a bucket
   // filled by another tool stays reachable (spec 4.8).
   if (rule === "writable") {
@@ -33,12 +39,27 @@ function firstControlCharacter(key: string): string | undefined {
   for (let index = 0; index < key.length; index += 1) {
     const code = key.charCodeAt(index);
 
-    if (code <= 0x1f || code === 0x7f) {
-      return `U+${code.toString(16).toUpperCase().padStart(4, "0")}`;
-    }
+    if (code <= 0x1f || code === 0x7f) return codePointName(code);
   }
 
   return undefined;
+}
+
+function firstLoneSurrogate(key: string): string | undefined {
+  if (key.isWellFormed()) return undefined;
+
+  // Iterating by code point walks a pair as one character, so a surrogate met here is lone.
+  for (const character of key) {
+    const code = character.codePointAt(0) ?? 0;
+
+    if (code >= 0xd800 && code <= 0xdfff) return codePointName(code);
+  }
+
+  return undefined;
+}
+
+function codePointName(code: number): string {
+  return `U+${code.toString(16).toUpperCase().padStart(4, "0")}`;
 }
 
 function invalidSegmentReason(key: string): string | undefined {

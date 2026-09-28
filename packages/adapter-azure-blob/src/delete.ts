@@ -20,7 +20,6 @@ import { keyRefusal } from "./key.ts";
 import { maxPageSize, walkPages } from "./listing.ts";
 import { providerError } from "./provider-code.ts";
 import { authorizeHeaders, errorMessageOf, requestPath, send } from "./request.ts";
-import { azureBlobError } from "./storage-error.ts";
 
 const notFound = 404;
 
@@ -43,7 +42,7 @@ export async function deleteKeys(
   const sendable: string[] = [];
 
   for (const key of keys) {
-    const refusal = refusalOf(configuration.container, key, call.operation);
+    const refusal = keyRefusal(configuration.container, key, "addressable", call.operation);
 
     if (refusal === undefined) sendable.push(key);
     else failed.push(refusal);
@@ -89,23 +88,6 @@ export async function deleteBelow(
   }
 
   return { requested, failed };
-}
-
-function refusalOf(container: string, key: string, operation: string): StorageError | undefined {
-  const invalid = keyRefusal(container, key, "addressable", operation);
-
-  if (invalid !== undefined) return invalid;
-
-  // A lone surrogate has no UTF-8 form to percent-encode into the path of its subrequest.
-  if (key.isWellFormed()) return undefined;
-
-  return azureBlobError(container, {
-    code: "InvalidKey",
-    message: `The key ${JSON.stringify(key)} holds a lone surrogate, which has no UTF-8 form`,
-    operation,
-    key,
-    attempts: 0,
-  });
 }
 
 /**

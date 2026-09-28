@@ -30,7 +30,13 @@ export function decodeCursor(cursor: string): string | undefined {
 
   const position = decoded.slice(cursorTag.length);
 
-  return position.length > 0 && hexPosition.test(position) ? tokenOf(position) : undefined;
+  if (position.length === 0 || !hexPosition.test(position)) return undefined;
+
+  const token = tokenOf(position);
+
+  // The token goes out percent-encoded, which a lone surrogate has no UTF-8 form for; the
+  // provider hands out none, so only a crafted cursor holds one.
+  return token.isWellFormed() ? token : undefined;
 }
 
 // Neither vendor promises the token stays ASCII, and `btoa` takes nothing else, so the

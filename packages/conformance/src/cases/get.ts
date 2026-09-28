@@ -11,7 +11,7 @@ import {
 import type { ConformanceCaseSource } from "../case.ts";
 import type { ConformanceContext } from "../target.ts";
 import { collect, patternOf } from "./bytes.ts";
-import { type ConformanceKey, keyFor, prefixFor } from "./keys.ts";
+import { type ConformanceKey, keyFor, prefixFor, refusedAddressableKeys } from "./keys.ts";
 
 /** Small enough to read whole in an assertion, and long enough to hold a range within it. */
 const rangedSize = 1024;
@@ -132,6 +132,34 @@ export const getCases: readonly ConformanceCaseSource[] = [
         absent.map(
           async ({ label, key }) =>
             await expectStorageError(() => ctx.storage.get(key), { code: "NotFound" }, label),
+        ),
+      );
+    },
+  },
+  {
+    name: "get/refused-keys",
+    requires: [],
+    cost: "fast",
+    async run(ctx) {
+      const refused = refusedAddressableKeys(prefixFor(ctx, "get/refused-keys"));
+      // Spec 4.8 has the core refuse these before any request, so `exists` refuses them
+      // rather than answering `false` for a key no object can be under.
+      const reads = [
+        ["get", (key: string) => ctx.storage.get(key)],
+        ["stat", (key: string) => ctx.storage.stat(key)],
+        ["exists", (key: string) => ctx.storage.exists(key)],
+      ] as const;
+
+      await Promise.all(
+        refused.flatMap(({ label, key }) =>
+          reads.map(
+            async ([operation, read]) =>
+              await expectStorageError(
+                () => read(key),
+                { code: "InvalidKey", attempts: 0 },
+                `\`${operation}\` of ${label}`,
+              ),
+          ),
         ),
       );
     },

@@ -32,6 +32,7 @@ const specified: readonly SpecifiedCase[] = [
   ["get/body-read-once", [], "fast"],
   ["get/stat-from-response", [], "fast"],
   ["get/addressable-keys", [], "fast"],
+  ["get/refused-keys", [], "fast"],
   ["get/aborted-signal", [], "fast"],
   ["get/range", ["rangeReads"], "fast"],
   ["get/range-unsatisfiable", ["rangeReads"], "fast"],

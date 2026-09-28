@@ -110,6 +110,9 @@ const identifierKeysOnly = (behavior: IdentifierKeysBehavior = {}): Storage => {
       const names = Object.keys(userMetadata);
 
       if (names.some((name) => !isUserMetadataKey(name, "token"))) throw invalidRequest("put");
+      if (Object.values(userMetadata).some((value) => !value.isWellFormed())) {
+        throw invalidRequest("put");
+      }
       if (userMetadataByteLength(userMetadata) > 2048) throw invalidRequest("put");
 
       if (

@@ -1113,6 +1113,12 @@ test.each([
   ["an empty `delimiter`", { delimiter: "" }, "delimiter"],
   ["a `cursor` no storage handed out", { cursor: "this-is-no-cursor" }, "cursor"],
   ["a `cursor` of `adapter-s3`", { cursor: btoa("stowage-s3-1:0061") }, "cursor"],
+  // A crafted cursor may decode to a lone surrogate, which no query string can encode.
+  [
+    "a `cursor` holding a lone surrogate",
+    { cursor: btoa("stowage-azure-blob-1:0061d800") },
+    "cursor",
+  ],
 ])("`list` refuses %s before any request", async (_label, options, option) => {
   const sent = stubFetch(() => described());
   const listing = storage().list(options);

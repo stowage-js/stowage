@@ -48,6 +48,7 @@ const coveredCases: ReadonlySet<string> = new Set([
   "get/body-read-once",
   "get/stat-from-response",
   "get/addressable-keys",
+  "get/refused-keys",
   "get/aborted-signal",
   "get/range",
   "get/range-unsatisfiable",

@@ -186,6 +186,23 @@ test("two keys that fold to one are refused rather than one value dropped", () =
   });
 });
 
+test.each([
+  ["a lone high surrogate", "a\uD800b"],
+  ["a lone low surrogate", "a\uDC00b"],
+])("a value holding %s is refused rather than measured without its UTF-8 form", (_name, value) => {
+  expect(checkUserMetadata({ note: "x", Written: value }, holdsTokenKeys)).toEqual({
+    refusal: {
+      code: "InvalidRequest",
+      message:
+        'The user metadata value of "written" holds a lone surrogate, which has no UTF-8 form',
+    },
+  });
+});
+
+test("a value holding a character above the Basic Multilingual Plane is held", () => {
+  expect(checkUserMetadata({ note: "😀" }, holdsTokenKeys)).toEqual({ held: { note: "😀" } });
+});
+
 test("a set of 2048 encoded header bytes is held", () => {
   expect(checkUserMetadata({ note: "x".repeat(2044) }, holdsTokenKeys)).toHaveProperty("held");
 });
@@ -221,6 +238,9 @@ test.each([
     /no ASCII HTTP token/,
   ],
   ["a duplicate before the bound", { A: "1", a: "x".repeat(3000) }, /more than once/],
+  ["a duplicate before a lone surrogate", { A: "1", a: "\uD800" }, /more than once/],
+  ["a lone surrogate before the bound", { a: "\uD800", b: "x".repeat(3000) }, /lone surrogate/],
+  ["a lone surrogate before a key beyond identifiers", { "x-y": "\uD800" }, /lone surrogate/],
   ["the bound before a key beyond identifiers", { "x-y": "x".repeat(3000) }, /above the limit/],
 ])("the checks meet %s", (_name, userMetadata, message) => {
   const check = checkUserMetadata(userMetadata, ["userMetadata"]);

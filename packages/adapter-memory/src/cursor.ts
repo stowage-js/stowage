@@ -28,8 +28,8 @@ export function decodeCursor(cursor: string): string | undefined {
   return position.length > 0 && hexPosition.test(position) ? keyOf(position) : undefined;
 }
 
-// A key may hold a lone surrogate, which spec 4.8 allows and no text encoding of the
-// runtime carries through, so the position goes out one UTF-16 code unit at a time.
+// `btoa` takes Latin-1 alone, so the position goes out as hex, one UTF-16 code unit at a
+// time: the form every cursor handed out so far carries, which a new process still reads.
 function hexOf(key: string): string {
   const units: string[] = [];
 

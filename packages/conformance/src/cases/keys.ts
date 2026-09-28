@@ -12,6 +12,12 @@ const segmentLimit = 255;
  */
 const refusedControlCharacters: readonly number[] = [0x00, 0x1f, 0x7f];
 
+/**
+ * A lone high and a lone low surrogate, which spec 4.8 refuses under every rule: a
+ * JavaScript string holds either, and neither is a Unicode character with a UTF-8 form.
+ */
+const refusedLoneSurrogates: readonly number[] = [0xd800, 0xdc00];
+
 /** The byte length spec 4.8 allows a writable key, which two key lists sit on either side of. */
 const writableKeyLimit = 1024;
 
@@ -107,15 +113,39 @@ export function refusedWritableKeys(prefix: string): readonly RefusedKey[] {
     { label: "a/../b", key: `${prefix}a/../b`, existsAnswers: "unasked" },
     { label: "..", key: `${prefix}..`, existsAnswers: "unasked" },
     { label: "a\\b", key: `${prefix}a\\b`, existsAnswers: "false" },
-    ...refusedControlCharacters.map((code): RefusedKey => ({
-      label: `a key holding U+${code.toString(16).toUpperCase().padStart(4, "0")}`,
-      key: `${prefix}a${String.fromCharCode(code)}b`,
-      existsAnswers: "unasked",
-    })),
+    ...[...refusedControlCharacters, ...refusedLoneSurrogates].map((code): RefusedKey => {
+      const { label, key } = keyHolding(prefix, code);
+
+      return { label, key, existsAnswers: "unasked" };
+    }),
     {
       label: "a key of 1025 bytes",
       key: keyOfBytes(prefix, writableKeyLimit + 1),
       existsAnswers: "false-or-refusal",
     },
   ];
+}
+
+/**
+ * The list of spec 9.7 that `get`, `stat` and `exists` refuse, placed as the refused
+ * writable list places its keys.
+ */
+export function refusedAddressableKeys(prefix: string): readonly ConformanceKey[] {
+  return [
+    { label: "the empty string", key: "" },
+    { label: "/a", key: "/a" },
+    { label: "a//b", key: `${prefix}a//b` },
+    { label: "./a", key: `${prefix}./a` },
+    { label: "a/../b", key: `${prefix}a/../b` },
+    { label: ".", key: `${prefix}.` },
+    keyHolding(prefix, 0x00),
+    ...refusedLoneSurrogates.map((code) => keyHolding(prefix, code)),
+  ];
+}
+
+function keyHolding(prefix: string, code: number): ConformanceKey {
+  return {
+    label: `a key holding U+${code.toString(16).toUpperCase().padStart(4, "0")}`,
+    key: `${prefix}a${String.fromCharCode(code)}b`,
+  };
 }

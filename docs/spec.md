@@ -244,16 +244,18 @@ export interface ListOptions extends OperationOptions {
 - `contentType` absent: `adapter-memory`, `adapter-s3` and `adapter-azure-blob` store
   `application/octet-stream`; `adapter-fs` derives the type from the key (section 6).
 - `userMetadata` is stored where the storage declares `userMetadata`. Keys are compared
-  case-insensitively. Values may hold any Unicode; a value that would not travel in a header as
-  written is RFC 2047-encoded. A `userMetadata` with at least one entry is checked in this order,
-  each before signing and with `attempts: 0`:
+  case-insensitively. Values may hold any Unicode character; a value that would not travel in a
+  header as written is RFC 2047-encoded. A `userMetadata` with at least one entry is checked in this
+  order, each before signing and with `attempts: 0`:
   1. Where the storage does not declare `userMetadata`, it is `Unsupported` naming `userMetadata`.
      `undefined` and `{}` pass on every storage.
   2. A key that is not a non-empty ASCII HTTP token, including one holding a space, control,
      colon, slash, question mark or bracket, is `InvalidRequest`.
-  3. Keys and values together hold at most 2 KB, measured as the header bytes the encoding of
+  3. A value holding a lone surrogate is `InvalidRequest`: it has no UTF-8 form for the bound below
+     to measure, and an encoder would send `U+FFFD` in its place.
+  4. Keys and values together hold at most 2 KB, measured as the header bytes the encoding of
      section 4.13 produces, whatever an adapter encodes beyond it; more is `InvalidRequest`.
-  4. Where the storage does not declare `userMetadataTokenKeys`, a key that is not an ASCII
+  5. Where the storage does not declare `userMetadataTokenKeys`, a key that is not an ASCII
      identifier, `[A-Za-z_][A-Za-z0-9_]*`, such as `content-hash`, `x.y` or `1st`, is
      `Unsupported` naming `userMetadataTokenKeys` (ADR 0020).
 - `range` is honored where the storage declares `rangeReads` and is `Unsupported` elsewhere. `start`
@@ -362,14 +364,17 @@ Every key is a string of Unicode characters measured in UTF-8 bytes. The core va
 before an adapter sends a request and never rewrites it. Which rule applies depends on whether
 stowage creates the key or only names one (ADR 0010).
 
-| Rule          | Applies to                                                                       | Requirements                                                                                                                                                                |
-| ------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `writable`    | `put`, the `to` of `copy` and `move`, `presignPut`                               | 1 to 1024 bytes; no `.` or `..` as a segment; no leading `/`; no empty segment (`//`); no trailing `/`; no backslash; no character in `U+0000` to `U+001F` and no `U+007F`  |
-| `addressable` | `get`, `stat`, `exists`, `delete`, the `from` of `copy` and `move`, `presignGet` | At least 1 byte; no `.` or `..` as a segment; no leading `/`; no empty segment; no control character. A trailing `/`, a backslash and a length above 1024 bytes are allowed |
-| `prefix`      | `list`, `deleteAll`                                                              | The `addressable` rule, except that it may be empty, may end in `/`, and may end in the middle of a segment                                                                 |
+| Rule          | Applies to                                                                       | Requirements                                                                                                                                                                                   |
+| ------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `writable`    | `put`, the `to` of `copy` and `move`, `presignPut`                               | 1 to 1024 bytes; no `.` or `..` as a segment; no leading `/`; no empty segment (`//`); no trailing `/`; no backslash; no character in `U+0000` to `U+001F` and no `U+007F`; no lone surrogate  |
+| `addressable` | `get`, `stat`, `exists`, `delete`, the `from` of `copy` and `move`, `presignGet` | At least 1 byte; no `.` or `..` as a segment; no leading `/`; no empty segment; no control character; no lone surrogate. A trailing `/`, a backslash and a length above 1024 bytes are allowed |
+| `prefix`      | `list`, `deleteAll`                                                              | The `addressable` rule, so no lone surrogate either, except that it may be empty, may end in `/`, and may end in the middle of a segment                                                       |
 
 - There is no allowlist. `#`, `%`, `?`, `+`, a space, `'` and every character above ASCII are legal.
   An adapter encodes a key itself and never builds a request path through the `URL` constructor.
+- A lone surrogate, which a JavaScript string can hold, is no Unicode character and has no UTF-8
+  form, so every rule refuses it: an encoder would rewrite it or fail on it, and no provider holds
+  it.
 - Nothing normalizes the Unicode form. Two keys that are equivalent under Unicode without being
   equal byte for byte may name one object or two, depending on the provider. A storage that
   declares `keyBytesPreserved` returns every key byte for byte as it was written; the others
@@ -727,6 +732,9 @@ export function fsStorage(options: FsAdapterOptions): FsStorage;
   `U+FFFE` or `U+FDD0`, in any segment, so a key holding one is written on Linux and refused on
   macOS. The adapter passes the refusal on rather than storing the name in another form (ADR 0010),
   and a read of such a key answers as for an absent object.
+- A name that is no UTF-8, which another tool may write on Linux, has no key. A listing or
+  `deleteAll` it falls below fails with `ProviderError` naming the name as bytes, as section 4.6 has
+  an entry without a key fail, rather than pass over it or list it with `U+FFFD` in its place.
 - The content type is derived from the key's extension through a built-in table, and
   `application/octet-stream` where the extension is unknown or absent. The `contentType` handed to
   `put` is validated as a string and not stored, so `stat` may report a type that differs from the
@@ -1443,7 +1451,7 @@ A case marked with a factory is skipped where the target does not supply it.
 | `put/abort-during-upload`      |                                         | `fast` | Aborting during a 17 MiB stream rejects with `err.name === "AbortError"` and not a `StorageError`                                                                                                                              |
 | `put/stream-consumed`          |                                         | `fast` | After `put`, the source stream is closed or canceled; reading it yields `done`                                                                                                                                                 |
 | `put/user-metadata`            | `userMetadata`                          | `fast` | Two entries with identifier keys round-trip through `stat` and `get`, keys compared case-insensitively. Without: a non-empty object is `Unsupported` naming `userMetadata`; `{}` passes and reads back `{}`                    |
-| `put/user-metadata-limits`     | `userMetadata`                          | `fast` | A key with a character above ASCII and a set of identifier keys over 2 KB each reject with `InvalidRequest`, `attempts: 0`. Without: both are `Unsupported`                                                                    |
+| `put/user-metadata-limits`     | `userMetadata`                          | `fast` | A key with a character above ASCII, a value holding a lone surrogate and a set of identifier keys over 2 KB each reject with `InvalidRequest`, `attempts: 0`. Without: all three are `Unsupported`                             |
 | `put/user-metadata-token-keys` | `userMetadata`, `userMetadataTokenKeys` | `fast` | A key `content-hash` round-trips through `stat` and `get`. Without: it is `Unsupported`, `attempts: 0`, naming `userMetadataTokenKeys` where `userMetadata` is declared and `userMetadata` where it is not                     |
 | `put/concurrent-writers`       |                                         | `fast` | Two streamed `put`s of 17 MiB, one of a pattern A and one of a pattern B, paced so that each has sent a part before either completes: each resolves or rejects, at least one resolves, and `get` returns A or B byte for byte  |
 
@@ -1457,6 +1465,7 @@ A case marked with a factory is skipped where the target does not supply it.
 | `get/body-read-once`      |              | `fast` | A second reader after `bytes()` rejects with `InvalidRequest`                                                                           |
 | `get/stat-from-response`  |              | `fast` | `stat` on the stored object equals `stat()` in `key`, `size`, `contentType`, `etag`                                                     |
 | `get/addressable-keys`    |              | `fast` | A key ending in `/` and a key holding a backslash reject with `NotFound`, not `InvalidKey`                                              |
+| `get/refused-keys`        |              | `fast` | Each key of the refused addressable list (section 9.7) rejects `get`, `stat` and `exists` with `InvalidKey`, `attempts: 0`              |
 | `get/aborted-signal`      |              | `fast` | A signal already aborted rejects with `AbortError`                                                                                      |
 | `get/range`               | `rangeReads` | `fast` | `{ start, end }` returns those bytes inclusive; `{ start }` returns to the end; `stat.size` is the whole object. Without: `Unsupported` |
 | `get/range-unsatisfiable` | `rangeReads` | `fast` | `start` at the size rejects with `InvalidRequest`; `start > end` with `InvalidOption`. Without: `Unsupported`                           |
@@ -1556,9 +1565,10 @@ lists for the rule named. A key is given as its characters; its length is measur
   `it's`; `Grüße/日本語/ключ.txt`; a key of 1024 bytes in segments of at most 255 bytes; a key of
   exactly 255 bytes in one segment.
 - Refused as writable: the empty string; `/a`; `a/`; `a//b`; `./a`; `a/../b`; `..`; `a\b`; a key
-  holding `U+0000`; a key holding `U+001F`; a key holding `U+007F`; a key of 1025 bytes.
+  holding `U+0000`; a key holding `U+001F`; a key holding `U+007F`; `a\uD800b` and `a\uDC00b`, a
+  key holding a lone high and a lone low surrogate; a key of 1025 bytes.
 - Refused as addressable: the empty string; `/a`; `a//b`; `./a`; `a/../b`; `.`; a key holding
-  `U+0000`.
+  `U+0000`; `a\uD800b`; `a\uDC00b`.
 - Accepted as addressable and refused as writable: `a/`; `a\b`; a key of 1025 bytes.
 
 Accepted means the core's check passes and the request goes out. A provider may still refuse an

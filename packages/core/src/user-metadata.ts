@@ -102,6 +102,16 @@ export function checkUserMetadata(
     held[folded] = value;
   }
 
+  // The bound below measures the UTF-8 form, which a lone surrogate lacks: the encoder
+  // would count and send U+FFFD in its place.
+  const malformed = Object.entries(held).find(([, value]) => !value.isWellFormed());
+
+  if (malformed !== undefined) {
+    return refused(
+      `The user metadata value of ${JSON.stringify(malformed[0])} holds a lone surrogate, which has no UTF-8 form`,
+    );
+  }
+
   const headerBytes = userMetadataByteLength(held);
 
   if (headerBytes > headerByteLimit) {
