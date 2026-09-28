@@ -220,9 +220,9 @@ jobs:
         run: ./harness/azure-blob/stop.sh
 
   # Spec 6 and ADR 0010: `adapter-fs` on macOS, as the per-commit run has it, with both tiers.
-  # The runners have no Docker, so the endpoint tiers stay out (ADR 0012). The name differs from
-  # the macOS jobs of `ci.yml` because `main` requires those by name, and a run dispatched on a
-  # pull request's branch would otherwise answer for them.
+  # The runners have no Docker, so the endpoint tiers stay out (ADR 0012). This job's name
+  # differs from the macOS jobs of `ci.yml` because `main` requires those by name, and a run
+  # dispatched on a pull request's branch would otherwise answer for them.
   macos:
     name: ${{ matrix.name }} against the macOS file system
     runs-on: macos-latest

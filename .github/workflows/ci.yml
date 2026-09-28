@@ -131,7 +131,8 @@ jobs:
   # Spec 6 promises `adapter-fs` on macOS, whose file system refuses names Linux holds, and
   # ADR 0010 counts that as supported only where CI covers it. ADR 0012: GitHub's macOS
   # runners have no Docker, so these runs leave the endpoint tiers out and run the cells
-  # that need no endpoint.
+  # that need no endpoint. `main` requires these jobs by name, so a new name must stay apart
+  # from the macOS jobs of `conformance-full.yml`, and the required checks follow it.
   macos:
     name: ${{ matrix.name }} on macOS
     runs-on: macos-latest
