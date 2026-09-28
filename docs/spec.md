@@ -1461,6 +1461,7 @@ A case marked with a factory is skipped where the target does not supply it.
 | `get/body-read-once`      |              | `fast` | A second reader after `bytes()` rejects with `InvalidRequest`                                                                           |
 | `get/stat-from-response`  |              | `fast` | `stat` on the stored object equals `stat()` in `key`, `size`, `contentType`, `etag`                                                     |
 | `get/addressable-keys`    |              | `fast` | A key ending in `/` and a key holding a backslash reject with `NotFound`, not `InvalidKey`                                              |
+| `get/refused-keys`        |              | `fast` | Each key of the refused addressable list (section 9.7) rejects `get`, `stat` and `exists` with `InvalidKey`, `attempts: 0`              |
 | `get/aborted-signal`      |              | `fast` | A signal already aborted rejects with `AbortError`                                                                                      |
 | `get/range`               | `rangeReads` | `fast` | `{ start, end }` returns those bytes inclusive; `{ start }` returns to the end; `stat.size` is the whole object. Without: `Unsupported` |
 | `get/range-unsatisfiable` | `rangeReads` | `fast` | `start` at the size rejects with `InvalidRequest`; `start > end` with `InvalidOption`. Without: `Unsupported`                           |
@@ -1563,7 +1564,7 @@ lists for the rule named. A key is given as its characters; its length is measur
   holding `U+0000`; a key holding `U+001F`; a key holding `U+007F`; `a\uD800b` and `a\uDC00b`, a
   key holding a lone high and a lone low surrogate; a key of 1025 bytes.
 - Refused as addressable: the empty string; `/a`; `a//b`; `./a`; `a/../b`; `.`; a key holding
-  `U+0000`.
+  `U+0000`; `a\uD800b`; `a\uDC00b`.
 - Accepted as addressable and refused as writable: `a/`; `a\b`; a key of 1025 bytes.
 
 Accepted means the core's check passes and the request goes out. A provider may still refuse an

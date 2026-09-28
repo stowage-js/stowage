@@ -2,7 +2,7 @@ import { invalidKeyReason } from "@stowage/core";
 import { expect, test } from "vitest";
 
 import { createKeyPrefix } from "../run.ts";
-import { acceptedKeys, keyOfBytes, refusedWritableKeys } from "./keys.ts";
+import { acceptedKeys, keyOfBytes, refusedAddressableKeys, refusedWritableKeys } from "./keys.ts";
 
 const utf8 = new TextEncoder();
 
@@ -35,6 +35,28 @@ test("the refused writable list holds a lone high and a lone low surrogate", () 
 
   expect(labels).toContain("a key holding U+D800");
   expect(labels).toContain("a key holding U+DC00");
+});
+
+test("every key of the refused addressable list of spec 9.7 is one `get` refuses", () => {
+  const refused = refusedAddressableKeys(prefix);
+
+  expect(refused.map((one) => one.label)).toEqual([
+    "the empty string",
+    "/a",
+    "a//b",
+    "./a",
+    "a/../b",
+    ".",
+    "a key holding U+0000",
+    "a key holding U+D800",
+    "a key holding U+DC00",
+  ]);
+
+  for (const { label, key } of refused) {
+    expect(`${label}: ${invalidKeyReason(key, "addressable") === undefined}`).toBe(
+      `${label}: false`,
+    );
+  }
 });
 
 test("a refused key the case asks `exists` about is one the addressable rule allows", () => {

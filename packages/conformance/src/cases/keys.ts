@@ -126,6 +126,23 @@ export function refusedWritableKeys(prefix: string): readonly RefusedKey[] {
   ];
 }
 
+/**
+ * The list of spec 9.7 that `get`, `stat` and `exists` refuse, placed as the refused
+ * writable list places its keys.
+ */
+export function refusedAddressableKeys(prefix: string): readonly ConformanceKey[] {
+  return [
+    { label: "the empty string", key: "" },
+    { label: "/a", key: "/a" },
+    { label: "a//b", key: `${prefix}a//b` },
+    { label: "./a", key: `${prefix}./a` },
+    { label: "a/../b", key: `${prefix}a/../b` },
+    { label: ".", key: `${prefix}.` },
+    keyHolding(prefix, 0x00),
+    ...refusedLoneSurrogates.map((code) => keyHolding(prefix, code)),
+  ];
+}
+
 function keyHolding(prefix: string, code: number): ConformanceKey {
   return {
     label: `a key holding U+${code.toString(16).toUpperCase().padStart(4, "0")}`,
