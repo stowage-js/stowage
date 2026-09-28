@@ -61,6 +61,17 @@ export const azureBlobDivergences: readonly Divergence<AzureBlobEmulator, AzureB
       failureMessagePart: "presigned URL was answered 403",
       ...signedHeadersUnbound,
     },
+    // Spec 8.4 and ADR 0020: from `2021-02-12` the account lists a name holding `U+FFFE` as
+    // `<Name Encoded="true">`, which the adapter decodes (#171).
+    {
+      case: "list/noncharacter-key",
+      endpoint: "azurite",
+      differs:
+        "Azurite 3.37.0 answers a `List Blobs` whose result holds a name with `U+FFFE` with `500`",
+      unrunBecause:
+        "the blob the case leaves behind fails the `cleanup` of the run, whose `deleteAll` lists the run's prefix first",
+      settledBy: "azure-blob",
+    },
   ];
 
 /** The cases as a run against `endpoint` performs them, after ADR 0012. */

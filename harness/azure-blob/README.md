@@ -136,8 +136,7 @@ after a preflight from the rule's origin. It runs only where `STOWAGE_CONFORMANC
 `true` and `STOWAGE_AZURE_BLOB_ENDPOINT_NAME` is `azure-blob`. The upload of 5,000 MiB that
 records the refusal of a copy above the service's limit runs on Node 24 alone. The `workerd`
 harness runs `flow/1-large-upload` once more on its own there and reports its duration and the
-CPU the `workerd` process spent. `list/noncharacter-key` runs against the account and not against
-Azurite (#171).
+CPU the `workerd` process spent.
 
 The last job of the workflow writes the points into the same table as the S3 ones, in the columns
 `azure-blob-node-24`, `azure-blob-node-26` and `azure-blob-workerd`.
@@ -156,4 +155,6 @@ case passes where it fails as the entry says and fails where it passes. The six 
 a copy are on it while the pinned Azurite lacks `Put Blob From URL` and ignores
 `x-ms-copy-source-authorization` (ADR 0025). `presign/put` and `flow/2-presigned-put` are on it
 because Azurite leaves the headers `srh` names out of the string to sign of a user delegation SAS,
-and so refuses the upload the real account accepts (ADR 0022).
+and so refuses the upload the real account accepts (ADR 0022). `list/noncharacter-key` stays
+unrun against Azurite, which answers a listing of a name holding `U+FFFE` with `500`: the blob
+the case leaves behind would fail the run's `cleanup` the same way (#171).
