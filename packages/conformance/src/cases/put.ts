@@ -27,6 +27,9 @@ const utf8 = new TextEncoder();
 /** Spec 4.3 takes an ASCII HTTP token as a user metadata key, which this is not. */
 const metadataKeyAboveAscii: Record<string, string> = { grüße: "hallo" };
 
+/** No Unicode character, so no UTF-8 form for the 2 KB of spec 4.3 to measure. */
+const metadataValueWithLoneSurrogate: Record<string, string> = { note: "lone-\uD800" };
+
 /** An ASCII HTTP token and no identifier, which spec 4.9 promises under `userMetadataTokenKeys`. */
 const metadataTokenKey: Record<string, string> = { "content-hash": "sha256-conformance" };
 
@@ -368,6 +371,11 @@ export const putCases: readonly ConformanceCaseSource[] = [
         "a user metadata key above ASCII",
       );
       await expectStorageError(
+        () => ctx.storage.put(key, bytes, { userMetadata: metadataValueWithLoneSurrogate }),
+        { code: "InvalidRequest", attempts: 0 },
+        "a user metadata value holding a lone surrogate",
+      );
+      await expectStorageError(
         () => ctx.storage.put(key, bytes, { userMetadata: metadataOverTheLimit }),
         { code: "InvalidRequest", attempts: 0 },
         "a user metadata set over 2 KB",
@@ -379,6 +387,10 @@ export const putCases: readonly ConformanceCaseSource[] = [
 
       await expectUnsupported(
         () => ctx.storage.put(key, bytes, { userMetadata: metadataKeyAboveAscii }),
+        "userMetadata",
+      );
+      await expectUnsupported(
+        () => ctx.storage.put(key, bytes, { userMetadata: metadataValueWithLoneSurrogate }),
         "userMetadata",
       );
       await expectUnsupported(

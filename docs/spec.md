@@ -241,16 +241,18 @@ export interface ListOptions extends OperationOptions {
 - `contentType` absent: `adapter-memory`, `adapter-s3` and `adapter-azure-blob` store
   `application/octet-stream`; `adapter-fs` derives the type from the key (section 6).
 - `userMetadata` is stored where the storage declares `userMetadata`. Keys are compared
-  case-insensitively. Values may hold any Unicode; a value that would not travel in a header as
+  case-insensitively. Values may hold any Unicode character; a value that would not travel in a header as
   written is RFC 2047-encoded. A `userMetadata` with at least one entry is checked in this order,
   each before signing and with `attempts: 0`:
   1. Where the storage does not declare `userMetadata`, it is `Unsupported` naming `userMetadata`.
      `undefined` and `{}` pass on every storage.
   2. A key that is not a non-empty ASCII HTTP token, including one holding a space, control,
      colon, slash, question mark or bracket, is `InvalidRequest`.
-  3. Keys and values together hold at most 2 KB, measured as the header bytes the encoding of
+  3. A value holding a lone surrogate is `InvalidRequest`: it has no UTF-8 form for the bound below
+     to measure, and an encoder would send `U+FFFD` in its place.
+  4. Keys and values together hold at most 2 KB, measured as the header bytes the encoding of
      section 4.13 produces, whatever an adapter encodes beyond it; more is `InvalidRequest`.
-  4. Where the storage does not declare `userMetadataTokenKeys`, a key that is not an ASCII
+  5. Where the storage does not declare `userMetadataTokenKeys`, a key that is not an ASCII
      identifier, `[A-Za-z_][A-Za-z0-9_]*`, such as `content-hash`, `x.y` or `1st`, is
      `Unsupported` naming `userMetadataTokenKeys` (ADR 0020).
 - `range` is honored where the storage declares `rangeReads` and is `Unsupported` elsewhere. `start`
@@ -1442,7 +1444,7 @@ A case marked with a factory is skipped where the target does not supply it.
 | `put/abort-during-upload`      |                                         | `fast` | Aborting during a 17 MiB stream rejects with `err.name === "AbortError"` and not a `StorageError`                                                                                                                              |
 | `put/stream-consumed`          |                                         | `fast` | After `put`, the source stream is closed or canceled; reading it yields `done`                                                                                                                                                 |
 | `put/user-metadata`            | `userMetadata`                          | `fast` | Two entries with identifier keys round-trip through `stat` and `get`, keys compared case-insensitively. Without: a non-empty object is `Unsupported` naming `userMetadata`; `{}` passes and reads back `{}`                    |
-| `put/user-metadata-limits`     | `userMetadata`                          | `fast` | A key with a character above ASCII and a set of identifier keys over 2 KB each reject with `InvalidRequest`, `attempts: 0`. Without: both are `Unsupported`                                                                    |
+| `put/user-metadata-limits`     | `userMetadata`                          | `fast` | A key with a character above ASCII, a value holding a lone surrogate and a set of identifier keys over 2 KB each reject with `InvalidRequest`, `attempts: 0`. Without: all three are `Unsupported`                             |
 | `put/user-metadata-token-keys` | `userMetadata`, `userMetadataTokenKeys` | `fast` | A key `content-hash` round-trips through `stat` and `get`. Without: it is `Unsupported`, `attempts: 0`, naming `userMetadataTokenKeys` where `userMetadata` is declared and `userMetadata` where it is not                     |
 | `put/concurrent-writers`       |                                         | `fast` | Two streamed `put`s of 17 MiB, one of a pattern A and one of a pattern B, paced so that each has sent a part before either completes: each resolves or rejects, at least one resolves, and `get` returns A or B byte for byte  |
 

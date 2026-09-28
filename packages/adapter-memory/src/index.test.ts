@@ -427,6 +427,18 @@ test("refuses two metadata keys that differ in case alone", async () => {
   expect(error.attempts).toBe(0);
 });
 
+test("refuses a metadata value holding a lone surrogate", async () => {
+  const storage = memoryStorage();
+
+  const error = await storageErrorOf(
+    storage.put("greeting", "hello", { userMetadata: { note: "lone-\uD800" } }),
+  );
+
+  expect(error.code).toBe("InvalidRequest");
+  expect(error.attempts).toBe(0);
+  expect(await storage.exists("greeting")).toBe(false);
+});
+
 test("takes a metadata set of two kilobytes of encoded header bytes", async () => {
   const storage = memoryStorage();
 
