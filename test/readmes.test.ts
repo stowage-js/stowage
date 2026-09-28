@@ -143,7 +143,9 @@ function compareVersions(left: string, right: string): number {
 // Spec 11 links the spec at the tag of the package's release, which changesets names
 // `<name>@<version>`. The version the tag names is the release the README goes out with, so
 // it is never older than the manifest's: a version bump that leaves the link behind fails
-// here instead of sending a caller to promises an older release made.
+// here instead of sending a caller to promises an older release made. The links are written
+// ahead of the version pull request, so the release is the newest version they name, and
+// one link left at an earlier tag fails here as well.
 test.each(published)(
   "the README of $name links the spec at the tag of its release",
   async (manifest) => {
@@ -152,13 +154,21 @@ test.each(published)(
       ...text.matchAll(
         /https:\/\/github\.com\/stowage-js\/stowage\/blob\/([^/]+\/[^/@]+)@([^/]+)\/docs\/spec\.md/gu,
       ),
-    ];
+    ].map(([, name = "", version = ""]) => ({ name, version }));
 
     expect(links.length).toBeGreaterThan(0);
 
-    for (const [, name, version = ""] of links) {
+    const release =
+      links
+        .map(({ version }) => version)
+        .toSorted(compareVersions)
+        .at(-1) ?? "";
+
+    expect(compareVersions(release, manifest.version)).toBeGreaterThanOrEqual(0);
+
+    for (const { name, version } of links) {
       expect(name).toBe(manifest.name);
-      expect(compareVersions(version, manifest.version)).toBeGreaterThanOrEqual(0);
+      expect(version).toBe(release);
     }
 
     expect(text).not.toMatch(/stowage\/blob\/main\/docs\/spec\.md/u);
