@@ -154,16 +154,19 @@ test.each(published)(
       ...text.matchAll(
         /https:\/\/github\.com\/stowage-js\/stowage\/blob\/([^/]+\/[^/@]+)@([^/]+)\/docs\/spec\.md/gu,
       ),
-    ];
+    ].map(([, name = "", version = ""]) => ({ name, version }));
 
     expect(links.length).toBeGreaterThan(0);
 
-    const versions = links.map(([, , version = ""]) => version);
-    const release = versions.toSorted(compareVersions).at(-1) ?? "";
+    const release =
+      links
+        .map(({ version }) => version)
+        .toSorted(compareVersions)
+        .at(-1) ?? "";
 
     expect(compareVersions(release, manifest.version)).toBeGreaterThanOrEqual(0);
 
-    for (const [, name, version] of links) {
+    for (const { name, version } of links) {
       expect(name).toBe(manifest.name);
       expect(version).toBe(release);
     }
