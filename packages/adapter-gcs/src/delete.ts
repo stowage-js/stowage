@@ -4,7 +4,6 @@ import {
   batchContentType,
   type BatchSubresponse,
   type DeleteReport,
-  isTransientStatus,
   readSubresponses,
   type StorageError,
   type SubresponseReading,
@@ -14,11 +13,8 @@ import { type AnsweredRequest, malformedAnswer, readAnswerText } from "./answer.
 import type { GcsConfiguration } from "./configuration.ts";
 import { keyRefusal } from "./key.ts";
 import { maxPageSize, walkPages } from "./listing.ts";
-import { readErrorBody, readProviderFailure } from "./provider-code.ts";
+import { providerError, readErrorBody } from "./provider-code.ts";
 import { batchPath, objectPath, requestIdHeader, send } from "./request.ts";
-import { gcsError } from "./storage-error.ts";
-
-const notFound = 404;
 
 /** What one batch carries at most, and so what spec 9.1 sends one request per. */
 const subrequestsPerBatch = 100;
@@ -141,11 +137,10 @@ async function deleteBatch(
     );
   }
 
-  const requestId = response.headers.get(requestIdHeader) ?? undefined;
   const failed: StorageError[] = [];
 
   for (const [index, key] of keys.entries()) {
-    const failure = keyFailure(configuration, call, key, reading.subresponses[index]!, requestId);
+    const failure = keyFailure(answered, key, reading.subresponses[index]!);
 
     if (failure !== undefined) failed.push(failure);
   }
@@ -159,46 +154,44 @@ async function deleteBatch(
  * carries no `x-guploader-uploadid`, so the entry takes the outer answer's (spec 9.8).
  */
 function keyFailure(
-  configuration: GcsConfiguration,
-  call: DeleteCall,
+  answered: AnsweredRequest,
   key: string,
   subresponse: BatchSubresponse,
-  requestId: string | undefined,
 ): StorageError | undefined {
   const { status, headers } = subresponse;
+  const succeeded = status >= 200 && status < 300;
 
-  if (status >= 200 && status < 300) return undefined;
+  if (succeeded) return undefined;
 
   const body = readErrorBody(subresponse.body);
-  const failure = readProviderFailure({
-    status,
-    method: "DELETE",
-    providerCode: body.providerCode,
-    providerMessage: body.message,
-    media: false,
-    carriesCursor: false,
-    underRefreshedToken: false,
-    headers,
-  });
-  const error = gcsError(configuration.bucket, {
-    code: failure.code,
-    message: failure.message,
-    operation: call.operation,
-    key: failure.ofBucket === true ? undefined : key,
-    attempts: 1,
-    status,
-    providerCode: body.providerCode,
-    requestId,
-    retryable: isTransientStatus(status),
-  });
+  const failure = providerError(
+    answered.bucket,
+    {
+      operation: answered.operation,
+      key,
+      attempts: 1,
+      requestId: answered.response.headers.get(requestIdHeader) ?? undefined,
+    },
+    {
+      status,
+      method: "DELETE",
+      providerCode: body.providerCode,
+      providerMessage: body.message,
+      media: false,
+      carriesCursor: false,
+      underRefreshedToken: false,
+      headers,
+    },
+  );
+
+  if (failure.code !== "NotFound") return failure;
 
   // Spec 9.4: a batch answers a missing bucket with the same `404 notFound` as an absent
-  // key, and only the message tells it apart. It is the call's failure, not the key's.
-  if (failure.ofBucket === true) throw error;
+  // key, and only the message tells it apart, as the one `NotFound` that names no key.
+  // It is the call's failure, not the key's.
+  if (failure.key === undefined) throw failure;
 
-  const alreadyAbsent = status === notFound && body.providerCode === "notFound";
-
-  return alreadyAbsent ? undefined : error;
+  return undefined;
 }
 
 /**
