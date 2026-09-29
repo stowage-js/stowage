@@ -77,7 +77,6 @@ export function objectPath(configuration: GcsConfiguration, key: string): string
   return `${bucketPath(configuration, "storage")}/o/${encodeSegment(key)}`;
 }
 
-/** The path an upload of an object is sent to. */
 export function uploadPath(configuration: GcsConfiguration): string {
   return `${bucketPath(configuration, "upload/storage")}/o`;
 }

@@ -205,6 +205,9 @@ test.each([
   ["an empty private key", { serviceAccount, privateKey: "" }, "signer.privateKey"],
   ["a private key that is null", { serviceAccount, privateKey: null }, "signer.privateKey"],
   ["a token that is null", { serviceAccount, credentials: null }, "signer.credentials"],
+  ["a private key that is no key", { serviceAccount, privateKey: 5 }, "signer.privateKey"],
+  ["a token that is an empty string", { serviceAccount, credentials: "" }, "signer.credentials"],
+  ["a token that is a bare string", { serviceAccount, credentials: "ya29" }, "signer.credentials"],
   ["an unknown field", { serviceAccount, privateKey: "a key", keyId: "1" }, "signer.keyId"],
 ])("a signer holding %s is refused", (_, signer, naming) => {
   expect(refusal({ signer })).toEqual(refusedNaming(naming));

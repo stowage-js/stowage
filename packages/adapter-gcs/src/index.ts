@@ -57,8 +57,8 @@ export function gcsStorage(options: GcsAdapterOptions): GcsStorage {
   const configuration = readConfiguration(options);
 
   return configuration.signer === undefined
-    ? new GcsBucketStorage(configuration, gcsCapabilities)
-    : new GcsSigningBucketStorage(configuration, gcsSigningCapabilities);
+    ? new GcsBucketStorage(configuration)
+    : new GcsSigningBucketStorage(configuration);
 }
 
 // Spec 9.1 and ADR 0032, in the order of `capabilityNames`.
@@ -81,14 +81,13 @@ const utf8 = new TextEncoder();
 class GcsBucketStorage implements GcsStorage {
   readonly provider = "gcs" as const;
   readonly bucket: string;
-  readonly capabilities: readonly CapabilityName[];
+  readonly capabilities: readonly CapabilityName[] = gcsCapabilities;
 
   protected readonly configuration: GcsConfiguration;
 
-  constructor(configuration: GcsConfiguration, capabilities: readonly CapabilityName[]) {
+  constructor(configuration: GcsConfiguration) {
     this.configuration = configuration;
     this.bucket = configuration.bucket;
-    this.capabilities = capabilities;
   }
 
   async put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat> {
@@ -138,13 +137,13 @@ class GcsBucketStorage implements GcsStorage {
 
     options?.signal?.throwIfAborted();
 
-    const beside = new AbortController();
+    const abortPair = new AbortController();
     const signal =
       options?.signal === undefined
-        ? beside.signal
-        : AbortSignal.any([options.signal, beside.signal]);
+        ? abortPair.signal
+        : AbortSignal.any([options.signal, abortPair.signal]);
     const abortOther = (failure: unknown): never => {
-      beside.abort();
+      abortPair.abort();
 
       throw failure;
     };
@@ -165,7 +164,10 @@ class GcsBucketStorage implements GcsStorage {
 
       // The resource request was aborted because the download failed first, and not by
       // the caller, so the download's failure is the one to report.
-      if (download.status === "rejected" && isAbortOf(described.reason, options?.signal)) {
+      if (
+        download.status === "rejected" &&
+        isAbortNotFromCaller(described.reason, options?.signal)
+      ) {
         throw download.reason;
       }
 
@@ -242,7 +244,11 @@ class GcsBucketStorage implements GcsStorage {
   #readContentType(contentType: string | undefined): string {
     if (contentType === undefined) return defaultContentType;
 
-    if (typeof contentType !== "string" || contentType === "" || holdsControl(contentType)) {
+    if (
+      typeof contentType !== "string" ||
+      contentType === "" ||
+      holdsControlCharacter(contentType)
+    ) {
       throw optionError(
         this.bucket,
         "contentType",
@@ -256,6 +262,8 @@ class GcsBucketStorage implements GcsStorage {
 }
 
 class GcsSigningBucketStorage extends GcsBucketStorage implements GcsSigningStorage {
+  override readonly capabilities: readonly CapabilityName[] = gcsSigningCapabilities;
+
   async presignGet(): Promise<string> {
     throw notYetImplemented("`presignGet`");
   }
@@ -273,8 +281,7 @@ function notYetImplemented(what: string): Error {
   return new Error(`${what} is not implemented in adapter-gcs yet`);
 }
 
-/** Whether `failure` is an abort that did not come from the caller's own signal. */
-function isAbortOf(failure: unknown, callerSignal: AbortSignal | undefined): boolean {
+function isAbortNotFromCaller(failure: unknown, callerSignal: AbortSignal | undefined): boolean {
   return (
     failure instanceof Error && failure.name === "AbortError" && callerSignal?.aborted !== true
   );
@@ -284,7 +291,7 @@ function isAbortOf(failure: unknown, callerSignal: AbortSignal | undefined): boo
  * A control character would end the head of the media part the content type is written
  * into. A tab stays, since a header value may hold one.
  */
-function holdsControl(value: string): boolean {
+function holdsControlCharacter(value: string): boolean {
   for (let index = 0; index < value.length; index += 1) {
     const code = value.charCodeAt(index);
 

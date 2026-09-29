@@ -189,13 +189,31 @@ function readSigner(bucket: string, signer: GcsSigner): GcsSigner {
     throw optionError(bucket, "signer", "holds exactly one of `privateKey` and `credentials`");
   }
 
-  if (privateKey === null || privateKey === "") {
-    throw optionError(bucket, "signer.privateKey", "is empty");
+  if (privateKey !== undefined && !isPrivateKeySource(privateKey)) {
+    throw optionError(
+      bucket,
+      "signer.privateKey",
+      "takes a non-empty PEM, a `CryptoKey` or a resolver",
+    );
   }
 
-  if (credentials === null) throw optionError(bucket, "signer.credentials", "is empty");
+  if (credentials !== undefined && !isCredentialsSource(credentials)) {
+    throw optionError(bucket, "signer.credentials", "takes a credential or a resolver");
+  }
 
   return signer;
+}
+
+// The contents are checked where they are resolved, on every call (spec 9.9); here only
+// the shape that decides whether anything can be resolved at all.
+function isPrivateKeySource(value: unknown): boolean {
+  if (typeof value === "string") return value !== "";
+
+  return typeof value === "function" || (typeof value === "object" && value !== null);
+}
+
+function isCredentialsSource(value: unknown): boolean {
+  return typeof value === "function" || (typeof value === "object" && value !== null);
 }
 
 function readMaxAttempts(bucket: string, retry: GcsAdapterOptions["retry"]): number {
@@ -205,19 +223,13 @@ function readMaxAttempts(bucket: string, retry: GcsAdapterOptions["retry"]): num
   requireGroup(bucket, retry, "retry");
   requireKnownOptions(bucket, retry, retryOptionKeys, "gcsStorage");
 
-  const { maxAttempts } = retry;
-
-  if (maxAttempts === undefined) return defaultMaxAttempts;
-
-  if (!isInRange(maxAttempts, maxAttemptsRange)) {
-    throw optionError(
-      bucket,
-      "maxAttempts",
-      `takes the integers ${maxAttemptsRange.least} to ${maxAttemptsRange.most}`,
-    );
-  }
-
-  return maxAttempts;
+  return readInRange(
+    bucket,
+    retry.maxAttempts,
+    "maxAttempts",
+    maxAttemptsRange,
+    defaultMaxAttempts,
+  );
 }
 
 function readPartSize(bucket: string, multipart: GcsAdapterOptions["multipart"]): number {
@@ -226,12 +238,16 @@ function readPartSize(bucket: string, multipart: GcsAdapterOptions["multipart"])
   requireGroup(bucket, multipart, "multipart");
   requireKnownOptions(bucket, multipart, multipartOptionKeys, "gcsStorage");
 
-  const { partSize } = multipart;
+  const partSize = readInRange(
+    bucket,
+    multipart.partSize,
+    "partSize",
+    partSizeRange,
+    defaultPartSize,
+  );
 
-  if (partSize === undefined) return defaultPartSize;
-
-  if (!isInRange(partSize, partSizeRange) || partSize % chunkGranularity !== 0) {
-    throw optionError(bucket, "partSize", "takes the multiples of 256 KiB from 256 KiB to 5 GiB");
+  if (partSize % chunkGranularity !== 0) {
+    throw optionError(bucket, "partSize", "takes the multiples of 256 KiB alone");
   }
 
   return partSize;
@@ -242,8 +258,20 @@ interface Range {
   readonly most: number;
 }
 
-function isInRange(value: unknown, range: Range): value is number {
-  return Number.isInteger(value) && Number(value) >= range.least && Number(value) <= range.most;
+function readInRange(
+  bucket: string,
+  value: number | undefined,
+  option: string,
+  range: Range,
+  fallback: number,
+): number {
+  if (value === undefined) return fallback;
+
+  if (!Number.isInteger(value) || value < range.least || value > range.most) {
+    throw optionError(bucket, option, `takes the integers ${range.least} to ${range.most}`);
+  }
+
+  return value;
 }
 
 /**
