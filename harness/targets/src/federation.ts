@@ -88,3 +88,19 @@ export async function actionsIdToken(
 
   return answer.value;
 }
+
+/**
+ * A resolver for a job that sets `named` and leaves `unset` unset, such as one without
+ * `id-token: write`: it says so on every request rather than handing over a token the
+ * provider would refuse with nothing to say why.
+ */
+export function unsetVariablesResolver(
+  named: string,
+  unset: readonly string[],
+): () => Promise<never> {
+  const names = unset.map((name) => `\`${name}\``).join(", ");
+
+  return async () => {
+    throw new Error(`\`${named}\` is set, and ${names} ${unset.length === 1 ? "is" : "are"} not`);
+  };
+}

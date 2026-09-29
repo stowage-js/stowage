@@ -1,5 +1,6 @@
 import type { AzureBlobAdapterOptions } from "../../../packages/adapter-azure-blob/src/index.ts";
 import type { Variables } from "../../s3/src/configuration.ts";
+import { unsetVariablesResolver } from "../../targets/src/federation.ts";
 import { runOptionsFrom } from "../../targets/src/run-options.ts";
 import { azureBlobAccount } from "./divergences.ts";
 import { federatedAccessToken } from "./federated-token.ts";
@@ -62,9 +63,8 @@ const identityVariables = [
 ] as const;
 
 /**
- * A job that names a client id and lacks the rest, such as one without `id-token: write`,
- * gets a resolver that says so on every request rather than a minted token the account
- * would refuse with nothing to say why.
+ * A job that names a client id and lacks the rest gets a resolver that says so rather than a
+ * minted token the account would refuse.
  */
 function federatedTokenFor(
   variables: Variables,
@@ -83,14 +83,10 @@ function federatedTokenFor(
     idTokenRequestUrl === undefined ||
     idTokenRequestToken === undefined
   ) {
-    const missing = identityVariables.filter((name) => filled(variables[name]) === undefined);
-    const names = missing.map((name) => `\`${name}\``).join(", ");
-
-    return async () => {
-      throw new Error(
-        `\`${clientIdVariable}\` is set, and ${names} ${missing.length === 1 ? "is" : "are"} not`,
-      );
-    };
+    return unsetVariablesResolver(
+      clientIdVariable,
+      identityVariables.filter((name) => filled(variables[name]) === undefined),
+    );
   }
 
   return federatedAccessToken({ tenantId, clientId, idTokenRequestUrl, idTokenRequestToken });
