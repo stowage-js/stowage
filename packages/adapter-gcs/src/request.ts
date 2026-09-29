@@ -1,7 +1,13 @@
-import { errorCodeForStatus, isTransientStatus, type StorageError, withRetry } from "@stowage/core";
+import { isTransientStatus, type StorageError, withRetry } from "@stowage/core";
 
 import type { GcsConfiguration } from "./configuration.ts";
 import { resolveCredentials } from "./credentials.ts";
+import {
+  type ErrorBody,
+  isRefusedToken,
+  readErrorBody,
+  readProviderFailure,
+} from "./provider-code.ts";
 import { gcsError, inStorage } from "./storage-error.ts";
 
 export type HeaderField = readonly [name: string, value: string];
@@ -17,6 +23,8 @@ export interface GcsRequest {
   readonly query?: readonly QueryParameter[];
   readonly headers?: readonly HeaderField[];
   readonly body?: Uint8Array<ArrayBuffer>;
+  /** Set on the media download, whose `404` is read by its status (spec 9.8). */
+  readonly media?: boolean;
   readonly signal?: AbortSignal;
 }
 
@@ -35,7 +43,7 @@ export async function send(
   configuration: GcsConfiguration,
   request: GcsRequest,
 ): Promise<Response> {
-  return await withRetry(async () => await attempt(configuration, request), {
+  return await withRetry(async () => await attempt(configuration, request, false), {
     maxAttempts: configuration.maxAttempts,
     signal: request.signal,
   });
@@ -43,11 +51,21 @@ export async function send(
 
 /**
  * One request under a token resolved for it alone, which is the attempt CONTEXT.md names
- * and what a repeat repeats (spec 9.3).
+ * and what a repeat repeats.
+ *
+ * Spec 9.3 has an attempt cost a second request where GCS refused the token as
+ * `invalid_token`: the credential is resolved again under `forceRefresh` and the request
+ * goes out without a delay, because no wait makes a token fresher. `retry: false` does not
+ * switch that repeat off, so an attempt costs one request or two (spec 9.5).
  */
-async function attempt(configuration: GcsConfiguration, request: GcsRequest): Promise<Response> {
+async function attempt(
+  configuration: GcsConfiguration,
+  request: GcsRequest,
+  forceRefresh: boolean,
+): Promise<Response> {
+  const attempts = forceRefresh ? 2 : 1;
   const credentials = await resolveCredentials(configuration.credentials, {
-    forceRefresh: false,
+    forceRefresh,
   }).catch((failure: unknown) => {
     throw inStorage(failure, configuration.bucket, request.operation, request.key);
   });
@@ -64,12 +82,18 @@ async function attempt(configuration: GcsConfiguration, request: GcsRequest): Pr
       signal: request.signal,
     });
   } catch (failure) {
-    throw transportFailure(configuration, request, failure);
+    throw transportFailure(configuration, request, failure, attempts);
   }
 
   if (response.ok) return response;
 
-  throw await failureOf(configuration, request, response);
+  if (!forceRefresh && isRefusedToken(response)) {
+    await response.body?.cancel();
+
+    return await attempt(configuration, request, true);
+  }
+
+  throw await failureOf(configuration, request, response, forceRefresh);
 }
 
 /** The path of the object's resource, and of its media download under `alt=media`. */
@@ -109,69 +133,50 @@ function urlOf(configuration: GcsConfiguration, request: GcsRequest): string {
   return `${configuration.origin}${request.path}${search}`;
 }
 
-/**
- * The status decides the code (spec 4.10), and the error document of the JSON API, where
- * the body is one, gives the message and the provider's reason.
- */
+/** The reason and the message are read out of the body, where it carries them (spec 9.8). */
 async function failureOf(
   configuration: GcsConfiguration,
   request: GcsRequest,
   response: Response,
+  underRefreshedToken: boolean,
 ): Promise<StorageError> {
-  const document = await readErrorDocument(response);
-  const message =
-    document.message ?? `The provider answered ${response.status} to \`${request.method}\``;
+  const body = await readBody(response);
+  const failure = readProviderFailure({
+    status: response.status,
+    method: request.method,
+    providerCode: body.reason,
+    providerMessage: body.message,
+    fromMedia: request.media === true,
+    underRefreshedToken,
+    headers: response.headers,
+  });
 
   return gcsError(configuration.bucket, {
-    code: errorCodeForStatus(response.status) ?? "ProviderError",
-    message,
+    code: failure.code,
+    message: failure.message,
     operation: request.operation,
-    key: request.key,
-    attempts: 1,
+    key: failure.ofBucket === true ? undefined : request.key,
+    attempts: underRefreshedToken ? 2 : 1,
     status: response.status,
-    providerCode: document.reason,
+    providerCode: body.reason,
     requestId: response.headers.get(requestIdHeader) ?? undefined,
     retryable: isTransientStatus(response.status),
   });
 }
 
-interface ErrorDocument {
-  readonly message?: string;
-  readonly reason?: string;
-}
-
 /**
- * `{ error: { message, errors: [{ reason }] } }`, read to the end, which is also what
- * releases the connection the next attempt needs. A body that is no such document leaves
- * both unset rather than failing on its way to reporting a failure.
+ * The body read to the end, which is also what releases the connection the next attempt
+ * needs. A body that breaks on the way leaves reason and message unset rather than
+ * failing on its way to reporting a failure.
  */
-async function readErrorDocument(response: Response): Promise<ErrorDocument> {
+async function readBody(response: Response): Promise<ErrorBody> {
   try {
-    const parsed: unknown = JSON.parse(await response.text());
-    const error = fieldOf(parsed, "error");
-    const [first] = arrayOf(fieldOf(error, "errors"));
-
-    return {
-      message: stringOf(fieldOf(error, "message")),
-      reason: stringOf(fieldOf(first, "reason")),
-    };
+    return readErrorBody(await response.text());
   } catch (failure) {
     if (failure instanceof Error && failure.name === "AbortError") throw failure;
 
     return {};
   }
-}
-
-function fieldOf(value: unknown, name: string): unknown {
-  return typeof value === "object" && value !== null ? Reflect.get(value, name) : undefined;
-}
-
-function arrayOf(value: unknown): readonly unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
-function stringOf(value: unknown): string | undefined {
-  return typeof value === "string" && value !== "" ? value : undefined;
 }
 
 // Spec 4.10: an aborted signal produces the runtime's `AbortError` and never a
@@ -181,6 +186,7 @@ function transportFailure(
   configuration: GcsConfiguration,
   request: GcsRequest,
   failure: unknown,
+  attempts: number,
 ): unknown {
   if (failure instanceof Error && failure.name === "AbortError") return failure;
 
@@ -189,7 +195,7 @@ function transportFailure(
     message: `The request received no response: ${String(failure)}`,
     operation: request.operation,
     key: request.key,
-    attempts: 1,
+    attempts,
     retryable: true,
     cause: failure,
   });

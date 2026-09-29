@@ -155,6 +155,7 @@ class GcsBucketStorage implements GcsStorage {
         key,
         path: objectPath(this.configuration, key),
         query: [["alt", "media"]],
+        media: true,
         signal,
       }).catch(abortOther),
     ]);
@@ -193,8 +194,11 @@ class GcsBucketStorage implements GcsStorage {
 
       return true;
     } catch (failure) {
-      // Spec 4.10: `exists` answers `false` for `NotFound` alone and rethrows the rest.
-      if (isStorageError(failure) && failure.code === "NotFound") return false;
+      // Spec 4.10: `exists` answers `false` for `NotFound` alone and rethrows the rest,
+      // a missing bucket among them, which is the one `NotFound` that names no key.
+      if (isStorageError(failure) && failure.code === "NotFound" && failure.key !== undefined) {
+        return false;
+      }
 
       throw failure;
     }
