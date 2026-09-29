@@ -8,6 +8,14 @@ export function gcsError(
 }
 
 /**
+ * A `NotFound` of the key. A missing bucket is the one `NotFound` that names no key, and
+ * says nothing about the object.
+ */
+export function isMissingObject(failure: unknown): boolean {
+  return isStorageError(failure) && failure.code === "NotFound" && failure.key !== undefined;
+}
+
+/**
  * The same failure told against the storage it happened in. A credential resolver is
  * written outside the adapter and knows neither bucket nor operation, so the error it
  * throws arrives without them and is re-issued here rather than reaching a caller with

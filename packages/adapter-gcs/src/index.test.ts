@@ -823,6 +823,356 @@ test("a media `416` beside a failed resource request reports the resource's fail
   expect(failure).toMatchObject({ code: "NotFound", key: "absent", status: 404 });
 });
 
+// One of the two requests of `get` failing (spec 9.8)
+
+test("a failed media download aborts the resource request beside it, and is reported", async () => {
+  let described: SentRequest | undefined;
+
+  stubFetch(async (request) => {
+    if (isMedia(request)) return textAnswer(403, "Access denied.", "text/plain");
+
+    described = request;
+
+    return await new Promise<Response>((_, reject) => {
+      request.signal?.addEventListener("abort", () => reject(request.signal?.reason));
+    });
+  });
+
+  const failure = await failureOf(() => storage().get("object"));
+
+  expect(failure).toMatchObject({ code: "AccessDenied", key: "object", status: 403, attempts: 1 });
+  expect(described?.signal?.aborted).toBe(true);
+});
+
+test("`attempts` counts the requests of the one whose failure is reported", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+
+  const sent = stubFetch((request) =>
+    isMedia(request) ? textAnswer(503, "Service Unavailable", "text/plain") : resource(),
+  );
+
+  const failure = await failureOf(() => storage().get("object"));
+
+  expect(failure).toMatchObject({ code: "ProviderError", status: 503, attempts: 3 });
+  expect(sent.filter((request) => isMedia(request))).toHaveLength(3);
+});
+
+// A replaced generation (spec 9.4, ADR 0040)
+
+const firstGeneration = "1790665923456000";
+const laterGeneration = "1790665987654000";
+
+/** A media download of `body`, as GCS answers it for the generation it names. */
+function mediaOf(
+  body: BodyInit,
+  generation: string,
+  init: { readonly status?: number; readonly headers?: Record<string, string> } = {},
+): Response {
+  return new Response(body, {
+    status: init.status ?? 200,
+    headers: { "content-type": "text/plain", "x-goog-generation": generation, ...init.headers },
+  });
+}
+
+/** The generation the request is pinned to, where it is pinned to one. */
+function pinnedGeneration(request: SentRequest): string | null {
+  return new URL(request.url).searchParams.get("generation");
+}
+
+function isPinned(request: SentRequest, generation: string): boolean {
+  return pinnedGeneration(request) === generation;
+}
+
+function isMedia(request: SentRequest): boolean {
+  return new URL(request.url).searchParams.get("alt") === "media";
+}
+
+/**
+ * Answers `get` as GCS does where a writer replaced the object between its two requests:
+ * the resource names `firstGeneration`, and the media download the one after it.
+ */
+function replacedBetween(
+  pinned: (request: SentRequest) => Response,
+  firstBody: BodyInit = "hello, world",
+) {
+  return (request: SentRequest): Response => {
+    if (pinnedGeneration(request) !== null) return pinned(request);
+
+    return isMedia(request)
+      ? mediaOf(firstBody, laterGeneration)
+      : resource({ size: "5", generation: firstGeneration });
+  };
+}
+
+test("where the two name different generations, the resource of the body's generation describes it", async () => {
+  const sent = stubFetch(
+    replacedBetween(() =>
+      resource({ size: "12", generation: laterGeneration, contentType: "text/markdown" }),
+    ),
+  );
+
+  const read = await storage().get("object");
+
+  expect(read.stat).toMatchObject({ size: 12, contentType: "text/markdown" });
+  expect(await read.text()).toBe("hello, world");
+
+  const pinned = sent.filter((request) => pinnedGeneration(request) !== null);
+
+  expect(pinned.map((request) => request.url)).toEqual([
+    `https://storage.googleapis.com/storage/v1/b/conformance/o/object?generation=${laterGeneration}`,
+  ]);
+  expect(sent).toHaveLength(3);
+});
+
+test.each([
+  ["above", "1790665999999999"],
+  ["below", "1790665000000000"],
+])(
+  "the resource is read again first where the body's generation is numerically %s the resource's",
+  async (_, bodyGeneration) => {
+    const sent = stubFetch((request) => {
+      if (isPinned(request, bodyGeneration)) {
+        return resource({ size: "12", generation: bodyGeneration });
+      }
+
+      return isMedia(request)
+        ? mediaOf("hello, world", bodyGeneration)
+        : resource({ size: "5", generation: firstGeneration });
+    });
+
+    const read = await storage().get("object");
+
+    expect(read.stat.size).toBe(12);
+    expect(await read.text()).toBe("hello, world");
+    expect(sent.filter((request) => isPinned(request, bodyGeneration))).toHaveLength(1);
+    expect(sent.filter((request) => isPinned(request, firstGeneration))).toEqual([]);
+  },
+);
+
+test("where the body's generation is gone, the body is canceled and the first resource's generation downloaded, with the range", async () => {
+  const cancel = vi.fn<() => void>();
+  const sent = stubFetch((request) => {
+    if (isPinned(request, laterGeneration)) return notFound();
+
+    if (isPinned(request, firstGeneration)) {
+      return mediaOf("2345", firstGeneration, {
+        status: 206,
+        headers: { "content-range": "bytes 2-5/10" },
+      });
+    }
+
+    return isMedia(request)
+      ? mediaOf(new ReadableStream({ cancel }), laterGeneration, { status: 206 })
+      : resource({ size: "10", generation: firstGeneration });
+  });
+
+  const read = await storage().get("object", { range: { start: 2, end: 5 } });
+
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(read.stat.size).toBe(10);
+  expect(await read.text()).toBe("2345");
+
+  const download = sent.find((request) => isPinned(request, firstGeneration));
+
+  expect(download?.url).toBe(
+    `https://storage.googleapis.com/storage/v1/b/conformance/o/object?alt=media&generation=${firstGeneration}`,
+  );
+  expect(download?.headers.get("range")).toBe("bytes=2-5");
+  expect(sent).toHaveLength(4);
+});
+
+test("where both generations are gone, `get` is `NotFound` naming the key, the message word for word", async () => {
+  const sent = stubFetch(
+    replacedBetween((request) =>
+      isMedia(request) ? textAnswer(404, "No such object: conformance/object") : notFound(),
+    ),
+  );
+
+  const failure = await failureOf(() => storage().get("object"));
+
+  expect(failure).toMatchObject({
+    code: "NotFound",
+    key: "object",
+    operation: "get",
+    status: 404,
+    message: "No such object: conformance/object",
+  });
+  expect(sent).toHaveLength(4);
+});
+
+test("a pinned request is repeated on a budget of its own, and its failure cancels the kept body", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+
+  const cancel = vi.fn<() => void>();
+  const sent = stubFetch(
+    replacedBetween(
+      () => errorDocument(503, "backendError", "Backend Error"),
+      new ReadableStream({ cancel }),
+    ),
+  );
+
+  const failure = await failureOf(() => storage().get("object"));
+
+  expect(failure).toMatchObject({ code: "ProviderError", status: 503, attempts: 3 });
+  expect(sent.filter((request) => isPinned(request, laterGeneration))).toHaveLength(3);
+  expect(cancel).toHaveBeenCalledOnce();
+});
+
+test("the caller's abort between two requests rejects with `AbortError` and cancels the kept body", async () => {
+  const controller = new AbortController();
+  const cancel = vi.fn<() => void>();
+
+  stubFetch(
+    replacedBetween(() => {
+      controller.abort();
+
+      throw controller.signal.reason;
+    }, new ReadableStream({ cancel })),
+  );
+
+  await expect(storage().get("object", { signal: controller.signal })).rejects.toMatchObject({
+    name: "AbortError",
+  });
+  expect(cancel).toHaveBeenCalledOnce();
+});
+
+test("a media download that names no generation is kept with the resource beside it", async () => {
+  const sent = stubFetch((request) =>
+    isMedia(request) ? new Response("hello") : resource({ generation: firstGeneration }),
+  );
+
+  const read = await storage().get("object");
+
+  expect(await read.text()).toBe("hello");
+  expect(sent).toHaveLength(2);
+});
+
+// A stored content coding (spec 9.4, ADR 0040)
+
+const decodedBody = "x".repeat(1000);
+
+/** Answers `get` for an object another tool stored gzipped, decoded on the way out. */
+function storedGzipped(body: BodyInit = decodedBody, status = 200) {
+  return (request: SentRequest): Response =>
+    isMedia(request)
+      ? mediaOf(body, firstGeneration, {
+          status,
+          headers: { "x-goog-stored-content-encoding": "gzip" },
+        })
+      : resource({ size: "39", generation: firstGeneration, contentEncoding: "gzip" });
+}
+
+test("an object stored with a content coding is read decoded, its `size` the stored size", async () => {
+  stubFetch(storedGzipped());
+
+  const read = await storage().get("object");
+
+  expect(read.stat.size).toBe(39);
+  expect(await read.bytes()).toHaveLength(1000);
+});
+
+test.each([
+  [{ start: 0 }],
+  [{ start: 0, end: 38 }],
+  [{ start: 0, end: 5000 }],
+  [{ start: 2, end: 5 }],
+  [{ start: 100 }],
+])(
+  "the range %j on an object stored gzipped is a `ProviderError` naming the coding",
+  async (range) => {
+    const cancel = vi.fn<() => void>();
+
+    stubFetch(storedGzipped(new ReadableStream({ cancel })));
+
+    const failure = await failureOf(() => storage().get("object", { range }));
+
+    expect(failure).toMatchObject({ code: "ProviderError", key: "object", operation: "get" });
+    expect(failure.message).toContain('"gzip"');
+    expect(cancel).toHaveBeenCalledOnce();
+  },
+);
+
+test("a range the provider honored on an object stored gzipped is refused as well", async () => {
+  const cancel = vi.fn<() => void>();
+
+  stubFetch(storedGzipped(new ReadableStream({ cancel }), 206));
+
+  const failure = await failureOf(() => storage().get("object", { range: { start: 2, end: 5 } }));
+
+  expect(failure).toMatchObject({ code: "ProviderError", status: 206 });
+  expect(cancel).toHaveBeenCalledOnce();
+});
+
+test("a media `416` on an object stored gzipped is the `ProviderError` naming the coding", async () => {
+  stubFetch((request) =>
+    isMedia(request)
+      ? new Response("The requested range cannot be satisfied.", { status: 416 })
+      : resource({ size: "39", contentEncoding: "gzip" }),
+  );
+
+  const failure = await failureOf(() => storage().get("object", { range: { start: 100 } }));
+
+  expect(failure).toMatchObject({ code: "ProviderError", status: 416 });
+  expect(failure.message).toContain('"gzip"');
+});
+
+test("the coding is read off the media download where the resource names none", async () => {
+  stubFetch((request) =>
+    isMedia(request)
+      ? mediaOf(decodedBody, firstGeneration, {
+          headers: { "x-goog-stored-content-encoding": "br" },
+        })
+      : resource({ size: "39", generation: firstGeneration }),
+  );
+
+  const failure = await failureOf(() => storage().get("object", { range: { start: 0 } }));
+
+  expect(failure).toMatchObject({ code: "ProviderError" });
+  expect(failure.message).toContain('"br"');
+});
+
+test("`identity`, which GCS sends for an object stored without a coding, leaves a range honored", async () => {
+  stubFetch((request) =>
+    isMedia(request)
+      ? mediaOf("2345", firstGeneration, {
+          status: 206,
+          headers: { "x-goog-stored-content-encoding": "identity" },
+        })
+      : resource({ size: "10", generation: firstGeneration }),
+  );
+
+  const read = await storage().get("object", { range: { start: 2, end: 5 } });
+
+  expect(await read.text()).toBe("2345");
+});
+
+test("no request of the adapter sends `Content-Encoding`", async () => {
+  const sent = stubFetch((request) => {
+    if (request.method === "POST" && request.url.includes("/batch/")) {
+      return new Response("", { status: 200, headers: { "content-type": "multipart/mixed" } });
+    }
+
+    if (request.method === "GET" && new URL(request.url).pathname.endsWith("/o")) {
+      return Response.json({ items: [] });
+    }
+
+    return isMedia(request) ? media("hello") : resource();
+  });
+
+  await storage().put("object", "hello");
+  await storage()
+    .get("object", { range: { start: 1 } })
+    .catch(() => {});
+  await storage().stat("object");
+  await storage().list().page();
+  await storage()
+    .delete("object")
+    .catch(() => {});
+
+  expect(sent.length).toBeGreaterThanOrEqual(5);
+  expect(sent.filter((request) => request.headers.has("content-encoding"))).toEqual([]);
+});
+
 // `stat` and `exists`
 
 test("`stat` reads the object's resource alone", async () => {
@@ -972,7 +1322,7 @@ test("`retryable` follows the status and never the provider code", async () => {
 test("a body that is no JSON is the message, its character references decoded", async () => {
   // A race: the object went away between the resource request and the media download.
   stubFetch((request) =>
-    request.url.includes("alt=media")
+    isMedia(request)
       ? textAnswer(404, "No such object: conformance/it&#39;s &amp; &#x201C;that&#x201D; &lt;b&gt;")
       : resource(),
   );
@@ -991,9 +1341,7 @@ test("a body that is no JSON is the message, its character references decoded", 
 
 test("a character reference that names no character stays as written", async () => {
   stubFetch((request) =>
-    request.url.includes("alt=media")
-      ? textAnswer(403, "A &#0; B &#xD800; C &nbsp; D &")
-      : resource(),
+    isMedia(request) ? textAnswer(403, "A &#0; B &#xD800; C &nbsp; D &") : resource(),
   );
 
   const failure = await failureOf(() => storage().get("object"));
@@ -1070,7 +1418,7 @@ test.each([
   ["list", () => storage().list().page()],
 ])("a missing bucket is `NotFound` without `key` on `%s`", async (operation, call) => {
   stubFetch((request) =>
-    request.url.includes("alt=media")
+    isMedia(request)
       ? textAnswer(404, missingBucket)
       : errorDocument(404, "notFound", missingBucket),
   );
@@ -1089,9 +1437,7 @@ test.each([
 });
 
 test("a missing bucket told by the media download alone is `NotFound` without `key`", async () => {
-  stubFetch((request) =>
-    request.url.includes("alt=media") ? textAnswer(404, missingBucket) : resource(),
-  );
+  stubFetch((request) => (isMedia(request) ? textAnswer(404, missingBucket) : resource()));
 
   const failure = await failureOf(() => storage().get("object"));
 
@@ -1331,7 +1677,7 @@ test("a refused token on the media download is repeated as well, and nothing rep
   stubFetch((request) => {
     if (request.headers.get("authorization") !== "Bearer expired") return stored("hello")(request);
 
-    return request.url.includes("alt=media")
+    return isMedia(request)
       ? new Response("Invalid Credentials", { status: 401, headers: refusedToken })
       : invalidToken();
   });
