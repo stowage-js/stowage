@@ -155,7 +155,8 @@ async function exportsOf(name: string): Promise<string[]> {
     (match[1] ?? "").split(",").map((entry) => entry.replace(/^\s*type\s+/u, "").trim()),
   );
 
-  return [...declared, ...listed].filter((entry) => entry !== "");
+  // An overloaded function is declared once per signature, and one import names it once.
+  return [...new Set([...declared, ...listed])].filter((entry) => entry !== "");
 }
 
 const declaredNamesOf = (source: string): Set<string> =>
