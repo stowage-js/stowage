@@ -1153,3 +1153,18 @@ test.each([["copy"], ["move"]] as const)(
     });
   },
 );
+
+test("any `401` to the repeat says that the token expired or is not accepted", async () => {
+  const answers = [invalidToken(), errorDocument(401, "required", "Login Required.")];
+  const sent = stubFetch(() => answers.shift() ?? resource());
+
+  const failure = await failureOf(() => storage().stat("object"));
+
+  expect(sent).toHaveLength(2);
+  expect(failure).toMatchObject({
+    code: "InvalidCredentials",
+    attempts: 2,
+    providerCode: "required",
+  });
+  expect(failure.message).toContain("expired or is not accepted");
+});

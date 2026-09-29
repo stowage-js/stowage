@@ -70,7 +70,7 @@ export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
 
   // ADR 0033: an expired token and a forged one answer alike, so the message names both
   // and leaves the caller, who knows what the resolver handed over, to tell them apart.
-  if (answer.underRefreshedToken && isRefusedToken(answer)) {
+  if (answer.underRefreshedToken && answer.status === unauthorized) {
     return {
       code: "InvalidCredentials",
       message: `The access token expired or is not accepted, and so is the one the resolver refreshed: ${said}`,
