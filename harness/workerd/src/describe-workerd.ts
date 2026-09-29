@@ -308,10 +308,19 @@ function isSocket(value: unknown): value is Socket {
  * against a real bucket outlasts.
  */
 async function resultsOf(origin: string, path: string): Promise<readonly ConformanceResult[]> {
+  const started = performance.now();
+  // Diagnostic for #257: which request lost its connection, and when.
+  const lost = (failure: unknown): Error =>
+    new Error(
+      `The request for ${path} at ${origin} failed after ${((performance.now() - started) / 1000).toFixed(1)} s: ${failure instanceof Error ? failure.message : String(failure)}`,
+      { cause: failure },
+    );
   const response = await new Promise<IncomingMessage>((resolve, reject) => {
-    get(`${origin}/${path}`, resolve).on("error", reject);
+    get(`${origin}/${path}`, resolve).on("error", (failure) => reject(lost(failure)));
   });
-  const body = await text(response);
+  const body = await text(response).catch((failure: unknown) => {
+    throw lost(failure);
+  });
 
   if (response.statusCode !== 200) {
     throw new Error(`The worker answered ${response.statusCode} for ${path}`);
