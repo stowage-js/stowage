@@ -160,7 +160,7 @@ class GcsBucketStorage implements GcsStorage {
     ]);
 
     if (described.status === "rejected") {
-      if (download.status === "fulfilled") await download.value.body?.cancel();
+      if (download.status === "fulfilled") await download.value.body?.cancel().catch(() => {});
 
       // The resource request was aborted because the download failed first, and not by
       // the caller, so the download's failure is the one to report.

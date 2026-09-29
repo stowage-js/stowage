@@ -531,6 +531,29 @@ test("a failed resource request cancels the media download beside it", async () 
   expect(download?.signal?.aborted).toBe(true);
 });
 
+test("an incomplete resource description stays a `ProviderError` when media cancellation fails", async () => {
+  const cancel = vi.fn<() => Promise<void>>(() =>
+    Promise.reject(new Error("media cancellation failed")),
+  );
+
+  stubFetch((request) =>
+    request.url.includes("alt=media")
+      ? new Response(new ReadableStream({ cancel }), { status: 200 })
+      : resource({ size: undefined }),
+  );
+
+  const failure = await failureOf(() => storage().get("object"));
+
+  expect(failure).toMatchObject({
+    code: "ProviderError",
+    key: "object",
+    operation: "get",
+    status: 200,
+    message: expect.stringContaining("no size"),
+  });
+  expect(cancel).toHaveBeenCalledOnce();
+});
+
 test("the caller's abort reaches both requests of `get`", async () => {
   const controller = new AbortController();
   const sent = stubFetch(
