@@ -21,10 +21,10 @@ pnpm test
 `pnpm test` runs the Node column of spec 2, the S3 and Azure Blob tiers included, so
 `harness/s3/start.sh` and `harness/azure-blob/start.sh` belong beside it. `pnpm test:bun`,
 `pnpm test:deno` and `pnpm test:workerd` run the same tier in the other three columns, against the
-same endpoint. Docker and `curl` are required. Without `STOWAGE_GCS_ENDPOINT` and `STOWAGE_GCS_BUCKET` the run fails rather than passing
-with the tier skipped (ADR 0012), and CI starts `compose.yml` itself before the harnesses run. A
-machine without Docker sets `STOWAGE_CONFORMANCE_ENDPOINTS` to `none`, as `harness/s3/README.md`
-describes.
+same endpoint. Docker and `curl` are required. Without `STOWAGE_GCS_ENDPOINT` and
+`STOWAGE_GCS_BUCKET` the run fails rather than passing with the tier skipped (ADR 0012), and CI
+starts `compose.yml` itself before the harnesses run. A machine without Docker sets
+`STOWAGE_CONFORMANCE_ENDPOINTS` to `none`, as `harness/s3/README.md` describes.
 
 fake-gcs-server listens on `127.0.0.1:4443`. Where that port is taken, `STOWAGE_GCS_PORT` names
 another one, and both the printed endpoint and the emulator's `-public-host` follow it.
