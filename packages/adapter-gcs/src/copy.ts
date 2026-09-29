@@ -142,7 +142,7 @@ class AmbiguousMove extends Error {
 /**
  * An attempt that received no response or a `5xx`. A resolver's `NetworkError` counts as
  * well although no request went out, which reports the doubt where there was none rather
- * than `NotFound` for an object that may have moved.
+ * than `NotFound` for an object that may have moved (ADR 0037).
  */
 function mayHaveMoved(failure: StorageError): boolean {
   return failure.code === "NetworkError" || (failure.status ?? 0) >= 500;
