@@ -11,7 +11,7 @@ import { listPath, type QueryParameter, send } from "./request.ts";
 
 // Spec 9.2: a page holds at most 1000 names, which is what `objects.list` answers.
 const defaultPageSize = 1000;
-const maxPageSize = 1000;
+export const maxPageSize = 1000;
 
 interface ListRequest {
   readonly operation: string;
@@ -71,7 +71,7 @@ export function createListing(
 }
 
 /** Every page of the listing from where the request starts to its end. */
-async function* walkPages(
+export async function* walkPages(
   configuration: GcsConfiguration,
   request: ListRequest,
 ): AsyncGenerator<ListingDocument> {

@@ -750,8 +750,8 @@ export function readSubresponses(
   a `multipart/mixed` batch on the wire: `adapter-azure-blob` sends and reads its Blob Batch
   through them (section 8.4), and `adapter-gcs` its batch requests (section 9.4). A subrequest
   sends no body. The adapter chooses the subrequests' headers, names the form its provider echoes
-  a `Content-ID` in, as sent on Azure and as `<response-0>` on GCS, and maps each subresponse to
-  its outcome.
+  a `Content-ID` in, as sent on Azure and as `<response-0>` on GCS, which reads the form
+  fake-gcs-server echoes as well (section 9.4), and maps each subresponse to its outcome.
 - `readSubresponses` takes the boundary from `Content-Type`, quoted or bare, and reads lines
   ending in CRLF or LF. An answer that is no `multipart/mixed` of HTTP responses, a `Content-ID`
   that answers no subrequest and two answers to one subrequest are `unreadable`, which names what
@@ -1490,7 +1490,9 @@ reached through `adapter-s3` over the XML API is an S3-compatible endpoint like 
   counts as deleted. A missing bucket, which a batch answers with the same `404 notFound`, is told
   apart by its message and rejects the whole call with `NotFound`. Any other failed subresponse
   becomes the key's entry in `failed`, with the code section 9.8 maps; a failure of the batch
-  request as a whole rejects the call.
+  request as a whole rejects the call. The answer is read with each `Content-ID` echoed as
+  `<response-0>`, as GCS echoes it, and, where that form cannot read it, as sent, as
+  fake-gcs-server echoes it.
 
 ### 9.5 Retries
 

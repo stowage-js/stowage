@@ -21,6 +21,7 @@ import {
   type GcsSigner,
   readConfiguration,
 } from "./configuration.ts";
+import { deleteBelow, deleteKeys } from "./delete.ts";
 import { defaultContentType, describeResource, readResource } from "./description.ts";
 import { requireKey } from "./key.ts";
 import { createListing } from "./listing.ts";
@@ -251,12 +252,18 @@ class GcsBucketStorage implements GcsStorage {
     return createListing(this.configuration, options);
   }
 
-  async delete(): Promise<DeleteReport> {
-    throw notYetImplemented("`delete`");
+  async delete(...keys: readonly string[]): Promise<DeleteReport> {
+    return await deleteKeys(this.configuration, keys, { operation: "delete" });
   }
 
-  async deleteAll(): Promise<DeleteReport> {
-    throw notYetImplemented("`deleteAll`");
+  async deleteAll(prefix: string, options?: OperationOptions): Promise<DeleteReport> {
+    requireKey(this.bucket, prefix, "prefix", "deleteAll");
+    requireKnownOptions(this.bucket, options, operationOptionKeys, "deleteAll");
+
+    // Spec 4.3: a signal that already fired rejects before the request goes out.
+    options?.signal?.throwIfAborted();
+
+    return await deleteBelow(this.configuration, prefix, options?.signal);
   }
 
   async copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {

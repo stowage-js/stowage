@@ -1,6 +1,12 @@
-import { errorCodeForStatus, type StorageErrorCode } from "@stowage/core";
+import {
+  errorCodeForStatus,
+  isTransientStatus,
+  type StorageError,
+  type StorageErrorCode,
+} from "@stowage/core";
 
 import { arrayOf, fieldOf, stringOf } from "./json.ts";
+import { gcsError } from "./storage-error.ts";
 
 /**
  * The table of spec 9.8: a provider code recognized here decides the error code alone, and
@@ -107,6 +113,36 @@ export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
     code: recognized ?? errorCodeForStatus(answer.status) ?? "ProviderError",
     message: said,
   };
+}
+
+/** The request a failure is told against, and how many attempts it took. */
+export interface AnsweredAttempts {
+  readonly operation: string;
+  /** The key the request addressed; a failure of the bucket names none. */
+  readonly key?: string;
+  readonly attempts: number;
+  readonly requestId?: string;
+}
+
+/** The answer as the `StorageError` spec 9.8 makes of it, `retryable` by the status alone. */
+export function providerError(
+  bucket: string,
+  request: AnsweredAttempts,
+  answer: ProviderAnswer,
+): StorageError {
+  const failure = readProviderFailure(answer);
+
+  return gcsError(bucket, {
+    code: failure.code,
+    message: failure.message,
+    operation: request.operation,
+    key: failure.ofBucket === true ? undefined : request.key,
+    attempts: request.attempts,
+    status: answer.status,
+    providerCode: answer.providerCode,
+    requestId: request.requestId,
+    retryable: isTransientStatus(answer.status),
+  });
 }
 
 function statusMessage(answer: Pick<ProviderAnswer, "status" | "method">): string {

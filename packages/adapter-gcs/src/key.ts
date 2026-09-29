@@ -1,4 +1,4 @@
-import { invalidKeyReason, type KeyRule } from "@stowage/core";
+import { invalidKeyReason, type KeyRule, type StorageError } from "@stowage/core";
 
 import { gcsError } from "./storage-error.ts";
 
@@ -14,11 +14,23 @@ const refusedNoncharacter = /[￾￿]/u;
  * another tool wrote stays reachable.
  */
 export function requireKey(bucket: string, key: string, rule: KeyRule, operation: string): void {
+  const refusal = keyRefusal(bucket, key, rule, operation);
+
+  if (refusal !== undefined) throw refusal;
+}
+
+/** The same rule for `delete`, which reports a key it refuses rather than throwing (spec 4.7). */
+export function keyRefusal(
+  bucket: string,
+  key: string,
+  rule: KeyRule,
+  operation: string,
+): StorageError | undefined {
   const reason = invalidKeyReason(key, rule) ?? (rule === "writable" ? gcsReason(key) : undefined);
 
-  if (reason === undefined) return;
+  if (reason === undefined) return undefined;
 
-  throw gcsError(bucket, {
+  return gcsError(bucket, {
     code: "InvalidKey",
     message: `The key ${JSON.stringify(key)} ${reason}`,
     operation,

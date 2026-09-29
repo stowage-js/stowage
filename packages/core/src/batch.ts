@@ -21,6 +21,10 @@ export function batchContentType(boundary: string): string {
 /**
  * Each subrequest as an `application/http` part, its place in the batch as its `Content-ID`,
  * with lines ending in CRLF.
+ *
+ * RFC 2046 counts the CRLF in front of a delimiter as the delimiter's, so a part ends in
+ * one more than its head needs. Without it the head loses its blank line, which a strict
+ * reader such as fake-gcs-server's refuses as an incomplete request.
  */
 export function batchBody(
   boundary: string,
@@ -34,7 +38,7 @@ export function batchBody(
       `Content-ID: ${index}\r\n\r\n` +
       `${subrequest.method} ${subrequest.path} HTTP/1.1\r\n` +
       subrequest.headers.map(([name, value]) => `${name}: ${value}\r\n`).join("") +
-      "Content-Length: 0\r\n\r\n",
+      "Content-Length: 0\r\n\r\n\r\n",
   );
 
   return utf8.encode(`${parts.join("")}--${boundary}--\r\n`);

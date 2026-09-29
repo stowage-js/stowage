@@ -65,9 +65,14 @@ federated principal cannot sign, and `signBlob` needs a service account to sign 
 - The other differences the research measured reach the list one by one as a conformance case
   shows them: a resumable status query that commits the upload, a chunk offset ignored, no paging
   without `maxResults`, prefixes not counted towards `maxResults`, a `404` on a media download in
-  plain text, CORS as one wildcard, and no limits enforced. Two of them shape the adapter rather
-  than the list: it sends `maxResults` on every listing, and it reads a `404` without a parsable
-  body by its status alone.
+  plain text, CORS as one wildcard, and no limits enforced. Three shape the adapter rather than
+  the list: it sends `maxResults` on every listing, it reads a `404` without a parsable body by
+  its status alone, and it reads a batch answer whose `Content-ID`s echo the subrequests as sent,
+  `0` where GCS answers `<response-0>`, in that form where the GCS form cannot read it (spec 9.4).
+  The last one keeps `delete`, `deleteAll` and the default `cleanup` in the per-commit run: as
+  expected failures, every case that writes would leave its objects behind, and deletion would
+  meet a real endpoint only on the schedule. No answer reads in both forms, so the fallback never
+  pairs a GCS answer differently.
 - `list/noncharacter-key` is left out by the GCS target on both endpoints, as `harness/targets/src/fs.ts`
   leaves it out on APFS, and it is no divergence: GCS refuses the key the case writes (ADR 0032), so
   no real endpoint runs the case that would settle an entry.

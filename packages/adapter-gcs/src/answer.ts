@@ -28,6 +28,31 @@ export async function readAnswerJson(answered: AnsweredRequest): Promise<unknown
   }
 }
 
+/**
+ * The body read to the end as text. A body that breaks on the way is a `NetworkError`: the
+ * request ran, and what it did is unknown.
+ */
+export async function readAnswerText(answered: AnsweredRequest): Promise<string> {
+  try {
+    return await answered.response.text();
+  } catch (failure) {
+    // Spec 4.10: the caller's abort travels on as the runtime's `AbortError`.
+    if (failure instanceof Error && failure.name === "AbortError") throw failure;
+
+    throw gcsError(answered.bucket, {
+      code: "NetworkError",
+      message: `The answer to ${answered.subject} broke while it was read: ${String(failure)}`,
+      operation: answered.operation,
+      key: answered.key,
+      attempts: 1,
+      status: answered.response.status,
+      requestId: answered.response.headers.get(requestIdHeader) ?? undefined,
+      retryable: true,
+      cause: failure,
+    });
+  }
+}
+
 // Spec 4.6 makes a description or an entry that arrives without one of its parts a
 // `ProviderError` rather than one with a value invented for it.
 export function malformedAnswer(

@@ -1,13 +1,8 @@
-import { isTransientStatus, type Resolvable, type StorageError, withRetry } from "@stowage/core";
+import { type Resolvable, type StorageError, withRetry } from "@stowage/core";
 
 import type { GcsConfiguration } from "./configuration.ts";
 import { type GcsCredentials, resolveCredentials } from "./credentials.ts";
-import {
-  type ErrorBody,
-  isRefusedToken,
-  readErrorBody,
-  readProviderFailure,
-} from "./provider-code.ts";
+import { type ErrorBody, isRefusedToken, providerError, readErrorBody } from "./provider-code.ts";
 import { gcsError, inStorage } from "./storage-error.ts";
 
 export type HeaderField = readonly [name: string, value: string];
@@ -119,10 +114,17 @@ export function uploadPath(configuration: GcsConfiguration): string {
   return `${bucketPath(configuration, "upload/storage")}/o`;
 }
 
-function bucketPath(configuration: GcsConfiguration, api: string): string {
-  const base = configuration.basePath.split("/").map(encodeSegment).join("/");
+/** The path of the batch endpoint, which carries the deletes of `delete` (spec 9.4). */
+export function batchPath(configuration: GcsConfiguration): string {
+  return `${encodedBasePath(configuration)}/batch/storage/v1`;
+}
 
-  return `${base}/${api}/v1/b/${encodeSegment(configuration.bucket)}`;
+function bucketPath(configuration: GcsConfiguration, api: string): string {
+  return `${encodedBasePath(configuration)}/${api}/v1/b/${encodeSegment(configuration.bucket)}`;
+}
+
+function encodedBasePath(configuration: GcsConfiguration): string {
+  return configuration.basePath.split("/").map(encodeSegment).join("/");
 }
 
 /**
@@ -155,28 +157,26 @@ async function failureOf(
   made: { readonly attempts: number; readonly underRefreshedToken: boolean },
 ): Promise<StorageError> {
   const body = await readBody(response);
-  const failure = readProviderFailure({
-    status: response.status,
-    method: request.method,
-    providerCode: body.providerCode,
-    providerMessage: body.message,
-    media: request.media === true,
-    carriesCursor: request.carriesCursor === true,
-    underRefreshedToken: made.underRefreshedToken,
-    headers: response.headers,
-  });
 
-  return gcsError(configuration.bucket, {
-    code: failure.code,
-    message: failure.message,
-    operation: request.operation,
-    key: failure.ofBucket === true ? undefined : request.key,
-    attempts: made.attempts,
-    status: response.status,
-    providerCode: body.providerCode,
-    requestId: response.headers.get(requestIdHeader) ?? undefined,
-    retryable: isTransientStatus(response.status),
-  });
+  return providerError(
+    configuration.bucket,
+    {
+      operation: request.operation,
+      key: request.key,
+      attempts: made.attempts,
+      requestId: response.headers.get(requestIdHeader) ?? undefined,
+    },
+    {
+      status: response.status,
+      method: request.method,
+      providerCode: body.providerCode,
+      providerMessage: body.message,
+      media: request.media === true,
+      carriesCursor: request.carriesCursor === true,
+      underRefreshedToken: made.underRefreshedToken,
+      headers: response.headers,
+    },
+  );
 }
 
 /**
