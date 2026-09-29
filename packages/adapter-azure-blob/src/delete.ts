@@ -1,4 +1,12 @@
-import type { DeleteReport, StorageError } from "@stowage/core";
+import {
+  batchBody,
+  batchBoundary,
+  batchContentType,
+  type BatchSubresponse,
+  type DeleteReport,
+  readSubresponses,
+  type StorageError,
+} from "@stowage/core";
 
 import {
   type AnsweredRequest,
@@ -6,14 +14,6 @@ import {
   malformedAnswer,
   readAnswerText,
 } from "./answer.ts";
-import {
-  batchBody,
-  batchBoundary,
-  batchContentType,
-  readSubresponses,
-  type Subresponse,
-  subrequestsPerBatch,
-} from "./batch.ts";
 import type { AzureBlobConfiguration } from "./configuration.ts";
 import type { AzureBlobCredentials } from "./credentials.ts";
 import { keyRefusal } from "./key.ts";
@@ -21,7 +21,13 @@ import { maxPageSize, walkPages } from "./listing.ts";
 import { providerError } from "./provider-code.ts";
 import { authorizeHeaders, errorMessageOf, requestPath, send } from "./request.ts";
 
+/** What one Blob Batch carries at most, and so what spec 8.1 sends one request per. */
+const subrequestsPerBatch = 256;
+
 const notFound = 404;
+
+/** Azure answers a subrequest under the `Content-ID` it was sent with. */
+const echoedAsSent = (contentId: string) => contentId;
 
 interface DeleteCall {
   /** The operation the caller invoked: `delete`, or `deleteAll` for the page it listed. */
@@ -123,45 +129,26 @@ async function deleteBatch(
   );
   // The batch ran before an answer that breaks, so which keys it deleted is unknown; deleting
   // is idempotent, and the caller who repeats the call learns it.
-  const subresponses = readSubresponses(
+  const reading = readSubresponses(
     response.headers.get("content-type"),
     await readAnswerText(answered, response),
+    keys.length,
+    echoedAsSent,
   );
 
-  if (subresponses === undefined) {
-    throw malformedAnswer(answered, "an answer that is no batch of responses");
-  }
+  if ("unreadable" in reading) throw malformedAnswer(answered, reading.unreadable);
 
-  const expectedContentIds = new Set(keys.map((_, index) => String(index)));
-  const byContentId = new Map<string, Subresponse>();
-
-  for (const subresponse of subresponses) {
-    const { contentId } = subresponse;
-
-    if (!expectedContentIds.has(contentId)) {
-      throw malformedAnswer(
-        answered,
-        `an answer for unexpected Content-ID ${JSON.stringify(contentId)}`,
-      );
-    }
-
-    if (byContentId.has(contentId)) {
-      throw malformedAnswer(answered, `two answers for Content-ID ${JSON.stringify(contentId)}`);
-    }
-
-    byContentId.set(contentId, subresponse);
-  }
-
-  for (const [index, key] of keys.entries()) {
-    if (!byContentId.has(String(index))) {
-      throw malformedAnswer(answered, `no answer for the key ${JSON.stringify(key)}`);
-    }
+  if ("unanswered" in reading) {
+    throw malformedAnswer(
+      answered,
+      `no answer for the key ${JSON.stringify(keys[reading.unanswered])}`,
+    );
   }
 
   const failed: StorageError[] = [];
 
   for (const [index, key] of keys.entries()) {
-    const failure = keyFailure(answered, key, byContentId.get(String(index))!);
+    const failure = keyFailure(answered, key, reading.subresponses[index]!);
 
     if (failure !== undefined) failed.push(failure);
   }
@@ -197,7 +184,7 @@ async function deleteSubrequests(
 function keyFailure(
   answered: AnsweredRequest,
   key: string,
-  subresponse: Subresponse,
+  subresponse: BatchSubresponse,
 ): StorageError | undefined {
   const { status, headers } = subresponse;
   const succeeded = status >= 200 && status < 300;
