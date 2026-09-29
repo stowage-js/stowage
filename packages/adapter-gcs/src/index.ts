@@ -35,6 +35,7 @@ import { objectPath, send } from "./request.ts";
 import { gcsError } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
 import { putBytes } from "./upload.ts";
+import { heldUserMetadata } from "./user-metadata.ts";
 
 export type { GcsAdapterOptions, GcsSigner } from "./configuration.ts";
 export type { GcsCredentials } from "./credentials.ts";
@@ -108,10 +109,12 @@ class GcsBucketStorage implements GcsStorage {
     requireKey(this.bucket, key, "writable", "put");
     requireKnownOptions(this.bucket, options, putOptionKeys, "put");
 
-    if (options?.userMetadata !== undefined && Object.keys(options.userMetadata).length > 0) {
-      throw notYetImplemented("`put` with user metadata");
-    }
-
+    const userMetadata = heldUserMetadata(
+      this.bucket,
+      options?.userMetadata,
+      key,
+      this.capabilities,
+    );
     const contentType = this.#readContentType(options?.contentType);
 
     // Spec 4.3: a signal that already fired rejects before the request goes out.
@@ -121,7 +124,7 @@ class GcsBucketStorage implements GcsStorage {
 
     return await putBytes(
       this.configuration,
-      { key, contentType, signal: options?.signal },
+      { key, contentType, userMetadata, signal: options?.signal },
       bytesOf(body),
     );
   }

@@ -14,12 +14,12 @@ import { fakeGcsServer, withGcsDivergences } from "./divergences.ts";
 
 /**
  * The cases the adapter passes while its operations arrive one by one: those that need
- * `put` of held bytes, `get`, `stat`, `exists` and `list`, and the refusals `copy` and
- * `move` make before any request, and nothing else. Every operation that joins the adapter
- * adds its cases here, until the list is the whole suite and goes. The three credential
- * cases stay in the list and report themselves skipped, since the target supplies none of
- * their factories (ADR 0033, ADR 0034). `flow/3-file-browser` runs against fake-gcs-server
- * as a divergence (`divergences.ts`).
+ * `put` of held bytes, user metadata, `get`, `stat`, `exists` and `list`, and the refusals
+ * `copy` and `move` make before any request, and nothing else.
+ * Every operation that joins the adapter adds its cases here, until the list is the whole
+ * suite and goes. The three credential cases stay in the list and report themselves
+ * skipped, since the target supplies none of their factories (ADR 0033, ADR 0034).
+ * `flow/3-file-browser` runs against fake-gcs-server as a divergence (`divergences.ts`).
  */
 const coveredCases: ReadonlySet<string> = new Set([
   "declaration/valid-names",
@@ -29,6 +29,9 @@ const coveredCases: ReadonlySet<string> = new Set([
   "put/overwrites",
   "put/content-type-stored",
   "put/content-type-default",
+  "put/user-metadata",
+  "put/user-metadata-limits",
+  "put/user-metadata-token-keys",
   "put/refused-keys",
   "put/unknown-option",
   "put/aborted-signal",

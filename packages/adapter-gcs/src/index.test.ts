@@ -435,6 +435,85 @@ test.each([[""], ["text/plain\r\nX-Injected: 1"]])(
   },
 );
 
+// User metadata
+
+/** The object resource the first part of a multipart upload carries. */
+async function uploadedResource(request: SentRequest | undefined): Promise<unknown> {
+  const boundary = /boundary=(\S+)$/u.exec(request?.headers.get("content-type") ?? "")?.[1];
+  const [, part = ""] = (await bodyText(request?.body)).split(`--${boundary}`);
+  const [, json = ""] = part.split("\r\n\r\n");
+
+  return JSON.parse(json);
+}
+
+test("`put` sends each user metadata key folded to lower case, its value as written", async () => {
+  const sent = stubFetch(() => resource());
+
+  await storage().put("object", "hello", {
+    userMetadata: { WrittenBy: "stowage", "Content-Hash": "  grüße =?UTF-8?B?eA==?= 😀 " },
+  });
+
+  expect(await uploadedResource(sent[0])).toMatchObject({
+    metadata: { writtenby: "stowage", "content-hash": "  grüße =?UTF-8?B?eA==?= 😀 " },
+  });
+});
+
+test("`put` without user metadata sends no `metadata`", async () => {
+  const sent = stubFetch(() => resource());
+
+  await storage().put("object", "hello", { userMetadata: {} });
+
+  expect(await uploadedResource(sent[0])).not.toHaveProperty("metadata");
+});
+
+test.each([
+  ["two keys that differ in case alone", { key: "a", KEY: "b" }],
+  ["a key that is no HTTP token", { "a b": "c" }],
+  ["a value holding a lone surrogate", { key: "\uD800" }],
+  ["a set above 2 KB", { key: "x".repeat(2048) }],
+])("`put` refuses %s before any request", async (_, userMetadata) => {
+  const sent = stubFetch(() => resource());
+
+  const failure = await failureOf(() => storage().put("object", "hello", { userMetadata }));
+
+  expect(failure).toMatchObject({
+    code: "InvalidRequest",
+    operation: "put",
+    key: "object",
+    attempts: 0,
+  });
+  expect(sent).toEqual([]);
+});
+
+test("`put` resolves with the user metadata the answer describes", async () => {
+  stubFetch(() => resource({ metadata: { writtenby: "stowage" } }));
+
+  const described = await storage().put("object", "hello", {
+    userMetadata: { WrittenBy: "stowage" },
+  });
+
+  expect(described.userMetadata).toEqual({ writtenby: "stowage" });
+});
+
+test("`stat` and `get` hand the keys back as stored, `A` beside `a`", async () => {
+  stubFetch(stored("hello", { metadata: { A: "upper", a: "lower" } }));
+
+  expect((await storage().stat("object")).userMetadata).toEqual({ A: "upper", a: "lower" });
+  expect((await storage().get("object")).stat.userMetadata).toEqual({ A: "upper", a: "lower" });
+});
+
+test("a stored value holding RFC 2047 encoded words is decoded on the way back", async () => {
+  stubFetch(stored("hello", { metadata: { greeting: "=?UTF-8?B?Z3LDvMOfZQ==?= =?UTF-8?Q?_w?=" } }));
+
+  expect((await storage().stat("object")).userMetadata).toEqual({ greeting: "grüße w" });
+});
+
+test("a resource without `metadata` holds no user metadata", async () => {
+  stubFetch(stored("hello"));
+
+  expect((await storage().stat("object")).userMetadata).toEqual({});
+});
+
 test("a signal that already fired rejects `put` with `AbortError` before any request", async () => {
   const sent = stubFetch(() => resource());
 

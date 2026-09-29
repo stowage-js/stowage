@@ -7,6 +7,7 @@ import { send, uploadPath } from "./request.ts";
 export interface ObjectWrite {
   readonly key: string;
   readonly contentType: string;
+  readonly userMetadata: Readonly<Record<string, string>>;
   readonly signal?: AbortSignal;
 }
 
@@ -47,7 +48,11 @@ function multipartBody(
   write: ObjectWrite,
   bytes: Uint8Array<ArrayBuffer>,
 ): Uint8Array<ArrayBuffer> {
-  const resource = JSON.stringify({ name: write.key, contentType: write.contentType });
+  const resource = JSON.stringify({
+    name: write.key,
+    contentType: write.contentType,
+    ...(Object.keys(write.userMetadata).length === 0 ? {} : { metadata: write.userMetadata }),
+  });
   const head = utf8.encode(
     [
       `--${boundary}`,
