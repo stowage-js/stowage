@@ -981,6 +981,31 @@ test("a token refused as `invalid_token` is resolved again under `forceRefresh` 
   ]);
 });
 
+test("a failed cancellation of a refused token response still refreshes and repeats", async () => {
+  const cancel = vi.fn<() => Promise<void>>(() =>
+    Promise.reject(new Error("response cancellation failed")),
+  );
+  const tokens = ["expired", "fresh"];
+  const resolve = vi.fn<() => GcsCredentials>(() => ({ accessToken: tokens.shift() ?? "later" }));
+  const sent = stubFetch((request) =>
+    request.headers.get("authorization") === "Bearer expired"
+      ? new Response(new ReadableStream({ cancel }), { status: 401, headers: refusedToken })
+      : resource(),
+  );
+
+  await expect(
+    storage({ credentials: resolve, retry: false }).stat("object"),
+  ).resolves.toMatchObject({
+    size: 5,
+  });
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(resolve.mock.calls).toEqual([[{ forceRefresh: false }], [{ forceRefresh: true }]]);
+  expect(sent.map((request) => request.headers.get("authorization"))).toEqual([
+    "Bearer expired",
+    "Bearer fresh",
+  ]);
+});
+
 test("a second refusal is `InvalidCredentials` after two attempts, saying the token expired or is not accepted", async () => {
   const resolve = vi.fn<() => GcsCredentials>(() => ({ accessToken }));
   const sent = stubFetch(invalidToken);

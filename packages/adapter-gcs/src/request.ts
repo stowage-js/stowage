@@ -88,7 +88,7 @@ async function attempt(
   if (response.ok) return response;
 
   if (!forceRefresh && isRefusedToken(response)) {
-    await response.body?.cancel();
+    await response.body?.cancel().catch(() => {});
 
     return await attempt(configuration, request, true);
   }
