@@ -640,3 +640,14 @@ test("a start answered without a session URI is a `ProviderError`, and no chunk 
   expect(failure.message).toContain("no session URI");
   expect(sent).toHaveLength(1);
 });
+
+test("a `404` without a provider code on the start says that the endpoint serves no such path", async () => {
+  stubSession({ 0: () => new Response("Not Found", { status: 404 }) });
+
+  const failure = await failureOf(
+    async () => await storage().put("object.bin", streamOf(pattern(2 * partSize)).body),
+  );
+
+  expect(failure).toMatchObject({ code: "ProviderError", status: 404 });
+  expect(failure.message).toContain("serves no such path");
+});

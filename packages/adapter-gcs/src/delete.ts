@@ -179,7 +179,7 @@ function keyFailure(
       providerMessage: body.message,
       media: false,
       carriesCursor: false,
-      session: false,
+      sessionUri: false,
       underRefreshedToken: false,
       headers,
     },

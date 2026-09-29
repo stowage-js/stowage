@@ -28,6 +28,8 @@ export interface GcsRequest {
   readonly carriesCursor?: boolean;
   /** Set on every request of a resumable session, whose answers name no `requestId` (spec 9.8). */
   readonly session?: boolean;
+  /** Set on a request to the session URI itself, the start's aside, whose `404` says the session is gone. */
+  readonly sessionUri?: boolean;
   readonly signal?: AbortSignal;
 }
 
@@ -94,6 +96,7 @@ export async function sendToSession(
     key: request.key,
     path: "",
     session: true,
+    sessionUri: true,
   };
   let response: Response;
 
@@ -248,7 +251,7 @@ async function failureOf(
       providerMessage: body.message,
       media: request.media === true,
       carriesCursor: request.carriesCursor === true,
-      session: request.session === true,
+      sessionUri: request.sessionUri === true,
       underRefreshedToken: made.underRefreshedToken,
       headers: response.headers,
     },
