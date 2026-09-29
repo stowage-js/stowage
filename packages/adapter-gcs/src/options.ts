@@ -11,6 +11,13 @@ export const putOptionKeys: readonly string[] = [
   "userMetadata",
 ];
 export const getOptionKeys: readonly string[] = [...operationOptionKeys, "range"];
+export const listOptionKeys: readonly string[] = [
+  ...operationOptionKeys,
+  "prefix",
+  "delimiter",
+  "pageSize",
+  "cursor",
+];
 
 /**
  * Refuses an option key the spec does not list (spec 4.3). TypeScript catches one at the

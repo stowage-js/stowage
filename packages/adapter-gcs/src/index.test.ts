@@ -1,4 +1,9 @@
-import { isStorageError, type PutOptions, type StorageError } from "@stowage/core";
+import {
+  isStorageError,
+  type ListOptions,
+  type PutOptions,
+  type StorageError,
+} from "@stowage/core";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { type GcsAdapterOptions, type GcsCredentials, gcsStorage } from "./index.ts";
@@ -627,4 +632,564 @@ test("`exists` refuses an addressable key the core rule refuses", async () => {
 
   expect(failure.code).toBe("InvalidKey");
   expect(sent).toEqual([]);
+});
+
+// Failures (spec 9.8)
+
+/** The error document of the JSON API, as GCS answers a failure on a JSON path. */
+function errorDocument(
+  status: number,
+  providerCode: string,
+  message: string,
+  headers: Record<string, string> = {},
+): Response {
+  return Response.json(
+    {
+      error: {
+        code: status,
+        message,
+        errors: [{ message, domain: "global", reason: providerCode }],
+      },
+    },
+    { status, headers: { "x-guploader-uploadid": "upload-1", ...headers } },
+  );
+}
+
+function textAnswer(
+  status: number,
+  body: string,
+  contentType = "text/html; charset=UTF-8",
+): Response {
+  return new Response(body, {
+    status,
+    headers: { "content-type": contentType, "x-guploader-uploadid": "upload-1" },
+  });
+}
+
+const missingBucket = "The specified bucket does not exist.";
+
+test("an error document is read whatever its `Content-Type` says", async () => {
+  stubFetch(() => {
+    const document = errorDocument(400, "invalidArgument", "Invalid argument.");
+
+    return new Response(document.body, {
+      status: 400,
+      headers: { "content-type": "text/html; charset=UTF-8", "x-guploader-uploadid": "upload-1" },
+    });
+  });
+
+  const failure = await failureOf(() => storage().put("object", "hello"));
+
+  expect(failure).toMatchObject({
+    code: "InvalidRequest",
+    message: "Invalid argument.",
+    providerCode: "invalidArgument",
+    status: 400,
+    requestId: "upload-1",
+    retryable: false,
+    attempts: 1,
+  });
+});
+
+test.each([
+  ["forbidden", 403, "AccessDenied"],
+  ["insufficientPermissions", 403, "AccessDenied"],
+  ["objectUnderActiveHold", 403, "ProviderError"],
+  ["retentionPolicyNotMet", 403, "ProviderError"],
+  ["authError", 401, "InvalidCredentials"],
+  ["required", 401, "InvalidCredentials"],
+  ["invalidArgument", 400, "InvalidRequest"],
+  ["requestedRangeNotSatisfiable", 416, "InvalidRequest"],
+  ["uploadTooLarge", 400, "InvalidRequest"],
+  ["invalid", 400, "ProviderError"],
+  ["conditionNotMet", 412, "ProviderError"],
+  ["conflict", 409, "ProviderError"],
+  ["clientClosedRequest", 499, "ProviderError"],
+])("the provider code `%s` answered with %i is `%s`", async (providerCode, status, code) => {
+  stubFetch(() => errorDocument(status, providerCode, "The provider said so."));
+
+  const failure = await failureOf(() => storage().stat("object"));
+
+  expect(failure).toMatchObject({ code, providerCode, message: "The provider said so." });
+});
+
+test("a provider code the table does not name leaves the status to decide", async () => {
+  stubFetch(() => errorDocument(403, "accountDisabled", "The account is disabled."));
+
+  const failure = await failureOf(() => storage().stat("object"));
+
+  expect(failure).toMatchObject({ code: "AccessDenied", providerCode: "accountDisabled" });
+});
+
+test("`retryable` follows the status and never the provider code", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+  stubFetch(() => errorDocument(503, "forbidden", "Backend Error"));
+
+  const failure = await failureOf(() => storage().stat("object"));
+
+  expect(failure).toMatchObject({ code: "AccessDenied", retryable: true, status: 503 });
+});
+
+test("a body that is no JSON is the message, its character references decoded", async () => {
+  // A race: the object went away between the resource request and the media download.
+  stubFetch((request) =>
+    request.url.includes("alt=media")
+      ? textAnswer(404, "No such object: conformance/it&#39;s &amp; &#x201C;that&#x201D; &lt;b&gt;")
+      : resource(),
+  );
+
+  const failure = await failureOf(() => storage().get("object"));
+
+  expect(failure).toMatchObject({
+    code: "NotFound",
+    key: "object",
+    message: "No such object: conformance/it's & “that” <b>",
+    status: 404,
+    requestId: "upload-1",
+  });
+  expect(failure.providerCode).toBeUndefined();
+});
+
+test("a character reference that names no character stays as written", async () => {
+  stubFetch((request) =>
+    request.url.includes("alt=media")
+      ? textAnswer(403, "A &#0; B &#xD800; C &nbsp; D &")
+      : resource(),
+  );
+
+  const failure = await failureOf(() => storage().get("object"));
+
+  expect(failure).toMatchObject({
+    code: "AccessDenied",
+    message: "A &#0; B &#xD800; C &nbsp; D &",
+  });
+});
+
+test("a body that starts with `<` is not read, and the message names the status", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+  stubFetch(() =>
+    textAnswer(502, "<!DOCTYPE html><html><title>Error 502 (Server Error)!!1</title></html>"),
+  );
+
+  const failure = await failureOf(() => storage().stat("object"));
+
+  expect(failure).toMatchObject({ code: "ProviderError", status: 502, retryable: true });
+  expect(failure.message).toContain("502");
+  expect(failure.message).not.toContain("<");
+  expect(failure.providerCode).toBeUndefined();
+});
+
+test("an empty body leaves the message to name the status", async () => {
+  stubFetch(() => new Response(null, { status: 403 }));
+
+  const failure = await failureOf(() => storage().stat("object"));
+
+  expect(failure).toMatchObject({ code: "AccessDenied", status: 403 });
+  expect(failure.message).toContain("403");
+});
+
+test("a `404` without `notFound` on the resource says that the endpoint serves no such path", async () => {
+  stubFetch(() => textAnswer(404, "Not Found"));
+
+  const failure = await failureOf(() => storage().stat("object"));
+
+  expect(failure).toMatchObject({
+    code: "ProviderError",
+    status: 404,
+    retryable: false,
+    attempts: 1,
+    key: "object",
+  });
+  expect(failure.message).toContain("serves no such path");
+  expect(failure.message).toContain("Not Found");
+  expect(failure.providerCode).toBeUndefined();
+});
+
+test.each([
+  ["`stat`", () => storage().stat("object")],
+  ["`exists`", () => storage().exists("object")],
+  ["`get`", () => storage().get("object")],
+  ["`put`", () => storage().put("object", "hello")],
+])(
+  "%s rejects a `404` without a provider code rather than reading it as absence",
+  async (_, call) => {
+    stubFetch(() => textAnswer(404, "<html><body>Not Found</body></html>"));
+
+    const failure = await failureOf(call);
+
+    expect(failure.code).toBe("ProviderError");
+    expect(failure.message).toContain("serves no such path");
+  },
+);
+
+test.each([
+  ["put", () => storage().put("object", "hello")],
+  ["get", () => storage().get("object")],
+  ["stat", () => storage().stat("object")],
+  ["exists", () => storage().exists("object")],
+])("a missing bucket is `NotFound` without `key` on `%s`", async (operation, call) => {
+  stubFetch((request) =>
+    request.url.includes("alt=media")
+      ? textAnswer(404, missingBucket)
+      : errorDocument(404, "notFound", missingBucket),
+  );
+
+  const failure = await failureOf(call);
+
+  expect(failure).toMatchObject({
+    code: "NotFound",
+    operation,
+    bucket: "conformance",
+    message: missingBucket,
+    providerCode: "notFound",
+    status: 404,
+  });
+  expect(failure.key).toBeUndefined();
+});
+
+test("a missing bucket told by the media download alone is `NotFound` without `key`", async () => {
+  stubFetch((request) =>
+    request.url.includes("alt=media") ? textAnswer(404, missingBucket) : resource(),
+  );
+
+  const failure = await failureOf(() => storage().get("object"));
+
+  expect(failure).toMatchObject({ code: "NotFound", message: missingBucket });
+  expect(failure.key).toBeUndefined();
+});
+
+test("a key above 1024 bytes answered `404 notFound` is `NotFound`, and absent to `exists`", async () => {
+  const long = "k".repeat(1025);
+
+  stubFetch(() => errorDocument(404, "notFound", `No such object: conformance/${long}`));
+
+  const failure = await failureOf(() => storage().stat(long));
+
+  expect(failure).toMatchObject({ code: "NotFound", key: long });
+  expect(await storage().exists(long)).toBe(false);
+});
+
+// Retries (spec 9.5)
+
+test.each([[408], [429], [500], [502], [503], [504]])(
+  "a `%i` is repeated, and an attempt that succeeds resolves the call",
+  async (status) => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+
+    const answers = [errorDocument(status, "backendError", "Try again."), resource()];
+    const sent = stubFetch(() => answers.shift() ?? resource());
+
+    const described = await storage().stat("object");
+
+    expect(sent).toHaveLength(2);
+    expect(described.size).toBe(5);
+  },
+);
+
+test("three attempts are the default, and the error counts them", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+
+  const sent = stubFetch(() => errorDocument(503, "backendError", "Backend Error"));
+
+  const failure = await failureOf(() => storage().stat("object"));
+
+  expect(sent).toHaveLength(3);
+  expect(failure).toMatchObject({ code: "ProviderError", retryable: true, attempts: 3 });
+});
+
+test("`maxAttempts` bounds the attempts, and `retry: false` sends one", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+
+  const sent = stubFetch(() => errorDocument(503, "backendError", "Backend Error"));
+
+  expect(
+    await failureOf(() => storage({ retry: { maxAttempts: 2 } }).stat("object")),
+  ).toMatchObject({ attempts: 2 });
+  expect(await failureOf(() => storage({ retry: false }).stat("object"))).toMatchObject({
+    attempts: 1,
+  });
+  expect(sent).toHaveLength(3);
+});
+
+test("a transport failure is repeated and ends in `NetworkError`", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+
+  const sent = stubFetch(() => {
+    throw new TypeError("fetch failed");
+  });
+
+  const failure = await failureOf(() => storage().stat("object"));
+
+  expect(sent).toHaveLength(3);
+  expect(failure).toMatchObject({ code: "NetworkError", retryable: true, attempts: 3 });
+  expect(failure.cause).toBeInstanceOf(TypeError);
+});
+
+test("a failure outside the transient group is not repeated", async () => {
+  const sent = stubFetch(() => errorDocument(403, "forbidden", "denied"));
+
+  await failureOf(() => storage().stat("object"));
+
+  expect(sent).toHaveLength(1);
+});
+
+test("`Retry-After` is not read", async () => {
+  vi.useFakeTimers();
+
+  try {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+
+    const answers = [
+      errorDocument(429, "rateLimitExceeded", "Slow down.", { "retry-after": "3600" }),
+    ];
+    const sent = stubFetch(() => answers.shift() ?? resource());
+    const described = storage().stat("object");
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    await expect(described).resolves.toMatchObject({ size: 5 });
+    expect(sent).toHaveLength(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+// The refused token (spec 9.3)
+
+const refusedToken = {
+  "www-authenticate": 'Bearer realm="https://accounts.google.com/", error=invalid_token',
+};
+
+function invalidToken(): Response {
+  return errorDocument(401, "authError", "Invalid Credentials", refusedToken);
+}
+
+test("a token refused as `invalid_token` is resolved again under `forceRefresh` and sent once more", async () => {
+  const tokens = ["expired", "fresh"];
+  const resolve = vi.fn<() => GcsCredentials>(() => ({ accessToken: tokens.shift() ?? "later" }));
+  const sent = stubFetch((request) =>
+    request.headers.get("authorization") === "Bearer expired" ? invalidToken() : resource(),
+  );
+
+  const described = await storage({ credentials: resolve }).stat("object");
+
+  expect(described.size).toBe(5);
+  expect(resolve.mock.calls).toEqual([[{ forceRefresh: false }], [{ forceRefresh: true }]]);
+  expect(sent.map((request) => request.headers.get("authorization"))).toEqual([
+    "Bearer expired",
+    "Bearer fresh",
+  ]);
+});
+
+test("a failed cancellation of a refused token response still refreshes and repeats", async () => {
+  const cancel = vi.fn<() => Promise<void>>(() =>
+    Promise.reject(new Error("response cancellation failed")),
+  );
+  const tokens = ["expired", "fresh"];
+  const resolve = vi.fn<() => GcsCredentials>(() => ({ accessToken: tokens.shift() ?? "later" }));
+  const sent = stubFetch((request) =>
+    request.headers.get("authorization") === "Bearer expired"
+      ? new Response(new ReadableStream({ cancel }), { status: 401, headers: refusedToken })
+      : resource(),
+  );
+
+  await expect(
+    storage({ credentials: resolve, retry: false }).stat("object"),
+  ).resolves.toMatchObject({
+    size: 5,
+  });
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(resolve.mock.calls).toEqual([[{ forceRefresh: false }], [{ forceRefresh: true }]]);
+  expect(sent.map((request) => request.headers.get("authorization"))).toEqual([
+    "Bearer expired",
+    "Bearer fresh",
+  ]);
+});
+
+test("a second refusal is `InvalidCredentials` after two attempts, saying the token expired or is not accepted", async () => {
+  const resolve = vi.fn<() => GcsCredentials>(() => ({ accessToken }));
+  const sent = stubFetch(invalidToken);
+
+  const failure = await failureOf(() => storage({ credentials: resolve }).stat("object"));
+
+  expect(sent).toHaveLength(2);
+  expect(resolve).toHaveBeenCalledTimes(2);
+  expect(failure).toMatchObject({
+    code: "InvalidCredentials",
+    attempts: 2,
+    status: 401,
+    providerCode: "authError",
+    retryable: false,
+  });
+  expect(failure.message).toContain("expired or is not accepted");
+  expect(failure.message).toContain("Invalid Credentials");
+});
+
+test("the repeat after `invalid_token` is not switched off by `retry: false`", async () => {
+  const sent = stubFetch(invalidToken);
+
+  const failure = await failureOf(() => storage({ retry: false }).stat("object"));
+
+  expect(sent).toHaveLength(2);
+  expect(failure.attempts).toBe(2);
+});
+
+test("the repeat after `invalid_token` waits for nothing", async () => {
+  vi.useFakeTimers();
+
+  try {
+    const answers = [invalidToken()];
+    const sent = stubFetch(() => answers.shift() ?? resource());
+    const described = storage().stat("object");
+
+    await vi.advanceTimersByTimeAsync(0);
+
+    await expect(described).resolves.toMatchObject({ size: 5 });
+    expect(sent).toHaveLength(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a quoted `invalid_token` is the same refusal", async () => {
+  const answers = [
+    errorDocument(401, "authError", "Invalid Credentials", {
+      "www-authenticate": 'Bearer error="invalid_token", error_description="The token expired"',
+    }),
+  ];
+  const sent = stubFetch(() => answers.shift() ?? resource());
+
+  await storage().stat("object");
+
+  expect(sent).toHaveLength(2);
+});
+
+test("any other `401` is `InvalidCredentials` and not repeated", async () => {
+  const resolve = vi.fn<() => GcsCredentials>(() => ({ accessToken }));
+  const sent = stubFetch(() =>
+    errorDocument(401, "required", "Login Required.", {
+      "www-authenticate": 'Bearer realm="https://accounts.google.com/"',
+    }),
+  );
+
+  const failure = await failureOf(() => storage({ credentials: resolve }).stat("object"));
+
+  expect(sent).toHaveLength(1);
+  expect(resolve).toHaveBeenCalledOnce();
+  expect(failure).toMatchObject({
+    code: "InvalidCredentials",
+    attempts: 1,
+    message: "Login Required.",
+  });
+});
+
+test("a refused token on the media download is repeated as well, and nothing reports `Expired`", async () => {
+  const tokens = ["expired", "expired", "fresh", "fresh"];
+  const resolve = vi.fn<() => GcsCredentials>(() => ({ accessToken: tokens.shift() ?? "later" }));
+
+  stubFetch((request) => {
+    if (request.headers.get("authorization") !== "Bearer expired") return stored("hello")(request);
+
+    return request.url.includes("alt=media")
+      ? new Response("Invalid Credentials", { status: 401, headers: refusedToken })
+      : invalidToken();
+  });
+
+  const read = await storage({ credentials: resolve }).get("object");
+
+  expect(await read.text()).toBe("hello");
+  expect(resolve).toHaveBeenCalledTimes(4);
+});
+
+// Refusals of `list`, `copy` and `move` before any request
+
+test.each([[0], [1001], [2.5]])(
+  "a `pageSize` of %d is `InvalidOption` from `page()`, and `list` itself sends nothing",
+  async (pageSize) => {
+    const sent = stubFetch(() => resource());
+    const listing = storage().list({ pageSize });
+
+    const failure = await failureOf(() => listing.page());
+
+    expect(failure).toMatchObject({ code: "InvalidOption", operation: "list", attempts: 0 });
+    expect(failure.message).toContain("`pageSize`");
+    expect(sent).toEqual([]);
+  },
+);
+
+test("iterating a listing meets the same refusal", async () => {
+  const listing = storage().list({ pageSize: 0 });
+
+  const failure = await failureOf(async () => {
+    for await (const entry of listing) return entry;
+
+    return undefined;
+  });
+
+  expect(failure).toMatchObject({ code: "InvalidOption", operation: "list" });
+});
+
+test("an unknown option and an empty delimiter of `list` are `InvalidOption` naming them", async () => {
+  // oxlint-disable-next-line no-unsafe-type-assertion -- a caller written in JavaScript
+  const unknown = { recursive: true } as ListOptions;
+
+  expect((await failureOf(() => storage().list(unknown).page())).message).toContain("`recursive`");
+  expect((await failureOf(() => storage().list({ delimiter: "" }).page())).message).toContain(
+    "`delimiter`",
+  );
+});
+
+test("a prefix the core rule refuses is `InvalidKey`", async () => {
+  const failure = await failureOf(() => storage().list({ prefix: "a/../b" }).page());
+
+  expect(failure).toMatchObject({ code: "InvalidKey", operation: "list", attempts: 0 });
+});
+
+test.each([["copy"], ["move"]] as const)(
+  "`%s` of a key onto itself is `InvalidRequest` before any request",
+  async (operation) => {
+    const sent = stubFetch(() => resource());
+
+    const failure = await failureOf(() => storage()[operation]("object", "object"));
+
+    expect(failure).toMatchObject({
+      code: "InvalidRequest",
+      operation,
+      key: "object",
+      attempts: 0,
+    });
+    expect(sent).toEqual([]);
+  },
+);
+
+test.each([["copy"], ["move"]] as const)(
+  "`%s` checks both keys before acting on either",
+  async (operation) => {
+    const refusedSource = await failureOf(() => storage()[operation]("a/../b", "object"));
+    const refusedDestination = await failureOf(() =>
+      storage()[operation]("object", ".well-known/acme-challenge/token"),
+    );
+
+    expect(refusedSource).toMatchObject({ code: "InvalidKey", key: "a/../b", operation });
+    expect(refusedDestination).toMatchObject({
+      code: "InvalidKey",
+      key: ".well-known/acme-challenge/token",
+      operation,
+    });
+  },
+);
+
+test("any `401` to the repeat says that the token expired or is not accepted", async () => {
+  const answers = [invalidToken(), errorDocument(401, "required", "Login Required.")];
+  const sent = stubFetch(() => answers.shift() ?? resource());
+
+  const failure = await failureOf(() => storage().stat("object"));
+
+  expect(sent).toHaveLength(2);
+  expect(failure).toMatchObject({
+    code: "InvalidCredentials",
+    attempts: 2,
+    providerCode: "required",
+  });
+  expect(failure.message).toContain("expired or is not accepted");
 });
