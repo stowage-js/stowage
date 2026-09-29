@@ -51,6 +51,18 @@ export async function send(
 }
 
 /**
+ * One attempt of the request, for the caller that reads each failure before the loop of
+ * spec 9.5 decides on the next: `move`, whose `404` after an unanswered attempt tells
+ * nothing of the source (ADR 0037).
+ */
+export async function sendOnce(
+  configuration: GcsConfiguration,
+  request: GcsRequest,
+): Promise<Response> {
+  return await attempt(configuration, request, false);
+}
+
+/**
  * One request under a token resolved for it alone, which is the attempt CONTEXT.md names
  * and what a repeat repeats.
  *

@@ -87,6 +87,14 @@ and no code of its own, for the reason ADR 0016 gives. Not repeating `objects.mo
 unanswered attempt was the other way, as ADR 0013 does for `CompleteMultipartUpload`, and it would
 give up the repeat for the common failure in which nothing was moved.
 
+An attempt whose credential the resolver fails to produce with a `NetworkError` counts as one that
+received no answer, although no request went out and the move cannot have happened in it. A
+`404` after it rejects with that `NetworkError` rather than `NotFound`, which reports a doubt where
+there was none. Telling the two apart would take the request layer marking where a `NetworkError`
+arose, for this one reading of it, and the error the caller gets is the safe side of the doubt: a
+`move` called again answers `NotFound` if the source is gone, where a `NotFound` for a move that
+happened would tell the caller the object was never there.
+
 This amends ADR 0034. fake-gcs-server 1.56.1 has no `moveTo`: every call answers
 `400 invalid` "Metadata in the request couldn't decode" and the source stays. `move/round-trip` and
 `move/missing-source` go on the divergence list as expected failures, naming that, and run against

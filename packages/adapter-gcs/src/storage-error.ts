@@ -32,6 +32,11 @@ export function inStorage(
   return gcsError(bucket, { ...fieldsOf(failure), operation, key: key ?? failure.key });
 }
 
+/** The same failure counting `attempts`, for a loop that reports an attempt before the last. */
+export function countingAttempts(failure: StorageError, attempts: number): StorageError {
+  return gcsError(failure.bucket, { ...fieldsOf(failure), attempts });
+}
+
 /**
  * Every field of `StorageErrorFields` is named below, so a field added to that type has
  * to be added here too or it is dropped on the way through.

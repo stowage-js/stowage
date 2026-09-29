@@ -78,4 +78,6 @@ of a page towards `maxResults`, where GCS counts the pseudo-directories as well,
 flow lists arrives as one page without a cursor. `presign/expired-url`, `presign/put-rejects-length`
 and `presign/put-rejects-type` are on it because the emulator checks neither the signature nor the
 expiry of a signed URL, as its README states, so it serves the URL each case expects refused.
+`move/round-trip` and `move/missing-source` are on it because the emulator serves no `objects.move`
+and answers every `moveTo` with `400 invalid`, the source left where it was (ADR 0037).
 `list/noncharacter-key` is not on it: no real endpoint runs the case to settle an entry.

@@ -19,6 +19,7 @@ import {
   type GcsSigner,
   readConfiguration,
 } from "./configuration.ts";
+import { copyObject, moveObject } from "./copy.ts";
 import { deleteBelow, deleteKeys } from "./delete.ts";
 import { defaultContentType, readDescription } from "./description.ts";
 import { getObject } from "./download.ts";
@@ -188,13 +189,13 @@ class GcsBucketStorage implements GcsStorage {
   async copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
     this.#requireCopyKeys(from, to, options, "copy");
 
-    throw notYetImplemented("`copy`");
+    return await copyObject(this.configuration, from, to, options?.signal);
   }
 
   async move(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
     this.#requireCopyKeys(from, to, options, "move");
 
-    throw notYetImplemented("`move`");
+    return await moveObject(this.configuration, from, to, options?.signal);
   }
 
   #requireAddressable(key: string, options: OperationOptions | undefined, operation: string): void {
@@ -218,15 +219,18 @@ class GcsBucketStorage implements GcsStorage {
     requireKey(this.bucket, to, "writable", operation);
     requireKnownOptions(this.bucket, options, operationOptionKeys, operation);
 
-    if (from !== to) return;
+    if (from === to) {
+      throw gcsError(this.bucket, {
+        code: "InvalidRequest",
+        message: "A copy names one key as its source and another as its destination",
+        operation,
+        key: from,
+        attempts: 0,
+      });
+    }
 
-    throw gcsError(this.bucket, {
-      code: "InvalidRequest",
-      message: "A copy names one key as its source and another as its destination",
-      operation,
-      key: from,
-      attempts: 0,
-    });
+    // Spec 4.3: a signal that already fired rejects before the request goes out.
+    options?.signal?.throwIfAborted();
   }
 
   #readContentType(contentType: string | undefined): string {
