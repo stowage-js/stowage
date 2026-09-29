@@ -662,6 +662,42 @@ export function uploadStream<T>(
   options: StreamUploadOptions,
   upload: StreamUpload<T>,
 ): Promise<T>;
+
+/** A whole HTTP request carried inside a batch, which sends no body of its own. */
+export interface BatchSubrequest {
+  readonly method: string;
+  /** Encoded, as its request line carries it. */
+  readonly path: string;
+  readonly headers: readonly (readonly [name: string, value: string])[];
+}
+/** One HTTP response inside the answer, under the `Content-ID` the answer gives it. */
+export interface BatchSubresponse {
+  readonly contentId: string;
+  readonly status: number;
+  readonly headers: Headers;
+  readonly body: string;
+}
+/** A fresh boundary for one batch body. */
+export function batchBoundary(): string;
+/** The `Content-Type` of a batch request: `multipart/mixed` under the boundary. */
+export function batchContentType(boundary: string): string;
+/** Each subrequest as an `application/http` part, its place in the batch as its `Content-ID`. */
+export function batchBody(
+  boundary: string,
+  subrequests: readonly BatchSubrequest[],
+): Uint8Array<ArrayBuffer>;
+/** One subresponse per subrequest in their order, or why the answer cannot be read. */
+export type SubresponseReading =
+  | { readonly subresponses: readonly BatchSubresponse[] }
+  | { readonly unreadable: string }
+  | { readonly unanswered: number };
+/** The answer's subresponses, each paired by the `Content-ID` `echoedContentId` names. */
+export function readSubresponses(
+  contentType: string | null,
+  body: string,
+  subrequestCount: number,
+  echoedContentId: (sent: string) => string,
+): SubresponseReading;
 ```
 
 - Every adapter calls `invalidKeyReason` as the first act of every operation and rejects with
@@ -710,6 +746,17 @@ export function uploadStream<T>(
 - `uploadStream` cancels the source wherever it settles before the stream ended: when `multipart`
   rejects, when a part fails, on the caller's abort, and when `multipart` returns without calling
   `sendParts`. The part reader is not exported.
+- `batchBoundary`, `batchContentType`, `batchBody` and `readSubresponses` are the one definition of
+  a `multipart/mixed` batch on the wire: `adapter-azure-blob` sends and reads its Blob Batch
+  through them (section 8.4), and `adapter-gcs` its batch requests (section 9.4). A subrequest
+  sends no body. The adapter chooses the subrequests' headers, names the form its provider echoes
+  a `Content-ID` in, as sent on Azure and as `<response-0>` on GCS, and maps each subresponse to
+  its outcome.
+- `readSubresponses` takes the boundary from `Content-Type`, quoted or bare, and reads lines
+  ending in CRLF or LF. An answer that is no `multipart/mixed` of HTTP responses, a `Content-ID`
+  that answers no subrequest and two answers to one subrequest are `unreadable`, which names what
+  the answer is instead; a subrequest nothing answers is `unanswered`, its place in the batch. An
+  adapter reports either as `ProviderError`.
 
 ## 5. `@stowage/adapter-memory`
 
