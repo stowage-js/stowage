@@ -4,7 +4,7 @@ import { type Part, PartReader } from "./part-reader.ts";
 export interface StreamUploadOptions {
   readonly partSize: number;
   readonly concurrency: number;
-  /** The provider's limit on the parts of one upload. */
+  /** The provider's limit on the parts of one upload, `Infinity` where it has none. */
   readonly maxParts: number;
   /** What the `InvalidRequest` for a stream above `maxParts` is told against. */
   readonly bucket: string;

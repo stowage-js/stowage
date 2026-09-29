@@ -259,6 +259,22 @@ test("a stream above `maxParts` rejects naming `partSize` and the way past it, u
   expect(source.canceled()).toBe(thrown);
 });
 
+test("`maxParts: Infinity` never refuses a stream, past S3's 10,000 parts too", async () => {
+  const source = countedStream(10_000);
+  const sent = await uploadStream(
+    source.body,
+    { ...options, maxParts: Infinity },
+    {
+      whole: unexpected,
+      multipart: async (sendParts) =>
+        await sendParts(async (index) => await Promise.resolve(index)),
+    },
+  );
+
+  expect(sent.results).toHaveLength(10_001);
+  expect(source.canceled()).toBeUndefined();
+});
+
 test("a second call of `sendParts` rejects", async () => {
   const source = countedStream(1);
 
