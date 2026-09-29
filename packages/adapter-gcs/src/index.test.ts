@@ -1211,6 +1211,56 @@ test("the iteration walks every page, sending `maxResults` and the last `nextPag
   ]);
 });
 
+test("the iteration rejects a page token sent earlier in the same walk", async () => {
+  const pages = new Map([
+    ["", { items: [listed("a.txt")], nextPageToken: "second" }],
+    ["second", { items: [listed("b.txt")], nextPageToken: "third" }],
+    ["third", { items: [listed("c.txt")], nextPageToken: "second" }],
+  ]);
+  const sent = stubFetch((request) =>
+    listingAnswer(pages.get(new URL(request.url).searchParams.get("pageToken") ?? "") ?? {}),
+  );
+
+  const { cursor } = await storage().list().page();
+  const failure = await failureOf(async () => {
+    for await (const entry of storage().list()) void entry;
+  });
+
+  expect(failure).toMatchObject({ code: "ProviderError", operation: "list", status: 200 });
+  expect(failure.message).toContain("a page token already sent");
+  expect(sent).toHaveLength(4);
+
+  const resumed = await storage().list({ cursor }).page();
+
+  expect(resumed.objects.map(({ key }) => key)).toEqual(["b.txt"]);
+  expect(resumed.cursor).toEqual(expect.any(String));
+});
+
+test.each([
+  ["non-array items", { items: {} }, "items that are not an array"],
+  ["null items", { items: null }, "items that are not an array"],
+  ["non-array prefixes", { prefixes: "docs/" }, "prefixes that are not an array"],
+  ["null prefixes", { prefixes: null }, "prefixes that are not an array"],
+  ["non-string nextPageToken", { nextPageToken: 3 }, "a nextPageToken that is not a string"],
+  ["null nextPageToken", { nextPageToken: null }, "a nextPageToken that is not a string"],
+])("a listing with %s is a `ProviderError`", async (_, fields, said) => {
+  stubFetch(() => listingAnswer(fields));
+
+  const failure = await failureOf(() => storage().list().page());
+
+  expect(failure).toMatchObject({ code: "ProviderError", operation: "list", status: 200 });
+  expect(failure.message).toContain(said);
+});
+
+test("an empty nextPageToken still ends a listing", async () => {
+  const sent = stubFetch(() => listingAnswer({ nextPageToken: "" }));
+
+  const page = await storage().list().page();
+
+  expect(page).toEqual({ objects: [], prefixes: [], cursor: undefined });
+  expect(sent).toHaveLength(1);
+});
+
 test.each([
   ["no cursor at all", "this-is-no-cursor-the-storage-handed-out"],
   ["a bare page token", "CgViLnR4dA=="],

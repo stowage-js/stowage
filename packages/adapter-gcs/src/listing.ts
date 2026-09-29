@@ -75,9 +75,13 @@ async function* walkPages(
   configuration: GcsConfiguration,
   request: ListRequest,
 ): AsyncGenerator<ListingDocument> {
+  const sentTokens = new Set<string>();
+
   for (let page = request; ;) {
+    if (page.pageToken !== undefined) sentTokens.add(page.pageToken);
+
     // oxlint-disable-next-line no-await-in-loop -- the next page needs this one's token
-    const document = await requestPage(configuration, page);
+    const document = await requestPage(configuration, page, sentTokens);
 
     yield document;
 
@@ -126,6 +130,7 @@ function readListRequest(bucket: string, options: ListOptions | undefined): List
 async function requestPage(
   configuration: GcsConfiguration,
   request: ListRequest,
+  sentTokens?: ReadonlySet<string>,
 ): Promise<ListingDocument> {
   // Spec 4.3: a signal that already fired rejects before the request goes out.
   request.signal?.throwIfAborted();
@@ -157,6 +162,10 @@ async function requestPage(
     throw malformedAnswer(answered, "the page token it was sent");
   }
 
+  if (document.nextPageToken !== undefined && sentTokens?.has(document.nextPageToken)) {
+    throw malformedAnswer(answered, "a page token already sent");
+  }
+
   return document;
 }
 
@@ -166,16 +175,32 @@ async function requestPage(
  * for what was missing.
  */
 function readListingDocument(answered: AnsweredRequest, document: unknown): ListingDocument {
+  const items = fieldOf(document, "items");
+  const prefixes = fieldOf(document, "prefixes");
+  const nextPageToken = fieldOf(document, "nextPageToken");
+
+  if (items !== undefined && !Array.isArray(items)) {
+    throw malformedAnswer(answered, "items that are not an array");
+  }
+
+  if (prefixes !== undefined && !Array.isArray(prefixes)) {
+    throw malformedAnswer(answered, "prefixes that are not an array");
+  }
+
+  if (nextPageToken !== undefined && typeof nextPageToken !== "string") {
+    throw malformedAnswer(answered, "a nextPageToken that is not a string");
+  }
+
   return {
-    objects: arrayOf(fieldOf(document, "items")).map((item) => readEntry(answered, item)),
-    prefixes: arrayOf(fieldOf(document, "prefixes")).map((prefix) => {
+    objects: arrayOf(items).map((item) => readEntry(answered, item)),
+    prefixes: arrayOf(prefixes).map((prefix) => {
       if (typeof prefix !== "string" || prefix === "") {
         throw malformedAnswer(answered, "a pseudo-directory with no name");
       }
 
       return prefix;
     }),
-    nextPageToken: stringOf(fieldOf(document, "nextPageToken")),
+    nextPageToken: stringOf(nextPageToken),
   };
 }
 
