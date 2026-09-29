@@ -20,6 +20,12 @@ interface ListRequest {
   readonly pageSize: number;
   /** The token the page continues from: the caller's cursor, then each `nextPageToken`. */
   readonly pageToken?: string;
+  /**
+   * Whether `pageToken` is the caller's cursor rather than a token the provider handed out
+   * on the way, which is the one a refusal of spec 9.8 reports as `cursor`: the caller can
+   * act on the cursor they handed over, and on a token they never saw they cannot.
+   */
+  readonly carriesCursor: boolean;
   readonly signal?: AbortSignal;
 }
 
@@ -40,8 +46,10 @@ export function createListing(
 ): ObjectListing {
   return {
     async page(): Promise<ListPage> {
-      const request = readListRequest(configuration.bucket, options);
-      const document = await requestPage(configuration, request, callersCursor(request));
+      const document = await requestPage(
+        configuration,
+        readListRequest(configuration.bucket, options),
+      );
 
       return {
         objects: document.objects,
@@ -67,23 +75,16 @@ async function* walkPages(
   configuration: GcsConfiguration,
   request: ListRequest,
 ): AsyncGenerator<ListingDocument> {
-  let document = await requestPage(configuration, request, callersCursor(request));
-
-  yield document;
-
-  while (document.nextPageToken !== undefined) {
-    const next = { ...request, pageToken: document.nextPageToken };
-
+  for (let page = request; ;) {
     // oxlint-disable-next-line no-await-in-loop -- the next page needs this one's token
-    document = await requestPage(configuration, next, false);
+    const document = await requestPage(configuration, page);
 
     yield document;
-  }
-}
 
-/** Whether the first page continues from a cursor the caller handed over. */
-function callersCursor(request: ListRequest): boolean {
-  return request.pageToken !== undefined;
+    if (document.nextPageToken === undefined) return;
+
+    page = { ...page, pageToken: document.nextPageToken, carriesCursor: false };
+  }
 }
 
 /** Everything spec 4.3 and 4.11 have `list` refuse without asking the provider. */
@@ -117,18 +118,14 @@ function readListRequest(bucket: string, options: ListOptions | undefined): List
     delimiter: options?.delimiter,
     pageSize,
     pageToken,
+    carriesCursor: pageToken !== undefined,
     signal: options?.signal,
   };
 }
 
-/**
- * One page. `carriesCursor` says whether its page token is the caller's rather than one the
- * provider handed out on the way, since spec 9.8 has only the caller's refused as `cursor`.
- */
 async function requestPage(
   configuration: GcsConfiguration,
   request: ListRequest,
-  carriesCursor: boolean,
 ): Promise<ListingDocument> {
   // Spec 4.3: a signal that already fired rejects before the request goes out.
   request.signal?.throwIfAborted();
@@ -144,7 +141,7 @@ async function requestPage(
     operation: request.operation,
     path: listPath(configuration),
     query,
-    carriesCursor,
+    carriesCursor: request.carriesCursor,
     signal: request.signal,
   });
   const answered: AnsweredRequest = {
