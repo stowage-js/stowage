@@ -1606,7 +1606,8 @@ section 4.10 has it, except for a `404`. `retryable` follows the status alone (A
   is `NotFound`, and `delete` counts it as deleted, where sections 7.9 and 8.8 report `InvalidKey`.
   So is a read or delete of a name GCS cannot hold.
 - In `get`, where the resource request fails, its failure is reported, and a failure of the media
-  download only where the resource succeeded; either failure aborts the other request. `attempts`
+  download only where the resource succeeded; either failure aborts the other request, except a
+  media `416`, which leaves the resource request running for the size its report names. `attempts`
   counts the request whose failure is reported. A `get` racing the creation or deletion of its key
   may answer `NotFound`. After a generation mismatch, a `404` of the resource pinned to the media
   download's generation is no failure, and a `404` of the media download pinned after it is

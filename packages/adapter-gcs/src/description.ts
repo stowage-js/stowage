@@ -2,11 +2,9 @@ import type { ObjectStat } from "@stowage/core";
 
 import { type AnsweredRequest, malformedAnswer, readAnswerJson } from "./answer.ts";
 import { fieldOf } from "./json.ts";
+import { readUserMetadata } from "./user-metadata.ts";
 
 export const defaultContentType = "application/octet-stream";
-
-/** Until the storage reads `metadata` off the resource, every object reads as holding none. */
-const noUserMetadata: Readonly<Record<string, string>> = Object.freeze(Object.create(null));
 
 /** A decimal count of bytes, which the JSON API sends as a string to keep 64 bits whole. */
 const decimalSize = /^(?:0|[1-9]\d*)$/u;
@@ -22,8 +20,9 @@ export async function readResource(
 }
 
 /**
- * Spec 4.4 out of the object resource: `size`, the time of `updated` and the `etag`. The
- * key is the one the call named, which the resource's `name` repeats byte for byte.
+ * Spec 4.4 out of the object resource: `size`, the time of `updated`, the `etag` and the
+ * user metadata. The key is the one the call named, which the resource's `name` repeats byte
+ * for byte.
  */
 export function describeResource(
   bucket: string,
@@ -47,7 +46,7 @@ export function describeResource(
     ...etagOf(resource),
     contentType:
       typeof contentType === "string" && contentType !== "" ? contentType : defaultContentType,
-    userMetadata: noUserMetadata,
+    userMetadata: readUserMetadata(resource),
   };
 }
 

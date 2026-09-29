@@ -435,6 +435,85 @@ test.each([[""], ["text/plain\r\nX-Injected: 1"]])(
   },
 );
 
+// User metadata
+
+/** The object resource the first part of a multipart upload carries. */
+async function uploadedResource(request: SentRequest | undefined): Promise<unknown> {
+  const boundary = /boundary=(\S+)$/u.exec(request?.headers.get("content-type") ?? "")?.[1];
+  const [, part = ""] = (await bodyText(request?.body)).split(`--${boundary}`);
+  const [, json = ""] = part.split("\r\n\r\n");
+
+  return JSON.parse(json);
+}
+
+test("`put` sends each user metadata key folded to lower case, its value as written", async () => {
+  const sent = stubFetch(() => resource());
+
+  await storage().put("object", "hello", {
+    userMetadata: { WrittenBy: "stowage", "Content-Hash": "  grüße =?UTF-8?B?eA==?= 😀 " },
+  });
+
+  expect(await uploadedResource(sent[0])).toMatchObject({
+    metadata: { writtenby: "stowage", "content-hash": "  grüße =?UTF-8?B?eA==?= 😀 " },
+  });
+});
+
+test("`put` without user metadata sends no `metadata`", async () => {
+  const sent = stubFetch(() => resource());
+
+  await storage().put("object", "hello", { userMetadata: {} });
+
+  expect(await uploadedResource(sent[0])).not.toHaveProperty("metadata");
+});
+
+test.each([
+  ["two keys that differ in case alone", { key: "a", KEY: "b" }],
+  ["a key that is no HTTP token", { "a b": "c" }],
+  ["a value holding a lone surrogate", { key: "\uD800" }],
+  ["a set above 2 KB", { key: "x".repeat(2048) }],
+])("`put` refuses %s before any request", async (_, userMetadata) => {
+  const sent = stubFetch(() => resource());
+
+  const failure = await failureOf(() => storage().put("object", "hello", { userMetadata }));
+
+  expect(failure).toMatchObject({
+    code: "InvalidRequest",
+    operation: "put",
+    key: "object",
+    attempts: 0,
+  });
+  expect(sent).toEqual([]);
+});
+
+test("`put` resolves with the user metadata the answer describes", async () => {
+  stubFetch(() => resource({ metadata: { writtenby: "stowage" } }));
+
+  const described = await storage().put("object", "hello", {
+    userMetadata: { WrittenBy: "stowage" },
+  });
+
+  expect(described.userMetadata).toEqual({ writtenby: "stowage" });
+});
+
+test("`stat` and `get` hand the keys back as stored, `A` beside `a`", async () => {
+  stubFetch(stored("hello", { metadata: { A: "upper", a: "lower" } }));
+
+  expect((await storage().stat("object")).userMetadata).toEqual({ A: "upper", a: "lower" });
+  expect((await storage().get("object")).stat.userMetadata).toEqual({ A: "upper", a: "lower" });
+});
+
+test("a stored value holding RFC 2047 encoded words is decoded on the way back", async () => {
+  stubFetch(stored("hello", { metadata: { greeting: "=?UTF-8?B?Z3LDvMOfZQ==?= =?UTF-8?Q?_w?=" } }));
+
+  expect((await storage().stat("object")).userMetadata).toEqual({ greeting: "grüße w" });
+});
+
+test("a resource without `metadata` holds no user metadata", async () => {
+  stubFetch(stored("hello"));
+
+  expect((await storage().stat("object")).userMetadata).toEqual({});
+});
+
 test("a signal that already fired rejects `put` with `AbortError` before any request", async () => {
   const sent = stubFetch(() => resource());
 
@@ -582,6 +661,165 @@ test("a signal that already fired rejects `get` before any request", async () =>
     name: "AbortError",
   });
   expect(sent).toEqual([]);
+});
+
+// Ranges
+
+const rangedBody = "0123456789";
+
+/** Answers `get` as GCS answers a range it honored: `206` and the bytes the range names. */
+function storedRanged(request: SentRequest): Response {
+  if (!request.url.includes("alt=media")) return resource({ size: String(rangedBody.length) });
+
+  const [, start = "0", end = String(rangedBody.length - 1)] =
+    /^bytes=(\d+)-(\d*)$/u.exec(request.headers.get("range") ?? "") ?? [];
+
+  return new Response(rangedBody.slice(Number(start), Number(end || rangedBody.length) + 1), {
+    status: 206,
+    headers: { "content-range": `bytes ${start}-${end}/${rangedBody.length}` },
+  });
+}
+
+test("a range goes to the media download alone, as the `Range` field", async () => {
+  const sent = stubFetch(storedRanged);
+
+  await storage().get("object", { range: { start: 2, end: 5 } });
+
+  const [described, download] = sent.toSorted(byUrl);
+
+  expect(described?.headers.has("range")).toBe(false);
+  expect(download?.headers.get("range")).toBe("bytes=2-5");
+});
+
+test("a ranged `get` reads the range and describes the whole object", async () => {
+  stubFetch(storedRanged);
+
+  const read = await storage().get("object", { range: { start: 2, end: 5 } });
+
+  expect(read.stat.size).toBe(10);
+  expect(await read.text()).toBe("2345");
+});
+
+test("a range without an end reads to the end of the object", async () => {
+  const sent = stubFetch(storedRanged);
+
+  const read = await storage().get("object", { range: { start: 7 } });
+
+  expect(sent.find((request) => request.url.includes("alt=media"))?.headers.get("range")).toBe(
+    "bytes=7-",
+  );
+  expect(await read.text()).toBe("789");
+});
+
+test.each([[{ start: -1 }], [{ start: 1.5 }], [{ start: 5, end: 4 }]])(
+  "the range %j is `InvalidOption` before any request",
+  async (range) => {
+    const sent = stubFetch(storedRanged);
+
+    const failure = await failureOf(() => storage().get("object", { range }));
+
+    expect(failure).toMatchObject({ code: "InvalidOption", operation: "get", attempts: 0 });
+    expect(failure.message).toContain("`range`");
+    expect(sent).toEqual([]);
+  },
+);
+
+test("a `200` answering a range that covers the object is the body asked for", async () => {
+  stubFetch(stored(rangedBody));
+
+  const read = await storage().get("object", { range: { start: 0, end: 40 } });
+
+  expect(await read.text()).toBe(rangedBody);
+});
+
+test("a `200` answering a range that covers less is a `ProviderError`, its body canceled", async () => {
+  const cancel = vi.fn<() => void>();
+
+  stubFetch((request) =>
+    request.url.includes("alt=media")
+      ? new Response(new ReadableStream({ cancel }), { status: 200 })
+      : resource({ size: String(rangedBody.length) }),
+  );
+
+  const failure = await failureOf(() => storage().get("object", { range: { start: 2 } }));
+
+  expect(failure).toMatchObject({ code: "ProviderError", key: "object", attempts: 1 });
+  expect(cancel).toHaveBeenCalledOnce();
+});
+
+test("a media `416` is `InvalidRequest` naming the size the resource answered with", async () => {
+  const downloadFailed = Promise.withResolvers<void>();
+
+  stubFetch(async (request) => {
+    if (request.url.includes("alt=media")) {
+      downloadFailed.resolve();
+
+      return new Response("The requested range cannot be satisfied.", {
+        status: 416,
+        headers: { "x-guploader-uploadid": "upload-416" },
+      });
+    }
+
+    // The resource answers only once the download's failure had time to reach `get`, and
+    // a `get` that aborted the resource request on that failure never sees the answer.
+    await downloadFailed.promise;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    request.signal?.throwIfAborted();
+
+    return resource({ size: String(rangedBody.length) });
+  });
+
+  const failure = await failureOf(() => storage().get("object", { range: { start: 10 } }));
+
+  expect(failure).toMatchObject({
+    code: "InvalidRequest",
+    operation: "get",
+    key: "object",
+    status: 416,
+    attempts: 1,
+    requestId: "upload-416",
+    message: 'The range starts beyond the 10 bytes under the key "object"',
+  });
+  expect(failure.providerCode).toBeUndefined();
+});
+
+test("a media `416` is `InvalidRequest` when the resource size leaves room for the range", async () => {
+  stubFetch((request) =>
+    request.url.includes("alt=media")
+      ? Response.json(
+          {
+            error: {
+              message: "The requested range cannot be satisfied.",
+              errors: [{ reason: "unexpectedReason" }],
+            },
+          },
+          { status: 416, headers: { "x-guploader-uploadid": "upload-416" } },
+        )
+      : resource({ size: String(rangedBody.length) }),
+  );
+
+  const failure = await failureOf(() => storage().get("object", { range: { start: 2 } }));
+
+  expect(failure).toMatchObject({
+    code: "InvalidRequest",
+    operation: "get",
+    key: "object",
+    status: 416,
+    attempts: 1,
+    requestId: "upload-416",
+    message: "The requested range cannot be satisfied.",
+  });
+  expect(failure.providerCode).toBeUndefined();
+});
+
+test("a media `416` beside a failed resource request reports the resource's failure", async () => {
+  stubFetch((request) =>
+    request.url.includes("alt=media") ? new Response("", { status: 416 }) : notFound(),
+  );
+
+  const failure = await failureOf(() => storage().get("absent", { range: { start: 10 } }));
+
+  expect(failure).toMatchObject({ code: "NotFound", key: "absent", status: 404 });
 });
 
 // `stat` and `exists`

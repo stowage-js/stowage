@@ -10,6 +10,7 @@ import {
   type PresignedPut,
   type PutBody,
   type PutOptions,
+  rangeHeader,
   type Storage,
   type StoredObject,
 } from "@stowage/core";
@@ -31,10 +32,18 @@ import {
   requireKnownOptions,
 } from "./options.ts";
 import type { GcsPresignGetOptions, GcsPresignPutOptions } from "./presign.ts";
+import {
+  isUnsatisfiedRange,
+  partialContent,
+  reportedDownloadFailure,
+  requireRange,
+  wholeAnswerFailure,
+} from "./range.ts";
 import { objectPath, send } from "./request.ts";
 import { gcsError } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
 import { putBytes } from "./upload.ts";
+import { heldUserMetadata } from "./user-metadata.ts";
 
 export type { GcsAdapterOptions, GcsSigner } from "./configuration.ts";
 export type { GcsCredentials } from "./credentials.ts";
@@ -108,10 +117,12 @@ class GcsBucketStorage implements GcsStorage {
     requireKey(this.bucket, key, "writable", "put");
     requireKnownOptions(this.bucket, options, putOptionKeys, "put");
 
-    if (options?.userMetadata !== undefined && Object.keys(options.userMetadata).length > 0) {
-      throw notYetImplemented("`put` with user metadata");
-    }
-
+    const userMetadata = heldUserMetadata(
+      this.bucket,
+      options?.userMetadata,
+      key,
+      this.capabilities,
+    );
     const contentType = this.#readContentType(options?.contentType);
 
     // Spec 4.3: a signal that already fired rejects before the request goes out.
@@ -121,7 +132,7 @@ class GcsBucketStorage implements GcsStorage {
 
     return await putBytes(
       this.configuration,
-      { key, contentType, signal: options?.signal },
+      { key, contentType, userMetadata, signal: options?.signal },
       bytesOf(body),
     );
   }
@@ -130,13 +141,16 @@ class GcsBucketStorage implements GcsStorage {
    * Spec 9.4: the resource request and the media download side by side, since the media
    * download carries no user metadata. Where the resource request fails its failure is
    * reported, and a failure of the download only where the resource succeeded; either
-   * failure aborts the other request (spec 9.8).
+   * failure aborts the other request (spec 9.8), except a `416` refusing the range, whose
+   * report names the size the resource answers with.
    */
   async get(key: string, options?: GetOptions): Promise<StoredObject> {
     requireKey(this.bucket, key, "addressable", "get");
     requireKnownOptions(this.bucket, options, getOptionKeys, "get");
 
-    if (options?.range !== undefined) throw notYetImplemented("`get` of a range");
+    const range = options?.range;
+
+    requireRange(this.bucket, range);
 
     options?.signal?.throwIfAborted();
 
@@ -158,9 +172,14 @@ class GcsBucketStorage implements GcsStorage {
         key,
         path: objectPath(this.configuration, key),
         query: [["alt", "media"]],
+        headers: range === undefined ? [] : [["range", rangeHeader(range)]],
         media: true,
         signal,
-      }).catch(abortOther),
+      }).catch((failure: unknown) => {
+        if (isUnsatisfiedRange(range, failure)) throw failure;
+
+        return abortOther(failure);
+      }),
     ]);
 
     if (described.status === "rejected") {
@@ -178,9 +197,25 @@ class GcsBucketStorage implements GcsStorage {
       throw described.reason;
     }
 
-    if (download.status === "rejected") throw download.reason;
+    const stat = described.value;
 
-    return createStoredObject(this.bucket, described.value, download.value);
+    if (download.status === "rejected") {
+      throw reportedDownloadFailure(this.bucket, key, range, stat.size, download.reason);
+    }
+
+    const response = download.value;
+    const refusal =
+      range === undefined || response.status === partialContent
+        ? undefined
+        : wholeAnswerFailure(this.bucket, key, range, stat.size, response);
+
+    if (refusal !== undefined) {
+      await response.body?.cancel().catch(() => {});
+
+      throw refusal;
+    }
+
+    return createStoredObject(this.bucket, stat, response);
   }
 
   async stat(key: string, options?: OperationOptions): Promise<ObjectStat> {
