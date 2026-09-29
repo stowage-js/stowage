@@ -651,3 +651,23 @@ test("a `404` without a provider code on the start says that the endpoint serves
   expect(failure).toMatchObject({ code: "ProviderError", status: 404 });
   expect(failure.message).toContain("serves no such path");
 });
+
+test("a commit answered with a failure is no unanswered one: `put` rejects with it, committed or not", async () => {
+  withoutBackoff();
+  const { sent } = stubSession({
+    2: (_, service) => {
+      service();
+
+      return unavailable(sent[2]!, service);
+    },
+    3: unavailable,
+    4: unavailable,
+  });
+
+  const failure = await failureOf(
+    async () => await storage().put("object.bin", streamOf(pattern(partSize + 10)).body),
+  );
+
+  expect(failure).toMatchObject({ code: "ProviderError", status: 503, attempts: 3 });
+  expect(sent.at(-1)?.method).toBe("DELETE");
+});

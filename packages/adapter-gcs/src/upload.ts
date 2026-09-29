@@ -1,4 +1,4 @@
-import { type ObjectStat, type SendParts, uploadStream } from "@stowage/core";
+import { isStorageError, type ObjectStat, type SendParts, uploadStream } from "@stowage/core";
 
 import type { GcsConfiguration } from "./configuration.ts";
 import { describeResource, readResource } from "./description.ts";
@@ -73,7 +73,7 @@ export async function putStream(
  * commits; where the last part was full, an empty chunk naming the total commits after it,
  * since the core reads the next part only once this one settled (ADR 0036).
  *
- * A failed or aborted upload cancels its session. Where the failure was the commit's, the
+ * A failed or aborted upload cancels its session. Where the commit went unanswered, the
  * cancel's answer says whether the session committed after all, and a committed session's
  * object is what `put` resolves with (spec 9.6).
  */
@@ -115,12 +115,23 @@ async function resumableUpload(
       write.signal,
     );
   } catch (failure) {
-    const object = await session.cancel(committing && write.signal?.aborted !== true);
+    const object = await session.cancel(committing && isUnanswered(failure, write.signal));
 
     if (object !== undefined) return object;
 
     throw failure;
   }
+}
+
+/**
+ * Spec 9.6 settles a commit by the cancel only where no answer said how it went. An answered
+ * failure is reported as it stands, and the caller's abort rejects with `AbortError` even
+ * where the commit arrived.
+ */
+function isUnanswered(failure: unknown, signal: AbortSignal | undefined): boolean {
+  if (signal?.aborted === true) return false;
+
+  return isStorageError(failure) && failure.code === "NetworkError";
 }
 
 /** The object's resource as the JSON API takes it: name, content type and user metadata. */
