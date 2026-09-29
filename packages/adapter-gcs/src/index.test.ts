@@ -1047,6 +1047,132 @@ test("a media download that names no generation is kept with the resource beside
   expect(sent).toHaveLength(2);
 });
 
+// A stored content coding (spec 9.4, ADR 0040)
+
+const decodedBody = "x".repeat(1000);
+
+/** Answers `get` for an object another tool stored gzipped, decoded on the way out. */
+function storedGzipped(body: BodyInit = decodedBody, status = 200) {
+  return (request: SentRequest): Response =>
+    isMedia(request)
+      ? mediaOf(body, firstGeneration, {
+          status,
+          headers: { "x-goog-stored-content-encoding": "gzip" },
+        })
+      : resource({ size: "39", generation: firstGeneration, contentEncoding: "gzip" });
+}
+
+test("an object stored with a content coding is read decoded, its `size` the stored size", async () => {
+  stubFetch(storedGzipped());
+
+  const read = await storage().get("object");
+
+  expect(read.stat.size).toBe(39);
+  expect(await read.bytes()).toHaveLength(1000);
+});
+
+test.each([
+  [{ start: 0 }],
+  [{ start: 0, end: 38 }],
+  [{ start: 0, end: 5000 }],
+  [{ start: 2, end: 5 }],
+  [{ start: 100 }],
+])(
+  "the range %j on an object stored gzipped is a `ProviderError` naming the coding",
+  async (range) => {
+    const cancel = vi.fn<() => void>();
+
+    stubFetch(storedGzipped(new ReadableStream({ cancel })));
+
+    const failure = await failureOf(() => storage().get("object", { range }));
+
+    expect(failure).toMatchObject({ code: "ProviderError", key: "object", operation: "get" });
+    expect(failure.message).toContain('"gzip"');
+    expect(cancel).toHaveBeenCalledOnce();
+  },
+);
+
+test("a range the provider honored on an object stored gzipped is refused as well", async () => {
+  const cancel = vi.fn<() => void>();
+
+  stubFetch(storedGzipped(new ReadableStream({ cancel }), 206));
+
+  const failure = await failureOf(() => storage().get("object", { range: { start: 2, end: 5 } }));
+
+  expect(failure).toMatchObject({ code: "ProviderError", status: 206 });
+  expect(cancel).toHaveBeenCalledOnce();
+});
+
+test("a media `416` on an object stored gzipped is the `ProviderError` naming the coding", async () => {
+  stubFetch((request) =>
+    isMedia(request)
+      ? new Response("The requested range cannot be satisfied.", { status: 416 })
+      : resource({ size: "39", contentEncoding: "gzip" }),
+  );
+
+  const failure = await failureOf(() => storage().get("object", { range: { start: 100 } }));
+
+  expect(failure).toMatchObject({ code: "ProviderError", status: 416 });
+  expect(failure.message).toContain('"gzip"');
+});
+
+test("the coding is read off the media download where the resource names none", async () => {
+  stubFetch((request) =>
+    isMedia(request)
+      ? mediaOf(decodedBody, firstGeneration, {
+          headers: { "x-goog-stored-content-encoding": "br" },
+        })
+      : resource({ size: "39", generation: firstGeneration }),
+  );
+
+  const failure = await failureOf(() => storage().get("object", { range: { start: 0 } }));
+
+  expect(failure).toMatchObject({ code: "ProviderError" });
+  expect(failure.message).toContain('"br"');
+});
+
+test("`identity`, which GCS sends for an object stored without a coding, leaves a range honored", async () => {
+  stubFetch((request) =>
+    isMedia(request)
+      ? mediaOf("2345", firstGeneration, {
+          status: 206,
+          headers: { "x-goog-stored-content-encoding": "identity" },
+        })
+      : resource({ size: "10", generation: firstGeneration }),
+  );
+
+  const read = await storage().get("object", { range: { start: 2, end: 5 } });
+
+  expect(await read.text()).toBe("2345");
+});
+
+test("no request of the adapter sends `Content-Encoding`", async () => {
+  const sent = stubFetch((request) => {
+    if (request.method === "POST" && request.url.includes("/batch/")) {
+      return new Response("", { status: 200, headers: { "content-type": "multipart/mixed" } });
+    }
+
+    if (request.method === "GET" && new URL(request.url).pathname.endsWith("/o")) {
+      return Response.json({ items: [] });
+    }
+
+    return isMedia(request) ? media("hello") : resource();
+  });
+
+  await storage().put("object", "hello");
+  await storage()
+    .get("object", { range: { start: 1 } })
+    .catch(() => {});
+  await storage().stat("object");
+  await storage().list().page();
+  await storage()
+    .delete("object")
+    .catch(() => {});
+
+  expect(sent.length).toBeGreaterThanOrEqual(5);
+  expect(sent.filter((request) => request.headers.has("content-encoding"))).toEqual([]);
+});
+
 // `stat` and `exists`
 
 test("`stat` reads the object's resource alone", async () => {
