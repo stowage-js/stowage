@@ -15,8 +15,8 @@ import { fakeGcsServer, withGcsDivergences } from "./divergences.ts";
 /**
  * The cases the adapter passes while its operations arrive one by one: those that need
  * `put` of held bytes, user metadata, `get` with or without a range, `stat`, `exists`,
- * `list` and the presigned URLs, and the refusals `copy` and `move` make before any request,
- * and nothing else.
+ * `list`, `delete`, `deleteAll` and the presigned URLs, and the refusals `copy` and `move`
+ * make before any request, and nothing else.
  * Every operation that joins the adapter adds its cases here, until the list is the whole
  * suite and goes. The three credential cases stay in the list and report themselves
  * skipped, since the target supplies none of their factories (ADR 0033, ADR 0034).
@@ -64,6 +64,15 @@ const coveredCases: ReadonlySet<string> = new Set([
   "list/invalid-delimiter",
   "list/past-one-thousand",
   "list/key-bytes",
+  "delete/single",
+  "delete/many",
+  "delete/absent-key-succeeds",
+  "delete/nothing",
+  "delete/invalid-key-reported",
+  "delete/past-one-thousand",
+  "deleteAll/below-prefix",
+  "deleteAll/nothing",
+  "deleteAll/past-one-thousand",
   "presign/get",
   "presign/put",
   "presign/expires-in-bounds",
@@ -115,11 +124,6 @@ export function gcsTarget(configured: GcsAdapterOptions): ConformanceTarget {
 
       return gcsStorage({ ...configured, signer: await signer });
     },
-
-    // The default of spec 10.2 deletes below the prefix through `deleteAll`, which the
-    // adapter does not have yet. fake-gcs-server holds the run in memory and is recreated
-    // by every start, so nothing the run wrote outlives it.
-    async cleanup() {},
   };
 }
 
