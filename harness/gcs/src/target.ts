@@ -1,4 +1,4 @@
-import type { GcsAdapterOptions, GcsSigner } from "../../../packages/adapter-gcs/src/index.ts";
+import type { GcsSigner } from "../../../packages/adapter-gcs/src/index.ts";
 import { gcsStorage } from "../../../packages/adapter-gcs/src/index.ts";
 import type { ConformanceCaseSource } from "../../../packages/conformance/src/case.ts";
 import {
@@ -10,7 +10,9 @@ import {
   selectedCases,
 } from "../../../packages/conformance/src/run.ts";
 import type { ConformanceTarget } from "../../../packages/conformance/src/target.ts";
-import { fakeGcsServer, withGcsDivergences } from "./divergences.ts";
+import type { Variables } from "../../s3/src/configuration.ts";
+import { endpointNameFrom, type GcsEndpoint, storageWithBadCredentials } from "./configuration.ts";
+import { withGcsDivergences } from "./divergences.ts";
 
 /**
  * The cases the adapter passes while its operations arrive one by one: those that need
@@ -18,10 +20,11 @@ import { fakeGcsServer, withGcsDivergences } from "./divergences.ts";
  * `stat`, `exists`, `list`, `delete`, `deleteAll`, `copy`, `move` and the presigned URLs,
  * and nothing else.
  * Every operation that joins the adapter adds its cases here, until the list is the whole
- * suite and goes. The three credential cases stay in the list and report themselves
- * skipped, since the target supplies none of their factories (ADR 0033, ADR 0034).
- * `flow/3-file-browser`, the three rejections a presigned URL owes and the two cases of
- * `move` run against fake-gcs-server as divergences (`divergences.ts`).
+ * suite and goes. The `Expired` case stays in the list and reports itself skipped on every
+ * endpoint, and the Bad and Denied cases against fake-gcs-server, since the target supplies
+ * no factory there (ADR 0033, ADR 0034). `flow/3-file-browser`, the three rejections a
+ * presigned URL owes and the two cases of `move` run against fake-gcs-server as divergences
+ * (`divergences.ts`).
  */
 const coveredCases: ReadonlySet<string> = new Set([
   "declaration/valid-names",
@@ -125,20 +128,43 @@ export function gcsCases(options: ConformanceRunOptions): readonly ConformanceCa
 const emulatorServiceAccount = "fake-gcs-server@stowage.invalid";
 
 /**
- * `adapter-gcs` against fake-gcs-server under the fixed token of ADR 0034, signing its URLs
- * with an RSA key generated for the run, so that the presigning cases and flow 2 run on every
- * commit. There is no factory for a bad or a denied credential: the emulator checks neither.
+ * `adapter-gcs` against the endpoint of ADR 0034. Against fake-gcs-server it runs under the
+ * fixed token and signs its URLs with an RSA key generated for the run, so that the
+ * presigning cases and flow 2 run on every commit, and supplies no factory for a bad or a
+ * denied credential, since the emulator checks neither. Against the real bucket it runs under
+ * the service account's token, signs through `signBlob` and supplies both.
  */
-export function gcsTarget(configured: GcsAdapterOptions): ConformanceTarget {
+export function gcsTarget(endpoint: GcsEndpoint): ConformanceTarget {
+  const name = "@stowage/adapter-gcs";
+
+  if (endpoint.kind === "bucket") {
+    const { options, signer, deniedCredentials } = endpoint;
+
+    return {
+      name,
+
+      createStorage: () => gcsStorage({ ...options, signer }),
+
+      createStorageWithBadCredentials: () => gcsStorage(storageWithBadCredentials(options)),
+
+      ...(deniedCredentials === undefined
+        ? {}
+        : {
+            createStorageWithDeniedCredentials: () =>
+              gcsStorage({ ...options, credentials: deniedCredentials }),
+          }),
+    };
+  }
+
   let signer: Promise<GcsSigner> | undefined;
 
   return {
-    name: "@stowage/adapter-gcs",
+    name,
 
     async createStorage() {
       signer ??= generatedSigner();
 
-      return gcsStorage({ ...configured, signer: await signer });
+      return gcsStorage({ ...endpoint.options, signer: await signer });
     },
   };
 }
@@ -167,7 +193,7 @@ export const endpointMissing = "No GCS endpoint is configured; see `harness/gcs/
  */
 export function describeGcsEndpointCheck(
   framework: ConformanceFramework,
-  configured: GcsAdapterOptions | undefined,
+  configured: GcsEndpoint | undefined,
 ): void {
   framework.test(
     "the GCS endpoint of ADR 0034 is configured (see `harness/gcs/README.md`)",
@@ -177,22 +203,23 @@ export function describeGcsEndpointCheck(
   );
 }
 
-/**
- * The cases as a run against fake-gcs-server performs them, the one endpoint a harness
- * reaches until the scheduled run names the real bucket.
- */
-export function gcsRunCases(options: ConformanceRunOptions): readonly ConformanceCaseSource[] {
-  return withGcsDivergences(gcsCases(options), fakeGcsServer);
+/** The cases as a run against the endpoint `variables` name performs them. */
+export function gcsRunCases(
+  options: ConformanceRunOptions,
+  variables: Variables,
+): readonly ConformanceCaseSource[] {
+  return withGcsDivergences(gcsCases(options), endpointNameFrom(variables));
 }
 
-/** The check above, then the cases as a run against fake-gcs-server. */
+/** The check above, then the cases as a run against the endpoint `variables` name. */
 export function describeGcs(
   framework: ConformanceFramework,
-  configured: GcsAdapterOptions | undefined,
+  configured: GcsEndpoint | undefined,
+  variables: Variables,
 ): void {
   describeGcsEndpointCheck(framework, configured);
 
   if (configured === undefined) return;
 
-  describeCases(gcsRunCases(framework), gcsTarget(configured), framework);
+  describeCases(gcsRunCases(framework, variables), gcsTarget(configured), framework);
 }

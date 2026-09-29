@@ -1,5 +1,22 @@
-import type { GcsAdapterOptions } from "../../../packages/adapter-gcs/src/index.ts";
+import type { GcsAdapterOptions, GcsSigner } from "../../../packages/adapter-gcs/src/index.ts";
 import type { Variables } from "../../s3/src/configuration.ts";
+import { type WorkloadIdentityFederation, workloadIdentityFederation } from "./federated-token.ts";
+
+type Credentials = GcsAdapterOptions["credentials"];
+
+/**
+ * The endpoints of ADR 0034, as the target builds its storages from them: fake-gcs-server,
+ * which checks no credential, and the real bucket under the service accounts the job's OIDC
+ * token is exchanged for.
+ */
+export type GcsEndpoint =
+  | { readonly kind: "emulator"; readonly options: GcsAdapterOptions }
+  | {
+      readonly kind: "bucket";
+      readonly options: GcsAdapterOptions;
+      readonly signer: GcsSigner;
+      readonly deniedCredentials?: Credentials;
+    };
 
 /**
  * ADR 0034: fake-gcs-server checks no credential, so the target resolves one fixed token,
@@ -9,16 +26,100 @@ const emulatorToken = "fake-gcs-server";
 
 /**
  * ADR 0034: the endpoint is configuration rather than a dependency, so the harness reads a
- * URL and a bucket from the environment `start.sh` prints, and no case knows which server
- * answered.
+ * bucket and either the URL `start.sh` prints or the service accounts the job names, and no
+ * case knows which server answered. The real bucket is addressed without an endpoint, as a
+ * caller in the public cloud addresses it.
  */
-export function storageOptionsFrom(variables: Variables): GcsAdapterOptions | undefined {
+export function gcsEndpointFrom(variables: Variables): GcsEndpoint | undefined {
   const endpoint = filled(variables["STOWAGE_GCS_ENDPOINT"]);
   const bucket = filled(variables["STOWAGE_GCS_BUCKET"]);
+  const serviceAccount = filled(variables["STOWAGE_GCS_SERVICE_ACCOUNT"]);
 
-  if (endpoint === undefined || bucket === undefined) return undefined;
+  if (bucket === undefined) return undefined;
 
-  return { bucket, endpoint, credentials: { accessToken: emulatorToken } };
+  if (serviceAccount === undefined) {
+    if (endpoint === undefined) return undefined;
+
+    return {
+      kind: "emulator",
+      options: { bucket, endpoint, credentials: { accessToken: emulatorToken } },
+    };
+  }
+
+  const impersonate = federationFrom(variables);
+  const deniedServiceAccount = filled(variables["STOWAGE_GCS_DENIED_SERVICE_ACCOUNT"]);
+
+  return {
+    kind: "bucket",
+    options: {
+      bucket,
+      ...(endpoint === undefined ? {} : { endpoint }),
+      credentials: impersonate(serviceAccount, "devstorage.read_write"),
+    },
+    // ADR 0034: a local key there would be a stored secret.
+    signer: { serviceAccount, credentials: impersonate(serviceAccount, "iam") },
+    // Spec 10.3: a credential the bucket accepts and refuses the write to, which is the
+    // second service account's, holding `roles/storage.objectViewer` alone.
+    ...(deniedServiceAccount === undefined
+      ? {}
+      : { deniedCredentials: impersonate(deniedServiceAccount, "devstorage.read_write") }),
+  };
+}
+
+type Impersonate = WorkloadIdentityFederation["impersonate"];
+
+/** What the job names beside the service accounts, the Actions runtime's two among them. */
+const federationVariables = [
+  "STOWAGE_GCS_WORKLOAD_IDENTITY_PROVIDER",
+  "ACTIONS_ID_TOKEN_REQUEST_URL",
+  "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+] as const;
+
+/**
+ * A job that names a service account and lacks the rest, such as one without
+ * `id-token: write`, gets resolvers that say so on every request rather than a token the
+ * bucket would refuse with nothing to say why.
+ */
+function federationFrom(variables: Variables): Impersonate {
+  const [provider, idTokenRequestUrl, idTokenRequestToken] = federationVariables.map((name) =>
+    filled(variables[name]),
+  );
+
+  if (
+    provider === undefined ||
+    idTokenRequestUrl === undefined ||
+    idTokenRequestToken === undefined
+  ) {
+    const missing = federationVariables.filter((name) => filled(variables[name]) === undefined);
+    const names = missing.map((name) => `\`${name}\``).join(", ");
+
+    return () => async () => {
+      throw new Error(
+        `\`STOWAGE_GCS_SERVICE_ACCOUNT\` is set, and ${names} ${missing.length === 1 ? "is" : "are"} not`,
+      );
+    };
+  }
+
+  const federation = workloadIdentityFederation({
+    provider,
+    idTokenRequestUrl,
+    idTokenRequestToken,
+  });
+
+  return (serviceAccount, scope) => federation.impersonate(serviceAccount, scope);
+}
+
+/**
+ * Spec 10.3: a credential the provider refuses. ADR 0034: a resolver that answers a token
+ * that is none on every call, `forceRefresh` included, so the case ends after the one repeat.
+ */
+export function storageWithBadCredentials(configured: GcsAdapterOptions): GcsAdapterOptions {
+  return { ...configured, credentials: async () => ({ accessToken: "not-a-google-token" }) };
+}
+
+/** Which server answers, for the harness alone: no case reads it (ADR 0012). */
+export function endpointNameFrom(variables: Variables): string | undefined {
+  return filled(variables["STOWAGE_GCS_ENDPOINT_NAME"]);
 }
 
 function filled(value: string | null | undefined): string | undefined {

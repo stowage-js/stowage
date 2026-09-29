@@ -31,6 +31,7 @@ case "${status}" in
 esac
 
 cat <<ENVIRONMENT
+export STOWAGE_GCS_ENDPOINT_NAME=fake-gcs-server
 export STOWAGE_GCS_ENDPOINT=${endpoint}
 export STOWAGE_GCS_BUCKET=${bucket}
 ENVIRONMENT
