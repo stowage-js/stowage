@@ -1,7 +1,7 @@
-import type { ObjectStat, StorageError } from "@stowage/core";
+import type { ObjectStat } from "@stowage/core";
 
-import { requestIdHeader } from "./request.ts";
-import { gcsError } from "./storage-error.ts";
+import { type AnsweredRequest, malformedAnswer, readAnswerJson } from "./answer.ts";
+import { fieldOf } from "./json.ts";
 
 export const defaultContentType = "application/octet-stream";
 
@@ -11,23 +11,14 @@ const noUserMetadata: Readonly<Record<string, string>> = Object.freeze(Object.cr
 /** A decimal count of bytes, which the JSON API sends as a string to keep 64 bits whole. */
 const decimalSize = /^(?:0|[1-9]\d*)$/u;
 
-/**
- * The object resource the JSON API answers a metadata read and an upload with, read to the
- * end. A body that is no JSON is a `ProviderError` rather than a description made up.
- */
+/** The object resource the JSON API answers a metadata read and an upload with, read to the end. */
 export async function readResource(
   bucket: string,
   key: string,
   operation: string,
   response: Response,
 ): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch (failure) {
-    if (failure instanceof Error && failure.name === "AbortError") throw failure;
-
-    throw incomplete(bucket, key, operation, response, "a body that is no JSON", failure);
-  }
+  return await readAnswerJson(resourceAnswer(bucket, key, operation, response));
 }
 
 /**
@@ -44,12 +35,10 @@ export function describeResource(
   const size = sizeOf(resource);
   const lastModified = lastModifiedOf(resource);
   const contentType = fieldOf(resource, "contentType");
+  const answered = resourceAnswer(bucket, key, operation, response);
 
-  if (size === undefined) throw incomplete(bucket, key, operation, response, "no size");
-
-  if (lastModified === undefined) {
-    throw incomplete(bucket, key, operation, response, "no last-modified time");
-  }
+  if (size === undefined) throw malformedAnswer(answered, "no size");
+  if (lastModified === undefined) throw malformedAnswer(answered, "no last-modified time");
 
   return {
     key,
@@ -84,28 +73,11 @@ export function etagOf(resource: unknown): { readonly etag?: string } {
   return typeof etag === "string" && etag !== "" ? { etag } : {};
 }
 
-export function fieldOf(value: unknown, name: string): unknown {
-  return typeof value === "object" && value !== null ? Reflect.get(value, name) : undefined;
-}
-
-// Spec 4.6 makes a description that arrives without one of its parts a `ProviderError`
-// rather than a description with a value invented for it.
-function incomplete(
+function resourceAnswer(
   bucket: string,
   key: string,
   operation: string,
   response: Response,
-  missing: string,
-  cause?: unknown,
-): StorageError {
-  return gcsError(bucket, {
-    code: "ProviderError",
-    message: `The provider described the object under ${JSON.stringify(key)} with ${missing}`,
-    operation,
-    key,
-    attempts: 1,
-    status: response.status,
-    requestId: response.headers.get(requestIdHeader) ?? undefined,
-    cause,
-  });
+): AnsweredRequest {
+  return { bucket, operation, key, subject: `the request for ${JSON.stringify(key)}`, response };
 }

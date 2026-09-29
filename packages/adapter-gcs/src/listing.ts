@@ -1,18 +1,13 @@
-import type {
-  ListOptions,
-  ListPage,
-  ObjectEntry,
-  ObjectListing,
-  StorageError,
-} from "@stowage/core";
+import type { ListOptions, ListPage, ObjectEntry, ObjectListing } from "@stowage/core";
 
+import { type AnsweredRequest, malformedAnswer, readAnswerJson } from "./answer.ts";
 import type { GcsConfiguration } from "./configuration.ts";
 import { decodeCursor, encodeCursor } from "./cursor.ts";
-import { etagOf, fieldOf, lastModifiedOf, sizeOf } from "./description.ts";
+import { etagOf, lastModifiedOf, sizeOf } from "./description.ts";
+import { arrayOf, fieldOf, stringOf } from "./json.ts";
 import { requireKey } from "./key.ts";
 import { listOptionKeys, optionError, requireKnownOptions } from "./options.ts";
-import { listPath, type QueryParameter, requestIdHeader, send } from "./request.ts";
-import { gcsError } from "./storage-error.ts";
+import { listPath, type QueryParameter, send } from "./request.ts";
 
 // Spec 9.2: a page holds at most 1000 names, which is what `objects.list` answers.
 const defaultPageSize = 1000;
@@ -152,37 +147,20 @@ async function requestPage(
     carriesCursor,
     signal: request.signal,
   });
-  const answer: ListingAnswer = {
+  const answered: AnsweredRequest = {
     bucket: configuration.bucket,
     operation: request.operation,
+    subject: "the listing",
     response,
   };
-
-  const document = readListingDocument(answer, await readListingBody(answer));
+  const document = readListingDocument(answered, await readAnswerJson(answered));
 
   // A listing that continues from where it was sent would walk the same page forever.
   if (document.nextPageToken !== undefined && document.nextPageToken === request.pageToken) {
-    throw malformedListing(answer, "the page token it was sent");
+    throw malformedAnswer(answered, "the page token it was sent");
   }
 
   return document;
-}
-
-/** What a failure to read the listing is told against. */
-interface ListingAnswer {
-  readonly bucket: string;
-  readonly operation: string;
-  readonly response: Response;
-}
-
-async function readListingBody(answer: ListingAnswer): Promise<unknown> {
-  try {
-    return await answer.response.json();
-  } catch (failure) {
-    if (failure instanceof Error && failure.name === "AbortError") throw failure;
-
-    throw malformedListing(answer, "a body that is no JSON", failure);
-  }
 }
 
 /**
@@ -190,12 +168,12 @@ async function readListingBody(answer: ListingAnswer): Promise<unknown> {
  * `ProviderError`, which leaves the page unread rather than hand the caller a value made up
  * for what was missing.
  */
-function readListingDocument(answer: ListingAnswer, document: unknown): ListingDocument {
+function readListingDocument(answered: AnsweredRequest, document: unknown): ListingDocument {
   return {
-    objects: arrayOf(fieldOf(document, "items")).map((item) => readEntry(answer, item)),
+    objects: arrayOf(fieldOf(document, "items")).map((item) => readEntry(answered, item)),
     prefixes: arrayOf(fieldOf(document, "prefixes")).map((prefix) => {
       if (typeof prefix !== "string" || prefix === "") {
-        throw malformedListing(answer, "a pseudo-directory with no name");
+        throw malformedAnswer(answered, "a pseudo-directory with no name");
       }
 
       return prefix;
@@ -204,45 +182,25 @@ function readListingDocument(answer: ListingAnswer, document: unknown): ListingD
   };
 }
 
-function readEntry(answer: ListingAnswer, item: unknown): ObjectEntry {
+function readEntry(answered: AnsweredRequest, item: unknown): ObjectEntry {
   const key = stringOf(fieldOf(item, "name"));
 
-  if (key === undefined) throw malformedListing(answer, "an object with no key");
+  if (key === undefined) throw malformedAnswer(answered, "an object with no key");
 
   const size = sizeOf(item);
 
   if (size === undefined) {
-    throw malformedListing(answer, `the object under ${JSON.stringify(key)} with no size`);
+    throw malformedAnswer(answered, `the object under ${JSON.stringify(key)} with no size`);
   }
 
   const lastModified = lastModifiedOf(item);
 
   if (lastModified === undefined) {
-    throw malformedListing(
-      answer,
+    throw malformedAnswer(
+      answered,
       `the object under ${JSON.stringify(key)} with no last-modified time`,
     );
   }
 
   return { key, size, lastModified, ...etagOf(item) };
-}
-
-function malformedListing(answer: ListingAnswer, what: string, cause?: unknown): StorageError {
-  return gcsError(answer.bucket, {
-    code: "ProviderError",
-    message: `The provider answered the listing with ${what}`,
-    operation: answer.operation,
-    attempts: 1,
-    status: answer.response.status,
-    requestId: answer.response.headers.get(requestIdHeader) ?? undefined,
-    cause,
-  });
-}
-
-function arrayOf(value: unknown): readonly unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
-function stringOf(value: unknown): string | undefined {
-  return typeof value === "string" && value !== "" ? value : undefined;
 }

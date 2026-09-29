@@ -1,5 +1,7 @@
 import { errorCodeForStatus, type StorageErrorCode } from "@stowage/core";
 
+import { arrayOf, fieldOf, stringOf } from "./json.ts";
+
 /**
  * The table of spec 9.8: a provider code recognized here decides the error code alone, and
  * an unrecognized one falls to the status mapping of spec 4.10. Whether the condition is
@@ -188,16 +190,4 @@ function decodeCharacterReferences(text: string): string {
 
 function isReferableCharacter(codePoint: number): boolean {
   return codePoint > 0 && codePoint <= 0x10_ffff && !(codePoint >= 0xd8_00 && codePoint <= 0xdf_ff);
-}
-
-function fieldOf(value: unknown, name: string): unknown {
-  return typeof value === "object" && value !== null ? Reflect.get(value, name) : undefined;
-}
-
-function arrayOf(value: unknown): readonly unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
-function stringOf(value: unknown): string | undefined {
-  return typeof value === "string" && value !== "" ? value : undefined;
 }
