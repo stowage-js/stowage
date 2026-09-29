@@ -160,9 +160,10 @@ jobs:
 
   # ADR 0012: Bun and Deno run against the emulator. Their columns are covered by the same
   # suite, answered by the pinned image rather than by a provider. ADR 0023 carries that
-  # over to Azure Blob, with Azurite beside SeaweedFS.
+  # over to Azure Blob, with Azurite beside SeaweedFS, and ADR 0039 to GCS, with
+  # fake-gcs-server beside both.
   emulators:
-    name: ${{ matrix.name }} against SeaweedFS and Azurite
+    name: ${{ matrix.name }} against SeaweedFS, Azurite and fake-gcs-server
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -209,6 +210,9 @@ jobs:
       - name: Start the Azure Blob endpoint
         run: ./harness/azure-blob/start.sh | sed 's/^export //' >> "$GITHUB_ENV"
 
+      - name: Start the GCS endpoint
+        run: ./harness/gcs/start.sh | sed 's/^export //' >> "$GITHUB_ENV"
+
       - run: ${{ matrix.command }}
 
       - name: Stop the S3 endpoint
@@ -218,6 +222,10 @@ jobs:
       - name: Stop the Azure Blob endpoint
         if: always()
         run: ./harness/azure-blob/stop.sh
+
+      - name: Stop the GCS endpoint
+        if: always()
+        run: ./harness/gcs/stop.sh
 
   # Spec 6 and ADR 0010: `adapter-fs` on macOS, as the per-commit run has it, with both tiers.
   # The runners have no Docker, so the endpoint tiers stay out (ADR 0012). This job's name
