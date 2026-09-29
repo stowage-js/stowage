@@ -7,11 +7,11 @@ const config :Workerd.Config = (
   services = [
     (name = "conformance", worker = .conformance),
     (name = "defaults", worker = .defaults),
-    # The default outbound reaches public addresses alone, and the emulators of ADR 0012
-    # and ADR 0023 answer on the loopback one. A network of one's own trusts no certificate
-    # authority unless told to, which the real endpoints of the scheduled run need, and
-    # Azurite's certificate is one `harness/azure-blob/start.sh` generates on every start;
-    # `src/describe-workerd.ts` puts it in place.
+    # The default outbound reaches public addresses alone, and the emulators of ADR 0012,
+    # ADR 0023 and ADR 0034 answer on the loopback one. A network of one's own trusts no
+    # certificate authority unless told to, which the real endpoints of the scheduled run
+    # need, and Azurite's certificate is one `harness/azure-blob/start.sh` generates on
+    # every start; `src/describe-workerd.ts` puts it in place.
     (
       name = "internet",
       network = (
@@ -32,8 +32,8 @@ const config :Workerd.Config = (
 const conformance :Workerd.Worker = (
   modules = [(name = "worker.js", esModule = embed "dist/worker.js")],
   # Spec 1: the date and the flags `workerd` runs at, so the cell shows that
-  # `adapter-memory`, `adapter-s3` and `adapter-azure-blob` need no Node API. ADR 0002
-  # says why one flag is not enough.
+  # `adapter-memory`, `adapter-s3`, `adapter-azure-blob` and `adapter-gcs` need no Node
+  # API. ADR 0002 says why one flag is not enough.
   compatibilityDate = "2026-09-01",
   compatibilityFlags = ["no_nodejs_compat", "no_nodejs_compat_v2"],
   globalOutbound = "internet",
@@ -59,6 +59,8 @@ const conformance :Workerd.Worker = (
     (name = "STOWAGE_AZURE_BLOB_TENANT_ID", fromEnvironment = "STOWAGE_AZURE_BLOB_TENANT_ID"),
     (name = "STOWAGE_AZURE_BLOB_CLIENT_ID", fromEnvironment = "STOWAGE_AZURE_BLOB_CLIENT_ID"),
     (name = "STOWAGE_AZURE_BLOB_DENIED_CLIENT_ID", fromEnvironment = "STOWAGE_AZURE_BLOB_DENIED_CLIENT_ID"),
+    (name = "STOWAGE_GCS_ENDPOINT", fromEnvironment = "STOWAGE_GCS_ENDPOINT"),
+    (name = "STOWAGE_GCS_BUCKET", fromEnvironment = "STOWAGE_GCS_BUCKET"),
     # ADR 0023: what the Actions runtime hands a job holding `id-token: write`, so that the
     # worker exchanges the job's OIDC token for the account's access token itself.
     (name = "ACTIONS_ID_TOKEN_REQUEST_URL", fromEnvironment = "ACTIONS_ID_TOKEN_REQUEST_URL"),
@@ -70,8 +72,9 @@ const conformance :Workerd.Worker = (
 # out. It shows that the probe of `src/node-api.ts` would see a Node API, and that
 # `fromEnv` reads bindings through `process.env` as spec 7.3 promises; the AWS values are
 # fixed, so that check needs no credential of its own. It runs the `fast` tier against
-# Azure a second time (ADR 0026), and leaves `STOWAGE_CONFORMANCE_INCLUDE_SLOW` unbound so
-# that the `slow` tier runs once, at the flags of spec 1.
+# Azure and GCS a second time (ADR 0026, ADR 0039), and leaves
+# `STOWAGE_CONFORMANCE_INCLUDE_SLOW` unbound so that the `slow` tier runs once, at the
+# flags of spec 1.
 const defaults :Workerd.Worker = (
   modules = [(name = "worker.js", esModule = embed "dist/worker.js")],
   compatibilityDate = "2026-09-01",
@@ -87,6 +90,8 @@ const defaults :Workerd.Worker = (
     (name = "STOWAGE_AZURE_BLOB_TENANT_ID", fromEnvironment = "STOWAGE_AZURE_BLOB_TENANT_ID"),
     (name = "STOWAGE_AZURE_BLOB_CLIENT_ID", fromEnvironment = "STOWAGE_AZURE_BLOB_CLIENT_ID"),
     (name = "STOWAGE_AZURE_BLOB_DENIED_CLIENT_ID", fromEnvironment = "STOWAGE_AZURE_BLOB_DENIED_CLIENT_ID"),
+    (name = "STOWAGE_GCS_ENDPOINT", fromEnvironment = "STOWAGE_GCS_ENDPOINT"),
+    (name = "STOWAGE_GCS_BUCKET", fromEnvironment = "STOWAGE_GCS_BUCKET"),
     # ADR 0023: what the Actions runtime hands a job holding `id-token: write`, so that the
     # worker exchanges the job's OIDC token for the account's access token itself.
     (name = "ACTIONS_ID_TOKEN_REQUEST_URL", fromEnvironment = "ACTIONS_ID_TOKEN_REQUEST_URL"),

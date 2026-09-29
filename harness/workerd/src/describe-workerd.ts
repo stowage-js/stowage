@@ -17,6 +17,8 @@ import type { ConformanceResult } from "../../../packages/conformance/src/result
 import { scheduledAgainstAccount } from "../../azure-blob/src/configuration.ts";
 import { configuredStorage as configuredAzureBlobStorage } from "../../azure-blob/src/environment.ts";
 import { describeAzureBlobEndpointCheck } from "../../azure-blob/src/target.ts";
+import { configuredStorage as configuredGcsStorage } from "../../gcs/src/environment.ts";
+import { describeGcsEndpointCheck } from "../../gcs/src/target.ts";
 import { configuredStorage } from "../../s3/src/environment.ts";
 import { describeEndpointCheck } from "../../s3/src/target.ts";
 import { type CoreCheckResult, describeCoreResults } from "../../targets/src/core.ts";
@@ -42,31 +44,41 @@ export async function describeWorkerd(framework: ConformanceFramework): Promise<
   const configuredAzureBlob = endpointTiers.has("azure-blob")
     ? configuredAzureBlobStorage()
     : undefined;
+  const configuredGcs = endpointTiers.has("gcs") ? configuredGcsStorage() : undefined;
 
   const measuring = configuredAzureBlob !== undefined && scheduledAgainstAccount(env);
 
-  const { core, memory, s3, azureBlob, probes, flowOne } = await withWorkerd(async (workerd) => {
-    const { origins } = workerd;
+  const { core, memory, s3, azureBlob, gcs, probes, flowOne } = await withWorkerd(
+    async (workerd) => {
+      const { origins } = workerd;
 
-    return {
-      core: await answerOf<readonly CoreCheckResult[]>(origins.harness, "core"),
-      memory: await resultsOf(origins.harness, "adapter-memory"),
-      s3: configured === undefined ? undefined : await resultsOf(origins.harness, "adapter-s3"),
-      azureBlob:
-        configuredAzureBlob === undefined
-          ? undefined
-          : {
-              harness: await resultsOf(origins.harness, "adapter-azure-blob"),
-              defaults: await resultsOf(origins.defaults, "adapter-azure-blob"),
-            },
-      probes: {
-        harness: await probesOf(origins.harness),
-        defaults: await probesOf(origins.defaults),
-      },
-      // After every other run, so that the CPU the process spends meanwhile is the upload's.
-      flowOne: measuring ? await measureFlowOne(workerd) : undefined,
-    };
-  });
+      return {
+        core: await answerOf<readonly CoreCheckResult[]>(origins.harness, "core"),
+        memory: await resultsOf(origins.harness, "adapter-memory"),
+        s3: configured === undefined ? undefined : await resultsOf(origins.harness, "adapter-s3"),
+        azureBlob:
+          configuredAzureBlob === undefined
+            ? undefined
+            : {
+                harness: await resultsOf(origins.harness, "adapter-azure-blob"),
+                defaults: await resultsOf(origins.defaults, "adapter-azure-blob"),
+              },
+        gcs:
+          configuredGcs === undefined
+            ? undefined
+            : {
+                harness: await resultsOf(origins.harness, "adapter-gcs"),
+                defaults: await resultsOf(origins.defaults, "adapter-gcs"),
+              },
+        probes: {
+          harness: await probesOf(origins.harness),
+          defaults: await probesOf(origins.defaults),
+        },
+        // After every other run, so that the CPU the process spends meanwhile is the upload's.
+        flowOne: measuring ? await measureFlowOne(workerd) : undefined,
+      };
+    },
+  );
 
   describeCoreResults(framework, core);
 
@@ -87,6 +99,13 @@ export async function describeWorkerd(framework: ConformanceFramework): Promise<
       "@stowage/adapter-azure-blob at the default flags",
       azureBlob.defaults,
     );
+  }
+
+  if (endpointTiers.has("gcs")) describeGcsEndpointCheck(framework, configuredGcs);
+
+  if (gcs !== undefined) {
+    describeResults(framework, "@stowage/adapter-gcs", gcs.harness);
+    describeResults(framework, "@stowage/adapter-gcs at the default flags", gcs.defaults);
   }
 
   return { probes, flowOne };
