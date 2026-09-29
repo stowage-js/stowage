@@ -81,7 +81,7 @@ const gcsSigningCapabilities: readonly CapabilityName[] = Object.freeze([
 
 const utf8 = new TextEncoder();
 
-/** Spec 4.3: the most a page holds, and what `pageSize` defaults to. */
+const defaultPageSize = 1000;
 const maxPageSize = 1000;
 
 class GcsBucketStorage implements GcsStorage {
@@ -262,12 +262,12 @@ class GcsBucketStorage implements GcsStorage {
     options?.signal?.throwIfAborted();
   }
 
-  /** Everything spec 4.3 has `list` refuse without asking the provider. */
+  /** Everything spec 4.3 and 4.11 have `list` refuse without asking the provider. */
   #requireListOptions(options: ListOptions | undefined): void {
     requireKnownOptions(this.bucket, options, listOptionKeys, "list");
     requireKey(this.bucket, options?.prefix ?? "", "prefix", "list");
 
-    const pageSize = options?.pageSize ?? maxPageSize;
+    const pageSize = options?.pageSize ?? defaultPageSize;
 
     if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > maxPageSize) {
       throw optionError(

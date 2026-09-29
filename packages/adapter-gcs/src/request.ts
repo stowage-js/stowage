@@ -93,7 +93,10 @@ async function attempt(
     return await attempt(configuration, request, true);
   }
 
-  throw await failureOf(configuration, request, response, forceRefresh);
+  throw await failureOf(configuration, request, response, {
+    attempts,
+    underRefreshedToken: forceRefresh,
+  });
 }
 
 /** The path of the object's resource, and of its media download under `alt=media`. */
@@ -133,21 +136,21 @@ function urlOf(configuration: GcsConfiguration, request: GcsRequest): string {
   return `${configuration.origin}${request.path}${search}`;
 }
 
-/** The reason and the message are read out of the body, where it carries them (spec 9.8). */
+/** The provider code and the message are read out of the body, where it carries them (spec 9.8). */
 async function failureOf(
   configuration: GcsConfiguration,
   request: GcsRequest,
   response: Response,
-  underRefreshedToken: boolean,
+  made: { readonly attempts: number; readonly underRefreshedToken: boolean },
 ): Promise<StorageError> {
   const body = await readBody(response);
   const failure = readProviderFailure({
     status: response.status,
     method: request.method,
-    providerCode: body.reason,
+    providerCode: body.providerCode,
     providerMessage: body.message,
-    fromMedia: request.media === true,
-    underRefreshedToken,
+    media: request.media === true,
+    underRefreshedToken: made.underRefreshedToken,
     headers: response.headers,
   });
 
@@ -156,9 +159,9 @@ async function failureOf(
     message: failure.message,
     operation: request.operation,
     key: failure.ofBucket === true ? undefined : request.key,
-    attempts: underRefreshedToken ? 2 : 1,
+    attempts: made.attempts,
     status: response.status,
-    providerCode: body.reason,
+    providerCode: body.providerCode,
     requestId: response.headers.get(requestIdHeader) ?? undefined,
     retryable: isTransientStatus(response.status),
   });
@@ -166,7 +169,7 @@ async function failureOf(
 
 /**
  * The body read to the end, which is also what releases the connection the next attempt
- * needs. A body that breaks on the way leaves reason and message unset rather than
+ * needs. A body that breaks on the way leaves provider code and message unset rather than
  * failing on its way to reporting a failure.
  */
 async function readBody(response: Response): Promise<ErrorBody> {

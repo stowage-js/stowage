@@ -639,12 +639,18 @@ test("`exists` refuses an addressable key the core rule refuses", async () => {
 /** The error document of the JSON API, as GCS answers a failure on a JSON path. */
 function errorDocument(
   status: number,
-  reason: string,
+  providerCode: string,
   message: string,
   headers: Record<string, string> = {},
 ): Response {
   return Response.json(
-    { error: { code: status, message, errors: [{ message, domain: "global", reason }] } },
+    {
+      error: {
+        code: status,
+        message,
+        errors: [{ message, domain: "global", reason: providerCode }],
+      },
+    },
     { status, headers: { "x-guploader-uploadid": "upload-1", ...headers } },
   );
 }
@@ -699,15 +705,15 @@ test.each([
   ["conditionNotMet", 412, "ProviderError"],
   ["conflict", 409, "ProviderError"],
   ["clientClosedRequest", 499, "ProviderError"],
-])("the reason `%s` answered with %i is `%s`", async (reason, status, code) => {
-  stubFetch(() => errorDocument(status, reason, "The provider said so."));
+])("the provider code `%s` answered with %i is `%s`", async (providerCode, status, code) => {
+  stubFetch(() => errorDocument(status, providerCode, "The provider said so."));
 
   const failure = await failureOf(() => storage().stat("object"));
 
-  expect(failure).toMatchObject({ code, providerCode: reason, message: "The provider said so." });
+  expect(failure).toMatchObject({ code, providerCode, message: "The provider said so." });
 });
 
-test("a reason the table does not name leaves the status to decide", async () => {
+test("a provider code the table does not name leaves the status to decide", async () => {
   stubFetch(() => errorDocument(403, "accountDisabled", "The account is disabled."));
 
   const failure = await failureOf(() => storage().stat("object"));
@@ -715,7 +721,7 @@ test("a reason the table does not name leaves the status to decide", async () =>
   expect(failure).toMatchObject({ code: "AccessDenied", providerCode: "accountDisabled" });
 });
 
-test("`retryable` follows the status and never the reason", async () => {
+test("`retryable` follows the status and never the provider code", async () => {
   vi.spyOn(Math, "random").mockReturnValue(0);
   stubFetch(() => errorDocument(503, "forbidden", "Backend Error"));
 

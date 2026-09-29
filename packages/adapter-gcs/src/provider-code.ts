@@ -1,8 +1,8 @@
 import { errorCodeForStatus, type StorageErrorCode } from "@stowage/core";
 
 /**
- * The table of spec 9.8: a reason recognized here decides the error code alone, and an
- * unrecognized one falls to the status mapping of spec 4.10. Whether the condition is
+ * The table of spec 9.8: a provider code recognized here decides the error code alone, and
+ * an unrecognized one falls to the status mapping of spec 4.10. Whether the condition is
  * transient is never read from here — ADR 0013 decides that by the status, so that an
  * unknown `5xx` is treated no worse than one stowage has heard of.
  */
@@ -39,10 +39,10 @@ export interface ProviderAnswer {
   readonly providerCode?: string;
   readonly providerMessage?: string;
   /**
-   * Whether the answer came from the media download, the one path that carries no reason
-   * and whose `404` is read by its status (ADR 0038).
+   * Whether the answer came from the media download, the one path that carries no provider
+   * code and whose `404` is read by its status (ADR 0038).
    */
-  readonly fromMedia: boolean;
+  readonly media: boolean;
   /** Whether the request went out under a token the resolver had just refreshed. */
   readonly underRefreshedToken: boolean;
   readonly headers: Headers;
@@ -56,8 +56,8 @@ export interface ProviderFailure {
 }
 
 /**
- * What the provider's answer means, decided by its reason where the table recognizes one
- * and by the status where it does not. The message is the provider's word for word (spec
+ * What the provider's answer means, decided by its provider code where the table recognizes
+ * one and by the status where it does not. The message is the provider's word for word (spec
  * 4.10), except where spec 9.3 and 9.8 have it say what the caller can act on: a token a
  * refresh did not make acceptable, and a path the endpoint does not serve.
  */
@@ -77,9 +77,9 @@ export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
     };
   }
 
-  // ADR 0038: a path the JSON API does not serve answers `404` without a reason, and read
+  // ADR 0038: a path the JSON API does not serve answers `404` without a provider code, and read
   // by its status an `endpoint` with a wrong prefix would look like an empty bucket.
-  if (answer.status === notFound && !answer.fromMedia && answer.providerCode !== "notFound") {
+  if (answer.status === notFound && !answer.media && answer.providerCode !== "notFound") {
     return {
       code: "ProviderError",
       message: `The endpoint serves no such path, so the answer says nothing about the object: ${said}`,
@@ -114,7 +114,8 @@ export function isRefusedToken(answer: Pick<ProviderAnswer, "status" | "headers"
 
 export interface ErrorBody {
   readonly message?: string;
-  readonly reason?: string;
+  /** `errors[0].reason`, the name the JSON API gives its provider code. */
+  readonly providerCode?: string;
 }
 
 /**
@@ -141,7 +142,7 @@ export function readErrorBody(body: string): ErrorBody {
 
   return {
     message: stringOf(fieldOf(error, "message")),
-    reason: stringOf(fieldOf(first, "reason")),
+    providerCode: stringOf(fieldOf(first, "reason")),
   };
 }
 
