@@ -190,6 +190,25 @@ describe("firstRunReport", () => {
     expect(cellOf(report, "holding `U+FFFE` is stored", "azure-blob-node-24")).toBe("held");
   });
 
+  // Spec 14 and ADR 0036: the round trip sends a resumable session, which a `308` the
+  // runtime followed or swallowed would break.
+  test("reads the `308` on `workerd` off the multipart round trip against the GCS bucket", () => {
+    const point = "a `308` reaches the adapter as it is on `workerd`";
+    const roundTrip = assertion({
+      ancestorTitles: ["@stowage/adapter-gcs"],
+      title: "put/multipart-round-trip",
+    });
+    const report = firstRunReport([
+      run("gcs-node-24", roundTrip),
+      run("gcs-workerd", roundTrip),
+      run("azure-blob-workerd", { ...roundTrip, ancestorTitles: ["@stowage/adapter-azure-blob"] }),
+    ]);
+
+    expect(cellOf(report, point, "gcs-workerd")).toBe("held");
+    expect(cellOf(report, point, "gcs-node-24")).toBe("—");
+    expect(cellOf(report, point, "azure-blob-workerd")).toBe("—");
+  });
+
   test("reads the `DELETE` of a `U+FFFE` key off the case and the harness test against S3", () => {
     const point = "a `DELETE` of a key holding `U+FFFE`";
     const report = firstRunReport([

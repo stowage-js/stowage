@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { argv, stdout } from "node:process";
 
 import { azureBlobFirstRunPoints } from "../../azure-blob/src/first-run.ts";
+import { gcsFirstRunPoints } from "../../gcs/src/first-run.ts";
 import { realEndpoints } from "./configuration.ts";
 import {
   type FirstRunPoint,
@@ -11,9 +12,13 @@ import {
   s3FirstRunPoints,
 } from "./first-run.ts";
 
-const firstRunPoints: readonly FirstRunPoint[] = [...s3FirstRunPoints, ...azureBlobFirstRunPoints];
+const firstRunPoints: readonly FirstRunPoint[] = [
+  ...s3FirstRunPoints,
+  ...azureBlobFirstRunPoints,
+  ...gcsFirstRunPoints,
+];
 
-const reportedEndpoints: readonly ReportedEndpoint[] = [...realEndpoints, "azure-blob"];
+const reportedEndpoints: readonly ReportedEndpoint[] = [...realEndpoints, "azure-blob", "gcs"];
 
 /** The part of one test in Vitest's JSON report that the table reads. */
 export interface JsonAssertion {
@@ -32,7 +37,7 @@ export interface JsonResults {
 /**
  * One job of the scheduled run and what Vitest reported. `label` is the job's artifact,
  * `<provider>-<runtime>` as `conformance-full.yml` names it: `aws-s3-node-24`, `r2-workerd`,
- * `azure-blob-node-26`.
+ * `azure-blob-node-26`, `gcs-workerd`.
  */
 export interface FirstRunRun {
   readonly label: string;
