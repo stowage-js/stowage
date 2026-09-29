@@ -2381,7 +2381,7 @@ test("`deleteAll` refuses a prefix, an unknown option and a fired signal before 
 
 // `copy` (spec 9.7, ADR 0037)
 
-const rewritePath =
+const rewriteUrl =
   "https://storage.googleapis.com/storage/v1/b/conformance/o/from%2Fa.txt/rewriteTo/b/conformance/o/to%2Fb.txt";
 
 /** An answer of `rewriteTo` that leaves the rewrite unfinished, as the spike measured at 12 GiB. */
@@ -2417,7 +2417,7 @@ test("`copy` sends one `rewriteTo` without a body and nothing in front of it", a
 
   expect(sent).toHaveLength(1);
   expect(sent[0]?.method).toBe("POST");
-  expect(sent[0]?.url).toBe(rewritePath);
+  expect(sent[0]?.url).toBe(rewriteUrl);
   expect(sent[0]?.body).toBeUndefined();
   expect(sent[0]?.headers.get("authorization")).toBe(`Bearer ${accessToken}`);
 });
@@ -2444,9 +2444,9 @@ test("`copy` carries each answer's token to the next call until the rewrite is d
   const written = await storage().copy("from/a.txt", "to/b.txt");
 
   expect(sent.map((request) => request.url)).toEqual([
-    rewritePath,
-    `${rewritePath}?rewriteToken=token-1`,
-    `${rewritePath}?rewriteToken=token-2`,
+    rewriteUrl,
+    `${rewriteUrl}?rewriteToken=token-1`,
+    `${rewriteUrl}?rewriteToken=token-2`,
   ]);
   expect(written.key).toBe("to/b.txt");
 });
@@ -2498,12 +2498,12 @@ test("each call of the rewrite is repeated as sent, on a budget of its own", asy
   await storage().copy("from/a.txt", "to/b.txt");
 
   expect(sent.map((request) => request.url)).toEqual([
-    rewritePath,
-    rewritePath,
-    rewritePath,
-    `${rewritePath}?rewriteToken=token-1`,
-    `${rewritePath}?rewriteToken=token-1`,
-    `${rewritePath}?rewriteToken=token-1`,
+    rewriteUrl,
+    rewriteUrl,
+    rewriteUrl,
+    `${rewriteUrl}?rewriteToken=token-1`,
+    `${rewriteUrl}?rewriteToken=token-1`,
+    `${rewriteUrl}?rewriteToken=token-1`,
   ]);
 });
 
@@ -2555,7 +2555,7 @@ test.each([
 
 // `move` (spec 9.5, 9.7, ADR 0037)
 
-const movePath =
+const moveUrl =
   "https://storage.googleapis.com/storage/v1/b/conformance/o/from%2Fa.txt/moveTo/o/to%2Fb.txt";
 
 function moved(fields: Record<string, unknown> = {}): Response {
@@ -2573,7 +2573,7 @@ test("`move` sends one `objects.move` without a body and resolves with the desti
 
   expect(sent).toHaveLength(1);
   expect(sent[0]?.method).toBe("POST");
-  expect(sent[0]?.url).toBe(movePath);
+  expect(sent[0]?.url).toBe(moveUrl);
   expect(sent[0]?.body).toBeUndefined();
   expect(written).toMatchObject({
     key: "to/b.txt",
@@ -2603,7 +2603,7 @@ test("`move` is repeated like every other request", async () => {
 
   const written = await storage().move("from/a.txt", "to/b.txt");
 
-  expect(sent.map((request) => request.url)).toEqual([movePath, movePath]);
+  expect(sent.map((request) => request.url)).toEqual([moveUrl, moveUrl]);
   expect(written.key).toBe("to/b.txt");
 });
 
@@ -2646,6 +2646,23 @@ test("a `404` after an attempt answered with a `5xx` rejects with that `Provider
 test("the ambiguous `404` reports the last attempt the move may have happened in, counting every attempt", async () => {
   vi.spyOn(Math, "random").mockReturnValue(0);
 
+  const answers = [transportFailure, backendError, notFound];
+
+  stubFetch(() => (answers.shift() ?? notFound)());
+
+  const failure = await failureOf(() => storage().move("from/a.txt", "to/b.txt"));
+
+  expect(failure).toMatchObject({
+    code: "ProviderError",
+    status: 503,
+    retryable: true,
+    attempts: 3,
+  });
+});
+
+test("an answer below `500` between an unanswered attempt and the `404` leaves the move in doubt", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+
   const answers = [
     transportFailure,
     () => errorDocument(429, "rateLimitExceeded", "Rate limit exceeded"),
@@ -2654,9 +2671,7 @@ test("the ambiguous `404` reports the last attempt the move may have happened in
 
   stubFetch(() => (answers.shift() ?? notFound)());
 
-  const failure = await failureOf(() =>
-    storage({ retry: { maxAttempts: 3 } }).move("from/a.txt", "to/b.txt"),
-  );
+  const failure = await failureOf(() => storage().move("from/a.txt", "to/b.txt"));
 
   expect(failure).toMatchObject({ code: "NetworkError", retryable: true, attempts: 3 });
 });
