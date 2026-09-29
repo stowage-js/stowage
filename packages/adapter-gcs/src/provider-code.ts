@@ -53,6 +53,8 @@ export interface ProviderAnswer {
   readonly media: boolean;
   /** Whether the request was a listing sent with the page token of the caller's cursor. */
   readonly carriesCursor: boolean;
+  /** Whether the request went to a resumable session's URI, whose `404` says the session is gone. */
+  readonly sessionUri: boolean;
   /** Whether the request went out under a token the resolver had just refreshed. */
   readonly underRefreshedToken: boolean;
   readonly headers: Headers;
@@ -85,6 +87,13 @@ export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
     return {
       code: "InvalidCredentials",
       message: `The access token expired or is not accepted, and so is the one the resolver refreshed: ${said}`,
+    };
+  }
+
+  if (answer.status === notFound && answer.sessionUri) {
+    return {
+      code: "ProviderError",
+      message: `The resumable session is gone, and the bytes sent to it with it: ${said}`,
     };
   }
 

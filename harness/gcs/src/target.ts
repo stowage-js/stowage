@@ -14,8 +14,9 @@ import { fakeGcsServer, withGcsDivergences } from "./divergences.ts";
 
 /**
  * The cases the adapter passes while its operations arrive one by one: those that need
- * `put` of held bytes, user metadata, `get` with or without a range, `stat`, `exists`,
- * `list`, `delete`, `deleteAll`, `copy`, `move` and the presigned URLs, and nothing else.
+ * `put` of held bytes and of a stream, user metadata, `get` with or without a range,
+ * `stat`, `exists`, `list`, `delete`, `deleteAll`, `copy`, `move` and the presigned URLs,
+ * and nothing else.
  * Every operation that joins the adapter adds its cases here, until the list is the whole
  * suite and goes. The three credential cases stay in the list and report themselves
  * skipped, since the target supplies none of their factories (ADR 0033, ADR 0034).
@@ -27,6 +28,12 @@ const coveredCases: ReadonlySet<string> = new Set([
   "declaration/identity",
   "put/bytes-round-trip",
   "put/string-round-trip",
+  "put/stream-round-trip",
+  "put/multipart-round-trip",
+  "put/empty-body",
+  "put/abort-during-upload",
+  "put/stream-consumed",
+  "put/concurrent-writers",
   "put/overwrites",
   "put/content-type-stored",
   "put/content-type-default",
@@ -91,9 +98,11 @@ const coveredCases: ReadonlySet<string> = new Set([
   "errors/denied-credentials",
   "errors/expired-credentials",
   "errors/not-a-storage-error",
+  "flow/1-large-upload",
   "flow/2-presigned-put",
   "flow/3-file-browser",
   "flow/4-streaming-download",
+  "flow/5-prefix-move",
 ]);
 
 /**

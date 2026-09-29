@@ -26,11 +26,31 @@ export interface GcsRequest {
   readonly media?: boolean;
   /** Set on a listing sent with the caller's cursor, whose `invalid` refuses it (spec 9.8). */
   readonly carriesCursor?: boolean;
+  /** Set on every request of a resumable session, whose answers name no `requestId` (spec 9.8). */
+  readonly session?: boolean;
+  /** Set on a request to the session URI itself, the start's aside, whose `404` says the session is gone. */
+  readonly sessionUri?: boolean;
+  readonly signal?: AbortSignal;
+}
+
+/**
+ * A request to a resumable session's URI, which authorizes it on its own: it carries no
+ * credential and goes where the start of the session pointed (ADR 0036).
+ */
+export interface SessionRequest {
+  readonly method: string;
+  readonly key: string;
+  readonly uri: string;
+  readonly headers?: readonly HeaderField[];
+  readonly body?: Uint8Array<ArrayBuffer>;
   readonly signal?: AbortSignal;
 }
 
 /** Spec 9.8: the identifier Google asks for when a request is reported to its support. */
 export const requestIdHeader = "x-guploader-uploadid";
+
+/** What a session answers a chunk it persisted without committing, `Range` naming how far. */
+export const resumeIncomplete = 308;
 
 /** What `encodeURIComponent` leaves alone and RFC 3986 counts as reserved. */
 const reservedByEncodeUriComponent = /[!'()*]/gu;
@@ -60,6 +80,45 @@ export async function sendOnce(
   request: GcsRequest,
 ): Promise<Response> {
   return await attempt(configuration, request, false);
+}
+
+/**
+ * One attempt of a request to a resumable session. A `308` is an answer here, as success is,
+ * and whoever sent the chunk reads its `Range` (spec 9.6).
+ */
+export async function sendToSession(
+  configuration: GcsConfiguration,
+  request: SessionRequest,
+): Promise<Response> {
+  const described: GcsRequest = {
+    method: request.method,
+    operation: "put",
+    key: request.key,
+    path: "",
+    session: true,
+    sessionUri: true,
+  };
+  let response: Response;
+
+  try {
+    response = withoutRequestId(
+      await fetch(request.uri, {
+        method: request.method,
+        headers: (request.headers ?? []).map(([name, value]) => [name, value]),
+        body: request.body,
+        signal: request.signal,
+      }),
+    );
+  } catch (failure) {
+    throw transportFailure(configuration, described, failure, 1);
+  }
+
+  if (response.ok || response.status === resumeIncomplete) return response;
+
+  throw await failureOf(configuration, described, response, {
+    attempts: 1,
+    underRefreshedToken: false,
+  });
 }
 
 /**
@@ -97,6 +156,8 @@ async function attempt(
   } catch (failure) {
     throw transportFailure(configuration, request, failure, attempts);
   }
+
+  if (request.session === true) response = withoutRequestId(response);
 
   if (response.ok) return response;
 
@@ -190,10 +251,28 @@ async function failureOf(
       providerMessage: body.message,
       media: request.media === true,
       carriesCursor: request.carriesCursor === true,
+      sessionUri: request.sessionUri === true,
       underRefreshedToken: made.underRefreshedToken,
       headers: response.headers,
     },
   );
+}
+
+/**
+ * Spec 9.8: on a resumable session `x-guploader-uploadid` holds the value that authorizes the
+ * session, so its answers are read without it, and neither a failure nor a malformed answer
+ * can report it as `requestId`.
+ */
+function withoutRequestId(response: Response): Response {
+  const headers = new Headers(response.headers);
+
+  headers.delete(requestIdHeader);
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 /**
