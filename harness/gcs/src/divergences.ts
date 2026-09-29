@@ -11,7 +11,19 @@ const listedIn = "harness/gcs/src/divergences.ts";
 
 // Kept in the private harness and never in `@stowage/conformance` (ADR 0012). An entry joins
 // with the case that shows the difference (ADR 0034).
-export const gcsDivergences: readonly Divergence<GcsEmulator, GcsRealEndpoint>[] = [];
+export const gcsDivergences: readonly Divergence<GcsEmulator, GcsRealEndpoint>[] = [
+  // ADR 0034: GCS counts the pseudo-directories of a page towards `maxResults` beside its
+  // objects, and the emulator truncates the objects alone, so the level of flow 3, four
+  // objects and three pseudo-directories under a page size of five, arrives as one page.
+  {
+    case: "flow/3-file-browser",
+    endpoint: fakeGcsServer,
+    differs:
+      "fake-gcs-server 1.56.1 counts the objects of a page towards `maxResults` and not its prefixes",
+    failureMessagePart: "carries no cursor",
+    settledBy: "gcs",
+  },
+];
 
 /** The cases as a run against `endpoint` performs them, after ADR 0012. */
 export function withGcsDivergences(
