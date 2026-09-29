@@ -32,15 +32,24 @@ test("the body carries each subrequest as an HTTP request numbered by its place 
       "Content-ID: 0\r\n\r\n" +
       "DELETE /c/a%20b HTTP/1.1\r\n" +
       "x-ms-date: Tue, 29 Sep 2026 10:00:00 GMT\r\n" +
-      "Content-Length: 0\r\n\r\n" +
+      "Content-Length: 0\r\n\r\n\r\n" +
       "--batch_b\r\n" +
       "Content-Type: application/http\r\n" +
       "Content-Transfer-Encoding: binary\r\n" +
       "Content-ID: 1\r\n\r\n" +
       "DELETE /c/d HTTP/1.1\r\n" +
-      "Content-Length: 0\r\n\r\n" +
+      "Content-Length: 0\r\n\r\n\r\n" +
       "--batch_b--\r\n",
   );
+});
+
+test("a subrequest's head keeps its blank line, since the line break before a delimiter is the delimiter's", () => {
+  const body = new TextDecoder().decode(
+    batchBody("batch_b", [{ method: "DELETE", path: "/c/d", headers: [] }]),
+  );
+  const [part] = body.split("\r\n--batch_b--");
+
+  expect(part).toMatch(/Content-Length: 0\r\n\r\n$/u);
 });
 
 test("the subresponses come back in the order of the subrequests, paired by `Content-ID`", () => {
