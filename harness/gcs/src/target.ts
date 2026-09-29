@@ -10,6 +10,7 @@ import {
   selectedCases,
 } from "../../../packages/conformance/src/run.ts";
 import type { ConformanceTarget } from "../../../packages/conformance/src/target.ts";
+import { fakeGcsServer, withGcsDivergences } from "./divergences.ts";
 
 /**
  * The cases the adapter passes while its operations arrive one by one: those that need
@@ -76,7 +77,7 @@ export const endpointMissing = "No GCS endpoint is configured; see `harness/gcs/
  * ADR 0034, after ADR 0012: a run includes this tier and fails where no endpoint is
  * reachable rather than passing with it skipped.
  */
-export function describeGcs(
+export function describeGcsEndpointCheck(
   framework: ConformanceFramework,
   configured: GcsAdapterOptions | undefined,
 ): void {
@@ -86,8 +87,24 @@ export function describeGcs(
       if (configured === undefined) throw new Error(endpointMissing);
     },
   );
+}
+
+/**
+ * The cases as a run against fake-gcs-server performs them, the one endpoint a harness
+ * reaches until the scheduled run names the real bucket.
+ */
+export function gcsRunCases(options: ConformanceRunOptions): readonly ConformanceCaseSource[] {
+  return withGcsDivergences(gcsCases(options), fakeGcsServer);
+}
+
+/** The check above, then the cases as a run against fake-gcs-server. */
+export function describeGcs(
+  framework: ConformanceFramework,
+  configured: GcsAdapterOptions | undefined,
+): void {
+  describeGcsEndpointCheck(framework, configured);
 
   if (configured === undefined) return;
 
-  describeCases(gcsCases(framework), gcsTarget(configured), framework);
+  describeCases(gcsRunCases(framework), gcsTarget(configured), framework);
 }
