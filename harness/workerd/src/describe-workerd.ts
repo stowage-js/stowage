@@ -243,8 +243,7 @@ async function withWorkerd<T>(use: (workerd: Workerd) => Promise<T>): Promise<T>
   // export.
   const workerd: { readonly default: string } = createRequire(import.meta.url)("workerd");
 
-  // `--verbose` is diagnostic for #257, beside the trace of `src/worker.ts`.
-  const child = spawn(workerd.default, ["serve", "workerd.capnp", "--control-fd=3", "--verbose"], {
+  const child = spawn(workerd.default, ["serve", "workerd.capnp", "--control-fd=3"], {
     cwd: harnessDirectory,
     stdio: ["ignore", "inherit", "inherit", "pipe"],
   });
@@ -309,7 +308,7 @@ function isSocket(value: unknown): value is Socket {
  */
 async function resultsOf(origin: string, path: string): Promise<readonly ConformanceResult[]> {
   const started = performance.now();
-  // Diagnostic for #257: which request lost its connection, and when.
+  // A connection `workerd` drops says nothing of which run it carried.
   const lost = (failure: unknown): Error =>
     new Error(
       `The request for ${path} at ${origin} failed after ${((performance.now() - started) / 1000).toFixed(1)} s: ${failure instanceof Error ? failure.message : String(failure)}`,
