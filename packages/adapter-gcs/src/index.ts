@@ -31,7 +31,12 @@ import {
   putOptionKeys,
   requireKnownOptions,
 } from "./options.ts";
-import type { GcsPresignGetOptions, GcsPresignPutOptions } from "./presign.ts";
+import {
+  type GcsPresignGetOptions,
+  type GcsPresignPutOptions,
+  presignGet,
+  presignPut,
+} from "./presign.ts";
 import {
   isUnsatisfiedRange,
   partialContent,
@@ -70,7 +75,7 @@ export function gcsStorage(options: GcsAdapterOptions): GcsStorage {
 
   return configuration.signer === undefined
     ? new GcsBucketStorage(configuration)
-    : new GcsSigningBucketStorage(configuration);
+    : new GcsSigningBucketStorage(configuration, configuration.signer);
 }
 
 // Spec 9.1 and ADR 0032, in the order of `capabilityNames`.
@@ -335,12 +340,19 @@ class GcsBucketStorage implements GcsStorage {
 class GcsSigningBucketStorage extends GcsBucketStorage implements GcsSigningStorage {
   override readonly capabilities: readonly CapabilityName[] = gcsSigningCapabilities;
 
-  async presignGet(): Promise<string> {
-    throw notYetImplemented("`presignGet`");
+  readonly #signer: GcsSigner;
+
+  constructor(configuration: GcsConfiguration, signer: GcsSigner) {
+    super(configuration);
+    this.#signer = signer;
   }
 
-  async presignPut(): Promise<PresignedPut> {
-    throw notYetImplemented("`presignPut`");
+  async presignGet(key: string, options: GcsPresignGetOptions): Promise<string> {
+    return await presignGet(this.configuration, this.#signer, key, options);
+  }
+
+  async presignPut(key: string, options: GcsPresignPutOptions): Promise<PresignedPut> {
+    return await presignPut(this.configuration, this.#signer, key, options);
   }
 }
 

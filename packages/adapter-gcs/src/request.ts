@@ -1,7 +1,7 @@
-import { isTransientStatus, type StorageError, withRetry } from "@stowage/core";
+import { isTransientStatus, type Resolvable, type StorageError, withRetry } from "@stowage/core";
 
 import type { GcsConfiguration } from "./configuration.ts";
-import { resolveCredentials } from "./credentials.ts";
+import { type GcsCredentials, resolveCredentials } from "./credentials.ts";
 import {
   type ErrorBody,
   isRefusedToken,
@@ -16,6 +16,10 @@ export type QueryParameter = readonly [name: string, value: string];
 export interface GcsRequest {
   readonly method: string;
   readonly operation: string;
+  /** Scheme and host where the request goes elsewhere than the endpoint: `signBlob` to IAM. */
+  readonly origin?: string;
+  /** The credential the request carries where it is not the storage's: the signer's. */
+  readonly credentials?: Resolvable<GcsCredentials>;
   /** The key the request addresses, which a failure is told against. */
   readonly key?: string;
   /** Encoded, as the request line carries it: `objectPath` or `uploadPath`. */
@@ -66,7 +70,7 @@ async function attempt(
   forceRefresh: boolean,
 ): Promise<Response> {
   const attempts = forceRefresh ? 2 : 1;
-  const credentials = await resolveCredentials(configuration.credentials, {
+  const credentials = await resolveCredentials(request.credentials ?? configuration.credentials, {
     forceRefresh,
   }).catch((failure: unknown) => {
     throw inStorage(failure, configuration.bucket, request.operation, request.key);
@@ -126,7 +130,7 @@ function bucketPath(configuration: GcsConfiguration, api: string): string {
  * a space and everything above ASCII reach the provider as written. No `URL` is built
  * from it: the constructor folds a `..` segment away and decodes what it was handed.
  */
-function encodeSegment(value: string): string {
+export function encodeSegment(value: string): string {
   return encodeURIComponent(value).replace(
     reservedByEncodeUriComponent,
     (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
@@ -140,7 +144,7 @@ function urlOf(configuration: GcsConfiguration, request: GcsRequest): string {
       ? ""
       : `?${query.map(([name, value]) => `${encodeSegment(name)}=${encodeSegment(value)}`).join("&")}`;
 
-  return `${configuration.origin}${request.path}${search}`;
+  return `${request.origin ?? configuration.origin}${request.path}${search}`;
 }
 
 /** The provider code and the message are read out of the body, where it carries them (spec 9.8). */
