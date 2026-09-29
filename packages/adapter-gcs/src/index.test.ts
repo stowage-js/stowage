@@ -2552,3 +2552,147 @@ test.each([
 
   expect(failure).toMatchObject({ code: "ProviderError", operation: "copy", status: 200 });
 });
+
+// `move` (spec 9.5, 9.7, ADR 0037)
+
+const movePath =
+  "https://storage.googleapis.com/storage/v1/b/conformance/o/from%2Fa.txt/moveTo/o/to%2Fb.txt";
+
+function moved(fields: Record<string, unknown> = {}): Response {
+  return resource({ name: "to/b.txt", ...fields });
+}
+
+function transportFailure(): never {
+  throw new TypeError("fetch failed");
+}
+
+test("`move` sends one `objects.move` without a body and resolves with the destination", async () => {
+  const sent = stubFetch(() => moved({ size: "11", metadata: { writtenby: "stowage" } }));
+
+  const written = await storage().move("from/a.txt", "to/b.txt");
+
+  expect(sent).toHaveLength(1);
+  expect(sent[0]?.method).toBe("POST");
+  expect(sent[0]?.url).toBe(movePath);
+  expect(sent[0]?.body).toBeUndefined();
+  expect(written).toMatchObject({
+    key: "to/b.txt",
+    size: 11,
+    userMetadata: { writtenby: "stowage" },
+  });
+});
+
+test("a missing source is `NotFound` naming it after one attempt", async () => {
+  stubFetch(notFound);
+
+  const failure = await failureOf(() => storage().move("from/a.txt", "to/b.txt"));
+
+  expect(failure).toMatchObject({
+    code: "NotFound",
+    operation: "move",
+    key: "from/a.txt",
+    attempts: 1,
+  });
+});
+
+test("`move` is repeated like every other request", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+
+  const answers = [backendError(), moved()];
+  const sent = stubFetch(() => answers.shift() ?? moved());
+
+  const written = await storage().move("from/a.txt", "to/b.txt");
+
+  expect(sent.map((request) => request.url)).toEqual([movePath, movePath]);
+  expect(written.key).toBe("to/b.txt");
+});
+
+test("a `404` after an attempt that received no response rejects with that `NetworkError`", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+
+  const answers = [transportFailure, notFound];
+
+  stubFetch(() => (answers.shift() ?? notFound)());
+
+  const failure = await failureOf(() => storage().move("from/a.txt", "to/b.txt"));
+
+  expect(failure).toMatchObject({
+    code: "NetworkError",
+    operation: "move",
+    key: "from/a.txt",
+    retryable: true,
+    attempts: 2,
+  });
+  expect(failure.cause).toBeInstanceOf(TypeError);
+});
+
+test("a `404` after an attempt answered with a `5xx` rejects with that `ProviderError`", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+
+  const answers = [backendError(), notFound()];
+
+  stubFetch(() => answers.shift() ?? notFound());
+
+  const failure = await failureOf(() => storage().move("from/a.txt", "to/b.txt"));
+
+  expect(failure).toMatchObject({
+    code: "ProviderError",
+    status: 503,
+    retryable: true,
+    attempts: 2,
+  });
+});
+
+test("the ambiguous `404` reports the last attempt the move may have happened in, counting every attempt", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+
+  const answers = [
+    transportFailure,
+    () => errorDocument(429, "rateLimitExceeded", "Rate limit exceeded"),
+    notFound,
+  ];
+
+  stubFetch(() => (answers.shift() ?? notFound)());
+
+  const failure = await failureOf(() =>
+    storage({ retry: { maxAttempts: 3 } }).move("from/a.txt", "to/b.txt"),
+  );
+
+  expect(failure).toMatchObject({ code: "NetworkError", retryable: true, attempts: 3 });
+});
+
+test("a `404` after attempts that were all answered below `500` is `NotFound`", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+
+  const answers = [errorDocument(429, "rateLimitExceeded", "Rate limit exceeded"), notFound()];
+
+  stubFetch(() => answers.shift() ?? notFound());
+
+  const failure = await failureOf(() => storage().move("from/a.txt", "to/b.txt"));
+
+  expect(failure).toMatchObject({ code: "NotFound", key: "from/a.txt", attempts: 2 });
+});
+
+test("a missing bucket after an unanswered attempt stays `NotFound` without a key", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+
+  const answers = [transportFailure, () => errorDocument(404, "notFound", missingBucket)];
+
+  stubFetch(() => (answers.shift() ?? notFound)());
+
+  const failure = await failureOf(() => storage().move("from/a.txt", "to/b.txt"));
+
+  expect(failure).toMatchObject({ code: "NotFound", operation: "move", attempts: 2 });
+  expect(failure.key).toBeUndefined();
+});
+
+test("a signal that already fired rejects `move` before any request", async () => {
+  const sent = stubFetch(() => moved());
+
+  const failure = await storage()
+    .move("from/a.txt", "to/b.txt", { signal: AbortSignal.abort() })
+    .catch((reason: unknown) => reason);
+
+  expect(failure).toMatchObject({ name: "AbortError" });
+  expect(sent).toEqual([]);
+});

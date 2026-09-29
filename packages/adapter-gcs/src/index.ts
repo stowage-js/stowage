@@ -19,7 +19,7 @@ import {
   type GcsSigner,
   readConfiguration,
 } from "./configuration.ts";
-import { copyObject } from "./copy.ts";
+import { copyObject, moveObject } from "./copy.ts";
 import { deleteBelow, deleteKeys } from "./delete.ts";
 import { defaultContentType, readDescription } from "./description.ts";
 import { getObject } from "./download.ts";
@@ -195,7 +195,7 @@ class GcsBucketStorage implements GcsStorage {
   async move(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
     this.#requireCopyKeys(from, to, options, "move");
 
-    throw notYetImplemented("`move`");
+    return await moveObject(this.configuration, from, to, options?.signal);
   }
 
   #requireAddressable(key: string, options: OperationOptions | undefined, operation: string): void {
