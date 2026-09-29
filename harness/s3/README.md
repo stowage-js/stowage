@@ -45,8 +45,8 @@ Without them the case that needs it reports as skipped.
 
 Docker is required. Without `STOWAGE_S3_ENDPOINT` the run fails rather than passing with
 the tier skipped (ADR 0012), and CI starts `compose.yml` itself before the harnesses run.
-A machine without Docker sets `STOWAGE_CONFORMANCE_ENDPOINTS` to `none`, which leaves both
-endpoint tiers out and runs the cells that need no endpoint, as the macOS jobs of CI do.
+A machine without Docker sets `STOWAGE_CONFORMANCE_ENDPOINTS` to `none`, which leaves every
+endpoint tier out and runs the cells that need no endpoint, as the macOS jobs of CI do.
 
 The credentials in `s3.json` are this container's and nothing else's: they authenticate a
 local emulator holding a run's throwaway objects.
@@ -70,8 +70,9 @@ fix, so an update of the image has to look for one by hand.
 `.github/workflows/conformance-full.yml` runs both tiers on a schedule, on demand and for a
 release workflow to call: on Node 24, Node 26 and `workerd` against a real AWS S3 bucket and a
 real R2 bucket, and on Bun and Deno against the emulator. It never runs on a pull request. Its
-jobs against the buckets set `STOWAGE_CONFORMANCE_ENDPOINTS` to `s3`, so that the Azure tier,
-whose account the jobs of `harness/azure-blob/README.md` reach, stays out of their run.
+jobs against the buckets set `STOWAGE_CONFORMANCE_ENDPOINTS` to `s3`, so that the Azure and GCS
+tiers, whose endpoints the jobs of `harness/azure-blob/README.md` and `harness/gcs/README.md`
+reach, stay out of their run.
 
 Each provider is a GitHub environment, `aws-s3` and `r2`, holding the same names:
 

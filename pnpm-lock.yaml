@@ -203,6 +203,8 @@ importers:
 
   harness/deno: {}
 
+  harness/gcs: {}
+
   harness/node: {}
 
   harness/s3:

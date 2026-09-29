@@ -1,7 +1,10 @@
 import type { Variables } from "../../s3/src/configuration.ts";
 
-/** The endpoint tiers of ADR 0012 and ADR 0023, named after their harness directories. */
-const endpointTiers = ["s3", "azure-blob"] as const;
+/**
+ * The endpoint tiers of ADR 0012, ADR 0023 and ADR 0034, named after their harness
+ * directories.
+ */
+const endpointTiers = ["s3", "azure-blob", "gcs"] as const;
 
 export type EndpointTier = (typeof endpointTiers)[number];
 

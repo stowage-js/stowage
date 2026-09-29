@@ -7,7 +7,7 @@ describe("endpointTiersFrom", () => {
     ["unset", {}],
     ["empty", { STOWAGE_CONFORMANCE_ENDPOINTS: "" }],
   ])("asks for every tier where the list is %s", (_, variables) => {
-    expect(endpointTiersFrom(variables)).toEqual(new Set(["s3", "azure-blob"]));
+    expect(endpointTiersFrom(variables)).toEqual(new Set(["s3", "azure-blob", "gcs"]));
   });
 
   test("asks for the tiers the list names", () => {
@@ -17,8 +17,8 @@ describe("endpointTiersFrom", () => {
   });
 
   test("refuses a name that is no tier", () => {
-    expect(() => endpointTiersFrom({ STOWAGE_CONFORMANCE_ENDPOINTS: "gcs" })).toThrow(
-      '`STOWAGE_CONFORMANCE_ENDPOINTS` names "gcs", which is none of s3, azure-blob',
+    expect(() => endpointTiersFrom({ STOWAGE_CONFORMANCE_ENDPOINTS: "r2" })).toThrow(
+      '`STOWAGE_CONFORMANCE_ENDPOINTS` names "r2", which is none of s3, azure-blob, gcs',
     );
   });
 
