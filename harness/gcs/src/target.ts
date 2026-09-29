@@ -1,4 +1,4 @@
-import type { GcsAdapterOptions } from "../../../packages/adapter-gcs/src/index.ts";
+import type { GcsAdapterOptions, GcsSigner } from "../../../packages/adapter-gcs/src/index.ts";
 import { gcsStorage } from "../../../packages/adapter-gcs/src/index.ts";
 import type { ConformanceCaseSource } from "../../../packages/conformance/src/case.ts";
 import {
@@ -14,12 +14,14 @@ import { fakeGcsServer, withGcsDivergences } from "./divergences.ts";
 
 /**
  * The cases the adapter passes while its operations arrive one by one: those that need
- * `put` of held bytes, user metadata, `get` with or without a range, `stat`, `exists` and
- * `list`, and the refusals `copy` and `move` make before any request, and nothing else.
+ * `put` of held bytes, user metadata, `get` with or without a range, `stat`, `exists`,
+ * `list` and the presigned URLs, and the refusals `copy` and `move` make before any request,
+ * and nothing else.
  * Every operation that joins the adapter adds its cases here, until the list is the whole
  * suite and goes. The three credential cases stay in the list and report themselves
  * skipped, since the target supplies none of their factories (ADR 0033, ADR 0034).
- * `flow/3-file-browser` runs against fake-gcs-server as a divergence (`divergences.ts`).
+ * `flow/3-file-browser` and the three rejections a signed URL owes run against
+ * fake-gcs-server as divergences (`divergences.ts`).
  */
 const coveredCases: ReadonlySet<string> = new Set([
   "declaration/valid-names",
@@ -62,11 +64,18 @@ const coveredCases: ReadonlySet<string> = new Set([
   "list/invalid-delimiter",
   "list/past-one-thousand",
   "list/key-bytes",
+  "presign/get",
+  "presign/put",
+  "presign/expires-in-bounds",
+  "presign/put-rejects-type",
+  "presign/put-rejects-length",
+  "presign/expired-url",
   "errors/shape",
   "errors/bad-credentials",
   "errors/denied-credentials",
   "errors/expired-credentials",
   "errors/not-a-storage-error",
+  "flow/2-presigned-put",
   "flow/3-file-browser",
   "flow/4-streaming-download",
 ]);
@@ -85,20 +94,49 @@ export function gcsCases(options: ConformanceRunOptions): readonly ConformanceCa
 }
 
 /**
- * `adapter-gcs` against fake-gcs-server under the fixed token of ADR 0034. There is no
- * factory for a bad or a denied credential: the emulator checks neither.
+ * ADR 0034: the service account the URLs name. fake-gcs-server checks no signature, so it
+ * names no account that exists.
+ */
+const emulatorServiceAccount = "fake-gcs-server@stowage.invalid";
+
+/**
+ * `adapter-gcs` against fake-gcs-server under the fixed token of ADR 0034, signing its URLs
+ * with an RSA key generated for the run, so that the presigning cases and flow 2 run on every
+ * commit. There is no factory for a bad or a denied credential: the emulator checks neither.
  */
 export function gcsTarget(configured: GcsAdapterOptions): ConformanceTarget {
+  let signer: Promise<GcsSigner> | undefined;
+
   return {
     name: "@stowage/adapter-gcs",
 
-    createStorage: () => gcsStorage(configured),
+    async createStorage() {
+      signer ??= generatedSigner();
+
+      return gcsStorage({ ...configured, signer: await signer });
+    },
 
     // The default of spec 10.2 deletes below the prefix through `deleteAll`, which the
     // adapter does not have yet. fake-gcs-server holds the run in memory and is recreated
     // by every start, so nothing the run wrote outlives it.
     async cleanup() {},
   };
+}
+
+/** A key of Web Crypto's own on every runtime, and never extractable, since nothing reads it. */
+async function generatedSigner(): Promise<GcsSigner> {
+  const { privateKey } = await crypto.subtle.generateKey(
+    {
+      name: "RSASSA-PKCS1-v1_5",
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: "SHA-256",
+    },
+    false,
+    ["sign", "verify"],
+  );
+
+  return { serviceAccount: emulatorServiceAccount, privateKey };
 }
 
 export const endpointMissing = "No GCS endpoint is configured; see `harness/gcs/README.md`";

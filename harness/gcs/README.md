@@ -44,6 +44,13 @@ every request and the emulator never reads. The target supplies neither
 `createStorageWithBadCredentials` nor `createStorageWithDeniedCredentials`, so both cases report
 themselves skipped, and the `Expired` case is skipped against every GCS endpoint (ADR 0033).
 
+The storage signs its URLs with a `privateKey`: an RSA `CryptoKey` the target generates in Web
+Crypto once per run, on every runtime, under a service account that does not exist. The URLs point
+at the emulator, so `presign/get`, `presign/put`, `presign/expires-in-bounds` and
+`flow/2-presigned-put` show that it serves the object the adapter addressed, with the method and
+body the URL grants. Whether the signature is right is shown by Google's V4 vectors in the adapter's
+own tests and by the real bucket (ADR 0034, ADR 0035).
+
 ## The `workerd` harness
 
 The worker runs the tier under `no_nodejs_compat` and `no_nodejs_compat_v2`, where no Node API is
@@ -68,5 +75,7 @@ the real bucket (ADR 0012, ADR 0034), and applies to fake-gcs-server alone. The 
 harness's: against the endpoint an entry names, the case passes where it fails as the entry says
 and fails where it passes. `flow/3-file-browser` is on it because the emulator counts only the
 objects of a page towards `maxResults`, where GCS counts the pseudo-directories as well, so the
-level the flow lists arrives as one page without a cursor. `list/noncharacter-key` is not on it: no
+level the flow lists arrives as one page without a cursor. `presign/expired-url`, `presign/put-rejects-length`
+and `presign/put-rejects-type` are on it because the emulator checks neither the signature nor the
+expiry of a signed URL, as its README states, so it serves the URL each case expects refused. `list/noncharacter-key` is not on it: no
 real endpoint runs the case to settle an entry.
