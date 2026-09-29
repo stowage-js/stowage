@@ -72,10 +72,10 @@ case that joins `src/target.ts` runs on Node, Bun, Deno and `workerd` alike.
 
 `src/divergences.ts` holds one entry per conformance case fake-gcs-server answers differently from
 the real bucket (ADR 0012, ADR 0034), and applies to fake-gcs-server alone. The mechanism is the S3
-harness's: against the endpoint an entry names, the case passes where it fails as the entry says
-and fails where it passes. `flow/3-file-browser` is on it because the emulator counts only the
-objects of a page towards `maxResults`, where GCS counts the pseudo-directories as well, so the
-level the flow lists arrives as one page without a cursor. `presign/expired-url`, `presign/put-rejects-length`
+harness's: against the endpoint an entry names, the case passes where it fails as the entry says and
+fails where it passes. `flow/3-file-browser` is on it because the emulator counts only the objects
+of a page towards `maxResults`, where GCS counts the pseudo-directories as well, so the level the
+flow lists arrives as one page without a cursor. `presign/expired-url`, `presign/put-rejects-length`
 and `presign/put-rejects-type` are on it because the emulator checks neither the signature nor the
-expiry of a signed URL, as its README states, so it serves the URL each case expects refused. `list/noncharacter-key` is not on it: no
-real endpoint runs the case to settle an entry.
+expiry of a signed URL, as its README states, so it serves the URL each case expects refused.
+`list/noncharacter-key` is not on it: no real endpoint runs the case to settle an entry.

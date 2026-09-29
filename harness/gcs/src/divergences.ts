@@ -10,7 +10,7 @@ export const fakeGcsServer: GcsEmulator = "fake-gcs-server";
 const listedIn = "harness/gcs/src/divergences.ts";
 
 /**
- * ADR 0034: fake-gcs-server serves every signed URL, so a rejection a signed URL owes fails
+ * ADR 0034: fake-gcs-server serves every signed URL, so a rejection a presigned URL owes fails
  * against it by construction, and the real bucket runs the same case in the `slow` tier.
  */
 const signatureUnchecked = {

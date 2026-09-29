@@ -20,7 +20,7 @@ import { fakeGcsServer, withGcsDivergences } from "./divergences.ts";
  * Every operation that joins the adapter adds its cases here, until the list is the whole
  * suite and goes. The three credential cases stay in the list and report themselves
  * skipped, since the target supplies none of their factories (ADR 0033, ADR 0034).
- * `flow/3-file-browser` and the three rejections a signed URL owes run against
+ * `flow/3-file-browser` and the three rejections a presigned URL owes run against
  * fake-gcs-server as divergences (`divergences.ts`).
  */
 const coveredCases: ReadonlySet<string> = new Set([
