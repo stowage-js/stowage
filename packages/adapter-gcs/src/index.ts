@@ -2,7 +2,6 @@ import {
   type CapabilityName,
   type DeleteReport,
   type GetOptions,
-  isStorageError,
   type ListOptions,
   type ObjectListing,
   type ObjectStat,
@@ -10,7 +9,6 @@ import {
   type PresignedPut,
   type PutBody,
   type PutOptions,
-  rangeHeader,
   type Storage,
   type StoredObject,
 } from "@stowage/core";
@@ -22,7 +20,8 @@ import {
   readConfiguration,
 } from "./configuration.ts";
 import { deleteBelow, deleteKeys } from "./delete.ts";
-import { defaultContentType, describeResource, readResource } from "./description.ts";
+import { defaultContentType, readDescription } from "./description.ts";
+import { getObject } from "./download.ts";
 import { requireKey } from "./key.ts";
 import { createListing } from "./listing.ts";
 import {
@@ -38,16 +37,8 @@ import {
   presignGet,
   presignPut,
 } from "./presign.ts";
-import {
-  isUnsatisfiedRange,
-  partialContent,
-  reportedDownloadFailure,
-  requireRange,
-  wholeAnswerFailure,
-} from "./range.ts";
-import { objectPath, send } from "./request.ts";
-import { gcsError } from "./storage-error.ts";
-import { createStoredObject } from "./stored-object.ts";
+import { requireRange } from "./range.ts";
+import { gcsError, isMissingObject } from "./storage-error.ts";
 import { putBytes } from "./upload.ts";
 import { heldUserMetadata } from "./user-metadata.ts";
 
@@ -143,106 +134,33 @@ class GcsBucketStorage implements GcsStorage {
     );
   }
 
-  /**
-   * Spec 9.4: the resource request and the media download side by side, since the media
-   * download carries no user metadata. Where the resource request fails its failure is
-   * reported, and a failure of the download only where the resource succeeded; either
-   * failure aborts the other request (spec 9.8), except a `416` refusing the range, whose
-   * report names the size the resource answers with.
-   */
   async get(key: string, options?: GetOptions): Promise<StoredObject> {
     requireKey(this.bucket, key, "addressable", "get");
     requireKnownOptions(this.bucket, options, getOptionKeys, "get");
-
-    const range = options?.range;
-
-    requireRange(this.bucket, range);
+    requireRange(this.bucket, options?.range);
 
     options?.signal?.throwIfAborted();
 
-    const abortPair = new AbortController();
-    const signal =
-      options?.signal === undefined
-        ? abortPair.signal
-        : AbortSignal.any([options.signal, abortPair.signal]);
-    const abortOther = (failure: unknown): never => {
-      abortPair.abort();
-
-      throw failure;
-    };
-    const [described, download] = await Promise.allSettled([
-      this.#readResource(key, "get", signal).catch(abortOther),
-      send(this.configuration, {
-        method: "GET",
-        operation: "get",
-        key,
-        path: objectPath(this.configuration, key),
-        query: [["alt", "media"]],
-        headers: range === undefined ? [] : [["range", rangeHeader(range)]],
-        media: true,
-        signal,
-      }).catch((failure: unknown) => {
-        if (isUnsatisfiedRange(range, failure)) throw failure;
-
-        return abortOther(failure);
-      }),
-    ]);
-
-    if (described.status === "rejected") {
-      if (download.status === "fulfilled") await download.value.body?.cancel().catch(() => {});
-
-      // The resource request was aborted because the download failed first, and not by
-      // the caller, so the download's failure is the one to report.
-      if (
-        download.status === "rejected" &&
-        isAbortNotFromCaller(described.reason, options?.signal)
-      ) {
-        throw download.reason;
-      }
-
-      throw described.reason;
-    }
-
-    const stat = described.value;
-
-    if (download.status === "rejected") {
-      throw reportedDownloadFailure(this.bucket, key, range, stat.size, download.reason);
-    }
-
-    const response = download.value;
-    const refusal =
-      range === undefined || response.status === partialContent
-        ? undefined
-        : wholeAnswerFailure(this.bucket, key, range, stat.size, response);
-
-    if (refusal !== undefined) {
-      await response.body?.cancel().catch(() => {});
-
-      throw refusal;
-    }
-
-    return createStoredObject(this.bucket, stat, response);
+    return await getObject(this.configuration, key, options?.range, options?.signal);
   }
 
   async stat(key: string, options?: OperationOptions): Promise<ObjectStat> {
     this.#requireAddressable(key, options, "stat");
 
-    return await this.#readResource(key, "stat", options?.signal);
+    return await readDescription(this.configuration, key, "stat", options?.signal);
   }
 
   async exists(key: string, options?: OperationOptions): Promise<boolean> {
     this.#requireAddressable(key, options, "exists");
 
     try {
-      await this.#readResource(key, "exists", options?.signal);
+      await readDescription(this.configuration, key, "exists", options?.signal);
 
       return true;
     } catch (failure) {
       // Spec 4.10: `exists` answers `false` for `NotFound` alone and rethrows the rest,
-      // a missing bucket among them, which is the one `NotFound` that names no key.
-      if (isStorageError(failure) && failure.code === "NotFound" && failure.key !== undefined) {
-        return false;
-      }
+      // a missing bucket among them.
+      if (isMissingObject(failure)) return false;
 
       throw failure;
     }
@@ -276,20 +194,6 @@ class GcsBucketStorage implements GcsStorage {
     this.#requireCopyKeys(from, to, options, "move");
 
     throw notYetImplemented("`move`");
-  }
-
-  /** The object's resource, which spec 9.4 has `stat`, `exists` and `get` describe it by. */
-  async #readResource(key: string, operation: string, signal?: AbortSignal): Promise<ObjectStat> {
-    const response = await send(this.configuration, {
-      method: "GET",
-      operation,
-      key,
-      path: objectPath(this.configuration, key),
-      signal,
-    });
-    const resource = await readResource(this.bucket, key, operation, response);
-
-    return describeResource(this.bucket, key, operation, response, resource);
   }
 
   #requireAddressable(key: string, options: OperationOptions | undefined, operation: string): void {
@@ -369,12 +273,6 @@ class GcsSigningBucketStorage extends GcsBucketStorage implements GcsSigningStor
  */
 function notYetImplemented(what: string): Error {
   return new Error(`${what} is not implemented in adapter-gcs yet`);
-}
-
-function isAbortNotFromCaller(failure: unknown, callerSignal: AbortSignal | undefined): boolean {
-  return (
-    failure instanceof Error && failure.name === "AbortError" && callerSignal?.aborted !== true
-  );
 }
 
 /**
