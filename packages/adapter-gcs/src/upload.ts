@@ -1,8 +1,9 @@
-import type { ObjectStat } from "@stowage/core";
+import { type ObjectStat, type SendParts, uploadStream } from "@stowage/core";
 
 import type { GcsConfiguration } from "./configuration.ts";
 import { describeResource, readResource } from "./description.ts";
 import { send, uploadPath } from "./request.ts";
+import { startSession } from "./session.ts";
 
 export interface ObjectWrite {
   readonly key: string;
@@ -40,6 +41,98 @@ export async function putBytes(
 }
 
 /**
+ * Spec 9.6: a stream is read into parts of `partSize`, and one that ends within the first
+ * goes as the request held bytes get. A longer one goes as one resumable session, which
+ * takes one chunk at a time and has no limit on its parts (ADR 0036).
+ */
+export async function putStream(
+  configuration: GcsConfiguration,
+  write: ObjectWrite,
+  stream: ReadableStream<Uint8Array>,
+): Promise<ObjectStat> {
+  return await uploadStream(
+    stream,
+    {
+      partSize: configuration.partSize,
+      concurrency: 1,
+      maxParts: Infinity,
+      bucket: configuration.bucket,
+      provider: "gcs",
+      key: write.key,
+      signal: write.signal,
+    },
+    {
+      whole: async (bytes) => await putBytes(configuration, write, bytes),
+      multipart: async (sendParts) => await resumableUpload(configuration, write, sendParts),
+    },
+  );
+}
+
+/**
+ * Part `i` goes at offset `i × partSize`. A part shorter than `partSize` is the last one and
+ * commits; where the last part was full, an empty chunk naming the total commits after it,
+ * since the core reads the next part only once this one settled (ADR 0036).
+ *
+ * A failed or aborted upload cancels its session. Where the failure was the commit's, the
+ * cancel's answer says whether the session committed after all, and a committed session's
+ * object is what `put` resolves with (spec 9.6).
+ */
+async function resumableUpload(
+  configuration: GcsConfiguration,
+  write: ObjectWrite,
+  sendParts: SendParts,
+): Promise<ObjectStat> {
+  const session = await startSession(configuration, {
+    key: write.key,
+    resource: objectResource(write),
+    signal: write.signal,
+  });
+  const { partSize } = configuration;
+  let committing = false;
+
+  try {
+    const sent = await sendParts(async (index, bytes, signal) => {
+      const offset = index * partSize;
+
+      if (bytes.byteLength === partSize) {
+        await session.send({ offset, bytes }, signal);
+
+        return undefined;
+      }
+
+      committing = true;
+
+      return await session.commit({ offset, bytes, total: offset + bytes.byteLength }, signal);
+    });
+    const committed = sent.results.at(-1);
+
+    if (committed !== undefined) return committed;
+
+    committing = true;
+
+    return await session.commit(
+      { offset: sent.size, bytes: new Uint8Array(0), total: sent.size },
+      write.signal,
+    );
+  } catch (failure) {
+    const object = await session.cancel(committing && write.signal?.aborted !== true);
+
+    if (object !== undefined) return object;
+
+    throw failure;
+  }
+}
+
+/** The object's resource as the JSON API takes it: name, content type and user metadata. */
+function objectResource(write: ObjectWrite): string {
+  return JSON.stringify({
+    name: write.key,
+    contentType: write.contentType,
+    ...(Object.keys(write.userMetadata).length === 0 ? {} : { metadata: write.userMetadata }),
+  });
+}
+
+/**
  * The `multipart/related` body of RFC 2387. The boundary is random per request: a body
  * that held it would end its part early, and 122 random bits make that no concern.
  */
@@ -48,11 +141,7 @@ function multipartBody(
   write: ObjectWrite,
   bytes: Uint8Array<ArrayBuffer>,
 ): Uint8Array<ArrayBuffer> {
-  const resource = JSON.stringify({
-    name: write.key,
-    contentType: write.contentType,
-    ...(Object.keys(write.userMetadata).length === 0 ? {} : { metadata: write.userMetadata }),
-  });
+  const resource = objectResource(write);
   const head = utf8.encode(
     [
       `--${boundary}`,

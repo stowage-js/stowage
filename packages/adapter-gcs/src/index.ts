@@ -40,7 +40,7 @@ import {
 } from "./presign.ts";
 import { requireRange } from "./range.ts";
 import { gcsError, isMissingObject } from "./storage-error.ts";
-import { putBytes } from "./upload.ts";
+import { putBytes, putStream } from "./upload.ts";
 import { heldUserMetadata } from "./user-metadata.ts";
 
 export type { GcsAdapterOptions, GcsSigner } from "./configuration.ts";
@@ -126,13 +126,11 @@ class GcsBucketStorage implements GcsStorage {
     // Spec 4.3: a signal that already fired rejects before the request goes out.
     options?.signal?.throwIfAborted();
 
-    if (isStream(body)) throw notYetImplemented("`put` of a stream");
+    const write = { key, contentType, userMetadata, signal: options?.signal };
 
-    return await putBytes(
-      this.configuration,
-      { key, contentType, userMetadata, signal: options?.signal },
-      bytesOf(body),
-    );
+    if (isStream(body)) return await putStream(this.configuration, write, body);
+
+    return await putBytes(this.configuration, write, bytesOf(body));
   }
 
   async get(key: string, options?: GetOptions): Promise<StoredObject> {
@@ -270,14 +268,6 @@ class GcsSigningBucketStorage extends GcsBucketStorage implements GcsSigningStor
   async presignPut(key: string, options: GcsPresignPutOptions): Promise<PresignedPut> {
     return await presignPut(this.configuration, this.#signer, key, options);
   }
-}
-
-/**
- * The package is unreleased while its operations arrive one by one, and a call that
- * reaches one still missing says so rather than pretending to a failure of the provider.
- */
-function notYetImplemented(what: string): Error {
-  return new Error(`${what} is not implemented in adapter-gcs yet`);
 }
 
 /**

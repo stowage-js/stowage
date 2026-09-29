@@ -38,6 +38,22 @@ export function countingAttempts(failure: StorageError, attempts: number): Stora
 }
 
 /**
+ * The same failure with every one of `secrets` cut out of its message and without its cause,
+ * which the runtime wrote and which may carry a secret in a form no search here would find.
+ */
+export function withoutSecrets(
+  failure: StorageError,
+  secrets: readonly string[],
+  placeholder: string,
+): StorageError {
+  let message = failure.message;
+
+  for (const secret of secrets) message = message.replaceAll(secret, placeholder);
+
+  return gcsError(failure.bucket, { ...fieldsOf(failure), message, cause: undefined });
+}
+
+/**
  * Every field of `StorageErrorFields` is named below, so a field added to that type has
  * to be added here too or it is dropped on the way through.
  */
