@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 
 import { createKeyPrefix, selectHalf, startRun } from "../run.ts";
 import { caseNamed, stubStorage, stubTarget } from "../stubs.ts";
+import { controlLifetime, expiredLifetime, pastTheLifetime } from "./presign.ts";
 
 const utf8 = new TextEncoder();
 
@@ -194,4 +195,78 @@ test.each([
 
   await expect(run("presign/put", storage)).rejects.toThrow("`presignPut` handed back");
   expect(uploads).toEqual([]);
+});
+
+/** A storage signing a URL that names the lifetime it was signed for. */
+function signingLifetimes(): Storage {
+  return signing({
+    presignGet: async (_, { expiresIn }) => `${signedUrl}?expires-in=${expiresIn}`,
+  });
+}
+
+/**
+ * The provider those URLs point at: it answers `expired` to the URL signed for
+ * `expiredLifetime` and `control` to the one for `controlLifetime`, and records the lifetime
+ * of each URL fetched.
+ */
+function providerAnsweringLifetimes(answers: { expired: number; control: number }): number[] {
+  const fetchedLifetimes: number[] = [];
+
+  vi.stubGlobal("fetch", async (url: string) => {
+    const expiresIn = Number(new URL(url).searchParams.get("expires-in"));
+
+    fetchedLifetimes.push(expiresIn);
+
+    return new Response(null, {
+      status: expiresIn === expiredLifetime ? answers.expired : answers.control,
+    });
+  });
+
+  return fetchedLifetimes;
+}
+
+/** The case waits `pastTheLifetime` out, which fake timers pass at once. */
+async function runExpiredUrl(storage: Storage): Promise<string> {
+  vi.useFakeTimers();
+
+  try {
+    const outcome = run("presign/expired-url", storage);
+
+    // Held so that a rejection arriving while the timers advance is not reported unhandled.
+    outcome.catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(pastTheLifetime);
+
+    return await outcome;
+  } finally {
+    vi.useRealTimers();
+  }
+}
+
+test.each([400, 403])(
+  "`presign/expired-url` takes %i for the expired URL and `200` for the control",
+  async (status) => {
+    const fetchedLifetimes = providerAnsweringLifetimes({ expired: status, control: 200 });
+
+    await expect(runExpiredUrl(signingLifetimes())).resolves.toBe("declared");
+    expect(fetchedLifetimes.toSorted((a, b) => a - b)).toEqual([expiredLifetime, controlLifetime]);
+  },
+);
+
+test.each([200, 401, 404])(
+  "the `presign/expired-url` case refuses %i for the expired URL",
+  async (status) => {
+    providerAnsweringLifetimes({ expired: status, control: 200 });
+
+    await expect(runExpiredUrl(signingLifetimes())).rejects.toThrow(
+      `a signed \`GET\` that has expired was answered ${status} and not 400 or 403`,
+    );
+  },
+);
+
+test("the `presign/expired-url` case refuses a control URL answering other than `200`", async () => {
+  providerAnsweringLifetimes({ expired: 400, control: 400 });
+
+  await expect(runExpiredUrl(signingLifetimes())).rejects.toThrow(
+    `the signed \`GET\` for ${controlLifetime} seconds beside it was answered 400 and not 200`,
+  );
 });
