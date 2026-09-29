@@ -35,8 +35,8 @@ import type { GcsPresignGetOptions, GcsPresignPutOptions } from "./presign.ts";
 import {
   isUnsatisfiedRange,
   partialContent,
+  reportedDownloadFailure,
   requireRange,
-  unsatisfiedRangeFailure,
   wholeAnswerFailure,
 } from "./range.ts";
 import { objectPath, send } from "./request.ts";
@@ -141,7 +141,8 @@ class GcsBucketStorage implements GcsStorage {
    * Spec 9.4: the resource request and the media download side by side, since the media
    * download carries no user metadata. Where the resource request fails its failure is
    * reported, and a failure of the download only where the resource succeeded; either
-   * failure aborts the other request (spec 9.8).
+   * failure aborts the other request (spec 9.8), except a `416` refusing the range, whose
+   * report names the size the resource answers with.
    */
   async get(key: string, options?: GetOptions): Promise<StoredObject> {
     requireKey(this.bucket, key, "addressable", "get");
@@ -175,9 +176,7 @@ class GcsBucketStorage implements GcsStorage {
         media: true,
         signal,
       }).catch((failure: unknown) => {
-        // Spec 9.8 reports a `416` for the size the resource names, so the resource
-        // request has to finish.
-        if (range !== undefined && isUnsatisfiedRange(failure)) throw failure;
+        if (isUnsatisfiedRange(range, failure)) throw failure;
 
         return abortOther(failure);
       }),
@@ -201,11 +200,7 @@ class GcsBucketStorage implements GcsStorage {
     const stat = described.value;
 
     if (download.status === "rejected") {
-      if (range !== undefined && isUnsatisfiedRange(download.reason)) {
-        throw unsatisfiedRangeFailure(this.bucket, key, range, stat.size, download.reason);
-      }
-
-      throw download.reason;
+      throw reportedDownloadFailure(this.bucket, key, range, stat.size, download.reason);
     }
 
     const response = download.value;

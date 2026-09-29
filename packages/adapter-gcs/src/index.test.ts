@@ -747,7 +747,7 @@ test("a `200` answering a range that covers less is a `ProviderError`, its body 
   expect(cancel).toHaveBeenCalledOnce();
 });
 
-test("a media `416` is `rangeStartRefusal` for the size the resource named", async () => {
+test("a media `416` is `InvalidRequest` naming the size the resource answered with", async () => {
   const downloadFailed = Promise.withResolvers<void>();
 
   stubFetch(async (request) => {
@@ -760,10 +760,11 @@ test("a media `416` is `rangeStartRefusal` for the size the resource named", asy
       });
     }
 
-    // The resource answers only after the download failed, which a `get` that aborted
-    // the resource request on that failure would have lost.
+    // The resource answers only once the download's failure had time to reach `get`, and
+    // a `get` that aborted the resource request on that failure never sees the answer.
     await downloadFailed.promise;
     await new Promise((resolve) => setTimeout(resolve, 5));
+    request.signal?.throwIfAborted();
 
     return resource({ size: String(rangedBody.length) });
   });

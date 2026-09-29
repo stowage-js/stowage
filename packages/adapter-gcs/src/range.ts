@@ -23,22 +23,28 @@ export function requireRange(bucket: string, range: ByteRange | undefined): void
 }
 
 /** Whether the media download refused the range, which only the resource's size explains. */
-export function isUnsatisfiedRange(failure: unknown): failure is StorageError {
-  return isStorageError(failure) && failure.status === rangeNotSatisfiable;
+export function isUnsatisfiedRange(
+  range: ByteRange | undefined,
+  failure: unknown,
+): failure is StorageError {
+  return range !== undefined && isStorageError(failure) && failure.status === rangeNotSatisfiable;
 }
 
 /**
- * Spec 9.8: the media download carries no provider code, so its `416` is reported as the
- * refusal spec 4.3 names for the size the resource named. Where that size leaves room for
- * the range, the object changed between the two requests, and the download's failure stands.
+ * The download's failure as `get` reports it. Spec 9.8: the media download carries no
+ * provider code, so its `416` is reported as the refusal spec 4.3 names for the size the
+ * resource named. Where that size leaves room for the range, the object changed between the
+ * two requests, and the download's failure stands.
  */
-export function unsatisfiedRangeFailure(
+export function reportedDownloadFailure(
   bucket: string,
   key: string,
-  range: ByteRange,
+  range: ByteRange | undefined,
   size: number,
-  failure: StorageError,
-): StorageError {
+  failure: unknown,
+): unknown {
+  if (range === undefined || !isUnsatisfiedRange(range, failure)) return failure;
+
   const refusal = rangeStartRefusal(range, size, key);
 
   if (refusal === undefined) return failure;
@@ -50,6 +56,7 @@ export function unsatisfiedRangeFailure(
     attempts: failure.attempts,
     status: failure.status,
     requestId: failure.requestId,
+    cause: failure,
   });
 }
 
