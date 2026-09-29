@@ -47,7 +47,11 @@ const updated = "2026-09-29T07:12:03.456Z";
 
 /** The object resource the JSON API answers an upload and a metadata read with. */
 function resource(fields: Record<string, unknown> = {}): Response {
-  return Response.json({
+  return Response.json(resourceFields(fields));
+}
+
+function resourceFields(fields: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
     kind: "storage#object",
     name: "object",
     bucket: "conformance",
@@ -59,7 +63,7 @@ function resource(fields: Record<string, unknown> = {}): Response {
     updated,
     timeCreated: updated,
     ...fields,
-  });
+  };
 }
 
 function media(body: string): Response {
@@ -2373,4 +2377,178 @@ test("`deleteAll` refuses a prefix, an unknown option and a fired signal before 
   expect(unknownOption).toMatchObject({ code: "InvalidOption", operation: "deleteAll" });
   expect(aborted).toMatchObject({ name: "AbortError" });
   expect(sent).toEqual([]);
+});
+
+// `copy` (spec 9.7, ADR 0037)
+
+const rewritePath =
+  "https://storage.googleapis.com/storage/v1/b/conformance/o/from%2Fa.txt/rewriteTo/b/conformance/o/to%2Fb.txt";
+
+/** An answer of `rewriteTo` that leaves the rewrite unfinished, as the spike measured at 12 GiB. */
+function rewriteInProgress(rewriteToken: string): Response {
+  return Response.json({
+    kind: "storage#rewriteResponse",
+    totalBytesRewritten: "9873391616",
+    objectSize: "12884901888",
+    done: false,
+    rewriteToken,
+  });
+}
+
+/** The answer of `rewriteTo` that finishes the rewrite and carries the destination's resource. */
+function rewriteDone(fields: Record<string, unknown> = {}): Response {
+  return Response.json({
+    kind: "storage#rewriteResponse",
+    totalBytesRewritten: "5",
+    objectSize: "5",
+    done: true,
+    resource: resourceFields({ name: "to/b.txt", ...fields }),
+  });
+}
+
+function backendError(): Response {
+  return errorDocument(503, "backendError", "Backend Error");
+}
+
+test("`copy` sends one `rewriteTo` without a body and nothing in front of it", async () => {
+  const sent = stubFetch(() => rewriteDone());
+
+  await storage().copy("from/a.txt", "to/b.txt");
+
+  expect(sent).toHaveLength(1);
+  expect(sent[0]?.method).toBe("POST");
+  expect(sent[0]?.url).toBe(rewritePath);
+  expect(sent[0]?.body).toBeUndefined();
+  expect(sent[0]?.headers.get("authorization")).toBe(`Bearer ${accessToken}`);
+});
+
+test("`copy` resolves with the destination the finishing answer carries", async () => {
+  stubFetch(() =>
+    rewriteDone({ size: "11", contentType: "text/markdown", metadata: { writtenby: "stowage" } }),
+  );
+
+  const written = await storage().copy("from/a.txt", "to/b.txt");
+
+  expect(written).toMatchObject({
+    key: "to/b.txt",
+    size: 11,
+    contentType: "text/markdown",
+    userMetadata: { writtenby: "stowage" },
+  });
+});
+
+test("`copy` carries each answer's token to the next call until the rewrite is done", async () => {
+  const answers = [rewriteInProgress("token-1"), rewriteInProgress("token-2"), rewriteDone()];
+  const sent = stubFetch(() => answers.shift() ?? rewriteDone());
+
+  const written = await storage().copy("from/a.txt", "to/b.txt");
+
+  expect(sent.map((request) => request.url)).toEqual([
+    rewritePath,
+    `${rewritePath}?rewriteToken=token-1`,
+    `${rewritePath}?rewriteToken=token-2`,
+  ]);
+  expect(written.key).toBe("to/b.txt");
+});
+
+test("a `404` on a continued call is `NotFound` naming the source, the message word for word", async () => {
+  const replaced = "No such object: conformance/from/a.txt";
+  const answers = [rewriteInProgress("token-1"), errorDocument(404, "notFound", replaced)];
+
+  stubFetch(() => answers.shift() ?? rewriteDone());
+
+  const failure = await failureOf(() => storage().copy("from/a.txt", "to/b.txt"));
+
+  expect(failure).toMatchObject({
+    code: "NotFound",
+    operation: "copy",
+    key: "from/a.txt",
+    message: replaced,
+    status: 404,
+    attempts: 1,
+  });
+});
+
+test("a missing source is `NotFound` naming it, and a missing bucket `NotFound` without a key", async () => {
+  const answers = [notFound(), errorDocument(404, "notFound", missingBucket)];
+
+  stubFetch(() => answers.shift() ?? rewriteDone());
+
+  const missingSource = await failureOf(() => storage().copy("from/a.txt", "to/b.txt"));
+  const missingBucketFailure = await failureOf(() => storage().copy("from/a.txt", "to/b.txt"));
+
+  expect(missingSource).toMatchObject({ code: "NotFound", operation: "copy", key: "from/a.txt" });
+  expect(missingBucketFailure).toMatchObject({ code: "NotFound", operation: "copy" });
+  expect(missingBucketFailure.key).toBeUndefined();
+});
+
+test("each call of the rewrite is repeated as sent, on a budget of its own", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(0);
+
+  const answers = [
+    backendError(),
+    backendError(),
+    rewriteInProgress("token-1"),
+    backendError(),
+    backendError(),
+    rewriteDone(),
+  ];
+  const sent = stubFetch(() => answers.shift() ?? rewriteDone());
+
+  await storage().copy("from/a.txt", "to/b.txt");
+
+  expect(sent.map((request) => request.url)).toEqual([
+    rewritePath,
+    rewritePath,
+    rewritePath,
+    `${rewritePath}?rewriteToken=token-1`,
+    `${rewritePath}?rewriteToken=token-1`,
+    `${rewritePath}?rewriteToken=token-1`,
+  ]);
+});
+
+test("the caller's abort between two calls rejects with `AbortError` and sends no further call", async () => {
+  const controller = new AbortController();
+  const sent = stubFetch(() => {
+    controller.abort();
+
+    return rewriteInProgress("token-1");
+  });
+
+  await expect(
+    storage().copy("from/a.txt", "to/b.txt", { signal: controller.signal }),
+  ).rejects.toMatchObject({ name: "AbortError" });
+  expect(sent).toHaveLength(1);
+});
+
+test("the signal reaches every call of the rewrite", async () => {
+  const controller = new AbortController();
+  const answers = [rewriteInProgress("token-1"), rewriteDone()];
+  const sent = stubFetch(() => answers.shift() ?? rewriteDone());
+
+  await storage().copy("from/a.txt", "to/b.txt", { signal: controller.signal });
+
+  expect(sent.map((request) => request.signal)).toEqual([controller.signal, controller.signal]);
+});
+
+test("a signal that already fired rejects `copy` before any request", async () => {
+  const sent = stubFetch(() => rewriteDone());
+
+  const failure = await storage()
+    .copy("from/a.txt", "to/b.txt", { signal: AbortSignal.abort() })
+    .catch((reason: unknown) => reason);
+
+  expect(failure).toMatchObject({ name: "AbortError" });
+  expect(sent).toEqual([]);
+});
+
+test.each([
+  ["a finished rewrite without the object", { done: true }],
+  ["an unfinished rewrite without a token", { done: false }],
+])("%s is a `ProviderError`, not a copy made up", async (_, answer) => {
+  stubFetch(() => Response.json({ kind: "storage#rewriteResponse", ...answer }));
+
+  const failure = await failureOf(() => storage().copy("from/a.txt", "to/b.txt"));
+
+  expect(failure).toMatchObject({ code: "ProviderError", operation: "copy", status: 200 });
 });
