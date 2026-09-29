@@ -32,24 +32,70 @@ another one, and both the printed endpoint and the emulator's `-public-host` fol
 `start.sh` recreates the container, which starts empty, creates the bucket the suite writes to and
 prints the environment the run reads:
 
-| Variable               | What it names                                     |
-| ---------------------- | ------------------------------------------------- |
-| `STOWAGE_GCS_ENDPOINT` | The URL the adapter is constructed against        |
-| `STOWAGE_GCS_BUCKET`   | The bucket the run writes below its own prefix in |
+| Variable                    | What it names                                                    |
+| --------------------------- | ---------------------------------------------------------------- |
+| `STOWAGE_GCS_ENDPOINT_NAME` | `fake-gcs-server`, which selects the divergences the run expects |
+| `STOWAGE_GCS_ENDPOINT`      | The URL the adapter is constructed against                       |
+| `STOWAGE_GCS_BUCKET`        | The bucket the run writes below its own prefix in                |
 
 ## The credential
 
-Every case runs under the fixed token `fake-gcs-server`, which the adapter sends as the bearer of
-every request and the emulator never reads. The target supplies neither
+Against fake-gcs-server every case runs under the fixed token `fake-gcs-server`, which the
+adapter sends as the bearer of every request and the emulator never reads. The target supplies neither
 `createStorageWithBadCredentials` nor `createStorageWithDeniedCredentials`, so both cases report
 themselves skipped, and the `Expired` case is skipped against every GCS endpoint (ADR 0033).
 
-The storage signs its URLs with a `privateKey`: an RSA `CryptoKey` the target generates in Web
+There the storage signs its URLs with a `privateKey`: an RSA `CryptoKey` the target generates in Web
 Crypto once per run, on every runtime, under a service account that does not exist. The URLs point
 at the emulator, so `presign/get`, `presign/put`, `presign/expires-in-bounds` and
 `flow/2-presigned-put` show that it serves the object the adapter addressed, with the method and
 body the URL grants. Whether the signature is right is shown by Google's V4 vectors in the adapter's
 own tests and by the real bucket (ADR 0034, ADR 0035).
+
+## The real bucket
+
+`.github/workflows/conformance-full.yml` runs both tiers on a schedule, on demand and for a
+release workflow to call: on Node 24, Node 26 and `workerd` against the bucket, and on Bun and
+Deno against fake-gcs-server (ADR 0039). Its jobs set `STOWAGE_CONFORMANCE_ENDPOINTS` to `gcs`, so
+that the other tiers' endpoint checks stay out of their run.
+
+The bucket is `stowage-conformance` in the project `stowage-conformance`, regional in
+`europe-north2`. The GitHub environment `gcs`, restricted to `main`, holds no secret:
+
+| Variable                                 | What it holds                                                                                             |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `STOWAGE_GCS_BUCKET`                     | The bucket, `stowage-conformance`, which holds nothing else                                               |
+| `STOWAGE_GCS_WORKLOAD_IDENTITY_PROVIDER` | The provider as `projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>`    |
+| `STOWAGE_GCS_SERVICE_ACCOUNT`            | The email of `stowage-conformance`, `roles/storage.objectAdmin` on the bucket and Token Creator on itself |
+| `STOWAGE_GCS_DENIED_SERVICE_ACCOUNT`     | The email of `stowage-conformance-denied`, `roles/storage.objectViewer` on the bucket alone               |
+
+The job sets `STOWAGE_GCS_ENDPOINT_NAME` to `gcs` and no `STOWAGE_GCS_ENDPOINT`, so the adapter
+addresses `https://storage.googleapis.com` as a caller in the public cloud does, and the divergence
+list does not apply.
+
+The job holds `id-token: write`, and `src/federated-token.ts` asks the Actions runtime for an OIDC
+token with the audience `https://iam.googleapis.com/<provider>`, exchanges it at
+`https://sts.googleapis.com/v1/token` for a federated token, and that at
+`iamcredentials.googleapis.com` for a token of the service account (ADR 0034). The suite runs
+under the scope `devstorage.read_write`, and the storage signs its URLs through `signBlob` as the
+same service account, under a token with the scope `iam` from the same federated token. Each
+token is kept until five minutes before it expires and fetched again on `forceRefresh`. The pool's
+attribute condition admits the repository, its owner and the environment `gcs` alone, so a job
+in another environment is refused at STS. On `workerd` the bindings of `workerd.capnp` carry the
+provider, both service accounts, `ACTIONS_ID_TOKEN_REQUEST_URL` and
+`ACTIONS_ID_TOKEN_REQUEST_TOKEN`, and the worker does the same exchanges.
+
+`createStorageWithDeniedCredentials` runs under `stowage-conformance-denied`, which the bucket
+answers with `403` on a write, and `errors/denied-credentials` reads that as `AccessDenied`.
+`createStorageWithBadCredentials` hands over a resolver that answers `not-a-google-token` on every
+call, `forceRefresh` included, which ends in `InvalidCredentials` after the one repeat (ADR 0033).
+Against fake-gcs-server the target supplies neither.
+
+A lifecycle rule deletes an object a day after it was written, which removes what a run that died
+before its cleanup left, and a resumable session a run left open expires a week after it started.
+The one CORS rule is what flow 2 needs from a page: the origin
+`https://conformance.stowage.invalid`, the methods `GET` and `PUT`, and the header
+`content-type`.
 
 ## The `workerd` harness
 
@@ -71,7 +117,8 @@ case that joins `src/target.ts` runs on Node, Bun, Deno and `workerd` alike.
 ## The divergence list
 
 `src/divergences.ts` holds one entry per conformance case fake-gcs-server answers differently from
-the real bucket (ADR 0012, ADR 0034), and applies to fake-gcs-server alone. The mechanism is the S3
+the real bucket (ADR 0012, ADR 0034), and applies where `STOWAGE_GCS_ENDPOINT_NAME` names
+fake-gcs-server alone. The mechanism is the S3
 harness's: against the endpoint an entry names, the case passes where it fails as the entry says and
 fails where it passes. `flow/3-file-browser` is on it because the emulator counts only the objects
 of a page towards `maxResults`, where GCS counts the pseudo-directories as well, so the level the
