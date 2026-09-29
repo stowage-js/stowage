@@ -100,6 +100,11 @@ async function attempt(
   });
 }
 
+/** The query that pins a request to one generation of the object, where it names one. */
+export function pinnedTo(generation: string | undefined): readonly QueryParameter[] {
+  return generation === undefined ? [] : [["generation", generation]];
+}
+
 /** The path of the object's resource, and of its media download under `alt=media`. */
 export function objectPath(configuration: GcsConfiguration, key: string): string {
   return `${bucketPath(configuration, "storage")}/o/${encodeSegment(key)}`;

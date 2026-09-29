@@ -147,14 +147,15 @@ class GcsBucketStorage implements GcsStorage {
   async stat(key: string, options?: OperationOptions): Promise<ObjectStat> {
     this.#requireAddressable(key, options, "stat");
 
-    return await readDescription(this.configuration, key, "stat", options?.signal);
+    return (await readDescription(this.configuration, key, "stat", { signal: options?.signal }))
+      .stat;
   }
 
   async exists(key: string, options?: OperationOptions): Promise<boolean> {
     this.#requireAddressable(key, options, "exists");
 
     try {
-      await readDescription(this.configuration, key, "exists", options?.signal);
+      await readDescription(this.configuration, key, "exists", { signal: options?.signal });
 
       return true;
     } catch (failure) {

@@ -7,11 +7,12 @@ import {
   type StorageError,
 } from "@stowage/core";
 
+import type { DescribedObject } from "./description.ts";
 import { requestIdHeader } from "./request.ts";
 import { gcsError } from "./storage-error.ts";
 
 /** What the provider answers a range it honored with. */
-export const partialContent = 206;
+const partialContent = 206;
 
 const rangeNotSatisfiable = 416;
 
@@ -40,12 +41,12 @@ export function reportedDownloadFailure(
   bucket: string,
   key: string,
   range: ByteRange | undefined,
-  size: number,
+  described: DescribedObject,
   failure: unknown,
 ): unknown {
   if (range === undefined || !isUnsatisfiedRange(range, failure)) return failure;
 
-  const refusal = rangeStartRefusal(range, size, key);
+  const refusal = rangeStartRefusal(range, described.stat.size, key);
   const reported = refusal ?? { code: "InvalidRequest" as const, message: failure.message };
 
   return gcsError(bucket, {
@@ -60,19 +61,23 @@ export function reportedDownloadFailure(
 }
 
 /**
- * A provider that answers a range with `200` sent the whole object instead, which RFC 9110
- * allows. Where the range covers the object, that is the body asked for. For an object the
- * range starts beyond it is the refusal spec 4.3 names; for any other it is a body the caller
- * did not ask for.
+ * What refuses the download answering a range, where anything does. A provider that answers
+ * a range with `200` sent the whole object instead, which RFC 9110 allows. Where the range
+ * covers the object, that is the body asked for. For an object the range starts beyond it is
+ * the refusal spec 4.3 names; for any other it is a body the caller did not ask for.
  */
-export function wholeAnswerFailure(
+export function answeredRangeRefusal(
   bucket: string,
   key: string,
-  range: ByteRange,
-  size: number,
+  range: ByteRange | undefined,
+  described: DescribedObject,
   response: Response,
 ): StorageError | undefined {
-  if (rangeCoversWhole(range, size)) return undefined;
+  const { size } = described.stat;
+
+  if (range === undefined || response.status === partialContent || rangeCoversWhole(range, size)) {
+    return undefined;
+  }
 
   const answered = {
     operation: "get",
