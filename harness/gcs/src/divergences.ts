@@ -22,6 +22,17 @@ const signatureUnchecked = {
     "https://github.com/fsouza/fake-gcs-server/blob/v1.56.1/README.md#using-with-signed-urls",
 } as const;
 
+/**
+ * ADR 0037: fake-gcs-server serves no `moveTo` and answers every call `400 invalid`, the source
+ * left where it was, so the real bucket runs the cases of `move` in the `slow` tier.
+ */
+const moveUnserved = {
+  endpoint: fakeGcsServer,
+  differs:
+    "fake-gcs-server 1.56.1 serves no `objects.move` and answers every `moveTo` with `400 invalid`",
+  settledBy: "gcs",
+} as const;
+
 // Kept in the private harness and never in `@stowage/conformance` (ADR 0012). An entry joins
 // with the case that shows the difference (ADR 0034).
 export const gcsDivergences: readonly Divergence<GcsEmulator, GcsRealEndpoint>[] = [
@@ -50,6 +61,16 @@ export const gcsDivergences: readonly Divergence<GcsEmulator, GcsRealEndpoint>[]
     case: "presign/put-rejects-type",
     failureMessagePart: "carrying another content type was answered 200",
     ...signatureUnchecked,
+  },
+  {
+    case: "move/round-trip",
+    failureMessagePart: "Metadata in the request couldn't decode",
+    ...moveUnserved,
+  },
+  {
+    case: "move/missing-source",
+    failureMessagePart: 'carries `code: "ProviderError"` rather than "NotFound"',
+    ...moveUnserved,
   },
 ];
 
