@@ -56,5 +56,17 @@ to trust.
 The adapter gains its operations one ticket at a time, and `src/target.ts` names the cases it
 passes. A case joins that list with the operation it needs, until the list is the whole suite.
 Every column takes the case list and the divergence list of `src/divergences.ts` from here, so a
-case that joins `src/target.ts` runs on Node, Bun, Deno and `workerd` alike. The divergence list is
-empty until a case the adapter passes shows a difference of fake-gcs-server (ADR 0034).
+case that joins `src/target.ts` runs on Node, Bun, Deno and `workerd` alike.
+
+`list/noncharacter-key` stays out on every GCS endpoint, since GCS refuses the key the case writes
+(spec 10.7, ADR 0034).
+
+## The divergence list
+
+`src/divergences.ts` holds one entry per conformance case fake-gcs-server answers differently from
+the real bucket (ADR 0012, ADR 0034), and applies to fake-gcs-server alone. The mechanism is the S3
+harness's: against the endpoint an entry names, the case passes where it fails as the entry says
+and fails where it passes. `flow/3-file-browser` is on it because the emulator counts only the
+objects of a page towards `maxResults`, where GCS counts the pseudo-directories as well, so the
+level the flow lists arrives as one page without a cursor. `list/noncharacter-key` is not on it: no
+real endpoint runs the case to settle an entry.

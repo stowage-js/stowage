@@ -810,6 +810,7 @@ test.each([
   ["`exists`", () => storage().exists("object")],
   ["`get`", () => storage().get("object")],
   ["`put`", () => storage().put("object", "hello")],
+  ["`list`", () => storage().list().page()],
 ])(
   "%s rejects a `404` without a provider code rather than reading it as absence",
   async (_, call) => {
@@ -827,6 +828,7 @@ test.each([
   ["get", () => storage().get("object")],
   ["stat", () => storage().stat("object")],
   ["exists", () => storage().exists("object")],
+  ["list", () => storage().list().page()],
 ])("a missing bucket is `NotFound` without `key` on `%s`", async (operation, call) => {
   stubFetch((request) =>
     request.url.includes("alt=media")
@@ -1099,6 +1101,298 @@ test("a refused token on the media download is repeated as well, and nothing rep
 
   expect(await read.text()).toBe("hello");
   expect(resolve).toHaveBeenCalledTimes(4);
+});
+
+// Listings
+
+/** The object resource as `objects.list` carries it in `items`. */
+function listed(name: string, fields: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    kind: "storage#object",
+    name,
+    bucket: "conformance",
+    generation: "1790665923456000",
+    contentType: "text/plain",
+    size: "5",
+    etag: "CIDw3uCR2YgDEAE=",
+    updated,
+    ...fields,
+  };
+}
+
+function listingAnswer(fields: Record<string, unknown> = {}): Response {
+  return Response.json({ kind: "storage#objects", ...fields });
+}
+
+test("`page()` sends one `objects.list` with `maxResults` and reads its entries", async () => {
+  const sent = stubFetch(() =>
+    listingAnswer({ items: [listed("a.txt"), listed("b.txt", { size: "12", etag: "CAE=" })] }),
+  );
+
+  const page = await storage().list().page();
+
+  expect(sent.map(({ method, url }) => [method, url])).toEqual([
+    ["GET", "https://storage.googleapis.com/storage/v1/b/conformance/o?maxResults=1000"],
+  ]);
+  expect(page).toEqual({
+    objects: [
+      { key: "a.txt", size: 5, lastModified: new Date(updated), etag: "CIDw3uCR2YgDEAE=" },
+      { key: "b.txt", size: 12, lastModified: new Date(updated), etag: "CAE=" },
+    ],
+    prefixes: [],
+    cursor: undefined,
+  });
+});
+
+test("a delimiter shapes the page into the objects at the level and its pseudo-directories", async () => {
+  const sent = stubFetch(() =>
+    listingAnswer({ items: [listed("docs/a.txt")], prefixes: ["docs/one/", "docs/two/"] }),
+  );
+
+  const page = await storage().list({ prefix: "docs/", delimiter: "/", pageSize: 10 }).page();
+
+  expect(sent.map(({ url }) => new URL(url).searchParams.toString())).toEqual([
+    "maxResults=10&prefix=docs%2F&delimiter=%2F",
+  ]);
+  expect(page.objects.map(({ key }) => key)).toEqual(["docs/a.txt"]);
+  expect(page.prefixes).toEqual(["docs/one/", "docs/two/"]);
+});
+
+test("the iteration yields the objects at the level, and no pseudo-directory", async () => {
+  stubFetch(() => listingAnswer({ items: [listed("docs/a.txt")], prefixes: ["docs/one/"] }));
+
+  const keys: string[] = [];
+
+  for await (const entry of storage().list({ prefix: "docs/", delimiter: "/" })) {
+    keys.push(entry.key);
+  }
+
+  expect(keys).toEqual(["docs/a.txt"]);
+});
+
+test("a page's cursor continues from its `nextPageToken` in a listing of its own", async () => {
+  const sent = stubFetch((request) =>
+    new URL(request.url).searchParams.has("pageToken")
+      ? listingAnswer({ items: [listed("c.txt")] })
+      : listingAnswer({ items: [listed("a.txt"), listed("b.txt")], nextPageToken: "CgViLnR4dA==" }),
+  );
+
+  const first = await storage().list({ pageSize: 2 }).page();
+  const rest = await storage().list({ pageSize: 2, cursor: first.cursor }).page();
+
+  expect(first.cursor).toEqual(expect.any(String));
+  expect(first.cursor).not.toContain("CgViLnR4dA");
+  expect(new URL(sent[1]?.url ?? "").searchParams.get("pageToken")).toBe("CgViLnR4dA==");
+  expect(new URL(sent[1]?.url ?? "").searchParams.get("maxResults")).toBe("2");
+  expect(rest.objects.map(({ key }) => key)).toEqual(["c.txt"]);
+  expect(rest.cursor).toBeUndefined();
+});
+
+test("the iteration walks every page, sending `maxResults` and the last `nextPageToken`", async () => {
+  const pages = new Map([
+    ["", listingAnswer({ items: [listed("a.txt")], nextPageToken: "second" })],
+    ["second", listingAnswer({ items: [listed("b.txt")], nextPageToken: "third" })],
+    ["third", listingAnswer({ items: [listed("c.txt")] })],
+  ]);
+  const sent = stubFetch(
+    (request) =>
+      pages.get(new URL(request.url).searchParams.get("pageToken") ?? "") ?? listingAnswer(),
+  );
+
+  const keys: string[] = [];
+
+  for await (const entry of storage().list({ pageSize: 1 })) keys.push(entry.key);
+
+  expect(keys).toEqual(["a.txt", "b.txt", "c.txt"]);
+  expect(sent.map(({ url }) => new URL(url).searchParams.toString())).toEqual([
+    "maxResults=1",
+    "maxResults=1&pageToken=second",
+    "maxResults=1&pageToken=third",
+  ]);
+});
+
+test("the iteration rejects a page token sent earlier in the same walk", async () => {
+  const pages = new Map([
+    ["", { items: [listed("a.txt")], nextPageToken: "second" }],
+    ["second", { items: [listed("b.txt")], nextPageToken: "third" }],
+    ["third", { items: [listed("c.txt")], nextPageToken: "second" }],
+  ]);
+  const sent = stubFetch((request) =>
+    listingAnswer(pages.get(new URL(request.url).searchParams.get("pageToken") ?? "") ?? {}),
+  );
+
+  const { cursor } = await storage().list().page();
+  const failure = await failureOf(async () => {
+    for await (const entry of storage().list()) void entry;
+  });
+
+  expect(failure).toMatchObject({ code: "ProviderError", operation: "list", status: 200 });
+  expect(failure.message).toContain("a page token already sent");
+  expect(sent).toHaveLength(4);
+
+  const resumed = await storage().list({ cursor }).page();
+
+  expect(resumed.objects.map(({ key }) => key)).toEqual(["b.txt"]);
+  expect(resumed.cursor).toEqual(expect.any(String));
+});
+
+test.each([
+  ["non-array items", { items: {} }, "items that are not an array"],
+  ["null items", { items: null }, "items that are not an array"],
+  ["non-array prefixes", { prefixes: "docs/" }, "prefixes that are not an array"],
+  ["null prefixes", { prefixes: null }, "prefixes that are not an array"],
+  ["non-string nextPageToken", { nextPageToken: 3 }, "a nextPageToken that is not a string"],
+  ["null nextPageToken", { nextPageToken: null }, "a nextPageToken that is not a string"],
+])("a listing with %s is a `ProviderError`", async (_, fields, said) => {
+  stubFetch(() => listingAnswer(fields));
+
+  const failure = await failureOf(() => storage().list().page());
+
+  expect(failure).toMatchObject({ code: "ProviderError", operation: "list", status: 200 });
+  expect(failure.message).toContain(said);
+});
+
+test("an empty nextPageToken still ends a listing", async () => {
+  const sent = stubFetch(() => listingAnswer({ nextPageToken: "" }));
+
+  const page = await storage().list().page();
+
+  expect(page).toEqual({ objects: [], prefixes: [], cursor: undefined });
+  expect(sent).toHaveLength(1);
+});
+
+test.each([
+  ["no cursor at all", "this-is-no-cursor-the-storage-handed-out"],
+  ["a bare page token", "CgViLnR4dA=="],
+  ["a cursor of `adapter-s3`", btoa("stowage-s3-1:0061")],
+  ["a cursor under the tag with no position", btoa("stowage-gcs-1:")],
+  ["a cursor under the tag holding a lone surrogate", btoa("stowage-gcs-1:d800")],
+])("%s is `InvalidOption` naming `cursor` before any request", async (_, cursor) => {
+  const sent = stubFetch(() => listingAnswer());
+
+  const failure = await failureOf(() => storage().list({ cursor }).page());
+
+  expect(failure).toMatchObject({ code: "InvalidOption", operation: "list", attempts: 0 });
+  expect(failure.message).toContain("`cursor`");
+  expect(sent).toEqual([]);
+});
+
+test("`invalid` answered to a listing that carried the caller's cursor is `InvalidOption` naming `cursor`", async () => {
+  const answers = [
+    listingAnswer({ items: [listed("a.txt")], nextPageToken: "expired" }),
+    errorDocument(400, "invalid", "Invalid Value"),
+  ];
+
+  stubFetch(() => answers.shift() ?? listingAnswer());
+
+  const { cursor } = await storage().list().page();
+  const failure = await failureOf(() => storage().list({ cursor }).page());
+
+  expect(failure).toMatchObject({
+    code: "InvalidOption",
+    operation: "list",
+    status: 400,
+    providerCode: "invalid",
+    attempts: 1,
+  });
+  expect(failure.message).toContain("`cursor`");
+  expect(failure.message).toContain("Invalid Value");
+});
+
+test("`invalid` answered to a page the provider's own token asked for stays a `ProviderError`", async () => {
+  const answers = [
+    listingAnswer({ items: [listed("a.txt")], nextPageToken: "second" }),
+    errorDocument(400, "invalid", "Invalid Value"),
+  ];
+
+  stubFetch(() => answers.shift() ?? listingAnswer());
+
+  const failure = await failureOf(async () => {
+    for await (const entry of storage().list()) void entry;
+  });
+
+  expect(failure).toMatchObject({ code: "ProviderError", providerCode: "invalid" });
+});
+
+test.each([
+  ["no key", { name: undefined }, "an object with no key"],
+  ["an empty key", { name: "" }, "an object with no key"],
+  ["no size", { size: undefined }, "no size"],
+  ["a size that is no count of bytes", { size: "-1" }, "no size"],
+  ["no last-modified time", { updated: undefined }, "no last-modified time"],
+  ["a last-modified time that is no time", { updated: "yesterday" }, "no last-modified time"],
+])("an entry with %s is a `ProviderError`, not a value made up", async (_, fields, said) => {
+  stubFetch(() => listingAnswer({ items: [listed("a.txt", fields)] }));
+
+  const failure = await failureOf(() => storage().list().page());
+
+  expect(failure).toMatchObject({ code: "ProviderError", operation: "list", status: 200 });
+  expect(failure.message).toContain(said);
+});
+
+test("an entry without an etag has none", async () => {
+  stubFetch(() => listingAnswer({ items: [listed("a.txt", { etag: undefined })] }));
+
+  const [entry] = (await storage().list().page()).objects;
+
+  expect(entry).toEqual({ key: "a.txt", size: 5, lastModified: new Date(updated) });
+});
+
+test("a listing answered with a body that is no JSON is a `ProviderError`", async () => {
+  stubFetch(() => textAnswer(200, "<html>Portal</html>"));
+
+  const failure = await failureOf(() => storage().list().page());
+
+  expect(failure).toMatchObject({ code: "ProviderError", operation: "list", status: 200 });
+  expect(failure.message).toContain("no JSON");
+});
+
+test("a prefix and the keys below it holding `%`, `+` and characters above ASCII travel byte for byte", async () => {
+  const prefix = "Grüße/100% a+b/";
+  const key = `${prefix}日本語 ключ+%2F.txt`;
+  const sent = stubFetch(() => listingAnswer({ items: [listed(key)] }));
+
+  const page = await storage().list({ prefix }).page();
+
+  expect(sent[0]?.url).toContain("&prefix=Gr%C3%BC%C3%9Fe%2F100%25%20a%2Bb%2F");
+  expect(new URL(sent[0]?.url ?? "").searchParams.get("prefix")).toBe(prefix);
+  expect(page.objects.map((entry) => entry.key)).toEqual([key]);
+});
+
+test("`list` sends nothing until the listing is read", async () => {
+  const sent = stubFetch(() => listingAnswer());
+
+  const unread = storage().list({ prefix: "docs/" });
+
+  expect(sent).toEqual([]);
+
+  await unread.page();
+
+  expect(sent).toHaveLength(1);
+});
+
+test("a listing whose `nextPageToken` repeats the token it was sent is a `ProviderError`", async () => {
+  const sent = stubFetch(() => listingAnswer({ items: [listed("a.txt")], nextPageToken: "same" }));
+
+  const failure = await failureOf(async () => {
+    for await (const entry of storage().list()) void entry;
+  });
+
+  expect(failure).toMatchObject({ code: "ProviderError", operation: "list" });
+  expect(failure.message).toContain("the page token it was sent");
+  expect(sent).toHaveLength(2);
+});
+
+test("a signal that already fired rejects the listing with `AbortError` before any request", async () => {
+  const sent = stubFetch(() => listingAnswer());
+
+  const failure = await storage()
+    .list({ signal: AbortSignal.abort() })
+    .page()
+    .catch((reason: unknown) => reason);
+
+  expect(failure).toMatchObject({ name: "AbortError" });
+  expect(sent).toEqual([]);
 });
 
 // Refusals of `list`, `copy` and `move` before any request
