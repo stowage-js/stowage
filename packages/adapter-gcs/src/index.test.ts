@@ -783,6 +783,35 @@ test("a media `416` is `InvalidRequest` naming the size the resource answered wi
   expect(failure.providerCode).toBeUndefined();
 });
 
+test("a media `416` is `InvalidRequest` when the resource size leaves room for the range", async () => {
+  stubFetch((request) =>
+    request.url.includes("alt=media")
+      ? Response.json(
+          {
+            error: {
+              message: "The requested range cannot be satisfied.",
+              errors: [{ reason: "unexpectedReason" }],
+            },
+          },
+          { status: 416, headers: { "x-guploader-uploadid": "upload-416" } },
+        )
+      : resource({ size: String(rangedBody.length) }),
+  );
+
+  const failure = await failureOf(() => storage().get("object", { range: { start: 2 } }));
+
+  expect(failure).toMatchObject({
+    code: "InvalidRequest",
+    operation: "get",
+    key: "object",
+    status: 416,
+    attempts: 1,
+    requestId: "upload-416",
+    message: "The requested range cannot be satisfied.",
+  });
+  expect(failure.providerCode).toBeUndefined();
+});
+
 test("a media `416` beside a failed resource request reports the resource's failure", async () => {
   stubFetch((request) =>
     request.url.includes("alt=media") ? new Response("", { status: 416 }) : notFound(),

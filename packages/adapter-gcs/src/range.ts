@@ -34,7 +34,7 @@ export function isUnsatisfiedRange(
  * The download's failure as `get` reports it. Spec 9.8: the media download carries no
  * provider code, so its `416` is reported as the refusal spec 4.3 names for the size the
  * resource named. Where that size leaves room for the range, the object changed between the
- * two requests, and the download's failure stands.
+ * two requests, and the media failure's message explains the `InvalidRequest`.
  */
 export function reportedDownloadFailure(
   bucket: string,
@@ -46,11 +46,10 @@ export function reportedDownloadFailure(
   if (range === undefined || !isUnsatisfiedRange(range, failure)) return failure;
 
   const refusal = rangeStartRefusal(range, size, key);
-
-  if (refusal === undefined) return failure;
+  const reported = refusal ?? { code: "InvalidRequest" as const, message: failure.message };
 
   return gcsError(bucket, {
-    ...refusal,
+    ...reported,
     operation: "get",
     key,
     attempts: failure.attempts,
