@@ -102,6 +102,7 @@ const coveredCases: ReadonlySet<string> = new Set([
   "flow/2-presigned-put",
   "flow/3-file-browser",
   "flow/4-streaming-download",
+  "flow/5-prefix-move",
 ]);
 
 /**
