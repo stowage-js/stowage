@@ -6,7 +6,7 @@ export type GcsEmulator = "fake-gcs-server";
 export type GcsRealEndpoint = "gcs";
 
 export const fakeGcsServer: GcsEmulator = "fake-gcs-server";
-export const realBucket: GcsRealEndpoint = "gcs";
+export const gcsBucket: GcsRealEndpoint = "gcs";
 
 const listedIn = "harness/gcs/src/divergences.ts";
 

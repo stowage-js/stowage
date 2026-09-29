@@ -1,10 +1,10 @@
 import type { FirstRunPoint, FirstRunTest } from "../../s3/src/first-run.ts";
-import { realBucket } from "./divergences.ts";
+import { gcsBucket } from "./divergences.ts";
 
 /** The block `describeCases` registers the cases against the endpoint in. */
 const gcsSuite = "@stowage/adapter-gcs";
 
-const bucket = [realBucket];
+const bucket = [gcsBucket];
 
 const conformanceCase = (title: string): FirstRunTest => ({ suite: gcsSuite, title });
 
