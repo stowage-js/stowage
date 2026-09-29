@@ -15,8 +15,8 @@ import type { ConformanceTarget } from "../../../packages/conformance/src/target
  * The cases the adapter passes while its operations arrive one by one: those that need
  * `put` of held bytes, `get`, `stat` and `exists` and nothing else. Every operation that
  * joins the adapter adds its cases here, until the list is the whole suite and goes. The
- * two credential cases stay in the list and report themselves skipped, since the target
- * supplies neither factory (ADR 0034).
+ * three credential cases stay in the list and report themselves skipped, since the target
+ * supplies none of their factories (ADR 0033, ADR 0034).
  */
 const coveredCases: ReadonlySet<string> = new Set([
   "declaration/valid-names",
@@ -43,6 +43,7 @@ const coveredCases: ReadonlySet<string> = new Set([
   "exists/invalid-key",
   "errors/bad-credentials",
   "errors/denied-credentials",
+  "errors/expired-credentials",
   "errors/not-a-storage-error",
 ]);
 
