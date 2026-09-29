@@ -13,7 +13,7 @@ import { listPath, type QueryParameter, send } from "./request.ts";
 const defaultPageSize = 1000;
 export const maxPageSize = 1000;
 
-export interface ListRequest {
+interface ListRequest {
   readonly operation: string;
   readonly prefix: string;
   readonly delimiter?: string;
