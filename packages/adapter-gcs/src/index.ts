@@ -10,6 +10,7 @@ import {
   type PresignedPut,
   type PutBody,
   type PutOptions,
+  rangeHeader,
   type Storage,
   type StoredObject,
 } from "@stowage/core";
@@ -31,6 +32,13 @@ import {
   requireKnownOptions,
 } from "./options.ts";
 import type { GcsPresignGetOptions, GcsPresignPutOptions } from "./presign.ts";
+import {
+  isUnsatisfiedRange,
+  partialContent,
+  requireRange,
+  unsatisfiedRangeFailure,
+  wholeAnswerFailure,
+} from "./range.ts";
 import { objectPath, send } from "./request.ts";
 import { gcsError } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
@@ -139,7 +147,9 @@ class GcsBucketStorage implements GcsStorage {
     requireKey(this.bucket, key, "addressable", "get");
     requireKnownOptions(this.bucket, options, getOptionKeys, "get");
 
-    if (options?.range !== undefined) throw notYetImplemented("`get` of a range");
+    const range = options?.range;
+
+    requireRange(this.bucket, range);
 
     options?.signal?.throwIfAborted();
 
@@ -161,9 +171,16 @@ class GcsBucketStorage implements GcsStorage {
         key,
         path: objectPath(this.configuration, key),
         query: [["alt", "media"]],
+        headers: range === undefined ? [] : [["range", rangeHeader(range)]],
         media: true,
         signal,
-      }).catch(abortOther),
+      }).catch((failure: unknown) => {
+        // Spec 9.8 reports a `416` for the size the resource names, so the resource
+        // request has to finish.
+        if (range !== undefined && isUnsatisfiedRange(failure)) throw failure;
+
+        return abortOther(failure);
+      }),
     ]);
 
     if (described.status === "rejected") {
@@ -181,9 +198,29 @@ class GcsBucketStorage implements GcsStorage {
       throw described.reason;
     }
 
-    if (download.status === "rejected") throw download.reason;
+    const stat = described.value;
 
-    return createStoredObject(this.bucket, described.value, download.value);
+    if (download.status === "rejected") {
+      if (range !== undefined && isUnsatisfiedRange(download.reason)) {
+        throw unsatisfiedRangeFailure(this.bucket, key, range, stat.size, download.reason);
+      }
+
+      throw download.reason;
+    }
+
+    const response = download.value;
+    const refusal =
+      range === undefined || response.status === partialContent
+        ? undefined
+        : wholeAnswerFailure(this.bucket, key, range, stat.size, response);
+
+    if (refusal !== undefined) {
+      await response.body?.cancel().catch(() => {});
+
+      throw refusal;
+    }
+
+    return createStoredObject(this.bucket, stat, response);
   }
 
   async stat(key: string, options?: OperationOptions): Promise<ObjectStat> {

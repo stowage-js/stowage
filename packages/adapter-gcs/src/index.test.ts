@@ -663,6 +663,135 @@ test("a signal that already fired rejects `get` before any request", async () =>
   expect(sent).toEqual([]);
 });
 
+// Ranges
+
+const rangedBody = "0123456789";
+
+/** Answers `get` as GCS answers a range it honored: `206` and the bytes the range names. */
+function storedRanged(request: SentRequest): Response {
+  if (!request.url.includes("alt=media")) return resource({ size: String(rangedBody.length) });
+
+  const [, start = "0", end = String(rangedBody.length - 1)] =
+    /^bytes=(\d+)-(\d*)$/u.exec(request.headers.get("range") ?? "") ?? [];
+
+  return new Response(rangedBody.slice(Number(start), Number(end || rangedBody.length) + 1), {
+    status: 206,
+    headers: { "content-range": `bytes ${start}-${end}/${rangedBody.length}` },
+  });
+}
+
+test("a range goes to the media download alone, as the `Range` field", async () => {
+  const sent = stubFetch(storedRanged);
+
+  await storage().get("object", { range: { start: 2, end: 5 } });
+
+  const [described, download] = sent.toSorted(byUrl);
+
+  expect(described?.headers.has("range")).toBe(false);
+  expect(download?.headers.get("range")).toBe("bytes=2-5");
+});
+
+test("a ranged `get` reads the range and describes the whole object", async () => {
+  stubFetch(storedRanged);
+
+  const read = await storage().get("object", { range: { start: 2, end: 5 } });
+
+  expect(read.stat.size).toBe(10);
+  expect(await read.text()).toBe("2345");
+});
+
+test("a range without an end reads to the end of the object", async () => {
+  const sent = stubFetch(storedRanged);
+
+  const read = await storage().get("object", { range: { start: 7 } });
+
+  expect(sent.find((request) => request.url.includes("alt=media"))?.headers.get("range")).toBe(
+    "bytes=7-",
+  );
+  expect(await read.text()).toBe("789");
+});
+
+test.each([[{ start: -1 }], [{ start: 1.5 }], [{ start: 5, end: 4 }]])(
+  "the range %j is `InvalidOption` before any request",
+  async (range) => {
+    const sent = stubFetch(storedRanged);
+
+    const failure = await failureOf(() => storage().get("object", { range }));
+
+    expect(failure).toMatchObject({ code: "InvalidOption", operation: "get", attempts: 0 });
+    expect(failure.message).toContain("`range`");
+    expect(sent).toEqual([]);
+  },
+);
+
+test("a `200` answering a range that covers the object is the body asked for", async () => {
+  stubFetch(stored(rangedBody));
+
+  const read = await storage().get("object", { range: { start: 0, end: 40 } });
+
+  expect(await read.text()).toBe(rangedBody);
+});
+
+test("a `200` answering a range that covers less is a `ProviderError`, its body canceled", async () => {
+  const cancel = vi.fn<() => void>();
+
+  stubFetch((request) =>
+    request.url.includes("alt=media")
+      ? new Response(new ReadableStream({ cancel }), { status: 200 })
+      : resource({ size: String(rangedBody.length) }),
+  );
+
+  const failure = await failureOf(() => storage().get("object", { range: { start: 2 } }));
+
+  expect(failure).toMatchObject({ code: "ProviderError", key: "object", attempts: 1 });
+  expect(cancel).toHaveBeenCalledOnce();
+});
+
+test("a media `416` is `rangeStartRefusal` for the size the resource named", async () => {
+  const downloadFailed = Promise.withResolvers<void>();
+
+  stubFetch(async (request) => {
+    if (request.url.includes("alt=media")) {
+      downloadFailed.resolve();
+
+      return new Response("The requested range cannot be satisfied.", {
+        status: 416,
+        headers: { "x-guploader-uploadid": "upload-416" },
+      });
+    }
+
+    // The resource answers only after the download failed, which a `get` that aborted
+    // the resource request on that failure would have lost.
+    await downloadFailed.promise;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    return resource({ size: String(rangedBody.length) });
+  });
+
+  const failure = await failureOf(() => storage().get("object", { range: { start: 10 } }));
+
+  expect(failure).toMatchObject({
+    code: "InvalidRequest",
+    operation: "get",
+    key: "object",
+    status: 416,
+    attempts: 1,
+    requestId: "upload-416",
+    message: 'The range starts beyond the 10 bytes under the key "object"',
+  });
+  expect(failure.providerCode).toBeUndefined();
+});
+
+test("a media `416` beside a failed resource request reports the resource's failure", async () => {
+  stubFetch((request) =>
+    request.url.includes("alt=media") ? new Response("", { status: 416 }) : notFound(),
+  );
+
+  const failure = await failureOf(() => storage().get("absent", { range: { start: 10 } }));
+
+  expect(failure).toMatchObject({ code: "NotFound", key: "absent", status: 404 });
+});
+
 // `stat` and `exists`
 
 test("`stat` reads the object's resource alone", async () => {
