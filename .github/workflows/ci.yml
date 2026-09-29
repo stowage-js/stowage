@@ -54,6 +54,10 @@ jobs:
       - name: Start the Azure Blob endpoint
         run: ./harness/azure-blob/start.sh | sed 's/^export //' >> "$GITHUB_ENV"
 
+      # ADR 0034: fake-gcs-server beside SeaweedFS and Azurite.
+      - name: Start the GCS endpoint
+        run: ./harness/gcs/start.sh | sed 's/^export //' >> "$GITHUB_ENV"
+
       # Spec 2: `test` holds the Node column. Bun, Deno and `workerd` are columns of their
       # own, in the job below.
       - run: pnpm run test
@@ -65,6 +69,10 @@ jobs:
       - name: Stop the Azure Blob endpoint
         if: always()
         run: ./harness/azure-blob/stop.sh
+
+      - name: Stop the GCS endpoint
+        if: always()
+        run: ./harness/gcs/stop.sh
 
   runtimes:
     name: ${{ matrix.name }}
