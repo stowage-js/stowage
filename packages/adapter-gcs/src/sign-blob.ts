@@ -4,8 +4,9 @@ import { type AnsweredRequest, malformedAnswer, readAnswerJson } from "./answer.
 import type { GcsConfiguration } from "./configuration.ts";
 import type { GcsCredentials } from "./credentials.ts";
 import { fieldOf } from "./json.ts";
+import { bytesOfBase64 } from "./private-key.ts";
 import { encodeSegment, send } from "./request.ts";
-import type { Sign } from "./signer.ts";
+import type { Sign } from "./signed-url.ts";
 
 const iamCredentialsOrigin = "https://iamcredentials.googleapis.com";
 
@@ -54,7 +55,7 @@ export function signBlobAs(configuration: GcsConfiguration, signing: BlobSigning
     }
 
     try {
-      return Uint8Array.from(atob(signedBlob), (character) => character.charCodeAt(0));
+      return bytesOfBase64(signedBlob);
     } catch (failure) {
       throw malformedAnswer(answered, "a `signedBlob` that is no base64", failure);
     }
@@ -62,5 +63,5 @@ export function signBlobAs(configuration: GcsConfiguration, signing: BlobSigning
 }
 
 function base64Of(bytes: Uint8Array): string {
-  return btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(""));
+  return btoa(String.fromCharCode(...bytes));
 }

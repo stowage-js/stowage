@@ -1,5 +1,6 @@
 import { encodeSegment, type HeaderField, type QueryParameter } from "./request.ts";
-import type { Sign } from "./signer.ts";
+
+export type Sign = (stringToSign: Uint8Array<ArrayBuffer>) => Promise<Uint8Array>;
 
 /** One operation on one path, as a V4 signed URL on the XML API grants it (spec 9.9). */
 export interface UrlToSign {
@@ -23,6 +24,8 @@ const algorithm = "GOOG4-RSA-SHA256";
 const scopeLocation = "auto";
 
 const collapsibleWhitespace = /[ \t]+/gu;
+
+const utf8 = new TextEncoder();
 
 /**
  * The URL with its `X-Goog-Signature`, after Google's canonical request for a V4 signed URL.
@@ -61,9 +64,6 @@ export async function signUrl(request: UrlToSign, sign: Sign): Promise<string> {
   return `${request.origin}${path}?${query}&X-Goog-Signature=${signature}`;
 }
 
-const utf8 = new TextEncoder();
-
-/** Names in lower case and sorted, values trimmed with each run of spaces and tabs as one space. */
 function canonicalHeaders(headers: readonly HeaderField[]): readonly HeaderField[] {
   return headers
     .map(([name, value]): HeaderField => [

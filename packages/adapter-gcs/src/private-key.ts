@@ -1,5 +1,7 @@
-/** Signs the bytes of a string to sign and answers the bytes of the signature. */
-export type Sign = (bytes: Uint8Array<ArrayBuffer>) => Promise<Uint8Array>;
+import type { Resolvable } from "@stowage/core";
+
+import type { Sign } from "./signed-url.ts";
+import { gcsError, inStorage } from "./storage-error.ts";
 
 /** Why a `privateKey` cannot sign, which the refusal names beside the option. */
 export interface RefusedKey {
@@ -10,6 +12,42 @@ export interface RefusedKey {
 const rsaSha256 = { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" } as const;
 
 const pemArmor = /^-----BEGIN PRIVATE KEY-----([A-Za-z0-9+/=\s]+)-----END PRIVATE KEY-----$/u;
+
+/** Where a refusal of the key is told: the storage and the call that asked for a URL. */
+export interface KeyUse {
+  readonly bucket: string;
+  readonly operation: string;
+  readonly key: string;
+}
+
+/**
+ * Spec 9.9: the key is resolved before every URL and cached nowhere, as a credential is, and a
+ * key that cannot sign `GOOG4-RSA-SHA256` is `InvalidCredentials` naming `privateKey`.
+ */
+export async function resolvePrivateKey(
+  source: Resolvable<string | CryptoKey>,
+  use: KeyUse,
+): Promise<CryptoKey> {
+  let resolved: unknown;
+
+  try {
+    resolved = typeof source === "function" ? await source({ forceRefresh: false }) : source;
+  } catch (failure) {
+    throw inStorage(failure, use.bucket, use.operation, use.key);
+  }
+
+  const imported = await importPrivateKey(resolved);
+
+  if (imported instanceof CryptoKey) return imported;
+
+  throw gcsError(use.bucket, {
+    code: "InvalidCredentials",
+    message: `The signer's \`privateKey\` ${imported.refused}`,
+    operation: use.operation,
+    key: use.key,
+    attempts: 0,
+  });
+}
 
 /**
  * Spec 9.9: the key as a JSON key file holds it in `private_key`, a PKCS#8 PEM, or a
@@ -55,6 +93,6 @@ function usableKey(key: CryptoKey): CryptoKey | RefusedKey {
   return key;
 }
 
-function bytesOfBase64(text: string): Uint8Array<ArrayBuffer> {
+export function bytesOfBase64(text: string): Uint8Array<ArrayBuffer> {
   return Uint8Array.from(atob(text.replace(/\s/gu, "")), (character) => character.charCodeAt(0));
 }

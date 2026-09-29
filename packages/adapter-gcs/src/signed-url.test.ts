@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import serviceAccount from "./fixtures/dummy-service-account.json" with { type: "json" };
 import vectors from "./fixtures/v4-signatures.json" with { type: "json" };
 import { signUrl } from "./signed-url.ts";
-import { importPrivateKey, signWith } from "./signer.ts";
+import { importPrivateKey, signWith } from "./private-key.ts";
 
 /*
  * Google's V4 signing vectors, 29 signed URLs and 11 POST policies, with the inactive key they
@@ -66,7 +66,7 @@ function signatureOf(url: string): string | null {
   return new URL(url).searchParams.get("X-Goog-Signature");
 }
 
-async function dummySigner() {
+async function dummySign() {
   const key = await importPrivateKey(serviceAccount.private_key);
 
   if (!(key instanceof CryptoKey)) throw new Error(`The dummy key is refused: ${key.refused}`);
@@ -92,7 +92,7 @@ test.each(signingVectors.filter(isBuiltByTheAdapter).map((vector) => [vector.des
         signedAt: new Date(vector.timestamp),
         expiresIn: vector.expiration,
       },
-      await dummySigner(),
+      await dummySign(),
     );
 
     expect(url).toBe(vector.expectedUrl);
@@ -102,7 +102,7 @@ test.each(signingVectors.filter(isBuiltByTheAdapter).map((vector) => [vector.des
 test.each(signingVectors.map((vector) => [vector.description, vector]))(
   "the local key signs the string to sign of the vector %s as Google's",
   async (_, vector) => {
-    const sign = await dummySigner();
+    const sign = await dummySign();
     const signature = await sign(new TextEncoder().encode(vector.expectedStringToSign));
 
     expect(hex(signature)).toBe(signatureOf(vector.expectedUrl));
@@ -113,7 +113,7 @@ test.each(vectors.postPolicyV4Tests.map((vector) => [vector.description, vector]
   "the local key signs the policy of the vector %s as Google's",
   async (_, vector) => {
     const { policy, "x-goog-signature": expected } = vector.policyOutput.fields;
-    const sign = await dummySigner();
+    const sign = await dummySign();
 
     expect(hex(await sign(new TextEncoder().encode(policy)))).toBe(expected);
   },

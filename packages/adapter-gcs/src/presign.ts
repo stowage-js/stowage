@@ -9,10 +9,9 @@ import {
   requireKnownOptions,
 } from "./options.ts";
 import type { HeaderField, QueryParameter } from "./request.ts";
+import { resolvePrivateKey, signWith } from "./private-key.ts";
 import { signBlobAs } from "./sign-blob.ts";
-import { signUrl } from "./signed-url.ts";
-import { importPrivateKey, type Sign, signWith } from "./signer.ts";
-import { gcsError, inStorage } from "./storage-error.ts";
+import { type Sign, signUrl } from "./signed-url.ts";
 
 export interface GcsPresignGetOptions {
   /** Seconds, 1 to 604800; anything else is `InvalidOption` before anything is sent. */
@@ -66,7 +65,7 @@ export async function presignGet(
     query.push([parameter, readText(configuration.bucket, value, option, operation)]);
   }
 
-  return await signedUrl(configuration, signer, {
+  return await presignedUrl(configuration, signer, {
     method: "GET",
     operation,
     key,
@@ -96,7 +95,7 @@ export async function presignPut(
   const contentType = readText(configuration.bucket, given.contentType, "contentType", operation);
   const contentLength = readContentLength(configuration.bucket, given.contentLength, operation);
 
-  const url = await signedUrl(configuration, signer, {
+  const url = await presignedUrl(configuration, signer, {
     method: "PUT",
     operation,
     key,
@@ -125,12 +124,12 @@ interface Presignable {
  * signing, not dated back: expiry counts from it, and GCS takes a date up to about 15
  * minutes ahead of its clock (ADR 0035).
  */
-async function signedUrl(
+async function presignedUrl(
   configuration: GcsConfiguration,
   signer: GcsSigner,
   request: Presignable,
 ): Promise<string> {
-  const sign = await signerOfCall(configuration, signer, request.operation, request.key);
+  const sign = await signOfCall(configuration, signer, request);
 
   return await signUrl(
     {
@@ -148,41 +147,25 @@ async function signedUrl(
 }
 
 /**
- * The signer resolved for this one URL and cached nowhere (spec 9.9): the local key imported
- * again, or a `signBlob` under a token resolved for its request.
+ * How this one URL is signed, resolved for it alone (spec 9.9): with the local key imported
+ * again, or through a `signBlob` under a token resolved for its request.
  */
-async function signerOfCall(
+async function signOfCall(
   configuration: GcsConfiguration,
   signer: GcsSigner,
-  operation: string,
-  key: string,
+  request: Presignable,
 ): Promise<Sign> {
+  const use = { bucket: configuration.bucket, operation: request.operation, key: request.key };
+
   if ("credentials" in signer) {
     return signBlobAs(configuration, {
       serviceAccount: signer.serviceAccount,
       credentials: signer.credentials,
-      operation,
-      key,
+      ...use,
     });
   }
 
-  const { privateKey } = signer;
-  const resolved: unknown = await Promise.resolve(
-    typeof privateKey === "function" ? privateKey({ forceRefresh: false }) : privateKey,
-  ).catch((failure: unknown) => {
-    throw inStorage(failure, configuration.bucket, operation, key);
-  });
-  const imported = await importPrivateKey(resolved);
-
-  if (imported instanceof CryptoKey) return signWith(imported);
-
-  throw gcsError(configuration.bucket, {
-    code: "InvalidCredentials",
-    message: `The signer's \`privateKey\` ${imported.refused}`,
-    operation,
-    key,
-    attempts: 0,
-  });
+  return signWith(await resolvePrivateKey(signer.privateKey, use));
 }
 
 /**
