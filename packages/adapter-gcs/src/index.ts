@@ -3,6 +3,7 @@ import {
   type DeleteReport,
   type GetOptions,
   isStorageError,
+  type ListOptions,
   type ObjectListing,
   type ObjectStat,
   type OperationOptions,
@@ -23,6 +24,7 @@ import { defaultContentType, describeResource, readResource } from "./descriptio
 import { requireKey } from "./key.ts";
 import {
   getOptionKeys,
+  listOptionKeys,
   operationOptionKeys,
   optionError,
   putOptionKeys,
@@ -30,6 +32,7 @@ import {
 } from "./options.ts";
 import type { GcsPresignGetOptions, GcsPresignPutOptions } from "./presign.ts";
 import { objectPath, send } from "./request.ts";
+import { gcsError } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
 import { putBytes } from "./upload.ts";
 
@@ -77,6 +80,9 @@ const gcsSigningCapabilities: readonly CapabilityName[] = Object.freeze([
 ]);
 
 const utf8 = new TextEncoder();
+
+/** Spec 4.3: the most a page holds, and what `pageSize` defaults to. */
+const maxPageSize = 1000;
 
 class GcsBucketStorage implements GcsStorage {
   readonly provider = "gcs" as const;
@@ -204,8 +210,15 @@ class GcsBucketStorage implements GcsStorage {
     }
   }
 
-  list(): ObjectListing {
-    throw notYetImplemented("`list`");
+  /** Spec 4.6: nothing happens, a refusal included, before the listing is read. */
+  list(options?: ListOptions): ObjectListing {
+    const read = async (): Promise<never> => {
+      this.#requireListOptions(options);
+
+      throw notYetImplemented("`list`");
+    };
+
+    return { page: read, [Symbol.asyncIterator]: () => ({ next: read }) };
   }
 
   async delete(): Promise<DeleteReport> {
@@ -216,11 +229,15 @@ class GcsBucketStorage implements GcsStorage {
     throw notYetImplemented("`deleteAll`");
   }
 
-  async copy(): Promise<ObjectStat> {
+  async copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
+    this.#requireCopyKeys(from, to, options, "copy");
+
     throw notYetImplemented("`copy`");
   }
 
-  async move(): Promise<ObjectStat> {
+  async move(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
+    this.#requireCopyKeys(from, to, options, "move");
+
     throw notYetImplemented("`move`");
   }
 
@@ -243,6 +260,54 @@ class GcsBucketStorage implements GcsStorage {
     requireKnownOptions(this.bucket, options, operationOptionKeys, operation);
 
     options?.signal?.throwIfAborted();
+  }
+
+  /** Everything spec 4.3 has `list` refuse without asking the provider. */
+  #requireListOptions(options: ListOptions | undefined): void {
+    requireKnownOptions(this.bucket, options, listOptionKeys, "list");
+    requireKey(this.bucket, options?.prefix ?? "", "prefix", "list");
+
+    const pageSize = options?.pageSize ?? maxPageSize;
+
+    if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > maxPageSize) {
+      throw optionError(
+        this.bucket,
+        "pageSize",
+        `takes a whole number from 1 to ${maxPageSize}`,
+        "list",
+      );
+    }
+
+    if (options?.delimiter === "") {
+      throw optionError(this.bucket, "delimiter", "takes at least one character", "list");
+    }
+
+    options?.signal?.throwIfAborted();
+  }
+
+  /**
+   * Spec 4.8 checks both keys before acting on either, and spec 9.7 has a copy of a key
+   * onto itself refused before any request.
+   */
+  #requireCopyKeys(
+    from: string,
+    to: string,
+    options: OperationOptions | undefined,
+    operation: string,
+  ): void {
+    requireKey(this.bucket, from, "addressable", operation);
+    requireKey(this.bucket, to, "writable", operation);
+    requireKnownOptions(this.bucket, options, operationOptionKeys, operation);
+
+    if (from !== to) return;
+
+    throw gcsError(this.bucket, {
+      code: "InvalidRequest",
+      message: "A copy names one key as its source and another as its destination",
+      operation,
+      key: from,
+      attempts: 0,
+    });
   }
 
   #readContentType(contentType: string | undefined): string {

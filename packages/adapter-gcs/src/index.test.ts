@@ -1,4 +1,9 @@
-import { isStorageError, type PutOptions, type StorageError } from "@stowage/core";
+import {
+  isStorageError,
+  type ListOptions,
+  type PutOptions,
+  type StorageError,
+} from "@stowage/core";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { type GcsAdapterOptions, type GcsCredentials, gcsStorage } from "./index.ts";
@@ -1064,3 +1069,81 @@ test("a refused token on the media download is repeated as well, and nothing rep
   expect(await read.text()).toBe("hello");
   expect(resolve).toHaveBeenCalledTimes(4);
 });
+
+// Refusals of `list`, `copy` and `move` before any request
+
+test.each([[0], [1001], [2.5]])(
+  "a `pageSize` of %d is `InvalidOption` from `page()`, and `list` itself sends nothing",
+  async (pageSize) => {
+    const sent = stubFetch(() => resource());
+    const listing = storage().list({ pageSize });
+
+    const failure = await failureOf(() => listing.page());
+
+    expect(failure).toMatchObject({ code: "InvalidOption", operation: "list", attempts: 0 });
+    expect(failure.message).toContain("`pageSize`");
+    expect(sent).toEqual([]);
+  },
+);
+
+test("iterating a listing meets the same refusal", async () => {
+  const listing = storage().list({ pageSize: 0 });
+
+  const failure = await failureOf(async () => {
+    for await (const entry of listing) return entry;
+
+    return undefined;
+  });
+
+  expect(failure).toMatchObject({ code: "InvalidOption", operation: "list" });
+});
+
+test("an unknown option and an empty delimiter of `list` are `InvalidOption` naming them", async () => {
+  // oxlint-disable-next-line no-unsafe-type-assertion -- a caller written in JavaScript
+  const unknown = { recursive: true } as ListOptions;
+
+  expect((await failureOf(() => storage().list(unknown).page())).message).toContain("`recursive`");
+  expect((await failureOf(() => storage().list({ delimiter: "" }).page())).message).toContain(
+    "`delimiter`",
+  );
+});
+
+test("a prefix the core rule refuses is `InvalidKey`", async () => {
+  const failure = await failureOf(() => storage().list({ prefix: "a/../b" }).page());
+
+  expect(failure).toMatchObject({ code: "InvalidKey", operation: "list", attempts: 0 });
+});
+
+test.each([["copy"], ["move"]] as const)(
+  "`%s` of a key onto itself is `InvalidRequest` before any request",
+  async (operation) => {
+    const sent = stubFetch(() => resource());
+
+    const failure = await failureOf(() => storage()[operation]("object", "object"));
+
+    expect(failure).toMatchObject({
+      code: "InvalidRequest",
+      operation,
+      key: "object",
+      attempts: 0,
+    });
+    expect(sent).toEqual([]);
+  },
+);
+
+test.each([["copy"], ["move"]] as const)(
+  "`%s` checks both keys before acting on either",
+  async (operation) => {
+    const refusedSource = await failureOf(() => storage()[operation]("a/../b", "object"));
+    const refusedDestination = await failureOf(() =>
+      storage()[operation]("object", ".well-known/acme-challenge/token"),
+    );
+
+    expect(refusedSource).toMatchObject({ code: "InvalidKey", key: "a/../b", operation });
+    expect(refusedDestination).toMatchObject({
+      code: "InvalidKey",
+      key: ".well-known/acme-challenge/token",
+      operation,
+    });
+  },
+);
