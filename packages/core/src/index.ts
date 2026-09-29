@@ -1,3 +1,12 @@
+export {
+  batchBody,
+  batchBoundary,
+  batchContentType,
+  type BatchSubrequest,
+  type BatchSubresponse,
+  readSubresponses,
+  type SubresponseReading,
+} from "./batch.ts";
 export { type CapabilityName, capabilityNames } from "./capabilities.ts";
 export type { Resolvable, ResolverOptions } from "./credentials.ts";
 export { readEnvironment } from "./environment.ts";
