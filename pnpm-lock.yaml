@@ -231,6 +231,12 @@ importers:
         specifier: workspace:^
         version: link:../core
 
+  packages/adapter-gcs:
+    dependencies:
+      '@stowage/core':
+        specifier: workspace:^
+        version: link:../core
+
   packages/adapter-memory:
     dependencies:
       '@stowage/core':

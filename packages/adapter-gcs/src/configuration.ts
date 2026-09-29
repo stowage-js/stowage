@@ -1,0 +1,270 @@
+import type { Resolvable, StorageError } from "@stowage/core";
+
+import type { GcsCredentials } from "./credentials.ts";
+import { optionError as refuseOption, requireKnownOptions } from "./options.ts";
+
+/**
+ * Whoever signs the storage's presigned URLs, as the service account named here: with a
+ * key of the caller's own, or through `signBlob` under a token of the signer's own. It is
+ * not `Resolvable` as a whole, since it decides whether the storage declares
+ * `presignedUrls`; what it holds is resolved on every call.
+ */
+export type GcsSigner =
+  | { serviceAccount: string; privateKey: Resolvable<string | CryptoKey> }
+  | { serviceAccount: string; credentials: Resolvable<GcsCredentials> };
+
+export interface GcsAdapterOptions {
+  bucket: string;
+  /**
+   * `https://storage.googleapis.com` where absent. Given, an absolute URL with no userinfo,
+   * no query and no fragment, `https:` always and `http:` only where the host is a
+   * loopback address; anything else is `InvalidOption` at construction. A path in it
+   * becomes the prefix of every request path.
+   */
+  endpoint?: string;
+  credentials: Resolvable<GcsCredentials>;
+  signer?: GcsSigner;
+  /**
+   * How often one HTTP request is attempted while its failure is transient: a response of
+   * `408`, `429` or `5xx`, or none at all. `false` sends one attempt.
+   */
+  retry?:
+    | false
+    | {
+        /** 1 to 3, and 3 where absent. Outside that range it is `InvalidOption`. */
+        maxAttempts?: number;
+      };
+  /** How a stream that fills more than one part is uploaded: as one resumable session. */
+  multipart?: {
+    /**
+     * Bytes per part, a multiple of 256 KiB from 256 KiB to 5 GiB, and 8 MiB where absent.
+     * Anything else is `InvalidOption`. The chunks go one after another, so there is no
+     * `concurrency`.
+     */
+    partSize?: number;
+  };
+}
+
+/** The options as the storage holds them, every default filled in and nothing to refuse. */
+export interface GcsConfiguration {
+  readonly bucket: string;
+  /** Scheme and host, port included, which every request is addressed to. */
+  readonly origin: string;
+  /** What the endpoint puts in front of the path, as it stands before encoding. */
+  readonly basePath: string;
+  readonly credentials: Resolvable<GcsCredentials>;
+  readonly signer?: GcsSigner;
+  readonly maxAttempts: number;
+  readonly partSize: number;
+}
+
+const adapterOptionKeys: readonly string[] = [
+  "bucket",
+  "endpoint",
+  "credentials",
+  "signer",
+  "retry",
+  "multipart",
+];
+const retryOptionKeys: readonly string[] = ["maxAttempts"];
+const multipartOptionKeys: readonly string[] = ["partSize"];
+const signerFields: ReadonlySet<string> = new Set(["serviceAccount", "privateKey", "credentials"]);
+
+const kibibyte = 1024;
+const mebibyte = 1024 * kibibyte;
+const gibibyte = 1024 * mebibyte;
+
+/** GCS takes a resumable chunk other than the last in multiples of this alone. */
+const chunkGranularity = 256 * kibibyte;
+
+const defaultEndpoint = "https://storage.googleapis.com";
+const defaultMaxAttempts = 3;
+const defaultPartSize = 8 * mebibyte;
+
+const maxAttemptsRange = { least: 1, most: 3 };
+const partSizeRange = { least: chunkGranularity, most: 5 * gibibyte };
+
+/**
+ * IPv4 loopback is the whole `127.0.0.0/8` block and IPv6 loopback the single `::1`.
+ * `localhost` stands beside them because RFC 6761 binds the name to one of the two, which
+ * is what makes it an address spec 9.1 accepts rather than a host that might be anywhere.
+ */
+const loopbackHosts = /^(?:localhost|127(?:\.\d{1,3}){3}|\[::1\])$/u;
+
+/**
+ * Spec 9.1: every option is validated where the storage is constructed, an unknown key
+ * and a value outside its range are `InvalidOption` naming the key, and no value is
+ * clamped onto the range it missed.
+ */
+export function readConfiguration(options: GcsAdapterOptions): GcsConfiguration {
+  const bucket = typeof options.bucket === "string" ? options.bucket : "";
+
+  requireKnownOptions(bucket, options, adapterOptionKeys, "gcsStorage");
+  requireFilled(bucket, options.bucket, "bucket");
+
+  if (options.credentials === undefined) {
+    throw optionError(bucket, "credentials", "is required: no request goes out without a token");
+  }
+
+  return {
+    bucket: options.bucket,
+    ...readEndpoint(bucket, options.endpoint),
+    credentials: options.credentials,
+    ...(options.signer === undefined ? {} : { signer: readSigner(bucket, options.signer) }),
+    maxAttempts: readMaxAttempts(bucket, options.retry),
+    partSize: readPartSize(bucket, options.multipart),
+  };
+}
+
+/**
+ * Spec 9.1 takes the endpoint rules of spec 7.1: no endpoint addresses the public
+ * service, a configured one is an absolute URL without userinfo, query and fragment, and
+ * `http:` is accepted for a loopback host alone. Its path is kept as the prefix of every
+ * request path.
+ */
+function readEndpoint(
+  bucket: string,
+  endpoint: string | undefined,
+): { origin: string; basePath: string } {
+  if (endpoint === undefined) return { origin: defaultEndpoint, basePath: "" };
+
+  if (typeof endpoint !== "string") throw optionError(bucket, "endpoint", "is no absolute URL");
+
+  const parsed = URL.parse(endpoint);
+
+  if (parsed === null) throw optionError(bucket, "endpoint", "is no absolute URL");
+  if (parsed.username !== "" || parsed.password !== "") {
+    throw optionError(bucket, "endpoint", "carries userinfo");
+  }
+  if (parsed.search !== "") throw optionError(bucket, "endpoint", "carries a query");
+  if (parsed.hash !== "") throw optionError(bucket, "endpoint", "carries a fragment");
+  if (parsed.protocol !== "https:" && !isLoopbackHttp(parsed)) {
+    throw optionError(bucket, "endpoint", "is neither `https:` nor `http:` to a loopback host");
+  }
+
+  return {
+    origin: `${parsed.protocol}//${parsed.host}`,
+    basePath: readBasePath(bucket, parsed.pathname.replace(/\/$/u, "")),
+  };
+}
+
+/**
+ * The path as it stands before encoding: `URL` hands it back percent-encoded, and every
+ * request path is encoded once on its way out, the prefix included.
+ */
+function readBasePath(bucket: string, pathname: string): string {
+  try {
+    return pathname.split("/").map(decodeURIComponent).join("/");
+  } catch {
+    throw optionError(bucket, "endpoint", "holds a malformed escape in its path");
+  }
+}
+
+function isLoopbackHttp(endpoint: URL): boolean {
+  return endpoint.protocol === "http:" && loopbackHosts.test(endpoint.hostname);
+}
+
+/**
+ * Spec 9.1: a non-empty `serviceAccount` and exactly one of the two ways to sign. The
+ * signer's fields are named under `signer.`, since `credentials` would otherwise read as
+ * the storage's own.
+ */
+function readSigner(bucket: string, signer: GcsSigner): GcsSigner {
+  requireGroup(bucket, signer, "signer");
+
+  const unknown = Object.keys(signer).find((field) => !signerFields.has(field));
+
+  if (unknown !== undefined) {
+    throw optionError(bucket, `signer.${unknown}`, "is not one a signer takes");
+  }
+
+  if (typeof signer.serviceAccount !== "string" || signer.serviceAccount === "") {
+    throw optionError(bucket, "signer.serviceAccount", "takes a non-empty string");
+  }
+
+  const privateKey = "privateKey" in signer ? signer.privateKey : undefined;
+  const credentials = "credentials" in signer ? signer.credentials : undefined;
+
+  if ((privateKey === undefined) === (credentials === undefined)) {
+    throw optionError(bucket, "signer", "holds exactly one of `privateKey` and `credentials`");
+  }
+
+  if (privateKey === null || privateKey === "") {
+    throw optionError(bucket, "signer.privateKey", "is empty");
+  }
+
+  if (credentials === null) throw optionError(bucket, "signer.credentials", "is empty");
+
+  return signer;
+}
+
+function readMaxAttempts(bucket: string, retry: GcsAdapterOptions["retry"]): number {
+  if (retry === false) return 1;
+  if (retry === undefined) return defaultMaxAttempts;
+
+  requireGroup(bucket, retry, "retry");
+  requireKnownOptions(bucket, retry, retryOptionKeys, "gcsStorage");
+
+  const { maxAttempts } = retry;
+
+  if (maxAttempts === undefined) return defaultMaxAttempts;
+
+  if (!isInRange(maxAttempts, maxAttemptsRange)) {
+    throw optionError(
+      bucket,
+      "maxAttempts",
+      `takes the integers ${maxAttemptsRange.least} to ${maxAttemptsRange.most}`,
+    );
+  }
+
+  return maxAttempts;
+}
+
+function readPartSize(bucket: string, multipart: GcsAdapterOptions["multipart"]): number {
+  if (multipart === undefined) return defaultPartSize;
+
+  requireGroup(bucket, multipart, "multipart");
+  requireKnownOptions(bucket, multipart, multipartOptionKeys, "gcsStorage");
+
+  const { partSize } = multipart;
+
+  if (partSize === undefined) return defaultPartSize;
+
+  if (!isInRange(partSize, partSizeRange) || partSize % chunkGranularity !== 0) {
+    throw optionError(bucket, "partSize", "takes the multiples of 256 KiB from 256 KiB to 5 GiB");
+  }
+
+  return partSize;
+}
+
+interface Range {
+  readonly least: number;
+  readonly most: number;
+}
+
+function isInRange(value: unknown, range: Range): value is number {
+  return Number.isInteger(value) && Number(value) >= range.least && Number(value) <= range.most;
+}
+
+/**
+ * A group of options is an object. Without this, `Object.keys` reads `retry: true` as a
+ * group with no key and hands back the default, and `retry: null` throws a `TypeError`
+ * where spec 9.1 asks for `InvalidOption`.
+ */
+function requireGroup(bucket: string, group: unknown, option: string): void {
+  if (typeof group === "object" && group !== null) return;
+
+  throw optionError(bucket, option, "takes a group of options");
+}
+
+function requireFilled(bucket: string, value: string, option: string): void {
+  if (typeof value === "string" && value !== "") return;
+
+  throw optionError(bucket, option, "is empty");
+}
+
+// Every refusal here names the call that constructed the storage, which is where spec
+// 9.1 has the configuration read.
+function optionError(bucket: string, option: string, expectation: string): StorageError {
+  return refuseOption(bucket, option, expectation, "gcsStorage");
+}
