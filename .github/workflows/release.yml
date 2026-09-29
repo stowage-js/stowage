@@ -80,8 +80,9 @@ jobs:
     if: needs.select-mode.outputs.mode == 'publish'
     permissions:
       contents: read
-      # ADR 0023: a called job holds no permission its caller lacks, and the Azure jobs
-      # exchange their OIDC token for the account's access token.
+      # ADR 0023 and ADR 0034: a called job holds no permission its caller lacks, and the
+      # Azure and GCS jobs exchange their OIDC token for the account's and the bucket's access
+      # tokens.
       id-token: write
     uses: ./.github/workflows/conformance-full.yml
     # The credentials are secrets of the environments `aws-s3`, `r2` and `azure-blob`, and a
