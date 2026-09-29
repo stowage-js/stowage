@@ -30,6 +30,7 @@ const coveredCases: ReadonlySet<string> = new Set([
   "declaration/valid-names",
   "declaration/identity",
   "put/bytes-round-trip",
+  "put/accepted-keys",
   "put/string-round-trip",
   "put/stream-round-trip",
   "put/multipart-round-trip",
