@@ -22,9 +22,9 @@ import {
 } from "./configuration.ts";
 import { defaultContentType, describeResource, readResource } from "./description.ts";
 import { requireKey } from "./key.ts";
+import { createListing } from "./listing.ts";
 import {
   getOptionKeys,
-  listOptionKeys,
   operationOptionKeys,
   optionError,
   putOptionKeys,
@@ -80,9 +80,6 @@ const gcsSigningCapabilities: readonly CapabilityName[] = Object.freeze([
 ]);
 
 const utf8 = new TextEncoder();
-
-const defaultPageSize = 1000;
-const maxPageSize = 1000;
 
 class GcsBucketStorage implements GcsStorage {
   readonly provider = "gcs" as const;
@@ -210,15 +207,8 @@ class GcsBucketStorage implements GcsStorage {
     }
   }
 
-  /** Spec 4.6: nothing happens, a refusal included, before the listing is read. */
   list(options?: ListOptions): ObjectListing {
-    const read = async (): Promise<never> => {
-      this.#requireListOptions(options);
-
-      throw notYetImplemented("`list`");
-    };
-
-    return { page: read, [Symbol.asyncIterator]: () => ({ next: read }) };
+    return createListing(this.configuration, options);
   }
 
   async delete(): Promise<DeleteReport> {
@@ -258,29 +248,6 @@ class GcsBucketStorage implements GcsStorage {
   #requireAddressable(key: string, options: OperationOptions | undefined, operation: string): void {
     requireKey(this.bucket, key, "addressable", operation);
     requireKnownOptions(this.bucket, options, operationOptionKeys, operation);
-
-    options?.signal?.throwIfAborted();
-  }
-
-  /** Everything spec 4.3 and 4.11 have `list` refuse without asking the provider. */
-  #requireListOptions(options: ListOptions | undefined): void {
-    requireKnownOptions(this.bucket, options, listOptionKeys, "list");
-    requireKey(this.bucket, options?.prefix ?? "", "prefix", "list");
-
-    const pageSize = options?.pageSize ?? defaultPageSize;
-
-    if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > maxPageSize) {
-      throw optionError(
-        this.bucket,
-        "pageSize",
-        `takes a whole number from 1 to ${maxPageSize}`,
-        "list",
-      );
-    }
-
-    if (options?.delimiter === "") {
-      throw optionError(this.bucket, "delimiter", "takes at least one character", "list");
-    }
 
     options?.signal?.throwIfAborted();
   }

@@ -43,6 +43,8 @@ export interface ProviderAnswer {
    * code and whose `404` is read by its status (ADR 0038).
    */
   readonly media: boolean;
+  /** Whether the request was a listing sent with the page token of the caller's cursor. */
+  readonly carriesCursor: boolean;
   /** Whether the request went out under a token the resolver had just refreshed. */
   readonly underRefreshedToken: boolean;
   readonly headers: Headers;
@@ -59,7 +61,8 @@ export interface ProviderFailure {
  * What the provider's answer means, decided by its provider code where the table recognizes
  * one and by the status where it does not. The message is the provider's word for word (spec
  * 4.10), except where spec 9.3 and 9.8 have it say what the caller can act on: a token a
- * refresh did not make acceptable, and a path the endpoint does not serve.
+ * refresh did not make acceptable, a path the endpoint does not serve, and a cursor the
+ * provider no longer continues from.
  */
 export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
   const said = answer.providerMessage ?? statusMessage(answer);
@@ -83,6 +86,15 @@ export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
     return {
       code: "ProviderError",
       message: `The endpoint serves no such path, so the answer says nothing about the object: ${said}`,
+    };
+  }
+
+  // Spec 9.8: GCS refuses a page token it no longer continues from as `invalid`, and the
+  // caller handed that token over as the `cursor` of `list`, which is what they can act on.
+  if (answer.providerCode === "invalid" && answer.carriesCursor) {
+    return {
+      code: "InvalidOption",
+      message: `The option \`cursor\` is not one the provider continued from: ${said}`,
     };
   }
 

@@ -41,32 +41,50 @@ export function describeResource(
   response: Response,
   resource: unknown,
 ): ObjectStat {
-  const size = fieldOf(resource, "size");
-  const updated = fieldOf(resource, "updated");
-  const modified = typeof updated === "string" ? Date.parse(updated) : Number.NaN;
-  const etag = fieldOf(resource, "etag");
+  const size = sizeOf(resource);
+  const lastModified = lastModifiedOf(resource);
   const contentType = fieldOf(resource, "contentType");
 
-  if (typeof size !== "string" || !decimalSize.test(size)) {
-    throw incomplete(bucket, key, operation, response, "no size");
-  }
+  if (size === undefined) throw incomplete(bucket, key, operation, response, "no size");
 
-  if (Number.isNaN(modified)) {
+  if (lastModified === undefined) {
     throw incomplete(bucket, key, operation, response, "no last-modified time");
   }
 
   return {
     key,
-    size: Number(size),
-    lastModified: new Date(modified),
-    ...(typeof etag === "string" && etag !== "" ? { etag } : {}),
+    size,
+    lastModified,
+    ...etagOf(resource),
     contentType:
       typeof contentType === "string" && contentType !== "" ? contentType : defaultContentType,
     userMetadata: noUserMetadata,
   };
 }
 
-function fieldOf(value: unknown, name: string): unknown {
+/** The resource's `size`, where it holds a count of bytes. */
+export function sizeOf(resource: unknown): number | undefined {
+  const size = fieldOf(resource, "size");
+
+  return typeof size === "string" && decimalSize.test(size) ? Number(size) : undefined;
+}
+
+/** The time of the resource's `updated`, where it holds one. */
+export function lastModifiedOf(resource: unknown): Date | undefined {
+  const updated = fieldOf(resource, "updated");
+  const modified = typeof updated === "string" ? Date.parse(updated) : Number.NaN;
+
+  return Number.isNaN(modified) ? undefined : new Date(modified);
+}
+
+/** The resource's `etag` as the field of a description, which has none where GCS sent none. */
+export function etagOf(resource: unknown): { readonly etag?: string } {
+  const etag = fieldOf(resource, "etag");
+
+  return typeof etag === "string" && etag !== "" ? { etag } : {};
+}
+
+export function fieldOf(value: unknown, name: string): unknown {
   return typeof value === "object" && value !== null ? Reflect.get(value, name) : undefined;
 }
 

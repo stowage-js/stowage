@@ -25,6 +25,8 @@ export interface GcsRequest {
   readonly body?: Uint8Array<ArrayBuffer>;
   /** Set on the media download, whose `404` is read by its status (spec 9.8). */
   readonly media?: boolean;
+  /** Set on a listing sent with the caller's cursor, whose `invalid` refuses it (spec 9.8). */
+  readonly carriesCursor?: boolean;
   readonly signal?: AbortSignal;
 }
 
@@ -104,6 +106,11 @@ export function objectPath(configuration: GcsConfiguration, key: string): string
   return `${bucketPath(configuration, "storage")}/o/${encodeSegment(key)}`;
 }
 
+/** The path of the bucket's objects, which `objects.list` lists. */
+export function listPath(configuration: GcsConfiguration): string {
+  return `${bucketPath(configuration, "storage")}/o`;
+}
+
 export function uploadPath(configuration: GcsConfiguration): string {
   return `${bucketPath(configuration, "upload/storage")}/o`;
 }
@@ -150,6 +157,7 @@ async function failureOf(
     providerCode: body.providerCode,
     providerMessage: body.message,
     media: request.media === true,
+    carriesCursor: request.carriesCursor === true,
     underRefreshedToken: made.underRefreshedToken,
     headers: response.headers,
   });
