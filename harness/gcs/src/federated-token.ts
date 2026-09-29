@@ -22,10 +22,10 @@ export type GcsScope = "devstorage.read_write" | "iam";
 
 export interface WorkloadIdentityFederation {
   /** A resolver of the service account's tokens with `scope`, each kept until shortly before it expires. */
-  impersonate(
+  readonly impersonate: (
     serviceAccount: string,
     scope: GcsScope,
-  ): (options?: ResolverOptions) => Promise<{ accessToken: string }>;
+  ) => (options?: ResolverOptions) => Promise<{ accessToken: string }>;
 }
 
 /**
@@ -40,13 +40,12 @@ export function workloadIdentityFederation(
   const federated = heldToken(() => federatedToken(identity, now), now);
 
   return {
-    impersonate(serviceAccount, scope) {
-      return heldToken(async () => {
+    impersonate: (serviceAccount, scope) =>
+      heldToken(async () => {
         const { accessToken } = await federated();
 
         return await impersonated(serviceAccount, scope, accessToken);
-      }, now);
-    },
+      }, now),
   };
 }
 

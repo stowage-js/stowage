@@ -45,13 +45,6 @@ test("against the real bucket the target supplies a bad and a denied credential"
   expect(target).toHaveProperty("createStorageWithDeniedCredentials");
 });
 
-test("against the real bucket without a second service account, no denied credential", () => {
-  const target = targetFor({ ...scheduled, STOWAGE_GCS_DENIED_SERVICE_ACCOUNT: "" });
-
-  expect(target).toHaveProperty("createStorageWithBadCredentials");
-  expect(target).not.toHaveProperty("createStorageWithDeniedCredentials");
-});
-
 // ADR 0033: GCS has no answer that means only that a token expired.
 test("no endpoint supplies an expired credential", () => {
   expect(targetFor(printed)).not.toHaveProperty("createStorageWithExpiredCredentials");

@@ -2,7 +2,7 @@ import { afterEach, expect, test, vi } from "vitest";
 
 import type { GcsAdapterOptions } from "../../../packages/adapter-gcs/src/index.ts";
 import type { ResolverOptions } from "../../../packages/core/src/index.ts";
-import { endpointNameFrom, gcsEndpointFrom, storageWithBadCredentials } from "./configuration.ts";
+import { endpointNameFrom, gcsEndpointFrom } from "./configuration.ts";
 
 /** What the adapter reads before a request goes out. */
 async function resolve(
@@ -133,11 +133,16 @@ test("the denied credential is the second service account's token with the stora
   });
 });
 
-test("no denied credential is supplied where the job names no second service account", () => {
+// ADR 0034: the real bucket answers the case, so a job without the second service account
+// fails it rather than reporting it skipped.
+test("a job naming no second service account is told where the denied credential is resolved", async () => {
   const endpoint = gcsEndpointFrom({ ...scheduled, STOWAGE_GCS_DENIED_SERVICE_ACCOUNT: "" });
 
-  expect(endpoint).toHaveProperty("kind", "bucket");
-  expect(endpoint).not.toHaveProperty("deniedCredentials");
+  if (endpoint?.kind !== "bucket") throw new Error("The scheduled job names no real bucket");
+
+  await expect(resolve(endpoint.deniedCredentials)).rejects.toThrow(
+    "`STOWAGE_GCS_SERVICE_ACCOUNT` is set, and `STOWAGE_GCS_DENIED_SERVICE_ACCOUNT` is not",
+  );
 });
 
 // A job without `id-token: write` gets no request variables, and the bucket would refuse
@@ -158,9 +163,9 @@ test("a job naming a service account and lacking the rest is told on every reque
 test("the bad credential is a token Google refuses, on every call", async () => {
   const endpoint = gcsEndpointFrom(scheduled);
 
-  if (endpoint === undefined) throw new Error("The scheduled job names no real bucket");
+  if (endpoint?.kind !== "bucket") throw new Error("The scheduled job names no real bucket");
 
-  const { credentials } = storageWithBadCredentials(endpoint.options);
+  const credentials = endpoint.badCredentials;
 
   await expect(resolve(credentials)).resolves.toEqual({ accessToken: "not-a-google-token" });
   await expect(resolve(credentials, { forceRefresh: true })).resolves.toEqual({

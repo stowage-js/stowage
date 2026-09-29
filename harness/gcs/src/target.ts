@@ -11,7 +11,7 @@ import {
 } from "../../../packages/conformance/src/run.ts";
 import type { ConformanceTarget } from "../../../packages/conformance/src/target.ts";
 import type { Variables } from "../../s3/src/configuration.ts";
-import { endpointNameFrom, type GcsEndpoint, storageWithBadCredentials } from "./configuration.ts";
+import { endpointNameFrom, type GcsEndpoint } from "./configuration.ts";
 import { withGcsDivergences } from "./divergences.ts";
 
 /**
@@ -129,31 +129,26 @@ export function gcsCases(options: ConformanceRunOptions): readonly ConformanceCa
 const emulatorServiceAccount = "fake-gcs-server@stowage.invalid";
 
 /**
- * `adapter-gcs` against the endpoint of ADR 0034. Against fake-gcs-server it runs under the
- * fixed token and signs its URLs with an RSA key generated for the run, so that the
- * presigning cases and flow 2 run on every commit, and supplies no factory for a bad or a
- * denied credential, since the emulator checks neither. Against the real bucket it runs under
- * the service account's token, signs through `signBlob` and supplies both.
+ * `adapter-gcs` against the endpoint of ADR 0034. fake-gcs-server checks no credential, so
+ * there is no factory for a bad or a denied one, and it takes a key generated for the run to
+ * sign with, so that the presigning cases and flow 2 run on every commit.
  */
 export function gcsTarget(endpoint: GcsEndpoint): ConformanceTarget {
   const name = "@stowage/adapter-gcs";
 
   if (endpoint.kind === "bucket") {
-    const { options, signer, deniedCredentials } = endpoint;
+    const { options, signer, badCredentials, deniedCredentials } = endpoint;
 
     return {
       name,
 
       createStorage: () => gcsStorage({ ...options, signer }),
 
-      createStorageWithBadCredentials: () => gcsStorage(storageWithBadCredentials(options)),
+      createStorageWithBadCredentials: () =>
+        gcsStorage({ ...options, credentials: badCredentials }),
 
-      ...(deniedCredentials === undefined
-        ? {}
-        : {
-            createStorageWithDeniedCredentials: () =>
-              gcsStorage({ ...options, credentials: deniedCredentials }),
-          }),
+      createStorageWithDeniedCredentials: () =>
+        gcsStorage({ ...options, credentials: deniedCredentials }),
     };
   }
 
