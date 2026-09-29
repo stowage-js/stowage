@@ -119,10 +119,17 @@ export function uploadPath(configuration: GcsConfiguration): string {
   return `${bucketPath(configuration, "upload/storage")}/o`;
 }
 
-function bucketPath(configuration: GcsConfiguration, api: string): string {
-  const base = configuration.basePath.split("/").map(encodeSegment).join("/");
+/** The path of the batch endpoint, which carries the deletes of `delete` (spec 9.4). */
+export function batchPath(configuration: GcsConfiguration): string {
+  return `${encodedBasePath(configuration)}/batch/storage/v1`;
+}
 
-  return `${base}/${api}/v1/b/${encodeSegment(configuration.bucket)}`;
+function bucketPath(configuration: GcsConfiguration, api: string): string {
+  return `${encodedBasePath(configuration)}/${api}/v1/b/${encodeSegment(configuration.bucket)}`;
+}
+
+function encodedBasePath(configuration: GcsConfiguration): string {
+  return configuration.basePath.split("/").map(encodeSegment).join("/");
 }
 
 /**

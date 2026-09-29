@@ -1,6 +1,7 @@
 import {
   isStorageError,
   type ListOptions,
+  type OperationOptions,
   type PutOptions,
   type StorageError,
 } from "@stowage/core";
@@ -1724,4 +1725,306 @@ test("any `401` to the repeat says that the token expired or is not accepted", a
     providerCode: "required",
   });
   expect(failure.message).toContain("expired or is not accepted");
+});
+
+interface Subanswer {
+  readonly status: number;
+  readonly body?: string;
+}
+
+const deleted: Subanswer = { status: 204 };
+
+function subanswerOf(status: number, providerCode: string, message: string): Subanswer {
+  return {
+    status,
+    body: JSON.stringify({
+      error: {
+        code: status,
+        message,
+        errors: [{ message, domain: "global", reason: providerCode }],
+      },
+    }),
+  };
+}
+
+const absent = subanswerOf(404, "notFound", "No such object: conformance/absent");
+
+/**
+ * A batch answered as GCS answers one: lines ending in LF, each `Content-ID` echoed in
+ * brackets, and the outer answer alone carrying `x-guploader-uploadid`.
+ */
+function batchAnswer(
+  subanswers: readonly Subanswer[],
+  echo: (place: number) => string = (place) => `<response-${place}>`,
+): Response {
+  const boundary = "batch_pK7JBAk73-E=_AA5eFwv4m2Q=";
+  const parts = subanswers.map(
+    ({ status, body }, place) =>
+      `--${boundary}\n` +
+      "Content-Type: application/http\n" +
+      `Content-ID: ${echo(place)}\n\n` +
+      `HTTP/1.1 ${status} Status\n` +
+      (body === undefined
+        ? "Content-Length: 0\n\n\n"
+        : `Content-Type: application/json\n\n${body}\n`),
+  );
+
+  return new Response(`${parts.join("")}--${boundary}--\n`, {
+    status: 200,
+    headers: {
+      "content-type": `multipart/mixed; boundary=${boundary}`,
+      "x-guploader-uploadid": "batch-1",
+    },
+  });
+}
+
+/** Answers every subrequest of a batch alike. */
+function everyKey(subanswer: Subanswer) {
+  return async (request: SentRequest): Promise<Response> =>
+    batchAnswer(subrequestPathsOf(await bodyText(request.body)).map(() => subanswer));
+}
+
+function subrequestPathsOf(body: string): readonly string[] {
+  return [...body.matchAll(/^DELETE (\S+) HTTP\/1\.1\r$/gmu)].map((match) => match[1] ?? "");
+}
+
+test("`delete` of no key resolves with `requested: 0` and sends nothing", async () => {
+  const sent = stubFetch(() => batchAnswer([]));
+
+  expect(await storage().delete()).toEqual({ requested: 0, failed: [] });
+  expect(sent).toEqual([]);
+});
+
+test("`delete` sends its keys as one batch of `DELETE`s to the batch endpoint", async () => {
+  const sent = stubFetch(everyKey(deleted));
+
+  const report = await storage().delete("a/b", "c d");
+
+  expect(report).toEqual({ requested: 2, failed: [] });
+  expect(sent).toHaveLength(1);
+  expect(sent[0]?.method).toBe("POST");
+  expect(sent[0]?.url).toBe("https://storage.googleapis.com/batch/storage/v1");
+  expect(sent[0]?.headers.get("authorization")).toBe(`Bearer ${accessToken}`);
+  expect(sent[0]?.headers.get("content-type")).toMatch(/^multipart\/mixed; boundary=/u);
+  expect(subrequestPathsOf(await bodyText(sent[0]?.body))).toEqual([
+    "/storage/v1/b/conformance/o/a%2Fb",
+    "/storage/v1/b/conformance/o/c%20d",
+  ]);
+});
+
+test("`delete` sends one batch per 100 keys, one after another", async () => {
+  const sent = stubFetch(everyKey(deleted));
+  const keys = Array.from({ length: 250 }, (_, index) => `key-${index}`);
+
+  const report = await storage().delete(...keys);
+
+  expect(report).toEqual({ requested: 250, failed: [] });
+  expect(
+    await Promise.all(
+      sent.map(async (request) => subrequestPathsOf(await bodyText(request.body)).length),
+    ),
+  ).toEqual([100, 100, 50]);
+});
+
+test("an invalid key is reported as `InvalidKey` without being sent, and the others are deleted", async () => {
+  const sent = stubFetch(everyKey(deleted));
+
+  const report = await storage().delete("one", "a/../b", "two");
+
+  expect(report.requested).toBe(3);
+  expect(report.failed).toHaveLength(1);
+  expect(report.failed[0]).toMatchObject({
+    code: "InvalidKey",
+    key: "a/../b",
+    operation: "delete",
+    attempts: 0,
+  });
+  expect(subrequestPathsOf(await bodyText(sent[0]?.body))).toEqual([
+    "/storage/v1/b/conformance/o/one",
+    "/storage/v1/b/conformance/o/two",
+  ]);
+});
+
+test("a writable-only refusal does not hold up `delete`, which addresses an existing name", async () => {
+  const sent = stubFetch(everyKey(deleted));
+
+  const report = await storage().delete(".well-known/acme-challenge/token");
+
+  expect(report).toEqual({ requested: 1, failed: [] });
+  expect(sent).toHaveLength(1);
+});
+
+test("a mixed answer: `404 notFound` counts as deleted, any other failure is the key's entry", async () => {
+  const sent = stubFetch(() =>
+    batchAnswer([
+      deleted,
+      absent,
+      subanswerOf(403, "forbidden", "Caller does not have storage.objects.delete access."),
+      subanswerOf(503, "backendError", "Backend Error"),
+    ]),
+  );
+
+  const report = await storage().delete("one", "absent", "denied", "busy");
+
+  expect(sent).toHaveLength(1);
+  expect(report.requested).toBe(4);
+  expect(report.failed).toHaveLength(2);
+  expect(report.failed[0]).toMatchObject({
+    code: "AccessDenied",
+    key: "denied",
+    operation: "delete",
+    status: 403,
+    providerCode: "forbidden",
+    requestId: "batch-1",
+    attempts: 1,
+    retryable: false,
+    message: "Caller does not have storage.objects.delete access.",
+  });
+  expect(report.failed[1]).toMatchObject({
+    code: "ProviderError",
+    key: "busy",
+    status: 503,
+    requestId: "batch-1",
+    retryable: true,
+  });
+});
+
+test("a key above 1024 bytes answered `404 notFound` counts as deleted", async () => {
+  stubFetch(everyKey(absent));
+
+  expect(await storage().delete("k".repeat(1025))).toEqual({ requested: 1, failed: [] });
+});
+
+test("a subresponse's `404` without `notFound` is the key's `ProviderError`, not a deletion", async () => {
+  stubFetch(everyKey({ status: 404, body: "Not Found" }));
+
+  const report = await storage().delete("object");
+
+  expect(report.failed[0]).toMatchObject({ code: "ProviderError", key: "object", status: 404 });
+  expect(report.failed[0]?.message).toContain("serves no such path");
+});
+
+test("a missing bucket rejects the whole call with `NotFound` naming no key", async () => {
+  stubFetch(everyKey(subanswerOf(404, "notFound", "The specified bucket does not exist.")));
+
+  const failure = await failureOf(() => storage().delete("one", "two"));
+
+  expect(failure).toMatchObject({
+    code: "NotFound",
+    operation: "delete",
+    status: 404,
+    providerCode: "notFound",
+    requestId: "batch-1",
+  });
+  expect(failure.key).toBeUndefined();
+});
+
+test("an answer the reader cannot read is a `ProviderError` of the whole call", async () => {
+  stubFetch(() => Response.json({}, { headers: { "x-guploader-uploadid": "batch-1" } }));
+
+  const failure = await failureOf(() => storage().delete("one"));
+
+  expect(failure).toMatchObject({
+    code: "ProviderError",
+    operation: "delete",
+    status: 200,
+    requestId: "batch-1",
+  });
+  expect(failure.message).toContain("no batch of responses");
+});
+
+test("a key the answer leaves unanswered is a `ProviderError` naming it", async () => {
+  stubFetch(() => batchAnswer([deleted]));
+
+  const failure = await failureOf(() => storage().delete("one", "two"));
+
+  expect(failure).toMatchObject({ code: "ProviderError", operation: "delete" });
+  expect(failure.message).toContain('"two"');
+});
+
+test("a `Content-ID` echoed as sent, as fake-gcs-server echoes it, is read as well", async () => {
+  stubFetch(() => batchAnswer([absent, subanswerOf(403, "forbidden", "Forbidden")], String));
+
+  const report = await storage().delete("absent", "denied");
+
+  expect(report.failed.map(({ code, key }) => [code, key])).toEqual([["AccessDenied", "denied"]]);
+});
+
+test("a failed batch as a whole is repeated on the budget and then rejects the call", async () => {
+  const sent = stubFetch(() => errorDocument(503, "backendError", "Backend Error"));
+
+  const failure = await failureOf(() => storage({ retry: { maxAttempts: 2 } }).delete("one"));
+
+  expect(sent).toHaveLength(2);
+  expect(failure).toMatchObject({
+    code: "ProviderError",
+    operation: "delete",
+    status: 503,
+    attempts: 2,
+    retryable: true,
+  });
+});
+
+test("`deleteAll` lists the prefix a page at a time and deletes each page as it arrives", async () => {
+  const sent = stubFetch(async (request) => {
+    if (request.method === "POST") return await everyKey(deleted)(request);
+
+    return new URL(request.url).searchParams.get("pageToken") === "second"
+      ? listingAnswer({ items: [listed("docs/c.txt")] })
+      : listingAnswer({
+          items: [listed("docs/a.txt"), listed("docs/b.txt")],
+          nextPageToken: "second",
+        });
+  });
+
+  const report = await storage().deleteAll("docs/");
+
+  expect(report).toEqual({ requested: 3, failed: [] });
+  expect(sent.map((request) => request.method)).toEqual(["GET", "POST", "GET", "POST"]);
+  expect(new URL(sent[0]!.url).searchParams.get("maxResults")).toBe("1000");
+  expect(new URL(sent[0]!.url).searchParams.get("prefix")).toBe("docs/");
+  expect(new URL(sent[2]!.url).searchParams.get("maxResults")).toBe("1000");
+  expect(subrequestPathsOf(await bodyText(sent[3]?.body))).toEqual([
+    "/storage/v1/b/conformance/o/docs%2Fc.txt",
+  ]);
+});
+
+test("`deleteAll` reports what it could not delete, told against `deleteAll`", async () => {
+  stubFetch((request) =>
+    request.method === "POST"
+      ? batchAnswer([deleted, subanswerOf(403, "forbidden", "Forbidden")])
+      : listingAnswer({ items: [listed("a"), listed("b")] }),
+  );
+
+  const report = await storage().deleteAll("");
+
+  expect(report.requested).toBe(2);
+  expect(report.failed.map(({ code, key, operation }) => [code, key, operation])).toEqual([
+    ["AccessDenied", "b", "deleteAll"],
+  ]);
+});
+
+test("`deleteAll` below an empty prefix lists once and sends no batch", async () => {
+  const sent = stubFetch(() => listingAnswer());
+
+  expect(await storage().deleteAll("empty/")).toEqual({ requested: 0, failed: [] });
+  expect(sent).toHaveLength(1);
+});
+
+test("`deleteAll` refuses a prefix, an unknown option and a fired signal before any request", async () => {
+  const sent = stubFetch(() => listingAnswer());
+
+  // oxlint-disable-next-line no-unsafe-type-assertion -- the point of the test
+  const options = { pageSize: 5 } as OperationOptions;
+
+  const refusedPrefix = await failureOf(() => storage().deleteAll("a/../b"));
+  const unknownOption = await failureOf(() => storage().deleteAll("a/", options));
+  const aborted = await storage()
+    .deleteAll("a/", { signal: AbortSignal.abort() })
+    .catch((reason: unknown) => reason);
+
+  expect(refusedPrefix).toMatchObject({ code: "InvalidKey", operation: "deleteAll" });
+  expect(unknownOption).toMatchObject({ code: "InvalidOption", operation: "deleteAll" });
+  expect(aborted).toMatchObject({ name: "AbortError" });
+  expect(sent).toEqual([]);
 });

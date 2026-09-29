@@ -1490,7 +1490,9 @@ reached through `adapter-s3` over the XML API is an S3-compatible endpoint like 
   counts as deleted. A missing bucket, which a batch answers with the same `404 notFound`, is told
   apart by its message and rejects the whole call with `NotFound`. Any other failed subresponse
   becomes the key's entry in `failed`, with the code section 9.8 maps; a failure of the batch
-  request as a whole rejects the call.
+  request as a whole rejects the call. The answer is read with each `Content-ID` echoed as
+  `<response-0>`, as GCS echoes it, and, where that form cannot read it, as sent, as
+  fake-gcs-server echoes it.
 
 ### 9.5 Retries
 
