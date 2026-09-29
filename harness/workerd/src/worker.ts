@@ -10,6 +10,8 @@ import {
   storageOptionsFrom as azureBlobStorageOptionsFrom,
 } from "../../azure-blob/src/configuration.ts";
 import { azureBlobRunCases, azureBlobTarget } from "../../azure-blob/src/target.ts";
+import { storageOptionsFrom as gcsStorageOptionsFrom } from "../../gcs/src/configuration.ts";
+import { gcsRunCases, gcsTarget } from "../../gcs/src/target.ts";
 import {
   endpointNameFrom,
   storageOptionsFrom,
@@ -56,6 +58,7 @@ function runAt(pathname: string, variables: Variables): Run | undefined {
 
   if (pathname === "/adapter-memory") return { target: memoryTarget, cases };
   if (pathname === "/adapter-azure-blob") return azureBlobRun(variables, options);
+  if (pathname === "/adapter-gcs") return gcsRun(variables, options);
   if (pathname !== "/adapter-s3") return undefined;
 
   // The flags of spec 1 take `process` away, so `fromEnv` finds nothing to read here and
@@ -86,4 +89,12 @@ function azureBlobRun(variables: Variables, options: ConformanceRunOptions): Run
     target: azureBlobTarget(configured, variables),
     cases: azureBlobRunCases(options, variables),
   };
+}
+
+function gcsRun(variables: Variables, options: ConformanceRunOptions): Run | undefined {
+  const configured = gcsStorageOptionsFrom(variables);
+
+  if (configured === undefined) return undefined;
+
+  return { target: gcsTarget(configured), cases: gcsRunCases(options) };
 }

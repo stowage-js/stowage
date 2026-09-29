@@ -19,8 +19,9 @@ pnpm test
 ```
 
 `pnpm test` runs the Node column of spec 2, the S3 and Azure Blob tiers included, so
-`harness/s3/start.sh` and `harness/azure-blob/start.sh` belong beside it. Docker and `curl` are
-required. Without `STOWAGE_GCS_ENDPOINT` and `STOWAGE_GCS_BUCKET` the run fails rather than passing
+`harness/s3/start.sh` and `harness/azure-blob/start.sh` belong beside it. `pnpm test:bun`,
+`pnpm test:deno` and `pnpm test:workerd` run the same tier in the other three columns, against the
+same endpoint. Docker and `curl` are required. Without `STOWAGE_GCS_ENDPOINT` and `STOWAGE_GCS_BUCKET` the run fails rather than passing
 with the tier skipped (ADR 0012), and CI starts `compose.yml` itself before the harnesses run. A
 machine without Docker sets `STOWAGE_CONFORMANCE_ENDPOINTS` to `none`, as `harness/s3/README.md`
 describes.
@@ -43,9 +44,17 @@ every request and the emulator never reads. The target supplies neither
 `createStorageWithBadCredentials` nor `createStorageWithDeniedCredentials`, so both cases report
 themselves skipped, and the `Expired` case is skipped against every GCS endpoint (ADR 0033).
 
+## The `workerd` harness
+
+The worker runs the tier under `no_nodejs_compat` and `no_nodejs_compat_v2`, where no Node API is
+reachable, and runs its `fast` cases a second time under the default flags of the compatibility
+date (ADR 0026, ADR 0039). fake-gcs-server answers over plain HTTP, so no runtime has a certificate
+to trust.
+
 ## The cases run so far
 
 The adapter gains its operations one ticket at a time, and `src/target.ts` names the cases it
 passes. A case joins that list with the operation it needs, until the list is the whole suite.
-Only the Node harness runs the tier so far; Bun, Deno and `workerd` join it through the harnesses
-they share with the other endpoints.
+Every column takes the case list and the divergence list of `src/divergences.ts` from here, so a
+case that joins `src/target.ts` runs on Node, Bun, Deno and `workerd` alike. The divergence list is
+empty until a case the adapter passes shows a difference of fake-gcs-server (ADR 0034).
