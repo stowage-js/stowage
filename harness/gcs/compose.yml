@@ -1,0 +1,30 @@
+# ADR 0034: the endpoint every commit runs against. The digest is what CI starts and what
+# green means, so the tag beside it is a label rather than what is resolved.
+services:
+  gcs:
+    image: fsouza/fake-gcs-server:1.56.1@sha256:797ce226d62f947c009dc40246b30cfb456b8473d8241407f9d6f2c04e4d69ef
+    # The memory backend alone: the file system backend breaks names the service accepts.
+    # `-public-host` is the exact `host:port` the client sends, or the emulator routes the
+    # URLs it serves and signs elsewhere. The image's own entrypoint adds `-data /data`,
+    # which the memory backend never reads.
+    command:
+      - -backend
+      - memory
+      - -scheme
+      - http
+      - -port
+      - "4443"
+      - -public-host
+      - "127.0.0.1:${STOWAGE_GCS_PORT:-4443}"
+    # The emulator's own port inside, and on the host whatever `start.sh` hands over, since
+    # 4443 may already be taken on a developer's machine.
+    ports:
+      - "127.0.0.1:${STOWAGE_GCS_PORT:-4443}:4443"
+    # The image carries no healthcheck; the emulator answers one path for it, and Alpine's
+    # BusyBox brings the `wget` to ask it with.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:4443/_internal/healthcheck"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 2s

@@ -203,6 +203,8 @@ importers:
 
   harness/deno: {}
 
+  harness/gcs: {}
+
   harness/node: {}
 
   harness/s3:
@@ -226,6 +228,12 @@ importers:
         version: link:../core
 
   packages/adapter-fs:
+    dependencies:
+      '@stowage/core':
+        specifier: workspace:^
+        version: link:../core
+
+  packages/adapter-gcs:
     dependencies:
       '@stowage/core':
         specifier: workspace:^

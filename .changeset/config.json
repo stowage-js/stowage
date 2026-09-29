@@ -13,6 +13,7 @@
       "@stowage/adapter-fs",
       "@stowage/adapter-s3",
       "@stowage/adapter-azure-blob",
+      "@stowage/adapter-gcs",
       "@stowage/conformance"
     ]
   ],
