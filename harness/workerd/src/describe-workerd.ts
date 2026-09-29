@@ -243,7 +243,8 @@ async function withWorkerd<T>(use: (workerd: Workerd) => Promise<T>): Promise<T>
   // export.
   const workerd: { readonly default: string } = createRequire(import.meta.url)("workerd");
 
-  const child = spawn(workerd.default, ["serve", "workerd.capnp", "--control-fd=3"], {
+  // `--verbose` is diagnostic for #257, beside the trace of `src/worker.ts`.
+  const child = spawn(workerd.default, ["serve", "workerd.capnp", "--control-fd=3", "--verbose"], {
     cwd: harnessDirectory,
     stdio: ["ignore", "inherit", "inherit", "pipe"],
   });

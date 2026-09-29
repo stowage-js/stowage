@@ -4,7 +4,10 @@ import {
   type ConformanceRunOptions,
   selectedCases,
 } from "../../../packages/conformance/src/run.ts";
-import type { ConformanceTarget } from "../../../packages/conformance/src/target.ts";
+import type {
+  ConformanceContext,
+  ConformanceTarget,
+} from "../../../packages/conformance/src/target.ts";
 import {
   accessTokenFrom,
   storageOptionsFrom as azureBlobStorageOptionsFrom,
@@ -48,9 +51,43 @@ export default {
     const only = url.searchParams.get("case");
     const cases = only === null ? run.cases : run.cases.filter((source) => source.name === only);
 
-    return Response.json(await runCases(cases, run.target));
+    return Response.json(await runCases(traced(url.pathname, cases), run.target));
   },
 };
+
+// Diagnostic for #257: the GCS run against the real bucket loses its connection with no
+// word from `workerd`, and this names the case it was in. It goes once the cause is found.
+function traced(
+  pathname: string,
+  cases: readonly ConformanceCaseSource[],
+): readonly ConformanceCaseSource[] {
+  const around =
+    (name: string, half: (ctx: ConformanceContext) => Promise<void>) =>
+    async (ctx: ConformanceContext): Promise<void> => {
+      const started = Date.now();
+
+      console.log(`[trace] ${pathname} ${name} started`);
+
+      try {
+        await half(ctx);
+        console.log(`[trace] ${pathname} ${name} passed after ${Date.now() - started} ms`);
+      } catch (failure) {
+        console.log(`[trace] ${pathname} ${name} failed after ${Date.now() - started} ms`);
+
+        throw failure;
+      }
+    };
+
+  return cases.map((source) =>
+    "runWithout" in source
+      ? {
+          ...source,
+          run: around(source.name, async (ctx) => await source.run(ctx)),
+          runWithout: around(source.name, async (ctx) => await source.runWithout(ctx)),
+        }
+      : { ...source, run: around(source.name, async (ctx) => await source.run(ctx)) },
+  );
+}
 
 function runAt(pathname: string, variables: Variables): Run | undefined {
   const options = runOptionsFrom(variables);
