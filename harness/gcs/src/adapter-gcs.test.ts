@@ -169,18 +169,17 @@ function storage(): GcsSigningStorage {
 }
 
 async function refusalOf(pending: Promise<unknown>): Promise<StorageError> {
-  const outcome = await pending.then(
-    () => undefined,
-    (failure: unknown) => failure,
-  );
+  let resolved: unknown;
 
-  if (!isStorageError(outcome)) {
-    throw new Error(`Expected a \`StorageError\`, and the call answered ${String(outcome)}`, {
-      cause: outcome,
-    });
+  try {
+    resolved = await pending;
+  } catch (failure) {
+    if (isStorageError(failure)) return failure;
+
+    throw failure;
   }
 
-  return outcome;
+  throw new Error(`Expected a rejection, and the call resolved with ${JSON.stringify(resolved)}`);
 }
 
 function described(failure: StorageError): Pick<StorageError, "code" | "status" | "key"> {
