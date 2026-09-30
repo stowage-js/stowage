@@ -6,6 +6,7 @@ import {
   storageWithBadCredentials,
   storageWithDeniedCredentials,
   storageWithExpiredCredentials,
+  storageWithMissingBucket,
 } from "./configuration.ts";
 
 const configured: S3AdapterOptions = {
@@ -78,6 +79,25 @@ describe("storageWithDeniedCredentials", () => {
         STOWAGE_S3_DENIED_SECRET_ACCESS_KEY: null,
       }),
     ).toBe(undefined);
+  });
+});
+
+// ADR 0043: a bucket named at random, so that no run and no bucket another left behind can
+// make it exist.
+describe("storageWithMissingBucket", () => {
+  test("binds the configured storage to a bucket of another name", () => {
+    const missing = storageWithMissingBucket(configured);
+
+    expect(missing).toEqual({ ...configured, bucket: expect.stringMatching(/^stowage-missing-/u) });
+    expect(missing.bucket).not.toBe(configured.bucket);
+  });
+
+  test("names a new bucket on every call, within the 63 characters a bucket name holds", () => {
+    const first = storageWithMissingBucket(configured).bucket;
+    const second = storageWithMissingBucket(configured).bucket;
+
+    expect(first).not.toBe(second);
+    expect(first).toMatch(/^[a-z0-9-]{3,63}$/u);
   });
 });
 

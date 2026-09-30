@@ -65,6 +65,11 @@ that names, in place of the message, why running the case would leave the emulat
 to finish the run keeps the case unrun against that endpoint. Nothing then shows an upstream
 fix, so an update of the image has to look for one by hand.
 
+`errors/missing-bucket` is on it because SeaweedFS never names a missing bucket as AWS does with
+`NoSuchBucket`. It answers `PutObject` with `500 InternalError`, `GetObject` with `404 NoSuchKey`,
+`DeleteObjects` with an empty `DeleteResult` and `ListObjectsV2` with an empty page, so the adapter
+reads a missing object and `exists` answers `false` (ADR 0043).
+
 ## The real endpoints
 
 `.github/workflows/conformance-full.yml` runs both tiers on a schedule, on demand and for a
@@ -95,6 +100,11 @@ On R2 both are API tokens scoped to the bucket, `Object Read & Write` and `Objec
 The `Expired` case reports itself skipped there, because it cannot pass: R2 answers an expired
 credential with `403 SignatureDoesNotMatch`, which `adapter-s3` reads as `InvalidCredentials`
 after one attempt (ADR 0045).
+
+`errors/missing-bucket` runs against a bucket named at random on both. AWS names it `NoSuchBucket`,
+which is `NotFound` without `key`. R2 answers the token scoped to the CI bucket with
+`403 AccessDenied` for any other bucket, missing or not, and the case accepts that code
+(spec 7.2, ADR 0043).
 
 Both buckets carry the rule of `lifecycle.json`: objects expire after one day and a multipart
 upload left behind is aborted after one day, which removes what a run that died before its
