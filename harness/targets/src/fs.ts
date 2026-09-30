@@ -54,6 +54,10 @@ export const fsTarget: ConformanceTarget = {
     return fsStorage({ root });
   },
 
+  // Spec 6 has a root that is gone reject every operation, and nothing ever creates this one.
+  createStorageWithMissingBucket: () =>
+    fsStorage({ root: join(tmpdir(), `stowage-missing-${crypto.randomUUID()}`) }),
+
   // The default of spec 10.2 deletes below the prefix on a storage of its own, and a
   // storage of its own is a root of its own here, which holds nothing the run wrote. What
   // the run leaves behind are the roots themselves, so each of them is removed whole.
