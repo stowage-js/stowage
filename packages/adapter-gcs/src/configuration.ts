@@ -52,8 +52,8 @@ export interface GcsAdapterOptions {
   signer?: GcsSigner;
   /**
    * How often one HTTP request is attempted while its failure is transient: a response of
-   * `408`, `429` or `5xx`, or none at all. `false` sends one attempt. Neither switches off
-   * the one repeat with a fresh access token after the provider answered `401` with
+   * `408`, `429` or `5xx`, or none at all. `false` sends one attempt, and does not switch
+   * off the one repeat with a fresh access token after the provider answered `401` with
    * `error=invalid_token`.
    */
   retry?:

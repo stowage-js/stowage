@@ -15,7 +15,7 @@ import { type Sign, signUrl } from "./signed-url.ts";
 
 export interface GcsPresignGetOptions {
   /**
-   * Whole seconds, 1 to 604800; anything else is `InvalidOption` before anything is sent.
+   * Seconds, 1 to 604800; anything else is `InvalidOption` before anything is sent.
    * The URL counts them from the moment of signing. One signed through `signBlob` may stop
    * working 12 hours after that, whatever this asked for.
    */
@@ -27,7 +27,7 @@ export interface GcsPresignGetOptions {
 
 export interface GcsPresignPutOptions {
   /**
-   * Whole seconds, 1 to 604800; anything else is `InvalidOption` before anything is sent.
+   * Seconds, 1 to 604800; anything else is `InvalidOption` before anything is sent.
    * The URL counts them from the moment of signing. One signed through `signBlob` may stop
    * working 12 hours after that, whatever this asked for.
    */
@@ -37,7 +37,6 @@ export interface GcsPresignPutOptions {
   /**
    * Bound exactly, so the client reports the length and the server signs that number. A
    * finite, non-negative integer; anything else is `InvalidOption` before anything is sent.
-   * It is not held against the 5 TiB an object holds, which GCS enforces.
    */
   contentLength: number;
 }
