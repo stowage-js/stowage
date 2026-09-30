@@ -42,9 +42,8 @@ interface Unrun {
 // Kept in the private harness and never in `@stowage/conformance`: it describes an
 // endpoint this repository happens to test against, not the API an adapter implements.
 export const divergences: readonly Divergence[] = [
-  // ADR 0043: AWS names a missing bucket `NoSuchBucket` on every path, and SeaweedFS names it on
-  // none, so the adapter reads a missing object there: `exists` answers `false`, and `delete`
-  // and the first page of `list` answer as for an empty bucket.
+  // ADR 0043: the case fails at `get`, the first call SeaweedFS answers as for a missing
+  // object; its `put` rejects with a `ProviderError` the case accepts.
   {
     case: "errors/missing-bucket",
     endpoint: "seaweedfs",

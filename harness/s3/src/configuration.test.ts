@@ -82,8 +82,6 @@ describe("storageWithDeniedCredentials", () => {
   });
 });
 
-// ADR 0043: a bucket named at random, so that no run and no bucket another left behind can
-// make it exist.
 describe("storageWithMissingBucket", () => {
   test("binds the configured storage to a bucket of another name", () => {
     const missing = storageWithMissingBucket(configured);
