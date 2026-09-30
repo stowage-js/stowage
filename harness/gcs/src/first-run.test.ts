@@ -51,7 +51,11 @@ describe.skipIf(scheduled === undefined)(firstRunSuite, () => {
   const prefix = `first-run-${randomUUID()}/`;
 
   afterAll(async () => {
-    await storage().deleteAll(prefix);
+    const report = await storage().deleteAll(prefix);
+
+    if (report.failed.length > 0) {
+      throw new AggregateError(report.failed, "Failed to clean up GCS probe objects");
+    }
   });
 
   // ADR 0033: only a made-up token was measured, and RFC 6750 gives `invalid_token` to an
