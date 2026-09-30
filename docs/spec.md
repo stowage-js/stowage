@@ -1465,7 +1465,9 @@ reached through `adapter-s3` over the XML API is an S3-compatible endpoint like 
   provider as written.
 - `list` sends `maxResults` on every page, the walk of `deleteAll` included, and continues with
   the answer's `nextPageToken`. The cursor carries a tag of the adapter's own, so a cursor of
-  another storage is `InvalidOption` naming `cursor` before any request.
+  another storage is `InvalidOption` naming `cursor` before any request. A cursor of this storage
+  handed to a listing of another prefix is not detected: GCS answers it with an empty page (ADR
+  0038).
 - `stat` and `exists` read the object's resource. `get` sends the resource request and the media
   download side by side, since the media download carries no user metadata. Where the two name
   different generations, because a writer replaced the object between them, the resource is read
@@ -1479,7 +1481,9 @@ reached through `adapter-s3` over the XML API is an S3-compatible endpoint like 
 - A `userMetadata` key is sent folded to lower case, and values travel in the JSON body as
   written, raw Unicode included. Keys are handed back as stored, so an object another tool wrote
   with `A` and `a` returns both. A stored value that holds RFC 2047 encoded words is decoded on the
-  way back, so an object `adapter-s3` wrote through the XML API reads the same (ADR 0032).
+  way back, so an object `adapter-s3` wrote through the XML API reads the same. A reader of the
+  XML API sees a raw value outside ASCII garbled: the `ü` of `grüße` reaches `fetch` on an XML
+  `HEAD` as `Ã¼` (ADR 0032).
 - An object stored with a content coding is read decoded: GCS decodes gzip, and `fetch` decodes
   any coding GCS serves as stored. `size` stays the stored size, so the body may be longer. Every
   `range` on such an object is `ProviderError`, its body canceled, whose message names the stored
