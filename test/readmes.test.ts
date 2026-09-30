@@ -4,6 +4,7 @@ import { expect, test } from "vitest";
 
 import adapterAzureBlob from "../packages/adapter-azure-blob/package.json" with { type: "json" };
 import adapterFs from "../packages/adapter-fs/package.json" with { type: "json" };
+import adapterGcs from "../packages/adapter-gcs/package.json" with { type: "json" };
 import adapterMemory from "../packages/adapter-memory/package.json" with { type: "json" };
 import adapterS3 from "../packages/adapter-s3/package.json" with { type: "json" };
 import conformance from "../packages/conformance/package.json" with { type: "json" };
@@ -21,10 +22,18 @@ const tsSourcesOf = (text: string): string[] =>
 const readmeOf = async (manifest: { readonly name: string }): Promise<string> =>
   await read(`packages/${manifest.name.replace("@stowage/", "")}/README.md`);
 
-const published = [core, adapterMemory, adapterFs, adapterS3, adapterAzureBlob, conformance];
+const published = [
+  core,
+  adapterMemory,
+  adapterFs,
+  adapterS3,
+  adapterAzureBlob,
+  adapterGcs,
+  conformance,
+];
 
-/** Spec 12 gives `@stowage/conformance` a shape of its own and these five the same sections. */
-const sectioned = [core, adapterMemory, adapterFs, adapterS3, adapterAzureBlob];
+/** Spec 12 gives `@stowage/conformance` a shape of its own and these six the same sections. */
+const sectioned = [core, adapterMemory, adapterFs, adapterS3, adapterAzureBlob, adapterGcs];
 
 /** Spec 12: the sections a README carries, in this order, before anything else it holds. */
 const packageSections = ["Install", "Example", "Runtimes", "Limits", "Notes", "Specification"];
@@ -60,10 +69,10 @@ function sectionOf(text: string, heading: string): string {
   return text.slice(start, end === -1 ? undefined : end);
 }
 
-test("the README of @stowage/conformance names the four adapters of this repository", async () => {
+test("the README of @stowage/conformance names the five adapters of this repository", async () => {
   const text = await readmeOf(conformance);
 
-  for (const adapter of [adapterMemory, adapterFs, adapterS3, adapterAzureBlob]) {
+  for (const adapter of [adapterMemory, adapterFs, adapterS3, adapterAzureBlob, adapterGcs]) {
     expect(text).toContain(adapter.name);
   }
 });
@@ -124,6 +133,62 @@ test("the README of @stowage/adapter-azure-blob orders its notes as spec 12 does
 
   expect(positions).not.toContain(-1);
   expect(positions).toEqual(positions.toSorted((left, right) => left - right));
+});
+
+test("the README of @stowage/adapter-gcs writes its example with an access token", async () => {
+  const example = sectionOf(await readmeOf(adapterGcs), "Example");
+
+  expect(example).toContain("accessToken");
+  expect(example).not.toContain("privateKey");
+});
+
+test("the README of @stowage/adapter-gcs names the limits of spec 12", async () => {
+  const limits = sectionOf(await readmeOf(adapterGcs), "Limits");
+
+  expect(limits).toContain("`presignedUrls` is declared only with a `signer`");
+  expect(limits).toContain("#49-capabilities");
+  expect(limits).toContain("`.well-known/acme-challenge/`");
+  expect(limits).toContain("`U+FFFE` or `U+FFFF`");
+  expect(limits).toContain("100 keys");
+  expect(limits).toContain("#91-construction");
+  expect(limits).toContain("up to four");
+  expect(limits).toContain("garbled");
+  expect(limits).toContain("another prefix");
+  expect(limits).toContain("#94-requests");
+  expect(limits).toContain("#92-promised-provider");
+});
+
+// Spec 12 orders the notes of `adapter-gcs` as it does those of `adapter-azure-blob`.
+test("the README of @stowage/adapter-gcs orders its notes as spec 12 does", async () => {
+  const notes = sectionOf(await readmeOf(adapterGcs), "Notes");
+  const positions = [
+    "GoogleAuth",
+    "forceRefresh",
+    "nodejs_compat",
+    "privateKey",
+    "signBlob",
+    "CORS",
+    "blob.stream()",
+    "TransformStream",
+  ].map((marker) => notes.indexOf(marker));
+
+  expect(positions).not.toContain(-1);
+  expect(positions).toEqual(positions.toSorted((left, right) => left - right));
+});
+
+test("the README of @stowage/adapter-gcs leads its notes with the scope a storage token needs", async () => {
+  const notes = sectionOf(await readmeOf(adapterGcs), "Notes");
+
+  expect(notes).toContain("https://www.googleapis.com/auth/devstorage.read_write");
+});
+
+// Spec 12 shows no key exchange: a token is acquired by the caller's library or resolver,
+// never at Google's token endpoint in a block of this README.
+test("the README of @stowage/adapter-gcs shows no key exchange", async () => {
+  const text = await readmeOf(adapterGcs);
+
+  expect(text).not.toContain("oauth2.googleapis.com");
+  expect(text).not.toContain("urn:ietf:params:oauth:grant-type:jwt-bearer");
 });
 
 const semverAt = (version: string): number[] => version.split(".").map(Number);

@@ -11,6 +11,7 @@ const packages = [
   "adapter-fs",
   "adapter-s3",
   "adapter-azure-blob",
+  "adapter-gcs",
   "conformance",
 ];
 
