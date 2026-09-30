@@ -89,9 +89,15 @@ describe.skipIf(scheduled === undefined)(firstRunSuite, () => {
       const answer = await answerPastExpiry(key, expiring);
 
       task.meta.observed = answer.observed;
-      expect({ status: answer.status, refusedToken: answer.refusedToken }).toEqual({
+      // Spec 9.3: answered as a made-up token is, so nothing tells the expiry apart.
+      expect({
+        status: answer.status,
+        refusedToken: answer.refusedToken,
+        providerCode: answer.providerCode,
+      }).toEqual({
         status: 401,
         refusedToken: true,
+        providerCode: "authError",
       });
 
       // Spec 9.3: the repeat reads that answer and asks the resolver once for a fresh token.
@@ -165,6 +171,7 @@ interface ExpiredAnswer {
   readonly status: number;
   /** Whether spec 9.3 repeats after it: `401` with `error=invalid_token`. */
   readonly refusedToken: boolean;
+  readonly providerCode: string | undefined;
   readonly observed: string;
 }
 
@@ -195,6 +202,7 @@ async function answerPastExpiry(key: string, token: ExpiringToken): Promise<Expi
   return {
     status: response.status,
     refusedToken: isRefusedToken(response),
+    providerCode: body.providerCode,
     observed:
       `${response.status} ${pastExpiry.toFixed(0)} s past the expiry, ` +
       `\`www-authenticate: ${challenge}\`, \`${body.providerCode ?? "(no reason)"}\`: ` +

@@ -114,7 +114,8 @@ federated principal cannot sign, and `signBlob` needs a service account to sign 
   CORS headers on its `400 ExpiredToken`. And a probe of the first run takes a token early with a
   short `lifetime` and asks with it after it expired, which answers the open point of ADR 0033 on
   what an expired token returns. Whether `generateAccessToken` accepts a short lifetime is
-  unverified; if it does not, that point stays open.
+  unverified; if it does not, that point stays open. It does: the first run was granted a token
+  for 60 seconds.
 - storage-testbench is not an endpoint of the suite: it has no paged listing and no batch endpoint.
   Whether a test of the adapter uses its fault injection for retries or its multi-call `rewrite` is
   for the decisions on uploads, copies and provider codes. ADR 0036, ADR 0037 and ADR 0038 use

@@ -134,4 +134,4 @@ failure that would repeat one.
   `StorageError` does not log it.
 - `workerd` was not measured. The `308` there follows the Fetch standard as on the three runtimes
   measured, and `put/multipart` on `workerd` against the real bucket shows it on the first
-  scheduled run.
+  scheduled run. That run passed `put/multipart-round-trip` there.

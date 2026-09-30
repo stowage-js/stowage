@@ -109,13 +109,14 @@ presigned URL after a preflight from the rule's origin, `delete` in a missing bu
 `NotFound` without `key` and `exists` rethrowing it, and URLs signed through `signBlob` for a key
 that travels encoded.
 
-`src/first-run.test.ts` asks the points of spec 14. It takes a token of the service account with
-a `lifetime` of 60 seconds from IAM Credentials, waits out its expiry, and records what the bucket
-answers it, then shows that the repeat of spec 9.3 recovers. Where IAM Credentials grants no such
-token, the probe records the refusal and skips itself. It also replaces an object and records what
-`objects.get` pinned to the replaced generation answers, on the resource and the media download.
-The `workerd` harness runs `flow/1-large-upload` once more on its own against the bucket and
-reports its duration and the CPU the `workerd` process spent, the token exchanges included.
+`src/first-run.test.ts` asks what spec 14 left open for GCS, and keeps asking it once the first run
+settled it. It takes a token of the service account with a `lifetime` of 60 seconds from IAM
+Credentials, waits out its expiry, and records what the bucket answers it, then shows that the
+repeat of spec 9.3 recovers. Where IAM Credentials grants no such token, the probe records the
+refusal and skips itself. It also replaces an object and records what `objects.get` pinned to the
+replaced generation answers, on the resource and the media download. The `workerd` harness runs
+`flow/1-large-upload` once more on its own against the bucket and reports its duration and the CPU
+the `workerd` process spent, the token exchanges included.
 
 The last job of the workflow writes the points into the same table as the S3 and Azure ones, in
 the columns `gcs-node-24`, `gcs-node-26` and `gcs-workerd`.
