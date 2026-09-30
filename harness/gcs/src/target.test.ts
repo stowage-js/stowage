@@ -53,17 +53,16 @@ test("no endpoint supplies an expired credential", () => {
 
 // ADR 0043: both endpoints know the bucket by name alone, so both can be handed one no run
 // created.
-test("every endpoint supplies a storage bound to a missing bucket", async () => {
-  for (const variables of [printed, scheduled]) {
-    const target = targetFor(variables);
-    // oxlint-disable-next-line no-await-in-loop -- one endpoint after the other
-    const missing = await target.createStorageWithMissingBucket?.();
-    // oxlint-disable-next-line no-await-in-loop -- one endpoint after the other
-    const configured = await target.createStorage();
+test.each([
+  ["fake-gcs-server", printed],
+  ["the real bucket", scheduled],
+])("%s supplies a storage bound to a missing bucket", async (_endpoint, variables) => {
+  const target = targetFor(variables);
+  const missing = await target.createStorageWithMissingBucket?.();
+  const configured = await target.createStorage();
 
-    expect(missing?.bucket).toMatch(/^stowage-missing-/u);
-    expect(missing?.bucket).not.toBe(configured.bucket);
-  }
+  expect(missing?.bucket).toMatch(/^stowage-missing-/u);
+  expect(missing?.bucket).not.toBe(configured.bucket);
 });
 
 test("the missing bucket is a new one on every call", async () => {

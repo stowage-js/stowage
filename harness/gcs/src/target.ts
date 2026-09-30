@@ -23,8 +23,8 @@ import { withGcsDivergences } from "./divergences.ts";
  * suite and goes. The `Expired` case stays in the list and reports itself skipped on every
  * endpoint, and the Bad and Denied cases against fake-gcs-server, since the target supplies
  * no factory there (ADR 0033, ADR 0034). `flow/3-file-browser`, the three rejections a
- * presigned URL owes and the two cases of `move` run against fake-gcs-server as divergences
- * (`divergences.ts`).
+ * presigned URL owes, the two cases of `move` and `errors/missing-bucket` run against
+ * fake-gcs-server as divergences (`divergences.ts`).
  */
 const coveredCases: ReadonlySet<string> = new Set([
   "declaration/valid-names",
