@@ -49,8 +49,12 @@ export async function describeWorkerd(framework: ConformanceFramework): Promise<
 
   const measuringAzureBlob = configuredAzureBlob !== undefined && scheduledAgainstAccount(env);
   const measuringGcs = configuredGcs?.kind === "bucket" && scheduledAgainstBucket(env);
+  // Without `--verbose`, `workerd` keeps to itself the internal errors that close a connection
+  // unanswered, and the job against the bucket is where one closed (#258).
+  const verbose = configuredGcs?.kind === "bucket";
 
   const { core, memory, s3, azureBlob, gcs, probes, flowOne } = await withWorkerd(
+    { verbose },
     async (workerd) => {
       const { origins } = workerd;
 
@@ -251,12 +255,16 @@ async function placeTrustedCertificate(): Promise<void> {
   }
 }
 
-async function withWorkerd<T>(use: (workerd: Workerd) => Promise<T>): Promise<T> {
+async function withWorkerd<T>(
+  { verbose }: { readonly verbose: boolean },
+  use: (workerd: Workerd) => Promise<T>,
+): Promise<T> {
   // The package hands out the path of the binary built for this machine as its default
   // export.
   const workerd: { readonly default: string } = createRequire(import.meta.url)("workerd");
+  const flags = verbose ? ["--verbose"] : [];
 
-  const child = spawn(workerd.default, ["serve", "workerd.capnp", "--control-fd=3"], {
+  const child = spawn(workerd.default, ["serve", "workerd.capnp", "--control-fd=3", ...flags], {
     cwd: harnessDirectory,
     stdio: ["ignore", "inherit", "inherit", "pipe"],
   });
