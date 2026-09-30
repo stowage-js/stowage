@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { env } from "node:process";
 
 import { afterAll, describe, expect, test } from "vitest";
 
@@ -20,8 +19,7 @@ import {
   type StorageError,
 } from "../../../packages/core/src/index.ts";
 import { firstRunSuite } from "../../s3/src/first-run.ts";
-import { type GcsEndpoint, scheduledAgainstBucket } from "./configuration.ts";
-import { configuredEndpoint } from "./environment.ts";
+import { bucketOrFail, bucketStorage, type GcsBucket, scheduledBucket } from "./environment.ts";
 import type { ExpiringToken } from "./federated-token.ts";
 import { gcsProbeNames } from "./first-run.ts";
 
@@ -32,8 +30,7 @@ import { gcsProbeNames } from "./first-run.ts";
 // service account the suite runs as. fake-gcs-server checks no token and names no answer
 // the reference leaves open, so these run against the bucket alone. The requests go through
 // the adapter's own paths and failure mapping wherever the adapter can send them.
-const configured = configuredEndpoint();
-const scheduled = scheduledAgainstBucket(env) && configured?.kind === "bucket";
+const scheduled = scheduledBucket();
 
 /**
  * Seconds the expiring token is asked for: short enough to wait out in the `slow` tier,
@@ -49,7 +46,7 @@ const askingEvery = 5000;
 
 const expiryTimeout = 10 * 60_000;
 
-describe.skipIf(!scheduled)(firstRunSuite, () => {
+describe.skipIf(scheduled === undefined)(firstRunSuite, () => {
   const prefix = `first-run-${randomUUID()}/`;
 
   afterAll(async () => {
@@ -141,21 +138,12 @@ describe.skipIf(!scheduled)(firstRunSuite, () => {
   });
 });
 
-type Bucket = Extract<GcsEndpoint, { readonly kind: "bucket" }>;
-
-function bucket(): Bucket {
-  if (configured?.kind !== "bucket") {
-    throw new Error("No real GCS bucket is configured; see `harness/gcs/README.md`");
-  }
-
-  return configured;
+function bucket(): GcsBucket {
+  return bucketOrFail(scheduled);
 }
 
-/** Under the configured resolvers, so that every probe shares the tokens they keep. */
 function storage(): GcsSigningStorage {
-  const { options, signer } = bucket();
-
-  return gcsStorage({ ...options, signer });
+  return bucketStorage(bucket());
 }
 
 function configuration(): GcsConfiguration {

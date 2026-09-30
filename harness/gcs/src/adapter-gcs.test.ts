@@ -1,19 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { env } from "node:process";
 
 import { afterAll, describe, expect, test } from "vitest";
 
 import { type GcsSigningStorage, gcsStorage } from "../../../packages/adapter-gcs/src/index.ts";
 import { isStorageError, type StorageError } from "../../../packages/core/src/index.ts";
-import { type GcsEndpoint, scheduledAgainstBucket } from "./configuration.ts";
-import { configuredEndpoint } from "./environment.ts";
+import { bucketOrFail, bucketStorage, type GcsBucket, scheduledBucket } from "./environment.ts";
 
 // Spec 10.4: promises of `adapter-gcs` that the suite does not assert and only the real
 // bucket shows. fake-gcs-server honors no response override, carries no CORS rule, checks no
 // signature and knows no bucket it was not asked to create (ADR 0034), so these run in the
 // scheduled job against the bucket alone.
-const configured = configuredEndpoint();
-const scheduled = scheduledAgainstBucket(env) && configured?.kind === "bucket";
+const scheduled = scheduledBucket();
 
 /** The one origin the bucket's CORS rule allows (ADR 0034). */
 const allowedOrigin = "https://conformance.stowage.invalid";
@@ -28,7 +25,7 @@ const encodedPrefix = `${prefix}a b#c?d%e+f'(g)*!/`;
 
 const utf8 = new TextEncoder();
 
-describe.skipIf(!scheduled)("adapter-gcs against the bucket", () => {
+describe.skipIf(scheduled === undefined)("adapter-gcs against the bucket", () => {
   // The bucket's lifecycle rule removes what a run leaves after a day (ADR 0034), and a run
   // leaves nothing where it can help it.
   afterAll(async () => {
@@ -151,21 +148,12 @@ describe.skipIf(!scheduled)("adapter-gcs against the bucket", () => {
   });
 });
 
-type Bucket = Extract<GcsEndpoint, { readonly kind: "bucket" }>;
-
-function bucket(): Bucket {
-  if (configured?.kind !== "bucket") {
-    throw new Error("No real GCS bucket is configured; see `harness/gcs/README.md`");
-  }
-
-  return configured;
+function bucket(): GcsBucket {
+  return bucketOrFail(scheduled);
 }
 
-/** Under the configured resolvers, so that every test shares the tokens they keep. */
 function storage(): GcsSigningStorage {
-  const { options, signer } = bucket();
-
-  return gcsStorage({ ...options, signer });
+  return bucketStorage(bucket());
 }
 
 async function refusalOf(pending: Promise<unknown>): Promise<StorageError> {
