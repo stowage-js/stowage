@@ -12,7 +12,7 @@ npm install @stowage/core
 ## Example
 
 A function written against `Storage` runs against every adapter: `memoryStorage()` in a test,
-`fsStorage()` on a laptop, `s3Storage()` or `azureBlobStorage()` in production.
+`fsStorage()` on a laptop, `s3Storage()`, `azureBlobStorage()` or `gcsStorage()` in production.
 
 ```ts
 import { isStorageError, type Storage } from "@stowage/core";

@@ -158,9 +158,9 @@ A failed result carries the error as `name`, `message`, `stack` and, for a `Stor
 ## Read an adapter
 
 [`@stowage/adapter-memory`](https://github.com/stowage-js/stowage/tree/@stowage/adapter-memory@0.2.0/packages/adapter-memory/src)
-is the implementation a third-party adapter is read against, out of the four adapters of this
+is the implementation a third-party adapter is read against, out of the five adapters of this
 repository that pass these cases: `@stowage/adapter-memory`, `@stowage/adapter-fs`,
-`@stowage/adapter-s3` and `@stowage/adapter-azure-blob`. It enforces the key rule exactly,
+`@stowage/adapter-s3`, `@stowage/adapter-azure-blob` and `@stowage/adapter-gcs`. It enforces the key rule exactly,
 declares four of the five capabilities, and has no network in the way. The cases themselves are
 written against the behavior of S3, not against it.
 
