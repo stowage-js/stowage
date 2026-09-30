@@ -8,6 +8,7 @@ import { env } from "node:process";
 import { createInterface } from "node:readline";
 import { Readable } from "node:stream";
 import { text } from "node:stream/consumers";
+import { setTimeout } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 import { build } from "tsdown";
@@ -49,28 +50,33 @@ export async function describeWorkerd(framework: ConformanceFramework): Promise<
 
   const measuringAzureBlob = configuredAzureBlob !== undefined && scheduledAgainstAccount(env);
   const measuringGcs = configuredGcs?.kind === "bucket" && scheduledAgainstBucket(env);
+  // Without `--verbose`, `workerd` keeps to itself the internal errors that close a connection
+  // unanswered, and the job against the bucket is where one closed (#258).
+  const verbose = configuredGcs?.kind === "bucket";
 
   const { core, memory, s3, azureBlob, gcs, probes, flowOne } = await withWorkerd(
+    { verbose },
     async (workerd) => {
       const { origins } = workerd;
 
       return {
         core: await answerOf<readonly CoreCheckResult[]>(origins.harness, "core"),
-        memory: await resultsOf(origins.harness, "adapter-memory"),
-        s3: configured === undefined ? undefined : await resultsOf(origins.harness, "adapter-s3"),
+        memory: await resultsOf(workerd, "harness", "adapter-memory"),
+        s3:
+          configured === undefined ? undefined : await resultsOf(workerd, "harness", "adapter-s3"),
         azureBlob:
           configuredAzureBlob === undefined
             ? undefined
             : {
-                harness: await resultsOf(origins.harness, "adapter-azure-blob"),
-                defaults: await resultsOf(origins.defaults, "adapter-azure-blob"),
+                harness: await resultsOf(workerd, "harness", "adapter-azure-blob"),
+                defaults: await resultsOf(workerd, "defaults", "adapter-azure-blob"),
               },
         gcs:
           configuredGcs === undefined
             ? undefined
             : {
-                harness: await resultsOf(origins.harness, "adapter-gcs"),
-                defaults: await resultsOf(origins.defaults, "adapter-gcs"),
+                harness: await resultsOf(workerd, "harness", "adapter-gcs"),
+                defaults: await resultsOf(workerd, "defaults", "adapter-gcs"),
               },
         probes: {
           harness: await probesOf(origins.harness),
@@ -138,6 +144,8 @@ export interface Measurement {
 interface Workerd {
   readonly origins: Record<Socket, string>;
   readonly pid: number | undefined;
+  /** Whether `workerd` still runs, or how it ended, for a failure to name. */
+  readonly state: () => Promise<string>;
 }
 
 /**
@@ -154,7 +162,8 @@ async function measureFlowOne(
   const cpuBefore = await cpuSecondsOf(workerd.pid);
   const started = performance.now();
   const [result] = await resultsOf(
-    workerd.origins.harness,
+    workerd,
+    "harness",
     `${adapter}?case=${encodeURIComponent("flow/1-large-upload")}`,
   );
   const seconds = (performance.now() - started) / 1000;
@@ -212,6 +221,12 @@ const sockets = ["harness", "defaults"] as const;
 
 export type Socket = (typeof sockets)[number];
 
+/** The flags each socket runs the worker at, as a failure names them. */
+const socketFlags: Record<Socket, string> = {
+  harness: "the flags of spec 1",
+  defaults: "the default flags",
+};
+
 /** What one worker answers about itself beside the cases. */
 export interface Probes {
   readonly nodeApi: NodeApiReach;
@@ -251,12 +266,16 @@ async function placeTrustedCertificate(): Promise<void> {
   }
 }
 
-async function withWorkerd<T>(use: (workerd: Workerd) => Promise<T>): Promise<T> {
+async function withWorkerd<T>(
+  { verbose }: { readonly verbose: boolean },
+  use: (workerd: Workerd) => Promise<T>,
+): Promise<T> {
   // The package hands out the path of the binary built for this machine as its default
   // export.
   const workerd: { readonly default: string } = createRequire(import.meta.url)("workerd");
+  const flags = verbose ? ["--verbose"] : [];
 
-  const child = spawn(workerd.default, ["serve", "workerd.capnp", "--control-fd=3"], {
+  const child = spawn(workerd.default, ["serve", "workerd.capnp", "--control-fd=3", ...flags], {
     cwd: harnessDirectory,
     stdio: ["ignore", "inherit", "inherit", "pipe"],
   });
@@ -271,11 +290,24 @@ async function withWorkerd<T>(use: (workerd: Workerd) => Promise<T>): Promise<T>
         defaults: `http://127.0.0.1:${ports.defaults}`,
       },
       pid: child.pid,
+      state: async () => {
+        // A crash closes the connection and ends the process as two events, in either order.
+        await Promise.race([exited, setTimeout(1000)]);
+
+        return stateOf(child);
+      },
     });
   } finally {
     child.kill();
     await exited;
   }
+}
+
+function stateOf(child: ChildProcess): string {
+  if (child.signalCode !== null) return `\`workerd\` ended by ${child.signalCode}`;
+  if (child.exitCode !== null) return `\`workerd\` ended with exit code ${child.exitCode}`;
+
+  return "`workerd` still running";
 }
 
 /** The ports `workerd` reports on the control descriptor once both sockets listen. */
@@ -319,19 +351,30 @@ function isSocket(value: unknown): value is Socket {
  * Node's `fetch` gives up on a response whose headers take five minutes, which a run
  * against a real bucket outlasts.
  */
-async function resultsOf(origin: string, path: string): Promise<readonly ConformanceResult[]> {
+async function resultsOf(
+  workerd: Workerd,
+  socket: Socket,
+  path: string,
+): Promise<readonly ConformanceResult[]> {
   const started = performance.now();
-  // A connection `workerd` drops says nothing of which run it carried.
-  const lost = (failure: unknown): Error =>
-    new Error(
-      `The request for ${path} at ${origin} failed after ${((performance.now() - started) / 1000).toFixed(1)} s: ${failure instanceof Error ? failure.message : String(failure)}`,
+  // A connection `workerd` drops says nothing of which run it carried, nor whether `workerd`
+  // went down with it.
+  const lost = async (failure: unknown): Promise<Error> => {
+    const seconds = ((performance.now() - started) / 1000).toFixed(1);
+    const reason = failure instanceof Error ? failure.message : String(failure);
+
+    return new Error(
+      `The request for ${path} at ${socketFlags[socket]} failed after ${seconds} s (${await workerd.state()}): ${reason}`,
       { cause: failure },
     );
+  };
   const response = await new Promise<IncomingMessage>((resolve, reject) => {
-    get(`${origin}/${path}`, resolve).on("error", (failure) => reject(lost(failure)));
+    get(`${workerd.origins[socket]}/${path}`, resolve).on("error", (failure) => {
+      void lost(failure).then(reject);
+    });
   });
-  const body = await text(response).catch((failure: unknown) => {
-    throw lost(failure);
+  const body = await text(response).catch(async (failure: unknown) => {
+    throw await lost(failure);
   });
 
   if (response.statusCode !== 200) {
