@@ -15,6 +15,7 @@ import { isRefusedToken, readErrorBody } from "../../../packages/adapter-gcs/src
 import { objectPath, pinnedTo, send } from "../../../packages/adapter-gcs/src/request.ts";
 import {
   isStorageError,
+  isTransientStatus,
   type ResolverOptions,
   type StorageError,
 } from "../../../packages/core/src/index.ts";
@@ -164,9 +165,10 @@ interface ExpiredAnswer {
 }
 
 /**
- * The first answer to the object's resource under `token` that is not `200`, or the last one
- * once the bucket accepted the token for `acceptedPastExpiry`. The request is `fetch`'s own,
- * since the adapter would repeat it under a fresh token and hide the answer.
+ * The first answer to the object's resource under `token` that is neither `200` nor
+ * transient, or the last one once the bucket kept answering so for `acceptedPastExpiry`. The
+ * request is `fetch`'s own, since the adapter would repeat it under a fresh token and hide the
+ * answer.
  */
 async function answerPastExpiry(key: string, token: ExpiringToken): Promise<ExpiredAnswer> {
   const response = await fetch(`${configuration().origin}${objectPath(configuration(), key)}`, {
@@ -175,7 +177,10 @@ async function answerPastExpiry(key: string, token: ExpiringToken): Promise<Expi
   const body = readErrorBody(await response.text());
   const pastExpiry = (Date.now() - token.expiresAt) / 1000;
 
-  if (response.ok && Date.now() < token.expiresAt + acceptedPastExpiry) {
+  if (
+    (response.ok || isTransientStatus(response.status)) &&
+    Date.now() < token.expiresAt + acceptedPastExpiry
+  ) {
     await new Promise<void>((resolve) => void setTimeout(resolve, askingEvery));
 
     return await answerPastExpiry(key, token);
