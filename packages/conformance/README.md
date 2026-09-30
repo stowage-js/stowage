@@ -160,9 +160,9 @@ A failed result carries the error as `name`, `message`, `stack` and, for a `Stor
 [`@stowage/adapter-memory`](https://github.com/stowage-js/stowage/tree/@stowage/adapter-memory@0.3.0/packages/adapter-memory/src)
 is the implementation a third-party adapter is read against, out of the five adapters of this
 repository that pass these cases: `@stowage/adapter-memory`, `@stowage/adapter-fs`,
-`@stowage/adapter-s3`, `@stowage/adapter-azure-blob` and `@stowage/adapter-gcs`. It enforces the key rule exactly,
-declares four of the five capabilities, and has no network in the way. The cases themselves are
-written against the behavior of S3, not against it.
+`@stowage/adapter-s3`, `@stowage/adapter-azure-blob` and `@stowage/adapter-gcs`. It enforces the
+key rule exactly, declares four of the five capabilities, and has no network in the way. The cases
+themselves are written against the behavior of S3, not against it.
 
 What the suite leaves to an adapter's own tests, such as flat memory during a large upload or the
 retry curve, is listed in
