@@ -112,11 +112,11 @@ describe.skipIf(scheduled === undefined)("adapter-gcs against the bucket", () =>
     const missing = gcsStorage({ ...bucket().options, bucket: `stowage-missing-${randomUUID()}` });
     const key = `${prefix}in-a-missing-bucket`;
 
-    const deleted = await refusalOf(missing.delete(key));
-    const existed = await refusalOf(missing.exists(key));
+    const deleted = await rejectionOf(missing.delete(key));
+    const existed = await rejectionOf(missing.exists(key));
 
-    expect(described(deleted)).toEqual({ code: "NotFound", status: 404, key: undefined });
-    expect(described(existed)).toEqual({ code: "NotFound", status: 404, key: undefined });
+    expect(codeStatusAndKeyOf(deleted)).toEqual({ code: "NotFound", status: 404, key: undefined });
+    expect(codeStatusAndKeyOf(existed)).toEqual({ code: "NotFound", status: 404, key: undefined });
   });
 
   // The suite's presign cases sign keys that need no encoding; spec 9.4 encodes a key segment
@@ -156,7 +156,7 @@ function storage(): GcsSigningStorage {
   return bucketStorage(bucket());
 }
 
-async function refusalOf(pending: Promise<unknown>): Promise<StorageError> {
+async function rejectionOf(pending: Promise<unknown>): Promise<StorageError> {
   let resolved: unknown;
 
   try {
@@ -170,6 +170,6 @@ async function refusalOf(pending: Promise<unknown>): Promise<StorageError> {
   throw new Error(`Expected a rejection, and the call resolved with ${JSON.stringify(resolved)}`);
 }
 
-function described(failure: StorageError): Pick<StorageError, "code" | "status" | "key"> {
+function codeStatusAndKeyOf(failure: StorageError): Pick<StorageError, "code" | "status" | "key"> {
   return { code: failure.code, status: failure.status, key: failure.key };
 }

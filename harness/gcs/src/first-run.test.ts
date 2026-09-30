@@ -232,11 +232,11 @@ async function pinnedAnswer(
   } catch (thrown) {
     if (!isStorageError(thrown)) throw thrown;
 
-    return refusalOf(thrown);
+    return describedRefusal(thrown);
   }
 }
 
-function refusalOf(failure: StorageError): string {
+function describedRefusal(failure: StorageError): string {
   const code = failure.providerCode === undefined ? "" : ` \`${failure.providerCode}\``;
 
   return `\`${failure.code}\`, ${failure.status}${code}`;
