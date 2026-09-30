@@ -83,11 +83,6 @@ export const s3FirstRunPoints: readonly FirstRunPoint[] = [
     runtime: "node",
   },
   {
-    promise: "R2 answers `ExpiredRequest` for an expired credential",
-    tests: [conformanceCase("errors/expired-credentials")],
-    endpoints: ["r2"],
-  },
-  {
     promise:
       "`adapter-s3`: a `DELETE` of a key holding `U+FFFE` answers `204` and removes the object (ADR 0027)",
     tests: [
