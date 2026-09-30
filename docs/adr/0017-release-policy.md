@@ -90,3 +90,9 @@ the first time a month fills up is worse than no promise.
 - ADR 0028 amends the list of six things 1.0 waits for: in place of the four measured points, 1.0
   waits until section 14 of the spec holds no promise a real endpoint has not answered. The
   `raw` escape hatch and the author's own use stay.
+- ADR 0042 takes the `raw` escape hatch out of the list, so 1.0 waits for section 14 of the spec
+  and the author's own use alone. It adds a second exception to the rule that a change only the
+  compiler sees counts like a change in behavior: a member added to a concrete type an adapter's
+  factory returns is a minor release, before and after 1.0.
+- ADR 0043, ADR 0044 and ADR 0045 each withdraw a promise of a released adapter and name their
+  conflict with the rule that a withdrawal takes something from the caller.

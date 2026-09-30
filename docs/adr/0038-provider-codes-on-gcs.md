@@ -138,3 +138,6 @@ accepts on S3; `ifGenerationMatch` would need a generation the caller does not h
   open about it.
 - The README of the GCS adapter names as a limit that a cursor handed to a listing of another
   prefix yields an empty page.
+- ADR 0043 replaces the consequence that `adapter-s3` and `adapter-azure-blob` do not change: a
+  missing bucket rejects on every adapter, `NotFound` without `key` where the provider names it,
+  and spec 4.10 states one rule instead of one per adapter. The rest of this decision stands.
