@@ -36,6 +36,7 @@ const refusingFields = (code: StorageErrorCode, attempts: number): StubStorageFi
     stat: async () => refuse("stat"),
     exists: async () => refuse("exists"),
     copy: async () => refuse("copy"),
+    delete: async () => refuse("delete"),
     list: (): ObjectListing => ({
       page: async () => refuse("list"),
       // oxlint-disable-next-line require-yield -- the refusal arrives before the first entry
@@ -124,6 +125,68 @@ test("`errors/expired-credentials` reads the second attempt spec 7.3 has the ref
       stubStorage(refusingFields("Expired", 1)),
     ),
   ).rejects.toThrow("`attempts: 1` rather than 2");
+});
+
+test("`errors/missing-bucket` holds against a provider that names the bucket as missing", async () => {
+  await expect(
+    runAgainst(
+      "errors/missing-bucket",
+      "createStorageWithMissingBucket",
+      stubStorage(refusingFields("NotFound", 1)),
+    ),
+  ).resolves.toBe("declared");
+});
+
+// ADR 0043: R2 answers a bucket its token is not scoped to, missing or not, with `403`, and
+// the rule holds there as long as nothing reads like an absent object.
+test("`errors/missing-bucket` holds against a provider that refuses rather than names the bucket", async () => {
+  await expect(
+    runAgainst(
+      "errors/missing-bucket",
+      "createStorageWithMissingBucket",
+      stubStorage(refusingFields("AccessDenied", 1)),
+    ),
+  ).resolves.toBe("declared");
+});
+
+test("`errors/missing-bucket` refuses a `NotFound` that names the key", async () => {
+  const namingTheKey = stubStorage({
+    ...refusingFields("NotFound", 1),
+    stat: async (key) => {
+      throw new StorageError({
+        code: "NotFound",
+        message: "No object under the key",
+        operation: "stat",
+        key,
+        bucket: "stub",
+        provider: "stub",
+        attempts: 1,
+      });
+    },
+  });
+
+  await expect(
+    runAgainst("errors/missing-bucket", "createStorageWithMissingBucket", namingTheKey),
+  ).rejects.toThrow("`stat` in a missing bucket is `NotFound` naming the key");
+});
+
+test("`errors/missing-bucket` refuses an `exists` that answers `false`", async () => {
+  const answering = stubStorage({ ...refusingFields("NotFound", 1), exists: async () => false });
+
+  await expect(
+    runAgainst("errors/missing-bucket", "createStorageWithMissingBucket", answering),
+  ).rejects.toThrow("`exists` in a missing bucket, and the call resolved");
+});
+
+test("`errors/missing-bucket` refuses a `delete` that returns a report", async () => {
+  const reporting = stubStorage({
+    ...refusingFields("NotFound", 1),
+    delete: async (...keys) => ({ requested: keys.length, failed: [] }),
+  });
+
+  await expect(
+    runAgainst("errors/missing-bucket", "createStorageWithMissingBucket", reporting),
+  ).rejects.toThrow("`delete` in a missing bucket, and the call resolved");
 });
 
 const stored = (key: string): ObjectStat => ({

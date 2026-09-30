@@ -35,6 +35,8 @@ interface ProvokedFailure {
   provoke(): Promise<unknown>;
 }
 
+type MissingBucketFailure = Omit<ProvokedFailure, "operation">;
+
 export const errorCases: readonly ConformanceCaseSource[] = [
   {
     name: "errors/shape",
@@ -146,7 +148,72 @@ export const errorCases: readonly ConformanceCaseSource[] = [
       await expectStorageError(() => storage.get(key), { code: "Expired", attempts: 2 });
     },
   },
+  {
+    name: "errors/missing-bucket",
+    requires: [],
+    cost: "fast",
+    factory: "createStorageWithMissingBucket",
+    async run(ctx) {
+      const storage = await storageFrom(ctx, "createStorageWithMissingBucket");
+      const prefix = prefixFor(ctx, "errors/missing-bucket");
+      const key = `${prefix}object`;
+
+      for (const failure of missingBucketFailures(storage, prefix, key)) {
+        // oxlint-disable-next-line no-await-in-loop -- one storage, so the calls go in turn
+        const thrown = await expectAnyStorageError(
+          async () => await failure.provoke(),
+          failure.what,
+        );
+
+        // Spec 4.10 leaves the code to the provider, since one that cannot tell a missing
+        // bucket from a refused one answers `AccessDenied` (ADR 0043). What it rules out is
+        // a `NotFound` a caller reads as a missing object.
+        assert(
+          thrown.code !== "NotFound" || thrown.key === undefined,
+          `${failure.what} is \`NotFound\` naming the key ${JSON.stringify(thrown.key)}, which reads as a missing object and not as a missing bucket`,
+        );
+      }
+    },
+  },
 ];
+
+/**
+ * Spec 4.10: every operation against a missing bucket rejects. `exists` and `delete` are the
+ * two that would otherwise answer the way they answer for an absent object, with `false` and
+ * with a report.
+ */
+function missingBucketFailures(
+  storage: Storage,
+  prefix: string,
+  key: string,
+): readonly MissingBucketFailure[] {
+  return [
+    {
+      what: "`put` in a missing bucket",
+      provoke: async () => await storage.put(key, patternOf(16)),
+    },
+    {
+      what: "`get` in a missing bucket",
+      provoke: async () => await storage.get(key),
+    },
+    {
+      what: "`stat` in a missing bucket",
+      provoke: async () => await storage.stat(key),
+    },
+    {
+      what: "`exists` in a missing bucket",
+      provoke: async () => await storage.exists(key),
+    },
+    {
+      what: "`delete` in a missing bucket",
+      provoke: async () => await storage.delete(key),
+    },
+    {
+      what: "the first page of `list` in a missing bucket",
+      provoke: async () => await storage.list({ prefix }).page(),
+    },
+  ];
+}
 
 /**
  * One failure per code the parity core reaches without a capability or a credential of
@@ -226,7 +293,7 @@ function assertField(
   );
 }
 
-/** The storage of a credential factory, which spec 10.2 has kept the case out of a run without. */
+/** The storage of a factory of spec 10.3, which spec 10.2 has kept the case out of a run without. */
 async function storageFrom(
   ctx: ConformanceContext,
   factory: ConformanceFactoryName,
