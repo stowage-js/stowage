@@ -1,8 +1,11 @@
 import { env } from "node:process";
+import { gzipSync } from "node:zlib";
 
 import { afterAll, describe, expect, type TestContext, test } from "vitest";
 
+import { readConfiguration } from "../../../packages/adapter-azure-blob/src/configuration.ts";
 import { azureBlobStorage } from "../../../packages/adapter-azure-blob/src/index.ts";
+import { send } from "../../../packages/adapter-azure-blob/src/request.ts";
 import { isStorageError } from "../../../packages/core/src/index.ts";
 import { endpointNameFrom } from "./configuration.ts";
 import { configuredStorage, endpointOrFail, storageUnderAccountKey } from "./environment.ts";
@@ -240,6 +243,54 @@ describe.skipIf(underAccountKey === undefined || underAccessToken === undefined)
 
       expect(await storage.exists(from)).toBe(false);
       expect(await (await storage.get(to)).text()).toBe("moved under the account key");
+    });
+
+    // Spec 4.3 and ADR 0044: stowage cannot write such an object, so the harness sends a
+    // `Put Blob` of its own. It names the coding in `x-ms-blob-content-encoding`, as the Azure
+    // SDKs do: Azurite 3.37.0 stores no coding a `Content-Encoding` on `Put Blob` names. How
+    // long the whole body reads depends on whether the runtime's `fetch` decodes it.
+    test("a content-coded object takes no range and is read whole", async () => {
+      const configuration = readConfiguration(endpointOrFail(underAccessToken));
+      const storage = azureBlobStorage(endpointOrFail(underAccessToken));
+      const key = `${prefix}stored-gzipped.txt`;
+      const stored = gzipSync("x".repeat(1000));
+
+      await send(configuration, {
+        method: "PUT",
+        operation: "put",
+        key,
+        headers: [
+          ["x-ms-blob-type", "BlockBlob"],
+          ["x-ms-blob-content-encoding", "gzip"],
+        ],
+        body: new Uint8Array(stored),
+      });
+
+      await expect(storage.stat(key)).resolves.toMatchObject({ size: stored.length });
+
+      const whole = await storage.get(key);
+
+      expect(whole.stat.size).toBe(stored.length);
+      await expect(whole.bytes()).resolves.toBeInstanceOf(Uint8Array);
+
+      await Promise.all(
+        [{ start: 0 }, { start: 2, end: 5 }].map(async (range) => {
+          await expect(storage.get(key, { range })).rejects.toMatchObject({
+            code: "ProviderError",
+            message: expect.stringContaining('"gzip"'),
+          });
+        }),
+      );
+
+      // Azure's `416` names no coding, so a start at or beyond the stored bytes stays the
+      // refusal of spec 4.3 for every object.
+      await Promise.all(
+        [stored.length, stored.length + 1].map(async (start) => {
+          await expect(storage.get(key, { range: { start } })).rejects.toMatchObject({
+            code: "InvalidRequest",
+          });
+        }),
+      );
     });
 
     // ADR 0023: the presign cases run under the token, so the service SAS an account key
