@@ -26,7 +26,7 @@ for await (const entry of storage.list({ prefix: "reports/" })) {
 
 Node 24 and later, Bun and Deno, on Linux and macOS. `workerd` and Windows are not promised. CI last ran green on Bun 1.4.2 and Deno 2.9.6.
 
-The bundle measures 5.7 kB minified and gzipped, `@stowage/core` included.
+The bundle measures 6.5 kB minified and gzipped, `@stowage/core` included.
 
 ## Limits
 
