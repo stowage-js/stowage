@@ -1,6 +1,8 @@
 import type { GcsAdapterOptions, GcsSigner } from "../../../packages/adapter-gcs/src/index.ts";
 import type { Variables } from "../../s3/src/configuration.ts";
 import { unsetVariablesResolver } from "../../targets/src/federation.ts";
+import { runOptionsFrom } from "../../targets/src/run-options.ts";
+import { gcsBucket } from "./divergences.ts";
 import {
   type ExpiringToken,
   type WorkloadIdentityFederation,
@@ -113,6 +115,16 @@ function federationFrom(variables: Variables): WorkloadIdentityFederation {
   }
 
   return workloadIdentityFederation({ provider, idTokenRequestUrl, idTokenRequestToken });
+}
+
+/**
+ * The scheduled run's job against the real bucket, which alone runs the tests the suite does
+ * not assert (spec 10.4) and the probes of spec 14.
+ */
+export function scheduledAgainstBucket(variables: Variables): boolean {
+  return (
+    runOptionsFrom(variables).includeSlow === true && endpointNameFrom(variables) === gcsBucket
+  );
 }
 
 /** Which server answers, for the harness alone: no case reads it (ADR 0012). */

@@ -2,7 +2,7 @@ import { afterEach, expect, test, vi } from "vitest";
 
 import type { GcsAdapterOptions } from "../../../packages/adapter-gcs/src/index.ts";
 import type { ResolverOptions } from "../../../packages/core/src/index.ts";
-import { endpointNameFrom, gcsEndpointFrom } from "./configuration.ts";
+import { endpointNameFrom, gcsEndpointFrom, scheduledAgainstBucket } from "./configuration.ts";
 
 /** What the adapter reads before a request goes out. */
 async function resolve(
@@ -35,6 +35,9 @@ const scheduled = {
   ACTIONS_ID_TOKEN_REQUEST_URL: "https://pipelines.actions.githubusercontent.com/abc/idtoken",
   ACTIONS_ID_TOKEN_REQUEST_TOKEN: "runtime-request-token",
 };
+
+/** What `conformance-full.yml` sets for every job it runs. */
+const bothTiers = { STOWAGE_CONFORMANCE_INCLUDE_SLOW: "true" };
 
 /**
  * The Actions runtime, STS and IAM Credentials, where IAM Credentials names the service
@@ -199,6 +202,14 @@ test("a job lacking the federation's variables is told where the expiring token 
   await expect(endpoint.expiringToken(60)).rejects.toThrow(
     "`STOWAGE_GCS_SERVICE_ACCOUNT` is set, and `ACTIONS_ID_TOKEN_REQUEST_URL` is not",
   );
+});
+
+test.each([
+  ["the job against the bucket asking for both tiers", { ...scheduled, ...bothTiers }, true],
+  ["the job against the bucket asking for the fast tier", scheduled, false],
+  ["a run against fake-gcs-server", { ...printed, ...bothTiers }, false],
+])("%s is scheduled against the bucket: %s", (_, variables, expected) => {
+  expect(scheduledAgainstBucket(variables)).toBe(expected);
 });
 
 test("the endpoint name is what the job or `start.sh` names", () => {
