@@ -1,32 +1,27 @@
 import { isStorageError, type StorageError } from "@stowage/core";
 
 import type { S3Configuration } from "./configuration.ts";
-import { send } from "./request.ts";
+import { type S3Request, send } from "./request.ts";
 
-export interface HeadRequest {
-  readonly operation: string;
-  readonly key: string;
-  readonly signal?: AbortSignal;
-}
+export type HeadRequest = Pick<S3Request, "operation" | "signal"> & { readonly key: string };
 
 /**
  * Spec 7.9: AWS answers a `HEAD` in a missing bucket with the `404` it answers for an absent
  * key, and a `HEAD` carries no body to tell the two apart. A `GET` of the same key's first
- * byte does, needing the `s3:GetObject` the `HEAD` needed. Only `NoSuchBucket` is an answer:
- * a success or a `416` means a writer created the object in between, and a compatible
- * endpoint may name no code at all, so either leaves the `HEAD`'s answer standing (ADR 0043).
+ * byte does, needing the `s3:GetObject` the `HEAD` needed. Only a missing bucket is an
+ * answer: a success or a `416` means a writer created the object in between, and a
+ * compatible endpoint may name no code at all, so either leaves the `HEAD`'s answer
+ * standing (ADR 0043).
  */
-export async function missingBucketBehind(
+export async function probeMissingBucket(
   configuration: S3Configuration,
   request: HeadRequest,
 ): Promise<StorageError | undefined> {
   try {
     const response = await send(configuration, {
+      ...request,
       method: "GET",
-      operation: request.operation,
-      key: request.key,
       headers: [["range", "bytes=0-0"]],
-      signal: request.signal,
     });
 
     await response.body?.cancel();
@@ -36,6 +31,11 @@ export async function missingBucketBehind(
     // Spec 4.10: the caller's abort travels on as the runtime's `AbortError`.
     if (!isStorageError(failure)) throw failure;
 
-    return failure.providerCode === "NoSuchBucket" ? failure : undefined;
+    return isMissingBucket(failure) ? failure : undefined;
   }
+}
+
+/** Spec 4.10: `NotFound` without `key` is a missing bucket, with it a missing object. */
+export function isMissingBucket(failure: StorageError): boolean {
+  return failure.code === "NotFound" && failure.key === undefined;
 }

@@ -21,7 +21,7 @@ import { deleteBelow, deleteKeys } from "./delete.ts";
 import { defaultContentType, describeResponse } from "./description.ts";
 import { requireKey } from "./key.ts";
 import { createListing } from "./listing.ts";
-import { type HeadRequest, missingBucketBehind } from "./missing-bucket.ts";
+import { type HeadRequest, probeMissingBucket } from "./missing-bucket.ts";
 import {
   presignGet,
   presignPut,
@@ -248,7 +248,7 @@ class SimpleStorageServiceStorage implements S3Storage {
       return await send(this.#configuration, { method: "HEAD", ...request });
     } catch (failure) {
       if (isStorageError(failure) && failure.status === notFound) {
-        throw (await missingBucketBehind(this.#configuration, request)) ?? failure;
+        throw (await probeMissingBucket(this.#configuration, request)) ?? failure;
       }
 
       throw failure;

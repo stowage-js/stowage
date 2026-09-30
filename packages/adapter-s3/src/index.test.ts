@@ -452,7 +452,9 @@ test("`exists` answers `false` for a missing key and rethrows every other failur
   );
 });
 
-const missingBucket = () => refused(404, "NoSuchBucket", "The specified bucket does not exist");
+function missingBucket(): Response {
+  return refused(404, "NoSuchBucket", "The specified bucket does not exist");
+}
 
 // Spec 4.10: a missing bucket is `NotFound` without `key`, which no caller reads as a
 // missing object (ADR 0043).
