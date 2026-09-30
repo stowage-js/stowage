@@ -12,7 +12,7 @@ npm install @stowage/core
 ## Example
 
 A function written against `Storage` runs against every adapter: `memoryStorage()` in a test,
-`fsStorage()` on a laptop, `s3Storage()` or `azureBlobStorage()` in production.
+`fsStorage()` on a laptop, `s3Storage()`, `azureBlobStorage()` or `gcsStorage()` in production.
 
 ```ts
 import { isStorageError, type Storage } from "@stowage/core";
@@ -34,21 +34,21 @@ export async function readSettings(storage: Storage): Promise<unknown> {
 
 Node 24 and later, Bun, Deno and `workerd` at the compatibility date `2026-09-01` without Node APIs. CI last ran green on Bun 1.4.2 and Deno 2.9.6.
 
-The bundle measures 3.3 kB minified and gzipped.
+The bundle measures 5.9 kB minified and gzipped.
 
 ## Limits
 
 This section is empty. `@stowage/core` declares no capability; each storage declares its own, out
-of the five names of [spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/core@0.2.0/docs/spec.md#49-capabilities).
+of the five names of [spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/core@0.3.0/docs/spec.md#49-capabilities).
 
 ## Notes
 
 A failure reaches the caller in one of two shapes: a `StorageError`, which `isStorageError` tells
 apart, or the runtime's `AbortError` once a signal fired
-([spec 4.10](https://github.com/stowage-js/stowage/blob/@stowage/core@0.2.0/docs/spec.md#410-errors)).
+([spec 4.10](https://github.com/stowage-js/stowage/blob/@stowage/core@0.3.0/docs/spec.md#410-errors)).
 A name added to `StorageErrorCode` or `capabilityNames` is a minor release, so a `switch` over
 either needs a default branch
-([spec 10](https://github.com/stowage-js/stowage/blob/@stowage/core@0.2.0/docs/spec.md#10-versions)).
+([spec 11](https://github.com/stowage-js/stowage/blob/@stowage/core@0.3.0/docs/spec.md#11-versions)).
 
 ```ts
 import { isStorageError } from "@stowage/core";
@@ -72,7 +72,7 @@ export function describeFailure(failure: unknown): string {
 
 An adapter written outside this repository takes what two adapters here need on the wire from
 this package rather than writing it again
-([spec 4.13](https://github.com/stowage-js/stowage/blob/@stowage/core@0.2.0/docs/spec.md#413-exports-for-adapter-authors)):
+([spec 4.13](https://github.com/stowage-js/stowage/blob/@stowage/core@0.3.0/docs/spec.md#413-exports-for-adapter-authors)):
 
 - `invalidKeyReason` checks a key against its rule of spec 4.8, as the first act of every
   operation.
@@ -109,10 +109,10 @@ export function requireWritableKey(bucket: string, key: string): void {
 
 ## Specification
 
-[`docs/spec.md` at `@stowage/core@0.2.0`](https://github.com/stowage-js/stowage/blob/@stowage/core@0.2.0/docs/spec.md#4-the-core-api-stowagecore)
+[`docs/spec.md` at `@stowage/core@0.3.0`](https://github.com/stowage-js/stowage/blob/@stowage/core@0.3.0/docs/spec.md#4-the-core-api-stowagecore)
 is the contract: a caller may rely on what it states and on nothing else this package happens to
-export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/core@0.2.0/CONTEXT.md)
-and the [decisions behind it](https://github.com/stowage-js/stowage/tree/@stowage/core@0.2.0/docs/adr)
+export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/core@0.3.0/CONTEXT.md)
+and the [decisions behind it](https://github.com/stowage-js/stowage/tree/@stowage/core@0.3.0/docs/adr)
 are at the same tag.
 
 ## License

@@ -47,26 +47,26 @@ for (const storage of [aws, r2]) {
 
 The bucket has to allow `UNSIGNED-PAYLOAD` and carry a CORS rule for the uploading origin; stowage
 configures neither
-([flow 2](https://github.com/stowage-js/stowage/blob/@stowage/adapter-s3@0.2.0/docs/spec.md#flow-2-browser-upload-through-a-presigned-put)).
+([flow 2](https://github.com/stowage-js/stowage/blob/@stowage/adapter-s3@0.3.0/docs/spec.md#flow-2-browser-upload-through-a-presigned-put)).
 
 ## Runtimes
 
 Node 24 and later, Bun, Deno and `workerd` at the compatibility date `2026-09-01` without Node APIs. `fromEnv` reads
 the environment on `workerd` under `nodejs_compat` and on Deno under `--allow-env`. CI last ran green on Bun 1.4.2 and Deno 2.9.6.
 
-The bundle measures 13.9 kB minified and gzipped, `@stowage/core` included.
+The bundle measures 14.3 kB minified and gzipped, `@stowage/core` included.
 
 ## Limits
 
 - `keyBytesPreserved` is not declared
-  ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-s3@0.2.0/docs/spec.md#49-capabilities)).
+  ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-s3@0.3.0/docs/spec.md#49-capabilities)).
   R2 normalizes a key to NFC, so two Unicode-equivalent keys name one object there and two on AWS
   S3.
 - `delete` sends at most one `DeleteObjects` per 1000 keys, plus at most one `DELETE` per key
   holding `U+FFFE` or `U+FFFF`, which XML carries neither raw nor as a reference
-  ([spec 7.1](https://github.com/stowage-js/stowage/blob/@stowage/adapter-s3@0.2.0/docs/spec.md#71-construction)).
+  ([spec 7.1](https://github.com/stowage-js/stowage/blob/@stowage/adapter-s3@0.3.0/docs/spec.md#71-construction)).
 - Where AWS S3 and R2 answer differently, the adapter is written to the stricter side
-  ([spec 7.2](https://github.com/stowage-js/stowage/blob/@stowage/adapter-s3@0.2.0/docs/spec.md#72-promised-providers)):
+  ([spec 7.2](https://github.com/stowage-js/stowage/blob/@stowage/adapter-s3@0.3.0/docs/spec.md#72-promised-providers)):
 
 | Point                              | What holds                                                                                                               |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
@@ -84,7 +84,7 @@ The bundle measures 13.9 kB minified and gzipped, `@stowage/core` included.
 ## Notes
 
 No package takes a connection URL
-([spec 7.3](https://github.com/stowage-js/stowage/blob/@stowage/adapter-s3@0.2.0/docs/spec.md#73-credentials)).
+([spec 7.3](https://github.com/stowage-js/stowage/blob/@stowage/adapter-s3@0.3.0/docs/spec.md#73-credentials)).
 A caller holding one splits it into the four options. `credentials: fromEnv` keeps the secret out of
 the URL; one that stays in it has to be percent-encoded, because a `/` in the secret makes
 `new URL` throw.
@@ -113,7 +113,7 @@ export function s3StorageFromUrl(connection: string): S3Storage {
 ```
 
 `put` takes no `Blob`. A caller holding one passes its stream
-([spec 4.2](https://github.com/stowage-js/stowage/blob/@stowage/adapter-s3@0.2.0/docs/spec.md#42-bodies)):
+([spec 4.2](https://github.com/stowage-js/stowage/blob/@stowage/adapter-s3@0.3.0/docs/spec.md#42-bodies)):
 
 ```ts
 import { fromEnv, s3Storage } from "@stowage/adapter-s3";
@@ -125,7 +125,7 @@ await storage.put("reports/2026/q3.csv", blob.stream(), { contentType: blob.type
 ```
 
 stowage reports no progress, no upload id and no resume
-([spec 7.6](https://github.com/stowage-js/stowage/blob/@stowage/adapter-s3@0.2.0/docs/spec.md#76-uploads)).
+([spec 7.6](https://github.com/stowage-js/stowage/blob/@stowage/adapter-s3@0.3.0/docs/spec.md#76-uploads)).
 A caller who wants progress counts the bytes on their way into `put`:
 
 ```ts
@@ -156,10 +156,10 @@ await storage.put("videos/intro.mp4", response.body.pipeThrough(countBytes(conso
 
 ## Specification
 
-[`docs/spec.md` at `@stowage/adapter-s3@0.2.0`](https://github.com/stowage-js/stowage/blob/@stowage/adapter-s3@0.2.0/docs/spec.md#7-stowageadapter-s3)
+[`docs/spec.md` at `@stowage/adapter-s3@0.3.0`](https://github.com/stowage-js/stowage/blob/@stowage/adapter-s3@0.3.0/docs/spec.md#7-stowageadapter-s3)
 is the contract: a caller may rely on what it states and on nothing else this package happens to
-export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/adapter-s3@0.2.0/CONTEXT.md)
-and the [decisions behind it](https://github.com/stowage-js/stowage/tree/@stowage/adapter-s3@0.2.0/docs/adr)
+export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/adapter-s3@0.3.0/CONTEXT.md)
+and the [decisions behind it](https://github.com/stowage-js/stowage/tree/@stowage/adapter-s3@0.3.0/docs/adr)
 are at the same tag.
 
 ## License

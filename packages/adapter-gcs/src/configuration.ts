@@ -4,14 +4,36 @@ import type { GcsCredentials } from "./credentials.ts";
 import { optionError as refuseOption, requireKnownOptions } from "./options.ts";
 
 /**
- * Whoever signs the storage's presigned URLs, as the service account named here: with a
- * key of the caller's own, or through `signBlob` under a token of the signer's own. It is
- * not `Resolvable` as a whole, since it decides whether the storage declares
- * `presignedUrls`; what it holds is resolved on every call.
+ * Whoever signs the storage's presigned URLs, as the service account named here, in one of
+ * two forms told apart by the field present. It is not `Resolvable` as a whole, since it
+ * decides whether the storage declares `presignedUrls`; what it holds is resolved on every
+ * call and cached nowhere. Checked at construction: a non-empty `serviceAccount` and
+ * exactly one of `privateKey` and `credentials`; a violation is `InvalidOption`.
  */
 export type GcsSigner =
-  | { serviceAccount: string; privateKey: Resolvable<string | CryptoKey> }
-  | { serviceAccount: string; credentials: Resolvable<GcsCredentials> };
+  | {
+      /** The email of the service account the URL is signed as. */
+      serviceAccount: string;
+      /**
+       * The service account's key, which signs locally with Web Crypto and sends no
+       * request: a PKCS#8 PEM, as the key file's `private_key` holds it, or an RSA
+       * `CryptoKey` able to sign. Anything else is `InvalidCredentials` naming
+       * `privateKey`. A URL it signed works until it expires or the key is deleted.
+       */
+      privateKey: Resolvable<string | CryptoKey>;
+    }
+  | {
+      /** The email of the service account the URL is signed as. */
+      serviceAccount: string;
+      /**
+       * A token of the signer's own, under which each URL costs one `signBlob` request to
+       * the IAM Credentials API. It needs the scope `iam` or `cloud-platform`, which the
+       * storage's `devstorage.read_write` token lacks, and its principal needs
+       * `iam.serviceAccounts.signBlob` on the service account. A URL it signed may stop
+       * working 12 hours after signing, whatever `expiresIn` asked for.
+       */
+      credentials: Resolvable<GcsCredentials>;
+    };
 
 export interface GcsAdapterOptions {
   bucket: string;
@@ -23,10 +45,16 @@ export interface GcsAdapterOptions {
    */
   endpoint?: string;
   credentials: Resolvable<GcsCredentials>;
+  /**
+   * Given, the storage declares `presignedUrls` and carries `presignGet` and `presignPut`;
+   * absent, it carries neither.
+   */
   signer?: GcsSigner;
   /**
    * How often one HTTP request is attempted while its failure is transient: a response of
-   * `408`, `429` or `5xx`, or none at all. `false` sends one attempt.
+   * `408`, `429` or `5xx`, or none at all. `false` sends one attempt, and does not switch
+   * off the one repeat with a fresh access token after the provider answered `401` with
+   * `error=invalid_token`.
    */
   retry?:
     | false
@@ -34,12 +62,17 @@ export interface GcsAdapterOptions {
         /** 1 to 3, and 3 where absent. Outside that range it is `InvalidOption`. */
         maxAttempts?: number;
       };
-  /** How a stream that fills more than one part is uploaded: as one resumable session. */
+  /**
+   * How a stream that fills more than one part is uploaded: as one resumable session, its
+   * parts sent as chunks one after another. A stream that ends within one part goes as a
+   * single request.
+   */
   multipart?: {
     /**
      * Bytes per part, a multiple of 256 KiB from 256 KiB to 5 GiB, and 8 MiB where absent.
-     * Anything else is `InvalidOption`. The chunks go one after another, so there is no
-     * `concurrency`.
+     * Anything else is `InvalidOption` and is not clamped: GCS takes a chunk other than the
+     * last in multiples of 256 KiB alone. The chunks go one after another, so there is no
+     * `concurrency`, and a streamed `put` holds one part in memory.
      */
     partSize?: number;
   };

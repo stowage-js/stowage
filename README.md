@@ -47,9 +47,10 @@ await storage.delete("notes/hello.txt");
 | [`@stowage/adapter-fs`](packages/adapter-fs)                 | A storage rooted in one directory of the local file system      |
 | [`@stowage/adapter-s3`](packages/adapter-s3)                 | A storage in one bucket of AWS S3 or Cloudflare R2              |
 | [`@stowage/adapter-azure-blob`](packages/adapter-azure-blob) | A storage in one container of an Azure Blob Storage account     |
+| [`@stowage/adapter-gcs`](packages/adapter-gcs)               | A storage in one bucket of Google Cloud Storage                 |
 | [`@stowage/conformance`](packages/conformance)               | The cases every adapter has to pass                             |
 
-The six packages carry one version number and are released together. Which package runs where is
+The seven packages carry one version number and are released together. Which package runs where is
 the [runtime matrix](docs/spec.md#2-runtime-matrix).
 
 ## A large upload from a server
