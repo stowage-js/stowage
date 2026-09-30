@@ -1,0 +1,188 @@
+import { randomUUID } from "node:crypto";
+import { env } from "node:process";
+
+import { afterAll, describe, expect, test } from "vitest";
+
+import { type GcsSigningStorage, gcsStorage } from "../../../packages/adapter-gcs/src/index.ts";
+import { isStorageError, type StorageError } from "../../../packages/core/src/index.ts";
+import { type GcsEndpoint, scheduledAgainstBucket } from "./configuration.ts";
+import { configuredEndpoint } from "./environment.ts";
+
+// Spec 10.4: promises of `adapter-gcs` that the suite does not assert and only the real
+// bucket shows. fake-gcs-server honors no response override, carries no CORS rule, checks no
+// signature and knows no bucket it was not asked to create (ADR 0034), so these run in the
+// scheduled job against the bucket alone.
+const configured = configuredEndpoint();
+const scheduled = scheduledAgainstBucket(env) && configured?.kind === "bucket";
+
+/** The one origin the bucket's CORS rule allows (ADR 0034). */
+const allowedOrigin = "https://conformance.stowage.invalid";
+
+/** Past the second the expired URL signs for, as `presign/expired-url` waits it out. */
+const pastTheLifetime = 2000;
+
+const prefix = `stowage-harness/${randomUUID()}/`;
+
+/** Characters a key may hold that a signed URL carries encoded, segment by segment (spec 9.4). */
+const encodedPrefix = `${prefix}a b#c?d%e+f'(g)*!/`;
+
+const utf8 = new TextEncoder();
+
+describe.skipIf(!scheduled)("adapter-gcs against the bucket", () => {
+  // The bucket's lifecycle rule removes what a run leaves after a day (ADR 0034), and a run
+  // leaves nothing where it can help it.
+  afterAll(async () => {
+    const report = await storage().deleteAll(prefix);
+
+    if (report.failed.length > 0) {
+      throw new AggregateError(report.failed, "Failed to clean up GCS test objects");
+    }
+  });
+
+  test("a presigned `GET` answers with the two response overrides", async () => {
+    const key = `${prefix}overrides.txt`;
+    const overrides = {
+      "content-type": "application/x-stowage-override",
+      "content-disposition": `attachment; filename="override.txt"; filename*=UTF-8''gr%C3%BC%C3%9Fe.txt`,
+    };
+
+    await storage().put(key, "the body the overrides describe", { contentType: "text/plain" });
+
+    const response = await fetch(
+      await storage().presignGet(key, {
+        expiresIn: 300,
+        responseContentType: overrides["content-type"],
+        responseContentDisposition: overrides["content-disposition"],
+      }),
+    );
+
+    await response.arrayBuffer();
+
+    // Each override beside the header it came back as, so that one ignored override reads
+    // as a failure of its own rather than as a status that looked fine.
+    expect({
+      status: response.status,
+      ...Object.fromEntries(
+        Object.keys(overrides).map((name) => [name, response.headers.get(name)]),
+      ),
+    }).toEqual({ status: 200, ...overrides });
+  });
+
+  // ADR 0035: a page that uploads through an expired URL reads the refusal's status only
+  // where the `400` carries the CORS headers of the rule.
+  test("the `400` for an expired presigned `PUT` carries the CORS headers of the rule", async () => {
+    const key = `${prefix}expired-put.txt`;
+    const body = utf8.encode("an upload after the URL expired");
+    const { url, headers } = await storage().presignPut(key, {
+      expiresIn: 1,
+      contentType: "text/plain",
+      contentLength: body.byteLength,
+    });
+    const preflight = await fetch(url, {
+      method: "OPTIONS",
+      headers: {
+        origin: allowedOrigin,
+        "access-control-request-method": "PUT",
+        "access-control-request-headers": Object.keys(headers).join(","),
+      },
+    });
+
+    await preflight.arrayBuffer();
+    expect({
+      status: preflight.status,
+      origin: preflight.headers.get("access-control-allow-origin"),
+    }).toEqual({ status: 200, origin: allowedOrigin });
+
+    await new Promise<void>((resolve) => void setTimeout(resolve, pastTheLifetime));
+
+    const upload = await fetch(url, {
+      method: "PUT",
+      headers: { ...headers, origin: allowedOrigin },
+      body,
+    });
+    const answer = await upload.text();
+
+    expect({
+      status: upload.status,
+      code: /<Code>(?<code>[^<]*)<\/Code>/u.exec(answer)?.groups?.["code"],
+      origin: upload.headers.get("access-control-allow-origin"),
+    }).toEqual({ status: 400, code: "ExpiredToken", origin: allowedOrigin });
+  });
+
+  // Spec 9.8: the batch answers a missing bucket with the `404 notFound` of a missing key, and
+  // only its message tells the two apart.
+  test("`delete` in a missing bucket rejects with `NotFound` without `key`, and `exists` rethrows it", async () => {
+    const missing = gcsStorage({ ...bucket().options, bucket: `stowage-missing-${randomUUID()}` });
+    const key = `${prefix}in-a-missing-bucket`;
+
+    const deleted = await refusalOf(missing.delete(key));
+    const existed = await refusalOf(missing.exists(key));
+
+    expect(described(deleted)).toEqual({ code: "NotFound", status: 404, key: undefined });
+    expect(described(existed)).toEqual({ code: "NotFound", status: 404, key: undefined });
+  });
+
+  // The suite's presign cases sign keys that need no encoding; spec 9.4 encodes a key segment
+  // by segment in a signed URL, and the canonical request `signBlob` signs covers each one.
+  test("URLs signed through `signBlob` for a key that travels encoded are served", async () => {
+    const key = `${encodedPrefix}grüße/日本.txt`;
+    const body = utf8.encode("written and read through URLs `signBlob` signed");
+    const { url, headers } = await storage().presignPut(key, {
+      expiresIn: 300,
+      contentType: "text/plain",
+      contentLength: body.byteLength,
+    });
+    const upload = await fetch(url, { method: "PUT", headers, body });
+
+    await upload.arrayBuffer();
+
+    const download = await fetch(await storage().presignGet(key, { expiresIn: 300 }));
+
+    expect({
+      upload: upload.status,
+      download: download.status,
+      body: await download.text(),
+    }).toEqual({
+      upload: 200,
+      download: 200,
+      body: "written and read through URLs `signBlob` signed",
+    });
+    expect(await storage().stat(key)).toMatchObject({ key, contentType: "text/plain" });
+  });
+});
+
+type Bucket = Extract<GcsEndpoint, { readonly kind: "bucket" }>;
+
+function bucket(): Bucket {
+  if (configured?.kind !== "bucket") {
+    throw new Error("No real GCS bucket is configured; see `harness/gcs/README.md`");
+  }
+
+  return configured;
+}
+
+/** Under the configured resolvers, so that every test shares the tokens they keep. */
+function storage(): GcsSigningStorage {
+  const { options, signer } = bucket();
+
+  return gcsStorage({ ...options, signer });
+}
+
+async function refusalOf(pending: Promise<unknown>): Promise<StorageError> {
+  const outcome = await pending.then(
+    () => undefined,
+    (failure: unknown) => failure,
+  );
+
+  if (!isStorageError(outcome)) {
+    throw new Error(`Expected a \`StorageError\`, and the call answered ${String(outcome)}`, {
+      cause: outcome,
+    });
+  }
+
+  return outcome;
+}
+
+function described(failure: StorageError): Pick<StorageError, "code" | "status" | "key"> {
+  return { code: failure.code, status: failure.status, key: failure.key };
+}
