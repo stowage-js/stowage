@@ -73,13 +73,11 @@ The bundle measures 14.8 kB minified and gzipped, `@stowage/core` included.
 - `userMetadata` values travel in the JSON body as written, raw Unicode included, which the JSON
   API reads back alike. A reader of the XML API sees such a value garbled: the `ü` of `grüße`
   reaches `fetch` on an XML `HEAD` as `Ã¼`
-  ([spec 9.4](https://github.com/stowage-js/stowage/blob/@stowage/adapter-gcs@0.3.0/docs/spec.md#94-requests),
-  [ADR 0032](https://github.com/stowage-js/stowage/blob/@stowage/adapter-gcs@0.3.0/docs/adr/0032-where-gcs-is-narrower.md)).
+  ([spec 9.4](https://github.com/stowage-js/stowage/blob/@stowage/adapter-gcs@0.3.0/docs/spec.md#94-requests)).
 - The tag of a cursor refuses a cursor of another storage, and nothing refuses one of this storage
   handed to a listing of another prefix: that listing yields an empty page rather than
   `InvalidOption`
-  ([spec 9.4](https://github.com/stowage-js/stowage/blob/@stowage/adapter-gcs@0.3.0/docs/spec.md#94-requests),
-  [ADR 0038](https://github.com/stowage-js/stowage/blob/@stowage/adapter-gcs@0.3.0/docs/adr/0038-provider-codes-on-gcs.md)).
+  ([spec 9.4](https://github.com/stowage-js/stowage/blob/@stowage/adapter-gcs@0.3.0/docs/spec.md#94-requests)).
 - The promised provider is a bucket in the public cloud with uniform bucket-level access and
   without hierarchical namespace, in any storage class, with soft delete or without it. A bucket
   with hierarchical namespace or dual-region turbo replication, another universe, and another
