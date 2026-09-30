@@ -70,12 +70,16 @@ The bundle measures 14.8 kB minified and gzipped, `@stowage/core` included.
   download carries no user metadata. Where a writer replaces the object between them, `get` takes
   up to four
   ([spec 9.4](https://github.com/stowage-js/stowage/blob/@stowage/adapter-gcs@0.3.0/docs/spec.md#94-requests)).
-- `userMetadata` values are stored as written, raw Unicode included, which the JSON API reads back
-  alike. A reader of the XML API sees such a value garbled: `grüße` reaches `fetch` on an XML
-  `HEAD` as `grÃ¼Ãe`
-  ([spec 9.4](https://github.com/stowage-js/stowage/blob/@stowage/adapter-gcs@0.3.0/docs/spec.md#94-requests)).
-- A cursor handed to a listing of another prefix yields an empty page rather than `InvalidOption`
-  ([spec 9.4](https://github.com/stowage-js/stowage/blob/@stowage/adapter-gcs@0.3.0/docs/spec.md#94-requests)).
+- `userMetadata` values travel in the JSON body as written, raw Unicode included, which the JSON
+  API reads back alike. A reader of the XML API sees such a value garbled: the `ü` of `grüße`
+  reaches `fetch` on an XML `HEAD` as `Ã¼`
+  ([spec 9.4](https://github.com/stowage-js/stowage/blob/@stowage/adapter-gcs@0.3.0/docs/spec.md#94-requests),
+  [ADR 0032](https://github.com/stowage-js/stowage/blob/@stowage/adapter-gcs@0.3.0/docs/adr/0032-where-gcs-is-narrower.md)).
+- The tag of a cursor refuses a cursor of another storage, and nothing refuses one of this storage
+  handed to a listing of another prefix: that listing yields an empty page rather than
+  `InvalidOption`
+  ([spec 9.4](https://github.com/stowage-js/stowage/blob/@stowage/adapter-gcs@0.3.0/docs/spec.md#94-requests),
+  [ADR 0038](https://github.com/stowage-js/stowage/blob/@stowage/adapter-gcs@0.3.0/docs/adr/0038-provider-codes-on-gcs.md)).
 - The promised provider is a bucket in the public cloud with uniform bucket-level access and
   without hierarchical namespace, in any storage class, with soft delete or without it. A bucket
   with hierarchical namespace or dual-region turbo replication, another universe, and another
@@ -132,7 +136,8 @@ const storage = gcsStorage({
 
 The scope `devstorage.read_write` covers every operation of the storage. `GoogleAuth` finds the
 credential through Application Default Credentials and renews its token shortly before it
-expires; replacing the client is the refresh that works whichever kind of client it chose. A
+expires. It has no public method that forces a refresh on every kind of client it may choose, so
+the resolver drops the client and its token, and the next call fetches one again. A
 client that found no token hands over `""`, which the adapter refuses as `InvalidCredentials`
 naming `accessToken` before any request.
 

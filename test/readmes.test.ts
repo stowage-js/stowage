@@ -158,7 +158,7 @@ test("the README of @stowage/adapter-gcs names the limits of spec 12", async () 
   expect(limits).toContain("#92-promised-provider");
 });
 
-// Spec 12 orders the notes of `adapter-gcs` as it does those of `adapter-azure-blob`.
+// Spec 12 gives the notes of `adapter-gcs` an order of their own, held by the same markers.
 test("the README of @stowage/adapter-gcs orders its notes as spec 12 does", async () => {
   const notes = sectionOf(await readmeOf(adapterGcs), "Notes");
   const positions = [
@@ -176,7 +176,7 @@ test("the README of @stowage/adapter-gcs orders its notes as spec 12 does", asyn
   expect(positions).toEqual(positions.toSorted((left, right) => left - right));
 });
 
-test("the README of @stowage/adapter-gcs leads its notes with the scope a storage token needs", async () => {
+test("the README of @stowage/adapter-gcs names the scope a storage token needs", async () => {
   const notes = sectionOf(await readmeOf(adapterGcs), "Notes");
 
   expect(notes).toContain("https://www.googleapis.com/auth/devstorage.read_write");
