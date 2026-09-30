@@ -37,7 +37,7 @@ const scheduled = {
 };
 
 /** What `conformance-full.yml` sets for every job it runs. */
-const bothTiers = { STOWAGE_CONFORMANCE_INCLUDE_SLOW: "true" };
+const includeSlow = { STOWAGE_CONFORMANCE_INCLUDE_SLOW: "true" };
 
 /**
  * The Actions runtime, STS and IAM Credentials, where IAM Credentials names the service
@@ -205,9 +205,9 @@ test("a job lacking the federation's variables is told where the expiring token 
 });
 
 test.each([
-  ["the job against the bucket asking for both tiers", { ...scheduled, ...bothTiers }, true],
+  ["the job against the bucket asking for both tiers", { ...scheduled, ...includeSlow }, true],
   ["the job against the bucket asking for the fast tier", scheduled, false],
-  ["a run against fake-gcs-server", { ...printed, ...bothTiers }, false],
+  ["a run against fake-gcs-server", { ...printed, ...includeSlow }, false],
 ])("%s is scheduled against the bucket: %s", (_, variables, expected) => {
   expect(scheduledAgainstBucket(variables)).toBe(expected);
 });
