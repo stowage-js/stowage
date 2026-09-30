@@ -14,7 +14,11 @@ import { signBlobAs } from "./sign-blob.ts";
 import { type Sign, signUrl } from "./signed-url.ts";
 
 export interface GcsPresignGetOptions {
-  /** Seconds, 1 to 604800; anything else is `InvalidOption` before anything is sent. */
+  /**
+   * Whole seconds, 1 to 604800; anything else is `InvalidOption` before anything is sent.
+   * The URL counts them from the moment of signing. One signed through `signBlob` may stop
+   * working 12 hours after that, whatever this asked for.
+   */
   expiresIn: number;
   responseContentType?: string;
   /** Not checked for ASCII: a name outside it goes as RFC 6266's `filename*=UTF-8''…`. */
@@ -22,13 +26,18 @@ export interface GcsPresignGetOptions {
 }
 
 export interface GcsPresignPutOptions {
-  /** Seconds, 1 to 604800; anything else is `InvalidOption` before anything is sent. */
+  /**
+   * Whole seconds, 1 to 604800; anything else is `InvalidOption` before anything is sent.
+   * The URL counts them from the moment of signing. One signed through `signBlob` may stop
+   * working 12 hours after that, whatever this asked for.
+   */
   expiresIn: number;
   /** Bound exactly, case and parameters included: an upload of another type is refused. */
   contentType: string;
   /**
    * Bound exactly, so the client reports the length and the server signs that number. A
    * finite, non-negative integer; anything else is `InvalidOption` before anything is sent.
+   * It is not held against the 5 TiB an object holds, which GCS enforces.
    */
   contentLength: number;
 }

@@ -49,10 +49,23 @@ export type { GcsPresignGetOptions, GcsPresignPutOptions } from "./presign.ts";
 
 export interface GcsStorage extends Storage {
   readonly provider: "gcs";
+  /** Sends at most one batch request per 100 keys. */
+  delete(...keys: readonly string[]): Promise<DeleteReport>;
 }
 
 export interface GcsSigningStorage extends GcsStorage {
+  /**
+   * A V4 signed URL a client holding no credential calls with a plain `GET` for this one
+   * key until it expires, path-style on the configured endpoint. Whoever holds it may read
+   * the object: it is a bearer token, and works against the endpoint that signed it only.
+   */
   presignGet(key: string, options: GcsPresignGetOptions): Promise<string>;
+  /**
+   * A V4 signed URL a client holding no credential calls with a plain `PUT` of one body
+   * under this key until it expires. `contentType` and `contentLength` bind exactly, so a
+   * body of unknown length cannot be uploaded through it. Resolves with the URL and the
+   * `content-type` the `PUT` sends beside the body.
+   */
   presignPut(key: string, options: GcsPresignPutOptions): Promise<PresignedPut>;
 }
 
