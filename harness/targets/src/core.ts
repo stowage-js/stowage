@@ -149,10 +149,10 @@ export function runCoreChecks(): readonly CoreCheckResult[] {
 
 type DescribeAndTest = Pick<ConformanceFramework, "describe" | "test">;
 
-const suiteName = "@stowage/core";
+export const coreSuiteName = "@stowage/core";
 
 export function describeCore(framework: DescribeAndTest): void {
-  framework.describe(suiteName, () => {
+  framework.describe(coreSuiteName, () => {
     for (const { name, run } of coreChecks) framework.test(name, async () => run());
   });
 }
@@ -162,7 +162,7 @@ export function describeCoreResults(
   framework: DescribeAndTest,
   results: readonly CoreCheckResult[],
 ): void {
-  framework.describe(suiteName, () => {
+  framework.describe(coreSuiteName, () => {
     for (const { name, error } of results) {
       framework.test(name, async () => {
         if (error !== undefined) throw Object.assign(new Error(), error);
