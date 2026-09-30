@@ -268,6 +268,25 @@ describe("firstRunReport", () => {
     expect(cellOf(report, "past its expiry", "azure-blob-node-24")).toBe("—");
   });
 
+  // ADR 0034: whether Google grants a token short enough is unverified, and where it does not
+  // the probe skips itself with the refusal.
+  test("reads a probe that skipped itself with what it saw as a point not settled", () => {
+    const report = firstRunReport([
+      run(
+        "gcs-node-26",
+        assertion({
+          title: gcsProbeNames.expiredToken,
+          status: "skipped",
+          meta: { observed: "no token for 60 s: Invalid lifetime." },
+        }),
+      ),
+    ]);
+
+    expect(cellOf(report, "past its expiry", "gcs-node-26")).toBe(
+      "not settled: no token for 60 s: Invalid lifetime.",
+    );
+  });
+
   test("carries the duration and the CPU flow 1 spent on `workerd` against the GCS bucket", () => {
     const observed = "passed in 9.4 s, 1.1 s of CPU in the `workerd` process";
     const report = firstRunReport([

@@ -125,6 +125,11 @@ function outcomeOf(assertion: JsonAssertion | undefined, wanted: FirstRunTest): 
     return `disproved: ${firstLine}`;
   }
 
+  // A probe that skips itself where the provider gave it nothing to ask with says why.
+  if (assertion.status === "skipped" && assertion.meta.observed !== undefined) {
+    return `not settled: ${assertion.meta.observed}`;
+  }
+
   if (assertion.status !== "passed") return "not run";
 
   return assertion.meta.observed ?? "held";
