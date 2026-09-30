@@ -62,6 +62,25 @@ describe("firstRunReport", () => {
     );
   });
 
+  // Spec 14 wants the answer recorded, and a probe that disproved its point saw one.
+  test("carries what a probe observed beside the failure that disproved the point", () => {
+    const report = firstRunReport([
+      run(
+        "gcs-node-24",
+        assertion({
+          title: gcsProbeNames.expiredToken,
+          status: "failed",
+          failureMessages: ["AssertionError: expected 403 to be 401\n    at probe.ts:1:1"],
+          meta: { observed: "403 3 s past the expiry, `forbidden`: expired" },
+        }),
+      ),
+    ]);
+
+    expect(cellOf(report, "past its expiry", "gcs-node-24")).toBe(
+      "disproved: AssertionError: expected 403 to be 401; observed 403 3 s past the expiry, `forbidden`: expired",
+    );
+  });
+
   test("reads a case the target supplied no factory for as a point not settled", () => {
     const report = firstRunReport([
       run(
