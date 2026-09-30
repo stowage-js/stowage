@@ -1,16 +1,19 @@
 import type { ResolverOptions } from "../../../packages/core/src/index.ts";
+import {
+  type ActionsIdTokenRequest,
+  actionsIdToken,
+  heldToken,
+  type IssuedToken,
+  renewalMargin,
+} from "../../targets/src/federation.ts";
 
 /**
  * A managed identity whose federated credential trusts the job's OIDC token (ADR 0023),
  * and what the Actions runtime hands a job holding `id-token: write` to ask for one.
  */
-export interface FederatedIdentity {
+export interface FederatedIdentity extends ActionsIdTokenRequest {
   readonly tenantId: string;
   readonly clientId: string;
-  /** `ACTIONS_ID_TOKEN_REQUEST_URL`, which carries a query of its own. */
-  readonly idTokenRequestUrl: string;
-  /** `ACTIONS_ID_TOKEN_REQUEST_TOKEN`. */
-  readonly idTokenRequestToken: string;
 }
 
 /** The audience the federated credentials of the account's identities name. */
@@ -27,79 +30,17 @@ export function federatedAccessToken(
   identity: FederatedIdentity,
   now: () => number = Date.now,
 ): (options?: ResolverOptions) => Promise<{ accessToken: string }> {
-  let held: Promise<IssuedToken> | undefined;
-
-  function renew(): Promise<IssuedToken> {
-    const issuing = issue(identity, now);
-
-    held = issuing;
-    // A refused exchange is not kept, so that the next request asks again.
-    issuing.catch(() => {
-      if (held === issuing) held = undefined;
-    });
-
-    return issuing;
-  }
-
-  // Every call that found `stale` held meets it past its renewal time; only the first of them
-  // may renew it, or a burst of requests would each exchange a token of its own.
-  function renewedFrom(stale: Promise<IssuedToken>): Promise<IssuedToken> {
-    return held === stale || held === undefined ? renew() : held;
-  }
-
-  return async (options) => {
-    const current = held;
-
-    if (current === undefined || options?.forceRefresh === true) return answered(await renew());
-
-    const token = await current;
-
-    if (now() < token.renewAt) return answered(token);
-
-    return answered(await renewedFrom(current));
-  };
-}
-
-interface IssuedToken {
-  readonly accessToken: string;
-  /** Shortly before the expiry Entra answered, so that no request goes out on its last second. */
-  readonly renewAt: number;
-}
-
-/** Entra issues a token for 60 to 90 minutes. */
-const renewalMargin = 5 * 60_000;
-
-function answered(token: IssuedToken): { accessToken: string } {
-  return { accessToken: token.accessToken };
+  return heldToken(() => issue(identity, now), now);
 }
 
 async function issue(identity: FederatedIdentity, now: () => number): Promise<IssuedToken> {
   const requestedAt = now();
-  const { accessToken, expiresIn } = await exchange(identity, await oidcToken(identity));
+  const { accessToken, expiresIn } = await exchange(
+    identity,
+    await actionsIdToken(identity, exchangeAudience),
+  );
 
   return { accessToken, renewAt: requestedAt + expiresIn * 1000 - renewalMargin };
-}
-
-async function oidcToken(identity: FederatedIdentity): Promise<string> {
-  const url = new URL(identity.idTokenRequestUrl);
-
-  url.searchParams.set("audience", exchangeAudience);
-
-  const response = await fetch(url.href, {
-    headers: { authorization: `Bearer ${identity.idTokenRequestToken}` },
-  });
-
-  if (!response.ok) {
-    await response.body?.cancel();
-
-    throw new Error(
-      `The Actions runtime answered ${response.status} to the request for an OIDC token; the job needs \`id-token: write\``,
-    );
-  }
-
-  const answer: { readonly value: string } = await response.json();
-
-  return answer.value;
 }
 
 async function exchange(

@@ -59,10 +59,15 @@ const conformance :Workerd.Worker = (
     (name = "STOWAGE_AZURE_BLOB_TENANT_ID", fromEnvironment = "STOWAGE_AZURE_BLOB_TENANT_ID"),
     (name = "STOWAGE_AZURE_BLOB_CLIENT_ID", fromEnvironment = "STOWAGE_AZURE_BLOB_CLIENT_ID"),
     (name = "STOWAGE_AZURE_BLOB_DENIED_CLIENT_ID", fromEnvironment = "STOWAGE_AZURE_BLOB_DENIED_CLIENT_ID"),
+    (name = "STOWAGE_GCS_ENDPOINT_NAME", fromEnvironment = "STOWAGE_GCS_ENDPOINT_NAME"),
     (name = "STOWAGE_GCS_ENDPOINT", fromEnvironment = "STOWAGE_GCS_ENDPOINT"),
     (name = "STOWAGE_GCS_BUCKET", fromEnvironment = "STOWAGE_GCS_BUCKET"),
-    # ADR 0023: what the Actions runtime hands a job holding `id-token: write`, so that the
-    # worker exchanges the job's OIDC token for the account's access token itself.
+    (name = "STOWAGE_GCS_WORKLOAD_IDENTITY_PROVIDER", fromEnvironment = "STOWAGE_GCS_WORKLOAD_IDENTITY_PROVIDER"),
+    (name = "STOWAGE_GCS_SERVICE_ACCOUNT", fromEnvironment = "STOWAGE_GCS_SERVICE_ACCOUNT"),
+    (name = "STOWAGE_GCS_DENIED_SERVICE_ACCOUNT", fromEnvironment = "STOWAGE_GCS_DENIED_SERVICE_ACCOUNT"),
+    # ADR 0023 and ADR 0034: what the Actions runtime hands a job holding `id-token: write`,
+    # so that the worker exchanges the job's OIDC token for the account's and the bucket's
+    # access tokens itself.
     (name = "ACTIONS_ID_TOKEN_REQUEST_URL", fromEnvironment = "ACTIONS_ID_TOKEN_REQUEST_URL"),
     (name = "ACTIONS_ID_TOKEN_REQUEST_TOKEN", fromEnvironment = "ACTIONS_ID_TOKEN_REQUEST_TOKEN"),
   ],
@@ -90,10 +95,15 @@ const defaults :Workerd.Worker = (
     (name = "STOWAGE_AZURE_BLOB_TENANT_ID", fromEnvironment = "STOWAGE_AZURE_BLOB_TENANT_ID"),
     (name = "STOWAGE_AZURE_BLOB_CLIENT_ID", fromEnvironment = "STOWAGE_AZURE_BLOB_CLIENT_ID"),
     (name = "STOWAGE_AZURE_BLOB_DENIED_CLIENT_ID", fromEnvironment = "STOWAGE_AZURE_BLOB_DENIED_CLIENT_ID"),
+    (name = "STOWAGE_GCS_ENDPOINT_NAME", fromEnvironment = "STOWAGE_GCS_ENDPOINT_NAME"),
     (name = "STOWAGE_GCS_ENDPOINT", fromEnvironment = "STOWAGE_GCS_ENDPOINT"),
     (name = "STOWAGE_GCS_BUCKET", fromEnvironment = "STOWAGE_GCS_BUCKET"),
-    # ADR 0023: what the Actions runtime hands a job holding `id-token: write`, so that the
-    # worker exchanges the job's OIDC token for the account's access token itself.
+    (name = "STOWAGE_GCS_WORKLOAD_IDENTITY_PROVIDER", fromEnvironment = "STOWAGE_GCS_WORKLOAD_IDENTITY_PROVIDER"),
+    (name = "STOWAGE_GCS_SERVICE_ACCOUNT", fromEnvironment = "STOWAGE_GCS_SERVICE_ACCOUNT"),
+    (name = "STOWAGE_GCS_DENIED_SERVICE_ACCOUNT", fromEnvironment = "STOWAGE_GCS_DENIED_SERVICE_ACCOUNT"),
+    # ADR 0023 and ADR 0034: what the Actions runtime hands a job holding `id-token: write`,
+    # so that the worker exchanges the job's OIDC token for the account's and the bucket's
+    # access tokens itself.
     (name = "ACTIONS_ID_TOKEN_REQUEST_URL", fromEnvironment = "ACTIONS_ID_TOKEN_REQUEST_URL"),
     (name = "ACTIONS_ID_TOKEN_REQUEST_TOKEN", fromEnvironment = "ACTIONS_ID_TOKEN_REQUEST_TOKEN"),
   ],

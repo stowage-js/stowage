@@ -2,7 +2,7 @@ import { env } from "node:process";
 
 import { configuredStorage as configuredAzureBlobStorage } from "../../azure-blob/src/environment.ts";
 import { describeAzureBlob } from "../../azure-blob/src/target.ts";
-import { configuredStorage as configuredGcsStorage } from "../../gcs/src/environment.ts";
+import { configuredEndpoint as configuredGcsEndpoint } from "../../gcs/src/environment.ts";
 import { describeGcs } from "../../gcs/src/target.ts";
 import { endpointNameFrom } from "../../s3/src/configuration.ts";
 import { withDivergences } from "../../s3/src/divergences.ts";
@@ -58,6 +58,6 @@ export function describeAdapters(framework: ConformanceFramework): void {
   }
 
   if (endpointTiers.has("gcs")) {
-    describeGcs({ ...framework, ...options }, configuredGcsStorage());
+    describeGcs({ ...framework, ...options }, configuredGcsEndpoint(), env);
   }
 }

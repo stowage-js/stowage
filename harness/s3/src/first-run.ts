@@ -1,4 +1,5 @@
 import type { AzureBlobRealEndpoint } from "../../azure-blob/src/divergences.ts";
+import type { GcsRealEndpoint } from "../../gcs/src/divergences.ts";
 import { type RealEndpoint, realEndpoints } from "./configuration.ts";
 
 declare module "vitest" {
@@ -9,7 +10,7 @@ declare module "vitest" {
 }
 
 /** The real endpoints of the scheduled run, each of which is a column of the report. */
-export type ReportedEndpoint = RealEndpoint | AzureBlobRealEndpoint;
+export type ReportedEndpoint = RealEndpoint | AzureBlobRealEndpoint | GcsRealEndpoint;
 
 /** The block the probes of spec 14 are registered in, against S3 and Azure alike. */
 export const firstRunSuite = "settled by the first run";

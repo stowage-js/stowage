@@ -10,7 +10,7 @@ import {
   storageOptionsFrom as azureBlobStorageOptionsFrom,
 } from "../../azure-blob/src/configuration.ts";
 import { azureBlobRunCases, azureBlobTarget } from "../../azure-blob/src/target.ts";
-import { storageOptionsFrom as gcsStorageOptionsFrom } from "../../gcs/src/configuration.ts";
+import { gcsEndpointFrom } from "../../gcs/src/configuration.ts";
 import { gcsRunCases, gcsTarget } from "../../gcs/src/target.ts";
 import {
   endpointNameFrom,
@@ -92,9 +92,11 @@ function azureBlobRun(variables: Variables, options: ConformanceRunOptions): Run
 }
 
 function gcsRun(variables: Variables, options: ConformanceRunOptions): Run | undefined {
-  const configured = gcsStorageOptionsFrom(variables);
+  // ADR 0034: as for Azure, the bindings carry the Actions runtime's two variables, and the
+  // resolvers built here serve this request alone.
+  const configured = gcsEndpointFrom(variables);
 
   if (configured === undefined) return undefined;
 
-  return { target: gcsTarget(configured), cases: gcsRunCases(options) };
+  return { target: gcsTarget(configured), cases: gcsRunCases(options, variables) };
 }

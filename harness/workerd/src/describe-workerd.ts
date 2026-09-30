@@ -17,7 +17,7 @@ import type { ConformanceResult } from "../../../packages/conformance/src/result
 import { scheduledAgainstAccount } from "../../azure-blob/src/configuration.ts";
 import { configuredStorage as configuredAzureBlobStorage } from "../../azure-blob/src/environment.ts";
 import { describeAzureBlobEndpointCheck } from "../../azure-blob/src/target.ts";
-import { configuredStorage as configuredGcsStorage } from "../../gcs/src/environment.ts";
+import { configuredEndpoint as configuredGcsEndpoint } from "../../gcs/src/environment.ts";
 import { describeGcsEndpointCheck } from "../../gcs/src/target.ts";
 import { configuredStorage } from "../../s3/src/environment.ts";
 import { describeEndpointCheck } from "../../s3/src/target.ts";
@@ -44,7 +44,7 @@ export async function describeWorkerd(framework: ConformanceFramework): Promise<
   const configuredAzureBlob = endpointTiers.has("azure-blob")
     ? configuredAzureBlobStorage()
     : undefined;
-  const configuredGcs = endpointTiers.has("gcs") ? configuredGcsStorage() : undefined;
+  const configuredGcs = endpointTiers.has("gcs") ? configuredGcsEndpoint() : undefined;
 
   const measuring = configuredAzureBlob !== undefined && scheduledAgainstAccount(env);
 

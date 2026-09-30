@@ -1,9 +1,9 @@
 name: Conformance (full)
 
-# ADR 0012 and ADR 0023: both tiers against a real AWS S3 bucket, a real R2 bucket and a real
-# Azure Blob Storage account, on a schedule, on demand and before a release. A pull request
-# never reaches this workflow: GitHub hands a run from a fork no secret and no OIDC token, so
-# the real endpoints cannot be part of the pull request gate.
+# ADR 0012, ADR 0023 and ADR 0034: both tiers against a real AWS S3 bucket, a real R2 bucket, a
+# real Azure Blob Storage account and a real GCS bucket, on a schedule, on demand and before a
+# release. A pull request never reaches this workflow: GitHub hands a run from a fork no secret
+# and no OIDC token, so the real endpoints cannot be part of the pull request gate.
 on:
   schedule:
     - cron: "17 4 * * *"
@@ -27,27 +27,28 @@ env:
   STOWAGE_CONFORMANCE_INCLUDE_SLOW: "true"
 
 jobs:
-  # ADR 0012, ADR 0023 and ADR 0026: both tiers against each real endpoint on the three
-  # runtimes. Spec 2: Node and `workerd` are the pair that differ most in how they fetch, so
-  # they are the runtimes that meet TLS, latency and redirects of a real endpoint.
+  # ADR 0012, ADR 0023, ADR 0026, ADR 0034 and ADR 0039: both tiers against each real endpoint
+  # on the three runtimes. Spec 2: Node and `workerd` are the pair that differ most in how they
+  # fetch, so they are the runtimes that meet TLS, latency and redirects of a real endpoint.
   real-endpoints:
     name: ${{ matrix.runtime }} against ${{ matrix.endpoint }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     # Each provider is an environment holding its own endpoint and credential, so that one
-    # set of steps serves all three and a credential reaches the jobs of its own provider
+    # set of steps serves all four and a credential reaches the jobs of its own provider
     # alone.
     environment: ${{ matrix.provider }}
     permissions:
       contents: read
       # The job's OIDC token, whose subject names the environment the two managed identities
-      # of the Azure account trust. No identity trusts the S3 and R2 environments, so the
-      # token those jobs could take is exchanged for nothing.
+      # of the Azure account trust, and whose `environment` claim the workload identity pool
+      # of the GCS bucket admits. No identity trusts the S3 and R2 environments, so the token
+      # those jobs could take is exchanged for nothing.
       id-token: write
     strategy:
       fail-fast: false
       matrix:
-        provider: [aws-s3, r2, azure-blob]
+        provider: [aws-s3, r2, azure-blob, gcs]
         runtime: [Node 24, Node 26, workerd]
         include:
           # `tier` names the endpoint tier of `STOWAGE_CONFORMANCE_ENDPOINTS` and the
@@ -61,6 +62,9 @@ jobs:
           - provider: azure-blob
             endpoint: Azure Blob
             tier: azure-blob
+          - provider: gcs
+            endpoint: GCS
+            tier: gcs
           # The limits of spec 7.8 and 8.7 are the service's and no property of the Node
           # line, so one line uploads the 5 GiB. The account key is for the test that holds
           # Shared Key against the account, which does not run on `workerd`.
@@ -98,10 +102,16 @@ jobs:
       STOWAGE_AZURE_BLOB_DENIED_CLIENT_ID: ${{ vars.STOWAGE_AZURE_BLOB_DENIED_CLIENT_ID }}
       AZURE_STORAGE_KEY: ${{ matrix.account-key && secrets.STOWAGE_AZURE_BLOB_ACCOUNT_KEY || '' }}
       STOWAGE_AZURE_BLOB_COPY_ABOVE_LIMIT: ${{ matrix.copy-above-limit }}
+      # ADR 0034: no secret, since the bucket's token comes from the job's OIDC token.
+      STOWAGE_GCS_ENDPOINT_NAME: ${{ matrix.provider }}
+      STOWAGE_GCS_BUCKET: ${{ vars.STOWAGE_GCS_BUCKET }}
+      STOWAGE_GCS_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.STOWAGE_GCS_WORKLOAD_IDENTITY_PROVIDER }}
+      STOWAGE_GCS_SERVICE_ACCOUNT: ${{ vars.STOWAGE_GCS_SERVICE_ACCOUNT }}
+      STOWAGE_GCS_DENIED_SERVICE_ACCOUNT: ${{ vars.STOWAGE_GCS_DENIED_SERVICE_ACCOUNT }}
     steps:
       # ADR 0012: the token is taken first, and the harness hands it to the `Expired` case
-      # once the expiration STS returned and a margin have passed. R2 and Azure have no such
-      # token, and the case reports itself skipped there.
+      # once the expiration STS returned and a margin have passed. R2, Azure and GCS have no
+      # such token, and the case reports itself skipped there.
       - name: Take a 900-second STS token
         if: matrix.provider == 'aws-s3'
         run: |
@@ -303,7 +313,7 @@ jobs:
       # the packed tarballs of a release, and the report reads every directory as a column.
       - uses: actions/download-artifact@v8
         with:
-          pattern: "{aws-s3,r2,azure-blob}-*"
+          pattern: "{aws-s3,r2,azure-blob,gcs}-*"
           path: results
 
       - run: node harness/s3/src/first-run-report.ts results >> "$GITHUB_STEP_SUMMARY"
