@@ -2,8 +2,8 @@
 
 ADR 0017 makes 1.0 wait until the `raw` escape hatch has a shape, and ADR 0028 keeps that point
 beside the measured ones. The shape is none: no adapter hands out a request of the caller's own, its
-signer, its credential, or a hook into the requests it sends. A caller who needs a request stowage
-does not send signs it with code of their own, such as aws4fetch over the same access key.
+signer, its credential, or a hook into the requests it sends. A caller who needs to send a request
+that stowage does not send signs it with code of their own, such as aws4fetch using the same access key.
 
 The research on `research/raw-escape-hatch` (commit `78d202e`) found what callers reach for below
 a portable surface, and nearly all of it is a header on a request the library already sends:

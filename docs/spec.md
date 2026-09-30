@@ -198,10 +198,11 @@ export interface Storage {
 - The interface is closed: no generic parameter, no index signature, no registry. An adapter
   extends it and may add methods and widen option types on its own concrete type; it may not
   narrow what the interface accepts.
-- Nothing lies below an adapter's concrete type: no adapter hands out a request of the caller's
-  own, its signer, its credential or a hook into the requests it sends, and `@stowage/core`
-  exports nothing for one. A caller who needs a request stowage does not send signs it with code of
-  their own (ADR 0042).
+- Nothing lies below an adapter's concrete type: storage objects expose no requests, signers,
+  credentials, or request hooks. Adapter packages may export credential types and resolvers;
+  `@stowage/core` exports no adapter-specific request, signer, or credential. A caller who needs to
+  send a request that stowage does not send signs it with code of their own, such as aws4fetch using
+  the same access key (ADR 0042).
 - `provider` names the adapter: `"memory"`, `"fs"`, `"s3"`, `"azure-blob"` or `"gcs"`. `bucket`
   names the namespace the storage is bound to (sections 5 to 9 say what that is per adapter).
 - `capabilities` lists every capability the storage implements, each once, out of
