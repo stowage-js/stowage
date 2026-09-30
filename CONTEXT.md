@@ -58,6 +58,12 @@ _Avoid_: secret, key, token
 A sequence of bytes stored under a key, together with its content type and its metadata.
 _Avoid_: file, blob, entry
 
+**Content-coded object**:
+An object another tool stored with a content coding such as gzip, which stowage never writes. Its
+size counts the bytes the storage holds. No range of it can be read, and read whole it may arrive
+decoded and longer than its size, depending on the runtime and the adapter.
+_Avoid_: compressed object, gzipped object, encoded object
+
 **Stored object**:
 What `get` hands back: the object's description together with its bytes, readable as a stream, as
 bytes, as text or as JSON.
@@ -161,6 +167,14 @@ range reads, which every storage declares for itself. Where a storage does not d
 refuses the call it belongs to rather than answering it differently in silence, or it keeps the
 weaker promise the parity core makes at that point.
 _Avoid_: feature, feature flag, extension
+
+**Concrete type**:
+The type an adapter hands back where a storage is constructed, which adds to the parity core what
+only that adapter offers, such as presigned URLs, and is where a provider option is reached. Callers
+hold it and do not implement it, so it can gain members without breaking them. Nothing lies below
+it: no adapter hands out a request of the caller's own, its signer, its credential or a hook into
+the requests it sends.
+_Avoid_: raw, escape hatch, native client, adapter class
 
 **Presigned URL**:
 A URL that carries its own authorization, so a client holding no credential can call it. It is bound

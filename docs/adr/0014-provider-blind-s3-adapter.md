@@ -147,3 +147,7 @@ header: `responseContentType` equals `Content-Type`, `responseContentDisposition
 - The Cloudflare pages behind the differences above were read on 2026-09-20: S3 API compatibility,
   the error code table, presigned URLs, platform limits, object upload and Unicode
   interoperability. Each carries its own last-updated date, the oldest of them 2026-04-21.
+- ADR 0045 replaces the statements above that R2's `ExpiredRequest` is provisional and awaits a
+  real run. R2 answers an expired credential with `403 SignatureDoesNotMatch`, which is
+  `InvalidCredentials`, and sends `ExpiredRequest` for an expired presigned URL, so its mapping to
+  `Expired` stays and is no longer provisional.

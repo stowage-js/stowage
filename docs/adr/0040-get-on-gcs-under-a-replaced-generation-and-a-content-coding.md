@@ -92,3 +92,7 @@ measure the standard.
 - How `adapter-s3` and `adapter-azure-blob` answer a range on an object stored with a content
   coding is not specified in v0.3. The sentence in spec 4.4 holds for them, and changing a released
   adapter is not needed for GCS to fit.
+- ADR 0044 replaces the consequence above that leaves `adapter-s3` and `adapter-azure-blob`
+  unspecified: they refuse a range on an object stored with a content coding as `adapter-gcs` does,
+  through one definition in the core. It also corrects the reasoning about the runtimes, since Deno
+  does not decode every coding, so a whole `get` may read the stored bytes. The rule for GCS stands.

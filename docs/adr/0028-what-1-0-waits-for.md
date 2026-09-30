@@ -40,3 +40,6 @@ stay as they are.
   changes for them.
 - Section 11 says that 1.0 waits until section 14 holds no promise, besides a shape for the `raw`
   escape hatch and the author having used stowage in a project of their own.
+- ADR 0042 takes the `raw` escape hatch out of the gate, so 1.0 waits for section 14 and the
+  author's own use alone. ADR 0045 withdraws R2's `ExpiredRequest`, which a probe disproved, the
+  second way out of the section this decision names, and section 14 lists no promise.
