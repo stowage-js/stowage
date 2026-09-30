@@ -1,5 +1,13 @@
 # @stowage/core
 
+## 0.3.0
+
+### Minor Changes
+
+- 2a91517: `@stowage/core` exports the `multipart/mixed` batch that Blob Batch on Azure and the batch endpoint of the GCS JSON API share: `batchBoundary`, `batchContentType`, `batchBody`, which writes each subrequest as an `application/http` part numbered by its place, and `readSubresponses`, which reads the answer's subresponses and pairs each to its subrequest by the `Content-ID` form the adapter names. An answer it cannot read comes back as `unreadable` or `unanswered`, which the adapter raises as `ProviderError` (spec 4.13). `adapter-azure-blob` sends and reads its Blob Batch through them and no longer holds a copy; its behavior does not change.
+- 40fc422: The spec states what the core already held without promising it. `userMetadata` holding two keys that differ in case alone is `InvalidRequest` before anything is sent, as `checkUserMetadata` refused them in v0.2, since folding them into one would drop a value (spec 4.3). `maxParts` of `uploadStream` may be `Infinity` for a provider without a limit on the parts of one upload, and a limit of `Infinity` never refuses a stream, as `adapter-gcs` passes it (spec 4.13). `size` counts the bytes the storage holds: on GCS, an object another tool stored with a content coding may arrive decoded and longer than `size`, and `adapter-gcs` never writes a content coding (spec 4.4, ADR 0040).
+- 40fc422: **Breaking:** `get` no longer promises one round trip. Spec 4.5 promised that `stat` comes from the response carrying the body and that `get` costs one round trip; it now promises that `stat` describes the object whose bytes the body carries, and each adapter states what `get` costs: one request on `adapter-s3` and `adapter-azure-blob`, two sent side by side on `adapter-gcs`, and at most two more, one after the other, where a writer replaced the object between them. The media download of GCS carries no user metadata, so no request of the JSON API answers with both. This conflicts with ADR 0017, under which a provider promised later does not narrow the parity core: the number of requests states a cost, not a behavior a storage keeps or does not, so no capability can carry it, and the promise is withdrawn instead. No code of another adapter changes (spec 4.5, 11, ADR 0032, ADR 0040).
+
 ## 0.2.0
 
 ### Minor Changes
