@@ -52,7 +52,9 @@ two cells, such as "emulator", is the second support level ADR 0002 rules out.
   `workerd` process, the token exchanges of ADR 0034 included. The chunks go one after another
   rather than four side by side, so it will likely take longer than against S3 and Azure; nothing is
   signed or hashed per chunk, so the CPU should not be higher. A result beyond a paid plan's limit
-  changes the host note and no cell, so the point joins spec section 14 as recorded only.
+  changes the host note and no cell, so the point joins spec section 14 as recorded only. It
+  measured 8.8 seconds and half a second of CPU for the whole `workerd` process, the exchanges at
+  STS and IAM Credentials included, which a paid plan allows.
 - The compatibility date stays `2026-09-01`. What `adapter-gcs` asks of `workerd` beyond the other
   adapters is importing a PKCS#8 RSA key and signing with RSASSA-PKCS1-v1_5, which reproduced all 40
   V4 vectors on `workerd` 1.20260927.1 (`docs/research/gcs-auth.md` on `research/gcs-auth`). A later

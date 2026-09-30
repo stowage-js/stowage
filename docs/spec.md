@@ -69,10 +69,11 @@ A cell is supported where the conformance suite covers it in CI. There is no wea
   not promised.
 - Flow 1 on `workerd` is promised for the runtime and on no host. The first scheduled run measured
   a 17 MiB upload to S3 at about five seconds and under a second of CPU for the whole `workerd`
-  process, and the first run against the Azure account the same upload to Azure Blob at 6.4
-  seconds and half a second of CPU, one token exchange included. Cloudflare's paid plans allow both
-  by default, and its free plan's 10 milliseconds allow neither. The same upload to GCS is recorded
-  by the first scheduled run against the bucket (section 14).
+  process. The first run against the Azure account measured the same upload to Azure Blob at 6.4
+  seconds and half a second of CPU, one token exchange included, and the first run against the
+  bucket the same upload to GCS at 8.8 seconds and half a second of CPU, the exchanges at STS and
+  IAM Credentials included. Cloudflare's paid plans allow all three by default, and its free plan's
+  10 milliseconds allow none.
 
 ## 3. Reference flows
 
@@ -1441,11 +1442,13 @@ reached through `adapter-s3` over the XML API is an S3-compatible endpoint like 
   0036).
 - A function is called with `{ forceRefresh: false }`, and with `{ forceRefresh: true }` once after
   the provider answered `401` with `error=invalid_token` in `WWW-Authenticate`, which GCS answers
-  alike to an expired, a revoked and a malformed token; that repeat has no delay and is not
-  switched off by `retry: false`. Where the repeat is refused too, the failure is
-  `InvalidCredentials` with `attempts: 2`, and its message says that the token expired or is not
-  accepted. Any other `401` is `InvalidCredentials` and not repeated. The adapter never reports
-  `Expired` (ADR 0033).
+  alike to an expired, a revoked and a malformed token: a token past its expiry is answered from
+  the second it expires with the reason `authError` and the message "Invalid Credentials", as a
+  made-up one is. That repeat has no delay and is not switched off by `retry: false`. Where the
+  repeat is refused too, the failure is `InvalidCredentials` with `attempts: 2`, and its message
+  says that the token expired or is not accepted. Any other `401` is `InvalidCredentials` and not
+  repeated. The adapter never reports `Expired`, since no answer tells an expired token apart (ADR
+  0033).
 - Before a request goes out with it, the resolved object is checked to hold `accessToken` as a
   non-empty string and no other field; a violation is `InvalidCredentials` naming the field, with
   `attempts: 0`.
@@ -1471,9 +1474,11 @@ reached through `adapter-s3` over the XML API is an S3-compatible endpoint like 
 - `stat` and `exists` read the object's resource. `get` sends the resource request and the media
   download side by side, since the media download carries no user metadata. Where the two name
   different generations, because a writer replaced the object between them, the resource is read
-  again pinned to the media download's generation, and the body is kept. Where that answers
-  `404 notFound`, the body is canceled and the media download is sent again pinned to the first
-  resource's generation, with the range. Where that answers `404` as well, `get` rejects with
+  again pinned to the media download's generation, and the body is kept. GCS answers a request
+  pinned to a generation a writer replaced with `404`, `notFound` on the resource and without a
+  provider code on the media download. Where the pinned resource answers `404 notFound`, the body
+  is canceled and the media download is sent again pinned to the first resource's generation, with
+  the range. Where that answers `404` as well, `get` rejects with
   `NotFound` whose `key` is set, although the key may hold a newer object. Each of the two is one
   request on the budget of section 9.5, and `stat` describes the bytes the body carries. Which
   generation is newer is not read from their numbers, which GCS does not promise to increase (ADR
@@ -1538,7 +1543,8 @@ reached through `adapter-s3` over the XML API is an S3-compatible endpoint like 
 - GCS may persist less of a chunk than it was sent. The adapter reads the acknowledged range of
   every `308` and sends the rest of the part from its buffer; that spends no attempt. A `308` that
   acknowledges nothing new is a failed attempt, and a range that falls outside what was sent is
-  `ProviderError`.
+  `ProviderError`. The `308` carries no `Location`, so it reaches the adapter as it is under
+  `fetch`'s default `redirect: "follow"`, on all four runtimes (ADR 0036).
 - A part that fails is repeated on the budget of section 9.5. Once one part has spent its budget,
   the source stream is canceled, the session is canceled with an independent 10-second timeout
   covering all attempts, backoff and reading the answer,
@@ -1843,7 +1849,10 @@ adapters, tested in this repository and not by the suite:
   `adapter-gcs` (section 9.8), against the real bucket in the `slow` tier.
 - The repeat after `401` with `error=invalid_token` on `adapter-gcs` (section 9.3), against a
   stubbed `fetch`: one resolver call with `forceRefresh: true`, then success, or
-  `InvalidCredentials` after a second `401`.
+  `InvalidCredentials` after a second `401`. Against the real bucket in the `slow` tier, the answer
+  to a token past its expiry and the repeat recovering from it.
+- The answers of GCS to a resource request and a media download pinned to a generation a writer
+  replaced (section 9.4), against the real bucket in the `slow` tier.
 - A resumable session on GCS (section 9.6), against a stubbed `fetch` answering as the service
   did: a chunk sent again whole after a lost answer, a short acknowledgement answered with the rest
   of the part, a `308` that acknowledges nothing spending an attempt, a repeated commit, and the
@@ -2144,36 +2153,21 @@ v0.3 does not have, and does not promise a path to:
 
 The following have not yet been observed against a real endpoint. A promise a scheduled run
 disproves is withdrawn in a minor release, and 1.0 waits until the first list below is empty
-(section 11). The first run against AWS S3 and R2 and the first run against the Azure account, each
-on Node and `workerd`, disproved none of the points they settled; those are stated in the sections
-they belong to. What section 9 states of GCS was measured against a real bucket before the adapter
-existed, on Node and for uploads on Bun and Deno as well; the first scheduled run against the
-bucket has not happened. Each point left here names why no run has answered it.
+(section 11). The first run against AWS S3 and R2, the first run against the Azure account and the
+first run against the GCS bucket, each on Node and `workerd`, disproved none of the points they
+settled; those are stated in the sections they belong to. Each point left here names why no run
+has answered it.
 
 Promises:
 
 - R2 answers `ExpiredRequest` for an expired credential; the `Expired` case is skipped against R2
   until a way to provoke it exists.
-- `adapter-gcs`: an access token past its expiry is answered with `401` and `error=invalid_token`,
-  which the repeat of section 9.3 reads. Only a made-up token was measured; a probe of the first
-  run asks with a token after it expired, where Google's token service grants one short enough.
-  Should the answer carry a signal of its own, `Expired` can be added in a minor release (ADR
-  0033).
-- `adapter-gcs`: a `308` reaches the adapter as it is on `workerd`, as it did on Node, Bun and
-  Deno, so a resumable session runs there. `put/multipart-round-trip` against the real bucket on
-  `workerd` shows it (ADR 0036).
-- `adapter-gcs`: `objects.get` pinned to a generation that a writer replaced answers
-  `404 notFound`, which the two pinned requests of section 9.4 read. The reference names no answer
-  for it and no measurement asked; a test of the adapter against the real bucket does (ADR 0040).
 
 Recorded only, since this document already states what follows from any answer:
 
 - `adapter-s3`: how the multipart answers and `<Deleted><Key>` spell a key holding `U+FFFE`, how
   R2 encodes a space under `encoding-type=url`, and whether R2's continuation token is ASCII. No
   test of the scheduled run asks them yet.
-- `adapter-gcs`: the time and CPU of flow 1's 17 MiB upload on `workerd`, the token exchanges
-  included, for the host note of section 2. A result beyond a paid plan's limit changes that note
-  and no cell (ADR 0039).
 
 What a run may add or loosen, in a minor release and without a withdrawal:
 

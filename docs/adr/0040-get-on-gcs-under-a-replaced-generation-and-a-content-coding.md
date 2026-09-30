@@ -83,7 +83,9 @@ measure the standard.
   `objects.get` of a replaced generation answers `404 notFound`, and, for an object written by a
   raw upload with `contentEncoding: gzip`, that `size` is the stored size, the body is decoded, and
   a range is `ProviderError`. stowage cannot write such an object, so no conformance case covers
-  it, and nothing goes on the divergence list of fake-gcs-server for it (ADR 0034).
+  it, and nothing goes on the divergence list of fake-gcs-server for it (ADR 0034). The first run
+  against the bucket saw a replaced generation answered `404 notFound` on the resource and `404` on
+  the media download, on both Node lines.
 - The README of the GCS adapter lists as limits that an object stored with a content coding reads
   longer than its `size` and takes no range, and that `get` racing a writer may take up to four
   requests.
