@@ -1,8 +1,9 @@
 import { errorCodeForStatus, type StorageErrorCode } from "@stowage/core";
 
 /**
- * The table of spec 7.9, holding both vendors' strings: a code recognized here decides
- * the error code alone, and an unrecognized one falls to the status mapping of spec 4.10.
+ * The table of spec 7.9, holding both vendors' strings and the compatible endpoints' that
+ * ADR 0041 admits: a code recognized here decides the error code alone, and an unrecognized
+ * one falls to the status mapping of spec 4.10.
  * Whether the condition is transient is never read from here — ADR 0013 decides that by
  * the status, so that an unknown `5xx` is treated no worse than one stowage has heard of.
  */
@@ -29,6 +30,8 @@ const providerCodes: ReadonlyMap<string, StorageErrorCode> = new Map([
   ["EntityTooLarge", "InvalidRequest"],
   ["EntityTooSmall", "InvalidRequest"],
   ["InvalidPart", "InvalidRequest"],
+  // The GCS XML API's, answered at `404` where AWS and R2 answer `InvalidPart` (ADR 0041).
+  ["NoSuchPart", "InvalidRequest"],
   ["InvalidPartOrder", "InvalidRequest"],
   ["BadDigest", "InvalidRequest"],
   ["MalformedXML", "InvalidRequest"],

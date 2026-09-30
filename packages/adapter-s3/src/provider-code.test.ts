@@ -24,6 +24,7 @@ test.each([
   ["EntityTooLarge", 400, "InvalidRequest"],
   ["EntityTooSmall", 400, "InvalidRequest"],
   ["InvalidPart", 400, "InvalidRequest"],
+  ["NoSuchPart", 404, "InvalidRequest"],
   ["InvalidPartOrder", 400, "InvalidRequest"],
   ["BadDigest", 400, "InvalidRequest"],
   ["MalformedXML", 400, "InvalidRequest"],
