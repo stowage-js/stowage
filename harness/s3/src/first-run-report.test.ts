@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { type FirstRunRun, firstRunReport, type JsonAssertion } from "./first-run-report.ts";
 import { azureProbeNames } from "../../azure-blob/src/first-run.ts";
+import { gcsProbeNames } from "../../gcs/src/first-run.ts";
 import { firstRunSuite, probeNames } from "./first-run.ts";
 
 const assertion = (overrides: Partial<JsonAssertion> & { title: string }): JsonAssertion => ({
@@ -58,6 +59,25 @@ describe("firstRunReport", () => {
 
     expect(cellOf(report, headPoint, "r2-node-24")).toBe(
       "disproved: AssertionError: 12 bytes followed the head",
+    );
+  });
+
+  // Spec 14 wants the answer recorded, and a probe that disproved its point saw one.
+  test("carries what a probe observed beside the failure that disproved the point", () => {
+    const report = firstRunReport([
+      run(
+        "gcs-node-24",
+        assertion({
+          title: gcsProbeNames.expiredToken,
+          status: "failed",
+          failureMessages: ["AssertionError: expected 403 to be 401\n    at probe.ts:1:1"],
+          meta: { observed: "403 3 s past the expiry, `forbidden`: expired" },
+        }),
+      ),
+    ]);
+
+    expect(cellOf(report, "past its expiry", "gcs-node-24")).toBe(
+      "disproved: AssertionError: expected 403 to be 401; observed 403 3 s past the expiry, `forbidden`: expired",
     );
   });
 
@@ -246,6 +266,55 @@ describe("firstRunReport", () => {
       "passed in 6.2 s, 0.8 s of CPU in the `workerd` process",
     );
     expect(cellOf(report, "17 MiB upload of flow 1", "azure-blob-node-24")).toBe("—");
+  });
+
+  test("reads the GCS probes on Node in the bucket's Node columns alone", () => {
+    const expiredToken = assertion({
+      title: gcsProbeNames.expiredToken,
+      meta: { observed: "401 12 s past the expiry, `authError`: Invalid Credentials" },
+    });
+    const report = firstRunReport([
+      run("gcs-node-24", expiredToken, assertion({ title: gcsProbeNames.replacedGeneration })),
+      run("gcs-workerd", expiredToken),
+      run("azure-blob-node-24", expiredToken),
+    ]);
+
+    expect(cellOf(report, "past its expiry", "gcs-node-24")).toBe(
+      "401 12 s past the expiry, `authError`: Invalid Credentials",
+    );
+    expect(cellOf(report, "a generation that a writer replaced", "gcs-node-24")).toBe("held");
+    expect(cellOf(report, "past its expiry", "gcs-workerd")).toBe("—");
+    expect(cellOf(report, "past its expiry", "azure-blob-node-24")).toBe("—");
+  });
+
+  // ADR 0034: whether Google grants a token short enough is unverified, and where it does not
+  // the probe skips itself with the refusal.
+  test("reads a probe that skipped itself with what it saw as a point not settled", () => {
+    const report = firstRunReport([
+      run(
+        "gcs-node-26",
+        assertion({
+          title: gcsProbeNames.expiredToken,
+          status: "skipped",
+          meta: { observed: "no token for 60 s: Invalid lifetime." },
+        }),
+      ),
+    ]);
+
+    expect(cellOf(report, "past its expiry", "gcs-node-26")).toBe(
+      "not settled: no token for 60 s: Invalid lifetime.",
+    );
+  });
+
+  test("carries the duration and the CPU flow 1 spent on `workerd` against the GCS bucket", () => {
+    const observed = "passed in 9.4 s, 1.1 s of CPU in the `workerd` process";
+    const report = firstRunReport([
+      run("gcs-workerd", assertion({ title: gcsProbeNames.flowOneOnWorkerd, meta: { observed } })),
+      run("azure-blob-workerd", assertion({ title: gcsProbeNames.flowOneOnWorkerd })),
+    ]);
+
+    expect(cellOf(report, "time and CPU of flow 1", "gcs-workerd")).toBe(observed);
+    expect(cellOf(report, "time and CPU of flow 1", "azure-blob-workerd")).toBe("—");
   });
 
   test("states what becomes of a disproved promise", () => {

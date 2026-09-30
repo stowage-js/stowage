@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { azureProbeNames } from "../../azure-blob/src/first-run.ts";
+import { gcsProbeNames } from "../../gcs/src/first-run.ts";
 import { firstRunSuite } from "../../s3/src/first-run.ts";
 import { describeWorkerd, observationOf } from "./describe-workerd.ts";
 
@@ -9,13 +10,32 @@ const { probes, flowOne } = await describeWorkerd({ describe, test });
 /* oxlint-disable vitest/valid-title -- the measurement's block and name are the ones the
    spec 14 report reads, kept once in `first-run.ts` for both */
 
+/**
+ * Each measurement taken, with the report's name for it and the token exchanges the measured
+ * request made before the upload: one at Entra for Azure, and for GCS the two of ADR 0034.
+ */
+const measurements = [
+  {
+    title: azureProbeNames.flowOneOnWorkerd,
+    taken: flowOne.azureBlob,
+    tokenExchanges: "one token exchange",
+  },
+  {
+    title: gcsProbeNames.flowOneOnWorkerd,
+    taken: flowOne.gcs,
+    tokenExchanges: "the exchanges at STS and IAM Credentials",
+  },
+].flatMap(({ taken, ...named }) => (taken === undefined ? [] : [{ ...named, taken }]));
+
 // Spec 14 asks what flow 1 costs here, which a failure of the case answers as well: the
 // case's own result is reported beside the others, and this carries the measurement.
-describe.skipIf(flowOne === undefined)(firstRunSuite, () => {
-  // oxlint-disable-next-line vitest/expect-expect -- a measurement, which passes whatever it measured
-  test(azureProbeNames.flowOneOnWorkerd, ({ task }) => {
-    if (flowOne !== undefined) task.meta.observed = observationOf(flowOne);
-  });
+describe.skipIf(measurements.length === 0)(firstRunSuite, () => {
+  for (const { title, taken, tokenExchanges } of measurements) {
+    // oxlint-disable-next-line vitest/expect-expect -- a measurement, which passes whatever it measured
+    test(title, ({ task }) => {
+      task.meta.observed = observationOf(taken, tokenExchanges);
+    });
+  }
 });
 
 describe("the flags of spec 1", () => {

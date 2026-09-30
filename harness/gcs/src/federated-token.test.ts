@@ -292,3 +292,54 @@ test("rejects where the Actions runtime hands out no OIDC token", async () => {
     "The Actions runtime answered 403 to the request for an OIDC token; the job needs `id-token: write`",
   );
 });
+
+// Spec 14 and ADR 0034: the probe of an expired token asks for one that expires soon, and
+// asks with it once it has.
+test("issues a token of the service account for a lifetime, kept by no resolver", async () => {
+  const sent = stubEndpoints();
+  const federation = workloadIdentityFederation(identity);
+
+  const expiring = await federation.expiring(serviceAccount, "devstorage.read_write", 60);
+  const held = await federation.impersonate(serviceAccount, "devstorage.read_write")();
+
+  const impersonation = sent[2];
+
+  expect(expiring).toEqual({
+    accessToken: "access-token-1",
+    expiresAt: expect.any(Number),
+  });
+  expect(held).toEqual({ accessToken: "access-token-2" });
+  expect(JSON.parse(impersonation?.body ?? "")).toEqual({
+    scope: ["https://www.googleapis.com/auth/devstorage.read_write"],
+    lifetime: "60s",
+  });
+  expect(sent.map((request) => request.url).filter((url) => url === stsEndpoint)).toHaveLength(1);
+});
+
+test("reads the expiry of a token for a lifetime off what IAM Credentials answered", async () => {
+  const expireTime = "2026-09-30T04:18:00Z";
+
+  stubEndpoints({ iam: () => Response.json({ accessToken: "short-lived", expireTime }) });
+
+  await expect(
+    workloadIdentityFederation(identity).expiring(serviceAccount, "devstorage.read_write", 60),
+  ).resolves.toEqual({ accessToken: "short-lived", expiresAt: Date.parse(expireTime) });
+});
+
+// Whether `generateAccessToken` grants a lifetime this short is unverified (ADR 0034), and
+// the probe records the refusal where it does not.
+test("rejects with IAM Credentials' message where it refuses the lifetime", async () => {
+  stubEndpoints({
+    iam: () =>
+      Response.json(
+        { error: { code: 400, message: "Invalid lifetime.", status: "INVALID_ARGUMENT" } },
+        { status: 400 },
+      ),
+  });
+
+  await expect(
+    workloadIdentityFederation(identity).expiring(serviceAccount, "devstorage.read_write", 60),
+  ).rejects.toThrow(
+    `IAM Credentials answered 400 to the token for ${serviceAccount} with the scope \`devstorage.read_write\`: Invalid lifetime.`,
+  );
+});

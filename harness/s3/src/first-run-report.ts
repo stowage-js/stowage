@@ -122,7 +122,17 @@ function outcomeOf(assertion: JsonAssertion | undefined, wanted: FirstRunTest): 
     const [message = ""] = assertion.failureMessages ?? [];
     const [firstLine = ""] = message.split("\n");
 
-    return `disproved: ${firstLine}`;
+    const observed = assertion.meta.observed;
+
+    return observed === undefined
+      ? `disproved: ${firstLine}`
+      : `disproved: ${firstLine}; observed ${observed}`;
+  }
+
+  // ADR 0034: whether Google grants a token short enough is unverified, and the probe that
+  // needs one skips itself without it.
+  if (assertion.status === "skipped" && assertion.meta.observed !== undefined) {
+    return `not settled: ${assertion.meta.observed}`;
   }
 
   if (assertion.status !== "passed") return "not run";

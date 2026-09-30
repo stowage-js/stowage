@@ -97,6 +97,29 @@ The one CORS rule is what flow 2 needs from a page: the origin
 `https://conformance.stowage.invalid`, the methods `GET` and `PUT`, and the header
 `content-type`.
 
+## Settled by the first run
+
+Two files ask the bucket what fake-gcs-server cannot answer, and run only where
+`STOWAGE_CONFORMANCE_INCLUDE_SLOW` is `true` and `STOWAGE_GCS_ENDPOINT_NAME` is `gcs`, on Node 24
+and Node 26.
+
+`src/adapter-gcs.test.ts` holds the promises of spec 10.4 the suite does not assert: the two
+response overrides of `presignGet`, the CORS headers on the `400 ExpiredToken` for an expired
+presigned URL after a preflight from the rule's origin, `delete` in a missing bucket rejecting with
+`NotFound` without `key` and `exists` rethrowing it, and URLs signed through `signBlob` for a key
+that travels encoded.
+
+`src/first-run.test.ts` asks the points of spec 14. It takes a token of the service account with
+a `lifetime` of 60 seconds from IAM Credentials, waits out its expiry, and records what the bucket
+answers it, then shows that the repeat of spec 9.3 recovers. Where IAM Credentials grants no such
+token, the probe records the refusal and skips itself. It also replaces an object and records what
+`objects.get` pinned to the replaced generation answers, on the resource and the media download.
+The `workerd` harness runs `flow/1-large-upload` once more on its own against the bucket and
+reports its duration and the CPU the `workerd` process spent, the token exchanges included.
+
+The last job of the workflow writes the points into the same table as the S3 and Azure ones, in
+the columns `gcs-node-24`, `gcs-node-26` and `gcs-workerd`.
+
 ## The `workerd` harness
 
 The worker runs the tier under `no_nodejs_compat` and `no_nodejs_compat_v2`, where no Node API is

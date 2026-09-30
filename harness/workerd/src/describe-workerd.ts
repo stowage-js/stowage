@@ -17,6 +17,7 @@ import type { ConformanceResult } from "../../../packages/conformance/src/result
 import { scheduledAgainstAccount } from "../../azure-blob/src/configuration.ts";
 import { configuredStorage as configuredAzureBlobStorage } from "../../azure-blob/src/environment.ts";
 import { describeAzureBlobEndpointCheck } from "../../azure-blob/src/target.ts";
+import { scheduledAgainstBucket } from "../../gcs/src/configuration.ts";
 import { configuredEndpoint as configuredGcsEndpoint } from "../../gcs/src/environment.ts";
 import { describeGcsEndpointCheck } from "../../gcs/src/target.ts";
 import { configuredStorage } from "../../s3/src/environment.ts";
@@ -32,8 +33,8 @@ const harnessDirectory = fileURLToPath(new URL("..", import.meta.url));
  * ADR 0006: `workerd` has no test function to hand the cases to, so the worker runs them
  * and answers with the results, and the harness reports each one on Node as a test of its
  * own, named as `describeConformance` names the case. What each worker reports about
- * itself beside the cases, and what flow 1 cost against the Azure account, is handed back
- * for the caller to assert on and report.
+ * itself beside the cases, and what flow 1 cost against the Azure account and the GCS
+ * bucket, is handed back for the caller to assert on and report.
  */
 export async function describeWorkerd(framework: ConformanceFramework): Promise<WorkerdRun> {
   await bundleWorker();
@@ -46,7 +47,8 @@ export async function describeWorkerd(framework: ConformanceFramework): Promise<
     : undefined;
   const configuredGcs = endpointTiers.has("gcs") ? configuredGcsEndpoint() : undefined;
 
-  const measuring = configuredAzureBlob !== undefined && scheduledAgainstAccount(env);
+  const measuringAzureBlob = configuredAzureBlob !== undefined && scheduledAgainstAccount(env);
+  const measuringGcs = configuredGcs?.kind === "bucket" && scheduledAgainstBucket(env);
 
   const { core, memory, s3, azureBlob, gcs, probes, flowOne } = await withWorkerd(
     async (workerd) => {
@@ -75,7 +77,12 @@ export async function describeWorkerd(framework: ConformanceFramework): Promise<
           defaults: await probesOf(origins.defaults),
         },
         // After every other run, so that the CPU the process spends meanwhile is the upload's.
-        flowOne: measuring ? await measureFlowOne(workerd) : undefined,
+        flowOne: {
+          azureBlob: measuringAzureBlob
+            ? await measureFlowOne(workerd, "adapter-azure-blob")
+            : undefined,
+          gcs: measuringGcs ? await measureFlowOne(workerd, "adapter-gcs") : undefined,
+        },
       };
     },
   );
@@ -113,8 +120,11 @@ export async function describeWorkerd(framework: ConformanceFramework): Promise<
 
 export interface WorkerdRun {
   readonly probes: Record<Socket, Probes>;
-  /** Flow 1 against the Azure account, where the scheduled run asks for the slow tier there. */
-  readonly flowOne?: Measurement;
+  /** Flow 1 against each real endpoint the scheduled run asks for the slow tier on. */
+  readonly flowOne: {
+    readonly azureBlob: Measurement | undefined;
+    readonly gcs: Measurement | undefined;
+  };
 }
 
 /** One case run on its own in the worker, with the time and the CPU it took. */
@@ -131,18 +141,21 @@ interface Workerd {
 }
 
 /**
- * Spec 14 and ADR 0026: the 17 MiB upload of flow 1 on `workerd` against the account, and
- * what it spends there, which the host note of spec 2 reads against a paid plan's limits.
- * Both numbers overstate the upload: the worker's resolver serves one request, so the
- * measured one exchanges the job's OIDC token first, and `/proc` counts the whole process
- * rather than the isolate a plan limits.
+ * Spec 14, ADR 0026 and ADR 0039: the 17 MiB upload of flow 1 on `workerd` against the
+ * account or the bucket, and what it spends there, which the host note of spec 2 reads
+ * against a paid plan's limits. Both numbers overstate the upload: the worker's resolvers
+ * serve one request, so the measured one exchanges the job's OIDC token first, and `/proc`
+ * counts the whole process rather than the isolate a plan limits.
  */
-async function measureFlowOne(workerd: Workerd): Promise<Measurement> {
+async function measureFlowOne(
+  workerd: Workerd,
+  adapter: "adapter-azure-blob" | "adapter-gcs",
+): Promise<Measurement> {
   const cpuBefore = await cpuSecondsOf(workerd.pid);
   const started = performance.now();
   const [result] = await resultsOf(
     workerd.origins.harness,
-    `adapter-azure-blob?case=${encodeURIComponent("flow/1-large-upload")}`,
+    `${adapter}?case=${encodeURIComponent("flow/1-large-upload")}`,
   );
   const seconds = (performance.now() - started) / 1000;
   const cpuAfter = await cpuSecondsOf(workerd.pid);
@@ -176,7 +189,7 @@ async function cpuSecondsOf(pid: number | undefined): Promise<number | undefined
 }
 
 /** What the report shows for the measurement, whatever the case did. */
-export function observationOf(measurement: Measurement): string {
+export function observationOf(measurement: Measurement, tokenExchanges: string): string {
   const cpu =
     measurement.cpuSeconds === undefined
       ? ""
@@ -188,7 +201,7 @@ export function observationOf(measurement: Measurement): string {
   if (result.status === "failed") return `failed after ${duration}: ${result.error.message}`;
   if (result.status === "skipped") return `skipped: ${result.reason}`;
 
-  return `passed in ${duration}, one token exchange included`;
+  return `passed in ${duration}, ${tokenExchanges} included`;
 }
 
 /**
