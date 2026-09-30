@@ -162,6 +162,14 @@ refuses the call it belongs to rather than answering it differently in silence, 
 weaker promise the parity core makes at that point.
 _Avoid_: feature, feature flag, extension
 
+**Concrete type**:
+The type an adapter hands back where a storage is constructed, which adds to the parity core what
+only that adapter offers, such as presigned URLs, and is where a provider option is reached. Callers
+hold it and do not implement it, so it can gain members without breaking them. Nothing lies below
+it: no adapter hands out a request of the caller's own, its signer, its credential or a hook into
+the requests it sends.
+_Avoid_: raw, escape hatch, native client, adapter class
+
 **Presigned URL**:
 A URL that carries its own authorization, so a client holding no credential can call it. It is bound
 to one operation on one key, to the content it may carry, and to a moment it stops working — at the
