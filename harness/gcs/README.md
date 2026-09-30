@@ -105,9 +105,9 @@ and Node 26.
 
 `src/adapter-gcs.test.ts` holds the promises of spec 10.4 the suite does not assert: the two
 response overrides of `presignGet`, the CORS headers on the `400 ExpiredToken` for an expired
-presigned URL after a preflight from the rule's origin, `delete` in a missing bucket rejecting with
-`NotFound` without `key` and `exists` rethrowing it, and URLs signed through `signBlob` for a key
-that travels encoded.
+presigned URL after a preflight from the rule's origin, and URLs signed through `signBlob` for a
+key that travels encoded. A missing bucket is the suite's case `errors/missing-bucket`, which runs
+against both endpoints.
 
 `src/first-run.test.ts` asks what spec 14 left open for GCS, and keeps asking it once the first run
 settled it. It takes a token of the service account with a `lifetime` of 60 seconds from IAM
@@ -150,4 +150,7 @@ and `presign/put-rejects-type` are on it because the emulator checks neither the
 expiry of a signed URL, as its README states, so it serves the URL each case expects refused.
 `move/round-trip` and `move/missing-source` are on it because the emulator serves no `objects.move`
 and answers every `moveTo` with `400 invalid`, the source left where it was (ADR 0037).
+`errors/missing-bucket` is on it because the emulator answers every request to a missing bucket
+with the `404 Not Found` of a missing object and never names the bucket as GCS does, so `exists`
+answers `false` and `delete` reports the key deleted (ADR 0043).
 `list/noncharacter-key` is not on it: no real endpoint runs the case to settle an entry.

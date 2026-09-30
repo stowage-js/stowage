@@ -2,14 +2,12 @@ import { randomUUID } from "node:crypto";
 
 import { afterAll, describe, expect, test } from "vitest";
 
-import { type GcsSigningStorage, gcsStorage } from "../../../packages/adapter-gcs/src/index.ts";
-import { isStorageError, type StorageError } from "../../../packages/core/src/index.ts";
-import { bucketOrFail, bucketStorage, type GcsBucket, scheduledBucket } from "./environment.ts";
+import type { GcsSigningStorage } from "../../../packages/adapter-gcs/src/index.ts";
+import { bucketOrFail, bucketStorage, scheduledBucket } from "./environment.ts";
 
 // Spec 10.4: promises of `adapter-gcs` that the suite does not assert and only the real
-// bucket shows. fake-gcs-server honors no response override, carries no CORS rule, checks no
-// signature and knows no bucket it was not asked to create (ADR 0034), so these run in the
-// scheduled job against the bucket alone.
+// bucket shows. fake-gcs-server honors no response override, carries no CORS rule and checks
+// no signature (ADR 0034), so these run in the scheduled job against the bucket alone.
 const scheduled = scheduledBucket();
 
 /** The one origin the bucket's CORS rule allows (ADR 0034). */
@@ -106,19 +104,6 @@ describe.skipIf(scheduled === undefined)("adapter-gcs against the bucket", () =>
     }).toEqual({ status: 400, code: "ExpiredToken", origin: allowedOrigin });
   });
 
-  // Spec 9.8: the batch answers a missing bucket with the `404 notFound` of a missing key, and
-  // only its message tells the two apart.
-  test("`delete` in a missing bucket rejects with `NotFound` without `key`, and `exists` rethrows it", async () => {
-    const missing = gcsStorage({ ...bucket().options, bucket: `stowage-missing-${randomUUID()}` });
-    const key = `${prefix}in-a-missing-bucket`;
-
-    const deleted = await rejectionOf(missing.delete(key));
-    const existed = await rejectionOf(missing.exists(key));
-
-    expect(codeStatusAndKeyOf(deleted)).toEqual({ code: "NotFound", status: 404, key: undefined });
-    expect(codeStatusAndKeyOf(existed)).toEqual({ code: "NotFound", status: 404, key: undefined });
-  });
-
   // The suite's presign cases sign keys that need no encoding; spec 9.4 encodes a key segment
   // by segment in a signed URL, and the canonical request `signBlob` signs covers each one.
   test("URLs signed through `signBlob` for a key that travels encoded are served", async () => {
@@ -148,28 +133,6 @@ describe.skipIf(scheduled === undefined)("adapter-gcs against the bucket", () =>
   });
 });
 
-function bucket(): GcsBucket {
-  return bucketOrFail(scheduled);
-}
-
 function storage(): GcsSigningStorage {
-  return bucketStorage(bucket());
-}
-
-async function rejectionOf(pending: Promise<unknown>): Promise<StorageError> {
-  let resolved: unknown;
-
-  try {
-    resolved = await pending;
-  } catch (failure) {
-    if (isStorageError(failure)) return failure;
-
-    throw failure;
-  }
-
-  throw new Error(`Expected a rejection, and the call resolved with ${JSON.stringify(resolved)}`);
-}
-
-function codeStatusAndKeyOf(failure: StorageError): Pick<StorageError, "code" | "status" | "key"> {
-  return { code: failure.code, status: failure.status, key: failure.key };
+  return bucketStorage(bucketOrFail(scheduled));
 }

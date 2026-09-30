@@ -73,6 +73,17 @@ export const gcsDivergences: readonly Divergence<GcsEmulator, GcsRealEndpoint>[]
     failureMessagePart: 'carries `code: "ProviderError"` rather than "NotFound"',
     ...moveUnserved,
   },
+  // ADR 0043: GCS names a missing bucket in the message of its `404` (spec 9.8), and without
+  // it the adapter reads a missing object. `exists` then answers `false`, and `delete` reports
+  // the key as deleted.
+  {
+    case: "errors/missing-bucket",
+    endpoint: fakeGcsServer,
+    differs:
+      "fake-gcs-server 1.56.1 answers every request to a missing bucket with the `404 Not Found` of a missing object, never with `The specified bucket does not exist.`",
+    failureMessagePart: "`put` in a missing bucket is `NotFound` naming the key",
+    settledBy: "gcs",
+  },
 ];
 
 /** The cases as a run against `endpoint` performs them, after ADR 0012. */

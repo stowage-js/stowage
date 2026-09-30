@@ -101,6 +101,7 @@ const coveredCases: ReadonlySet<string> = new Set([
   "errors/bad-credentials",
   "errors/denied-credentials",
   "errors/expired-credentials",
+  "errors/missing-bucket",
   "errors/not-a-storage-error",
   "flow/1-large-upload",
   "flow/2-presigned-put",
@@ -149,20 +150,34 @@ export function gcsTarget(endpoint: GcsEndpoint): ConformanceTarget {
 
       createStorageWithDeniedCredentials: () =>
         gcsStorage({ ...options, credentials: deniedCredentials }),
+
+      createStorageWithMissingBucket: () =>
+        gcsStorage({ ...options, signer, bucket: missingBucket() }),
     };
   }
 
   let signer: Promise<GcsSigner> | undefined;
+  const emulatorStorage = async (bucket: string) => {
+    signer ??= generatedSigner();
+
+    return gcsStorage({ ...endpoint.options, bucket, signer: await signer });
+  };
 
   return {
     name,
 
-    async createStorage() {
-      signer ??= generatedSigner();
+    createStorage: async () => await emulatorStorage(endpoint.options.bucket),
 
-      return gcsStorage({ ...endpoint.options, signer: await signer });
-    },
+    createStorageWithMissingBucket: async () => await emulatorStorage(missingBucket()),
   };
+}
+
+/**
+ * ADR 0043: a name drawn for each storage, so that no run and no bucket another one left
+ * behind can make it exist.
+ */
+function missingBucket(): string {
+  return `stowage-missing-${crypto.randomUUID()}`;
 }
 
 /** A key of Web Crypto's own on every runtime, and never extractable, since nothing reads it. */
