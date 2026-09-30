@@ -18,22 +18,22 @@ const measurements = [
   {
     title: azureProbeNames.flowOneOnWorkerd,
     taken: flowOne.azureBlob,
-    exchanges: "one token exchange",
+    tokenExchanges: "one token exchange",
   },
   {
     title: gcsProbeNames.flowOneOnWorkerd,
     taken: flowOne.gcs,
-    exchanges: "the exchanges at STS and IAM Credentials",
+    tokenExchanges: "the exchanges at STS and IAM Credentials",
   },
 ].flatMap(({ taken, ...named }) => (taken === undefined ? [] : [{ ...named, taken }]));
 
 // Spec 14 asks what flow 1 costs here, which a failure of the case answers as well: the
 // case's own result is reported beside the others, and this carries the measurement.
 describe.skipIf(measurements.length === 0)(firstRunSuite, () => {
-  for (const { title, taken, exchanges } of measurements) {
+  for (const { title, taken, tokenExchanges } of measurements) {
     // oxlint-disable-next-line vitest/expect-expect -- a measurement, which passes whatever it measured
     test(title, ({ task }) => {
-      task.meta.observed = observationOf(taken, exchanges);
+      task.meta.observed = observationOf(taken, tokenExchanges);
     });
   }
 });

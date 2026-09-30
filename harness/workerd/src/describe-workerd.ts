@@ -188,11 +188,8 @@ async function cpuSecondsOf(pid: number | undefined): Promise<number | undefined
   }
 }
 
-/**
- * What the report shows for the measurement, whatever the case did. `exchanges` names the
- * token exchanges the measured request made before the upload.
- */
-export function observationOf(measurement: Measurement, exchanges: string): string {
+/** What the report shows for the measurement, whatever the case did. */
+export function observationOf(measurement: Measurement, tokenExchanges: string): string {
   const cpu =
     measurement.cpuSeconds === undefined
       ? ""
@@ -204,7 +201,7 @@ export function observationOf(measurement: Measurement, exchanges: string): stri
   if (result.status === "failed") return `failed after ${duration}: ${result.error.message}`;
   if (result.status === "skipped") return `skipped: ${result.reason}`;
 
-  return `passed in ${duration}, ${exchanges} included`;
+  return `passed in ${duration}, ${tokenExchanges} included`;
 }
 
 /**
