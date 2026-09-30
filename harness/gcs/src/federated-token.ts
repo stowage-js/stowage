@@ -26,6 +26,21 @@ export interface WorkloadIdentityFederation {
     serviceAccount: string,
     scope: GcsScope,
   ) => (options?: ResolverOptions) => Promise<{ accessToken: string }>;
+  /**
+   * One token of the service account with `scope`, asked for `lifetimeSeconds` and kept by
+   * no resolver, for the probe of spec 14 that asks with it after it expired.
+   */
+  readonly expiring: (
+    serviceAccount: string,
+    scope: GcsScope,
+    lifetimeSeconds: number,
+  ) => Promise<ExpiringToken>;
+}
+
+export interface ExpiringToken {
+  readonly accessToken: string;
+  /** The expiry IAM Credentials answered, in milliseconds since the epoch. */
+  readonly expiresAt: number;
 }
 
 /**
@@ -44,8 +59,15 @@ export function workloadIdentityFederation(
       heldToken(async () => {
         const { accessToken } = await federated();
 
-        return await impersonated(serviceAccount, scope, accessToken);
+        const issued = await impersonated(serviceAccount, scope, accessToken);
+
+        return { accessToken: issued.accessToken, renewAt: issued.expiresAt - renewalMargin };
       }, now),
+    expiring: async (serviceAccount, scope, lifetimeSeconds) => {
+      const { accessToken } = await federated();
+
+      return await impersonated(serviceAccount, scope, accessToken, lifetimeSeconds);
+    },
   };
 }
 
@@ -90,17 +112,22 @@ async function federatedToken(identity: WorkloadIdentity, now: () => number): Pr
   };
 }
 
+/** Without `lifetimeSeconds`, IAM Credentials issues the token for its default hour. */
 async function impersonated(
   serviceAccount: string,
   scope: GcsScope,
   federated: string,
-): Promise<IssuedToken> {
+  lifetimeSeconds?: number,
+): Promise<ExpiringToken> {
   const response = await fetch(
     `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${serviceAccount}:generateAccessToken`,
     {
       method: "POST",
       headers: { authorization: `Bearer ${federated}`, "content-type": "application/json" },
-      body: JSON.stringify({ scope: [`https://www.googleapis.com/auth/${scope}`] }),
+      body: JSON.stringify({
+        scope: [`https://www.googleapis.com/auth/${scope}`],
+        ...(lifetimeSeconds === undefined ? {} : { lifetime: `${lifetimeSeconds}s` }),
+      }),
     },
   );
 
@@ -117,8 +144,5 @@ async function impersonated(
   const answer: { readonly accessToken: string; readonly expireTime: string } =
     await response.json();
 
-  return {
-    accessToken: answer.accessToken,
-    renewAt: Date.parse(answer.expireTime) - renewalMargin,
-  };
+  return { accessToken: answer.accessToken, expiresAt: Date.parse(answer.expireTime) };
 }
