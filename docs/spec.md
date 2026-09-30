@@ -95,7 +95,8 @@ A server process writes a stream of unknown length under a key.
   on Azure Blob (section 8.6), and on GCS nothing the API shows, except a session whose cancel did
   not arrive, which holds its bytes for up to a week (section 9.6).
 - Fails as: the caller aborts (`AbortError`); the credential expires during the upload (`Expired`,
-  or `InvalidCredentials` where the adapter cannot tell an expiry, sections 8.3 and 9.3; on GCS a
+  or `InvalidCredentials` where the provider or the adapter cannot tell an expiry, on R2, Azure
+  Blob and GCS, sections 7.2, 8.3 and 9.3; on GCS a
   credential expiring after the upload started does not fail it, since its chunks carry none); the
   provider rejects the write (`AccessDenied`, `InvalidRequest`, `ProviderError`).
 
@@ -148,8 +149,8 @@ A worker answers a client `GET` and passes the client's `Range` on to the provid
 - Adapters: `s3`, `azure-blob`, `gcs`. Runtimes: all four.
 - Holds when: nothing is buffered, so memory stays flat for an object of any size; a range returns
   partial content; the client disconnecting cancels the stream and reaches the provider.
-- Fails as: missing key (`NotFound`); range not satisfiable (`InvalidRequest`); on GCS, a range on
-  an object another tool stored with a content coding (`ProviderError`, section 9.2).
+- Fails as: missing key (`NotFound`); range not satisfiable (`InvalidRequest`); a range on an
+  object another tool stored with a content coding (`ProviderError`, section 4.3).
 
 ### Flow 5: move a prefix from the file system to a cloud provider
 
@@ -197,6 +198,10 @@ export interface Storage {
 - The interface is closed: no generic parameter, no index signature, no registry. An adapter
   extends it and may add methods and widen option types on its own concrete type; it may not
   narrow what the interface accepts.
+- Nothing lies below an adapter's concrete type: no adapter hands out a request of the caller's
+  own, its signer, its credential or a hook into the requests it sends, and `@stowage/core`
+  exports nothing for one. A caller who needs a request stowage does not send signs it with code of
+  their own (ADR 0042).
 - `provider` names the adapter: `"memory"`, `"fs"`, `"s3"`, `"azure-blob"` or `"gcs"`. `bucket`
   names the namespace the storage is bound to (sections 5 to 9 say what that is per adapter).
 - `capabilities` lists every capability the storage implements, each once, out of
@@ -278,6 +283,12 @@ export interface ListOptions extends OperationOptions {
 - `range` is honored where the storage declares `rangeReads` and is `Unsupported` elsewhere. `start`
   and `end` are non-negative integers with `start <= end`; anything else is `InvalidOption`. A
   `start` at or beyond the object's size is `InvalidRequest`. An `end` beyond the size is clipped.
+- An object another tool stored with a content coding takes no range. Where the answer to a ranged
+  `get` names a `Content-Encoding` other than `identity`, in any case, the adapter cancels the body
+  and rejects with `ProviderError` naming the coding, also where the range covers the whole object.
+  A `start` at or beyond the stored size of such an object stays `InvalidRequest` on `adapter-s3`
+  and `adapter-azure-blob`, whose provider answers it without naming the coding, and is
+  `ProviderError` on `adapter-gcs` (section 9.4, ADR 0040, ADR 0044).
 - `pageSize` takes 1 to 1000 and defaults to 1000; outside that range it is `InvalidOption`. A
   `cursor` the storage did not produce is `InvalidOption` naming `cursor`.
 - `signal` already aborted rejects before any request. Aborting during an operation cancels what
@@ -303,8 +314,10 @@ export interface ObjectStat extends ObjectEntry {
   because a listing response carries neither content type nor metadata.
 - `size` counts the bytes the storage holds. After `put` it is the number of bytes written; after
   a ranged `get` it is the size of the whole object, not of the range. An object another tool
-  stored with a content coding may arrive decoded and longer than `size`, since `fetch` decodes
-  content codings on every response; stowage never writes one (ADR 0040).
+  stored with a content coding may arrive decoded and longer than `size`, or as stored, depending
+  on the runtime and the adapter: Node, Bun and `workerd` decode the codings they know, and Deno
+  decodes none on `adapter-s3` and `adapter-azure-blob`, whose requests carry
+  `accept-encoding: identity`. stowage never writes such an object (ADR 0040, ADR 0044).
 - `lastModified` after `put`, `copy` and `move` is the time the provider reported when it accepted
   the object; a later `stat` may differ from it by the provider's rounding, one second on S3.
 - `etag` is set where the provider sends one. `adapter-fs` sends none. Its value is opaque and is
@@ -483,7 +496,7 @@ copies of `@stowage/core` in one dependency tree, where `instanceof` does not (A
 
 | Code                 | Meaning                                                                                                                                                                                                                                       |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NotFound`           | No object under the key, or no bucket. `stat` on S3 cannot tell the two apart, so one code names both                                                                                                                                         |
+| `NotFound`           | No object under the key, or, without `key`, no bucket (**A missing bucket** below)                                                                                                                                                            |
 | `AccessDenied`       | The credential is valid and may not do this                                                                                                                                                                                                   |
 | `InvalidCredentials` | The provider does not accept the credential, or a required credential field is empty or unknown                                                                                                                                               |
 | `Expired`            | The credential or session token has expired                                                                                                                                                                                                   |
@@ -517,10 +530,17 @@ absence only with its provider code (section 9.8). `408`, `429` and every `5xx` 
 `retryable: true`. Any other status is `ProviderError` with `retryable: false`.
 
 **Absence.** `get` and `stat` on a missing key reject with `NotFound`. `exists` answers `false` for
-`NotFound` alone and rethrows every other failure, including the `403` that S3 answers for a
-missing key under a credential without `s3:ListBucket`. `adapter-gcs` rethrows a missing bucket as
-well, a `NotFound` without `key` (section 9.8, ADR 0038); `adapter-s3` and `adapter-azure-blob`
-answer `false` for it. Deleting a missing key succeeds.
+a `NotFound` that carries `key` alone and rethrows every other failure, including the `403` that S3
+answers for a missing key under a credential without `s3:ListBucket`. Deleting a missing key
+succeeds.
+
+**A missing bucket.** An operation against a bucket that does not exist rejects, on every adapter:
+`exists` never answers `false` for it, and `delete` and `deleteAll` reject rather than report.
+Where the provider names the bucket as missing, the error is `NotFound` without `key`: S3's
+`NoSuchBucket` (section 7.9), Azure's `ContainerNotFound` (section 8.4), the missing bucket of GCS
+(section 9.8) and a root of `adapter-fs` that does not exist (section 6). R2 under a token scoped to
+other buckets answers `AccessDenied` instead (section 7.2). `adapter-memory` has no bucket to miss
+(ADR 0043).
 
 **Abort.** A fired `AbortSignal` produces the runtime's `AbortError`, never a `StorageError`.
 Callers handle two shapes: `isStorageError(err)` and `err.name === "AbortError"`.
@@ -533,17 +553,17 @@ the destination stays in place and repeating the `move` is safe.
 
 ### 4.11 Operations
 
-| Operation   | Key rule                              | Does                                                                                                                                                 | Rejects with                                                                      |
-| ----------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `put`       | `writable`                            | Stores the body under the key, replacing any object there. Resolves once the object is readable under the key                                        | `InvalidKey`, `InvalidOption`, `InvalidRequest`, `Unsupported`, provider failures |
-| `get`       | `addressable`                         | Returns the object's description and a body readable once                                                                                            | `NotFound`, `Unsupported` (range), `InvalidRequest` (range)                       |
-| `stat`      | `addressable`                         | Returns the object's description without its body                                                                                                    | `NotFound`                                                                        |
-| `exists`    | `addressable`                         | `true` where `stat` would succeed, `false` where it would reject with `NotFound`                                                                     | Every other failure `stat` would reject with                                      |
-| `list`      | `prefix`                              | Section 4.6                                                                                                                                          | `InvalidOption` (`pageSize`, `cursor`, `delimiter`)                               |
-| `delete`    | `addressable` per key                 | Deletes the keys, batching as the provider requires, in no promised order. Zero keys resolves with `requested: 0`                                    | A failure of the request as a whole                                               |
-| `deleteAll` | `prefix`                              | Lists every object below the prefix and deletes it, paging and batching on its own. Objects written during the call may or may not be deleted        | A failure of the request as a whole                                               |
-| `copy`      | `from` `addressable`, `to` `writable` | Creates `to` with the bytes, content type and user metadata of `from`, replacing any object at `to`. `from` stays. `from === to` is `InvalidRequest` | `NotFound`, `InvalidKey`, `InvalidRequest`                                        |
-| `move`      | `from` `addressable`, `to` `writable` | The outcome of `copy` then `delete` of `from`, in one request on `adapter-gcs` (section 9.7). Resolves with the description of `to`                  | The failure of the step that failed                                               |
+| Operation   | Key rule                              | Does                                                                                                                                                 | Rejects with                                                                                                                |
+| ----------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `put`       | `writable`                            | Stores the body under the key, replacing any object there. Resolves once the object is readable under the key                                        | `InvalidKey`, `InvalidOption`, `InvalidRequest`, `Unsupported`, provider failures                                           |
+| `get`       | `addressable`                         | Returns the object's description and a body readable once                                                                                            | `NotFound`, `Unsupported` (range), `InvalidRequest` (range), `ProviderError` (range on a content-coded object, section 4.3) |
+| `stat`      | `addressable`                         | Returns the object's description without its body                                                                                                    | `NotFound`                                                                                                                  |
+| `exists`    | `addressable`                         | `true` where `stat` would succeed, `false` where it would reject with `NotFound` for the key                                                         | Every other failure `stat` would reject with, a missing bucket among them (section 4.10)                                    |
+| `list`      | `prefix`                              | Section 4.6                                                                                                                                          | `InvalidOption` (`pageSize`, `cursor`, `delimiter`)                                                                         |
+| `delete`    | `addressable` per key                 | Deletes the keys, batching as the provider requires, in no promised order. Zero keys resolves with `requested: 0`                                    | A failure of the request as a whole, a missing bucket among them (section 4.10)                                             |
+| `deleteAll` | `prefix`                              | Lists every object below the prefix and deletes it, paging and batching on its own. Objects written during the call may or may not be deleted        | A failure of the request as a whole, a missing bucket among them (section 4.10)                                             |
+| `copy`      | `from` `addressable`, `to` `writable` | Creates `to` with the bytes, content type and user metadata of `from`, replacing any object at `to`. `from` stays. `from === to` is `InvalidRequest` | `NotFound`, `InvalidKey`, `InvalidRequest`                                                                                  |
+| `move`      | `from` `addressable`, `to` `writable` | The outcome of `copy` then `delete` of `from`, in one request on `adapter-gcs` (section 9.7). Resolves with the description of `to`                  | The failure of the step that failed                                                                                         |
 
 - `delimiter` is one or more characters; an empty string is `InvalidOption`.
 - Nothing in the API is atomic across keys, and no operation is conditional. Of two writers to one
@@ -615,6 +635,11 @@ export function rangeCoversWhole(range: ByteRange, size: number): boolean;
 export function rangeHeader(range: ByteRange): string;
 /** The whole object's size out of a `Content-Range` value, or `undefined` where it names none. */
 export function wholeSizeOf(contentRange: string | null): number | undefined;
+/** `ProviderError` naming the coding where the value names one other than `identity`. */
+export function contentCodingRefusal(
+  contentEncoding: string | null | undefined,
+  key: string,
+): { readonly code: "ProviderError"; readonly message: string } | undefined;
 
 export type UserMetadataKeyRule = "token" | "identifier";
 export function isUserMetadataKey(name: string, rule: UserMetadataKeyRule): boolean;
@@ -716,6 +741,11 @@ export function readSubresponses(
   `adapter-memory` read up to `lastByteOf`. `rangeHeader`, `wholeSizeOf` and `rangeCoversWhole`
   are the one definition of a range on the wire: a `200` answering a ranged request is the body
   asked for exactly where `rangeCoversWhole` holds.
+- `contentCodingRefusal` is the one definition of the rule of section 4.3 for an object stored with
+  a content coding. `adapter-s3`, `adapter-azure-blob` and `adapter-gcs` call it on the answer to
+  every ranged `get`, before `rangeCoversWhole`, with the coding their provider names, and cancel
+  the body where it refuses. An absent or empty value and `identity` in any case name no coding.
+  `adapter-fs` and `adapter-memory` hold no content coding and do not call it.
 - `adapter-memory`, `adapter-s3`, `adapter-azure-blob` and `adapter-gcs` run `checkUserMetadata`
   before a `put` writes or sends anything, raise its refusal with `attempts: 0`, and store `held`.
 - What two adapters need on the wire is defined here once; what one adapter alone needs stays in
@@ -793,7 +823,8 @@ export function fsStorage(options: FsAdapterOptions): FsStorage;
 ```
 
 - `bucket` is the `root` as given. `root` is an absolute path to an existing directory; construction
-  performs no I/O, and an operation against a root that does not exist rejects with `NotFound`.
+  performs no I/O, and an operation against a root that does not exist rejects with `NotFound`
+  without `key` (section 4.10).
 - Declares `rangeReads` only. `put` with a non-empty `userMetadata` is `Unsupported`; reads return
   `{}`.
 - A key maps to the path below the root with `/` as the separator. Every access resolves the real
@@ -893,27 +924,31 @@ Where the two answer differently the adapter is written to the stricter side, an
 promises what both hold (ADR 0014). A compatible endpoint can be configured and is not promised,
 Google Cloud Storage's XML API among them (ADR 0031).
 
-| Point                              | Promised                                                                                                                                |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Listing order                      | None. A page holds at most 1000 keys                                                                                                    |
-| Unicode-equivalent keys            | May name one object (R2 normalizes to NFC) or two (S3 keeps both). `keyBytesPreserved` is not declared                                  |
-| `userMetadata`                     | 2 KB of encoded header bytes; keys handed back in lower case                                                                            |
-| Single `PUT`                       | Up to 5 GB                                                                                                                              |
-| Object size ceiling                | The provider's, answered with `EntityTooLarge`                                                                                          |
-| `Content-Type`                     | Always sent by `put`, `application/octet-stream` where none was given                                                                   |
-| `CompleteMultipartUpload`          | Judged by its body, which may carry an error under `200`                                                                                |
-| Writes per key                     | R2 answers `429` above one write per second and key; the retry of section 7.5 may recover a single collision, but does not guarantee it |
-| Incomplete multipart uploads       | Removed by a lifecycle rule on AWS, after seven days by default on R2; stowage removes none                                             |
-| Presigned URL host                 | The endpoint that signed it; on R2 the `r2.cloudflarestorage.com` endpoint and not a custom domain                                      |
-| Response overrides on `presignGet` | Answered as the four response headers, on AWS and on R2                                                                                 |
+| Point                              | Promised                                                                                                                                                                                                                                           |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Listing order                      | None. A page holds at most 1000 keys                                                                                                                                                                                                               |
+| Unicode-equivalent keys            | May name one object (R2 normalizes to NFC) or two (S3 keeps both). `keyBytesPreserved` is not declared                                                                                                                                             |
+| `userMetadata`                     | 2 KB of encoded header bytes; keys handed back in lower case                                                                                                                                                                                       |
+| Single `PUT`                       | Up to 5 GB                                                                                                                                                                                                                                         |
+| Object size ceiling                | The provider's, answered with `EntityTooLarge`                                                                                                                                                                                                     |
+| `Content-Type`                     | Always sent by `put`, `application/octet-stream` where none was given                                                                                                                                                                              |
+| `CompleteMultipartUpload`          | Judged by its body, which may carry an error under `200`                                                                                                                                                                                           |
+| Writes per key                     | R2 answers `429` above one write per second and key; the retry of section 7.5 may recover a single collision, but does not guarantee it                                                                                                            |
+| Incomplete multipart uploads       | Removed by a lifecycle rule on AWS, after seven days by default on R2; stowage removes none                                                                                                                                                        |
+| Presigned URL host                 | The endpoint that signed it; on R2 the `r2.cloudflarestorage.com` endpoint and not a custom domain                                                                                                                                                 |
+| Response overrides on `presignGet` | Answered as the four response headers, on AWS and on R2                                                                                                                                                                                            |
+| Missing bucket                     | `NotFound` without `key` where AWS answers `NoSuchBucket` (section 7.9). Under a token scoped to other buckets, R2 answers `403 AccessDenied` for a missing bucket as for any other, and the call rejects with `AccessDenied`                      |
+| Expired credential                 | R2 answers an expired credential, a temporary credential past its `exp` included, with `403 SignatureDoesNotMatch`, which is `InvalidCredentials` with `attempts: 1`; the resolver is not called again with `forceRefresh: true` for it (ADR 0045) |
+| Objects stored compressed          | An object another tool stored with a content coding may read decoded and longer than its `size`, which is the stored size, or as stored (section 4.4); a range starting inside it is `ProviderError` (section 4.3)                                 |
 
 ### 7.3 Credentials
 
 - `credentials` is required. No unsigned request is sent.
 - The adapter resolves `credentials` before every request it signs and caches nothing between
   calls. A function is called with `{ forceRefresh: false }`, and with `{ forceRefresh: true }` once
-  after the provider answered `Expired`; that one repeat has no delay and is not switched off by
-  `retry: false`. Caching and rotation are the function's job.
+  after the provider answered `Expired`, which R2 does not answer for an expired credential (section
+  7.2); that one repeat has no delay and is not switched off by `retry: false`. Caching and rotation
+  are the function's job.
 - Before signing, `accessKeyId` and `secretAccessKey` are checked to be non-empty strings and every
   key of the resolved object to be one of the three; a violation is `InvalidCredentials` naming the
   field, with `attempts: 0`.
@@ -936,7 +971,9 @@ Google Cloud Storage's XML API among them (ADR 0031).
   adapter makes, and no chunked signing.
 - Every attempt resolves the credential again and signs again. The payload hash is computed once.
 - Every request asks for the bytes as the provider stores them, `Accept-Encoding: identity`, so
-  a provider that compresses on request cannot take the `Content-Length` a description reads.
+  a provider that compresses on request cannot take the `Content-Length` a description reads, and
+  so the answer names the coding an object is stored with: offered another encoding, R2 compresses
+  an object stored without one and recodes or drops a stored coding (ADR 0044).
 - Every answer document goes through `parseXml` of section 4.13, listings, the multipart answers
   and `DeleteResult` alike, and what it refuses is `ProviderError`. An error document is read by a
   lenient reader of its own that decodes any reference, so its content never fails the error it
@@ -1023,10 +1060,10 @@ endpoint's string where it names a condition one of them names otherwise and was
 
 | Provider code                                                                                                                                                                                                                      | Error code           | Note                                                                                                                                                                                          |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NoSuchKey`, `NoSuchBucket`                                                                                                                                                                                                        | `NotFound`           |                                                                                                                                                                                               |
+| `NoSuchKey`, `NoSuchBucket`                                                                                                                                                                                                        | `NotFound`           | `NoSuchBucket` without `key` (section 4.10)                                                                                                                                                   |
 | `AccessDenied`                                                                                                                                                                                                                     | `AccessDenied`       |                                                                                                                                                                                               |
 | `InvalidAccessKeyId`, `SignatureDoesNotMatch`, `Unauthorized`                                                                                                                                                                      | `InvalidCredentials` | `Unauthorized` at `401` is R2's                                                                                                                                                               |
-| `ExpiredToken`, `ExpiredRequest`                                                                                                                                                                                                   | `Expired`            | `ExpiredRequest` is R2's; provisional                                                                                                                                                         |
+| `ExpiredToken`, `ExpiredRequest`                                                                                                                                                                                                   | `Expired`            | `ExpiredRequest` is R2's, sent for an expired presigned URL and not for an expired credential (section 7.2)                                                                                   |
 | `RequestTimeTooSkewed`, `InvalidRange`, `InvalidRequest`, `InvalidArgument`, `MetadataTooLarge`, `EntityTooLarge`, `EntityTooSmall`, `InvalidPart`, `NoSuchPart`, `InvalidPartOrder`, `BadDigest`, `MalformedXML`, `InvalidDigest` | `InvalidRequest`     | `InvalidRequest` is AWS's; `InvalidArgument` answered to `ListObjectsV2` is `InvalidOption` naming `cursor`; `NoSuchPart` at `404` is Google Cloud Storage's XML API's, a compatible endpoint |
 | `InvalidObjectName`, `KeyTooLongError`                                                                                                                                                                                             | `InvalidKey`         | Reached only for a key the core accepted                                                                                                                                                      |
 | `PermanentRedirect`                                                                                                                                                                                                                | `InvalidOption`      | Names `region` and the region from the header                                                                                                                                                 |
@@ -1034,8 +1071,12 @@ endpoint's string where it names a condition one of them names otherwise and was
 
 `status`, `providerCode`, `requestId` (from `x-amz-request-id`) and the provider's message are set
 on every error that carries a response. `HEAD` carries no body, so `stat` and `exists` report the
-status alone; a `400` for a key above 1024 bytes is `InvalidKey`, the `KeyTooLongError` the body
-would have named.
+status alone, with one exception: a `404` to their `HEAD` is followed by a `GET` of the same key
+with `Range: bytes=0-0`, and where its body names `NoSuchBucket` the call rejects with that failure,
+`NotFound` without `key`. Any other answer to that `GET`, a success, a `416` and a body without a
+code included, leaves the `HEAD`'s answer standing, so an absent key costs two requests (ADR 0043).
+A `400` for a key above 1024 bytes is `InvalidKey`, the `KeyTooLongError` the body would have
+named.
 
 ### 7.10 Presigned URLs
 
@@ -1131,18 +1172,19 @@ Azure Blob Storage in the public cloud: a general-purpose v2 account without hie
 namespace, holding block blobs. An account with hierarchical namespace, a sovereign cloud and
 another endpoint that speaks the Blob wire protocol can be configured and are not promised.
 
-| Point                              | Promised                                                                                                                                       |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Listing order                      | None. A page holds at most 1000 names                                                                                                          |
-| Unicode-equivalent keys            | Two blobs: an NFC and an NFD name are stored, listed and read apart. `keyBytesPreserved` is declared                                           |
-| `userMetadata`                     | ASCII identifier keys, stored and handed back in lower case; 2 KB as section 4.3 measures them                                                 |
-| Single `Put Blob`                  | Up to 5,000 MiB                                                                                                                                |
-| Object size ceiling                | 50,000 blocks of at most 4,000 MiB; the upload of section 8.6 stops at 50,000 parts                                                            |
-| `Content-Type`                     | Always sent by `put`, on the commit of a block upload as well, `application/octet-stream` where none was given                                 |
-| Writes per key                     | Of two writers, one may be rejected (section 8.6)                                                                                              |
-| Uncommitted blocks                 | Kept until the next commit or `Put Blob` to the name, or until the service discards them seven days after the last block; stowage removes none |
-| Presigned URL host                 | The endpoint that signed it                                                                                                                    |
-| Response overrides on `presignGet` | Answered as the three response headers                                                                                                         |
+| Point                              | Promised                                                                                                                                                                                                           |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Listing order                      | None. A page holds at most 1000 names                                                                                                                                                                              |
+| Unicode-equivalent keys            | Two blobs: an NFC and an NFD name are stored, listed and read apart. `keyBytesPreserved` is declared                                                                                                               |
+| `userMetadata`                     | ASCII identifier keys, stored and handed back in lower case; 2 KB as section 4.3 measures them                                                                                                                     |
+| Single `Put Blob`                  | Up to 5,000 MiB                                                                                                                                                                                                    |
+| Object size ceiling                | 50,000 blocks of at most 4,000 MiB; the upload of section 8.6 stops at 50,000 parts                                                                                                                                |
+| `Content-Type`                     | Always sent by `put`, on the commit of a block upload as well, `application/octet-stream` where none was given                                                                                                     |
+| Writes per key                     | Of two writers, one may be rejected (section 8.6)                                                                                                                                                                  |
+| Uncommitted blocks                 | Kept until the next commit or `Put Blob` to the name, or until the service discards them seven days after the last block; stowage removes none                                                                     |
+| Presigned URL host                 | The endpoint that signed it                                                                                                                                                                                        |
+| Response overrides on `presignGet` | Answered as the three response headers                                                                                                                                                                             |
+| Objects stored compressed          | An object another tool stored with a content coding may read decoded and longer than its `size`, which is the stored size, or as stored (section 4.4); a range starting inside it is `ProviderError` (section 4.3) |
 
 ### 8.3 Credentials
 
@@ -1188,6 +1230,8 @@ another endpoint that speaks the Blob wire protocol can be configured and are no
   by a runtime's collation. Under an access token a request carries it as `Authorization: Bearer`.
 - Every request carries a body the adapter holds; Azure refuses a chunked `Put Blob`, so a stream
   travels as held parts (section 8.6).
+- Every request asks for the bytes as the provider stores them, `Accept-Encoding: identity`, as in
+  section 7.4.
 - A key is percent-encoded segment by segment on the request path, as in section 7.4.
 - Listings are `List Blobs` answers, read through `parseXml` of section 4.13. A `Name` marked
   `Encoded="true"`, which is how Azure carries a name holding `U+FFFE` or `U+FFFF`, is decoded as
@@ -1201,9 +1245,10 @@ another endpoint that speaks the Blob wire protocol can be configured and are no
 - `stat` and `exists` read the provider code from `x-ms-error-code`, which Azure sends on a `HEAD`
   as well, so a missing blob and a missing container carry their own codes.
 - `delete` sends Blob Batch requests of at most 256 `Delete Blob` subrequests. A subrequest
-  answered `404 BlobNotFound` counts as deleted. Any other failed subrequest becomes the key's
-  entry in `failed`, with the code section 8.8 maps; a failure of the batch request as a whole
-  rejects the call.
+  answered `404 BlobNotFound` counts as deleted. A subrequest answered `404 ContainerNotFound`
+  rejects the whole call with `NotFound` without `key` (section 4.10). Any other failed subrequest
+  becomes the key's entry in `failed`, with the code section 8.8 maps; a failure of the batch
+  request as a whole rejects the call.
 
 ### 8.5 Retries
 
@@ -1276,7 +1321,7 @@ carries a response.
 
 | Provider code                                                                                                            | Error code           | Note                                                                                                                                                                                  |
 | ------------------------------------------------------------------------------------------------------------------------ | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BlobNotFound`, `ContainerNotFound`, `ResourceNotFound`                                                                  | `NotFound`           | `BlobNotFound` on `delete` counts as deleted                                                                                                                                          |
+| `BlobNotFound`, `ContainerNotFound`, `ResourceNotFound`                                                                  | `NotFound`           | `BlobNotFound` on `delete` counts as deleted; `ContainerNotFound` without `key` (section 4.10)                                                                                        |
 | `AuthorizationPermissionMismatch`, `InsufficientAccountPermissions`, `AccountIsDisabled`, `UnauthorizedBlobOverwrite`    | `AccessDenied`       | The principal is authenticated and lacks the role                                                                                                                                     |
 | `InvalidAuthenticationInfo`, `NoAuthenticationInformation`, `AuthenticationFailed`, `KeyBasedAuthenticationNotPermitted` | `InvalidCredentials` | `InvalidAuthenticationInfo` under an access token after the one repeat of section 8.3; `AuthenticationFailed` includes a clock skew, which Azure does not tell apart from a wrong key |
 | `InvalidRange`, `RequestBodyTooLarge`, `BlockCountExceedsLimit`, `MetadataTooLarge`, `InvalidMetadata`                   | `InvalidRequest`     | The metadata codes are reached only for metadata the core accepted                                                                                                                    |
@@ -1417,20 +1462,20 @@ that speaks the JSON API, fake-gcs-server among them, can be configured and are 
 reached through `adapter-s3` over the XML API is an S3-compatible endpoint like any other (section
 7.2, ADR 0031).
 
-| Point                              | Promised                                                                                                                                                  |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Listing order                      | None. A page holds at most 1000 names                                                                                                                     |
-| Unicode-equivalent keys            | Two objects: an NFC and an NFD name are stored, listed and read apart. `keyBytesPreserved` is declared                                                    |
-| `userMetadata`                     | Any ASCII HTTP token as a key, stored in lower case and handed back as stored; values stored as written; 2 KB as section 4.3 measures them                |
-| Single request                     | Up to 5 TiB, the ceiling of an object                                                                                                                     |
-| Object size ceiling                | 5 TiB. A resumable session has no part limit; GCS refuses the chunk that crosses the ceiling                                                              |
-| `Content-Type`                     | Always sent by `put`, on the start of a resumable session as well, `application/octet-stream` where none was given                                        |
-| Writes per key                     | GCS answers `429` above one write per second and name; the retry of section 9.5 may recover a collision, but does not guarantee it. The later commit wins |
-| Incomplete uploads                 | A session whose cancel did not arrive keeps its bytes until GCS removes it a week after it started; stowage removes none                                  |
-| Storage class                      | `put` and `copy` write the bucket's default class; `move` keeps the source's                                                                              |
-| Objects stored compressed          | An object another tool stored with a content coding is read decoded, longer than its `size`, which is the stored size; any range on it is `ProviderError` |
-| Presigned URL host                 | The configured endpoint, path-style                                                                                                                       |
-| Response overrides on `presignGet` | Answered as the two response headers; GCS ignores `response-cache-control` and `response-expires`, so `GcsPresignGetOptions` carries neither              |
+| Point                              | Promised                                                                                                                                                                    |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Listing order                      | None. A page holds at most 1000 names                                                                                                                                       |
+| Unicode-equivalent keys            | Two objects: an NFC and an NFD name are stored, listed and read apart. `keyBytesPreserved` is declared                                                                      |
+| `userMetadata`                     | Any ASCII HTTP token as a key, stored in lower case and handed back as stored; values stored as written; 2 KB as section 4.3 measures them                                  |
+| Single request                     | Up to 5 TiB, the ceiling of an object                                                                                                                                       |
+| Object size ceiling                | 5 TiB. A resumable session has no part limit; GCS refuses the chunk that crosses the ceiling                                                                                |
+| `Content-Type`                     | Always sent by `put`, on the start of a resumable session as well, `application/octet-stream` where none was given                                                          |
+| Writes per key                     | GCS answers `429` above one write per second and name; the retry of section 9.5 may recover a collision, but does not guarantee it. The later commit wins                   |
+| Incomplete uploads                 | A session whose cancel did not arrive keeps its bytes until GCS removes it a week after it started; stowage removes none                                                    |
+| Storage class                      | `put` and `copy` write the bucket's default class; `move` keeps the source's                                                                                                |
+| Objects stored compressed          | An object another tool stored with a content coding may read decoded and longer than its `size`, which is the stored size (section 4.4); any range on it is `ProviderError` |
+| Presigned URL host                 | The configured endpoint, path-style                                                                                                                                         |
+| Response overrides on `presignGet` | Answered as the two response headers; GCS ignores `response-cache-control` and `response-expires`, so `GcsPresignGetOptions` carries neither                                |
 
 ### 9.3 Credentials
 
@@ -1489,12 +1534,13 @@ reached through `adapter-s3` over the XML API is an S3-compatible endpoint like 
   way back, so an object `adapter-s3` wrote through the XML API reads the same. A reader of the
   XML API sees a raw value outside ASCII garbled: the `ü` of `grüße` reaches `fetch` on an XML
   `HEAD` as `Ã¼` (ADR 0032).
-- An object stored with a content coding is read decoded: GCS decodes gzip, and `fetch` decodes
-  any coding GCS serves as stored. `size` stays the stored size, so the body may be longer. Every
-  `range` on such an object is `ProviderError`, its body canceled, whose message names the stored
-  coding the resource's `contentEncoding` or the media download's
+- An object stored with a content coding is read as `fetch` hands it over: GCS decodes gzip, and
+  the runtime decodes a coding GCS serves as stored where it knows it, which Deno does for `gzip`
+  and `br` alone. `size` stays the stored size, so the body may be longer. Every `range` on such an
+  object is `ProviderError` through `contentCodingRefusal` of section 4.13, its body canceled,
+  handed the stored coding the resource's `contentEncoding` or the media download's
   `x-goog-stored-content-encoding` carries; `rangeStartRefusal` does not run on it. stowage never
-  writes `Content-Encoding` itself (ADR 0040).
+  writes `Content-Encoding` itself (ADR 0040, ADR 0044).
 - `delete` sends batch requests of at most 100 deletes. A subresponse answered `404 notFound`
   counts as deleted. A missing bucket, which a batch answers with the same `404 notFound`, is told
   apart by its message and rejects the whole call with `NotFound`. Any other failed subresponse
@@ -1699,6 +1745,7 @@ export interface ConformanceTarget {
   createStorageWithBadCredentials?(): Storage | Promise<Storage>;
   createStorageWithExpiredCredentials?(): Storage | Promise<Storage>;
   createStorageWithDeniedCredentials?(): Storage | Promise<Storage>;
+  createStorageWithMissingBucket?(): Storage | Promise<Storage>;
 }
 
 export interface ConformanceContext {
@@ -1808,6 +1855,8 @@ export type ConformanceResult =
 - `createStorageWithExpiredCredentials()` returns a storage whose credential has already expired.
 - `createStorageWithDeniedCredentials()` returns a storage whose credential the provider accepts
   and that may read the bucket and not write to it.
+- `createStorageWithMissingBucket()` returns a storage bound to a bucket, container or root that
+  does not exist and is otherwise configured as the storage of `createStorage()`.
 
 ### 10.4 What the suite does not assert
 
@@ -1845,8 +1894,6 @@ adapters, tested in this repository and not by the suite:
 - The two response overrides on `presignGet` of `adapter-gcs` (section 9.9), and the CORS headers
   on the `400` for an expired presigned URL on GCS after a preflight from the origin the bucket's
   rule allows, against the real bucket in the `slow` tier.
-- `delete` in a missing bucket rejecting with `NotFound` and `exists` rethrowing it on
-  `adapter-gcs` (section 9.8), against the real bucket in the `slow` tier.
 - The repeat after `401` with `error=invalid_token` on `adapter-gcs` (section 9.3), against a
   stubbed `fetch`: one resolver call with `forceRefresh: true`, then success, or
   `InvalidCredentials` after a second `401`. Against the real bucket in the `slow` tier, the answer
@@ -1862,6 +1909,12 @@ adapters, tested in this repository and not by the suite:
 - The reading of failures on GCS (section 9.8), against a stubbed `fetch`: the body rule, a `404`
   without a provider code, a missing bucket on every operation, `get` with one of its two requests
   failed, a media `416`, a forged cursor, and `requestId` on a resumable session.
+- The refusal of a range on an object stored with a content coding (section 4.3) on `adapter-s3`
+  and `adapter-azure-blob`, which stowage cannot write: against a stubbed `fetch`, a `206` and a
+  `200` naming a coding, the body canceled, and `identity` read as no coding; in each adapter's
+  harness, an object written with `Content-Encoding: gzip` through a signed `PUT` of the harness's
+  own, whose `size` is the stored size, whose whole `get` resolves and whose range is
+  `ProviderError`.
 - The divergences of each emulator from the provider it stands in for, kept as a list in the
   private harness (ADR 0012, ADR 0023, ADR 0034).
 
@@ -1980,6 +2033,7 @@ A case marked with a factory is skipped where the target does not supply it.
 | `errors/bad-credentials`     |          | `fast` | Factory `createStorageWithBadCredentials`: `get` rejects with `InvalidCredentials`, `retryable: false` and `attempts` of `1` or `2`; `exists` rejects rather than answering `false`; `list` rejects |
 | `errors/denied-credentials`  |          | `fast` | Factory `createStorageWithDeniedCredentials`: `put` rejects with `AccessDenied`, `retryable: false`, `attempts: 1`                                                                                  |
 | `errors/expired-credentials` |          | `slow` | Factory `createStorageWithExpiredCredentials`: `get` rejects with `Expired` and `attempts: 2`                                                                                                       |
+| `errors/missing-bucket`      |          | `fast` | Factory `createStorageWithMissingBucket`: `put`, `get`, `stat`, `exists`, `delete` and the first page of `list` reject; where the code is `NotFound`, `key` is unset                                |
 
 **Presigned URLs**
 
@@ -2036,9 +2090,12 @@ both of its endpoints, since GCS refuses the key the case writes (section 9.1, A
   is a minor, whether it adds a promise or withdraws one. A changeset for a change that takes
   something from a caller starts with `**Breaking:**`.
 - What a caller may rely on is what this document states. A change only the compiler sees counts
-  like a change in behavior, with one exception: a name added to `StorageErrorCode` or
-  `capabilityNames` is a minor release, before and after 1.0. A `switch` over either needs a
-  default branch.
+  like a change in behavior, with two exceptions, each a minor release before and after 1.0:
+  - A name added to `StorageErrorCode` or `capabilityNames`. A `switch` over either needs a default
+    branch.
+  - A member added to a concrete type an adapter's factory returns, such as `S3Storage`. A test
+    double for code that stays portable is typed as `Storage`. Removing or narrowing a member stays
+    breaking. `Storage` and `ConformanceTarget` are not concrete types in this sense (ADR 0042).
 - The defaults this document declares movable, the backoff numbers of sections 7.5, 8.5 and 9.5
   and the upload numbers of sections 7.6, 8.6 and 9.6, move in a minor release and never in a
   patch.
@@ -2057,9 +2114,9 @@ both of its endpoints, since GCS refuses the key the case writes (section 9.1, A
   `@deprecated` what a later major removes. It promises no support window and no fixes for an older
   line. `SECURITY.md` states how to report a vulnerability and that a fix lands in the current line
   alone.
-- 1.0 waits until section 14 lists no promise a real endpoint has not answered, for a shape for the
-  `raw` escape hatch, and for the author having used stowage in a project of their own. A promise
-  leaves section 14 when a scheduled run observes it or when it is withdrawn.
+- 1.0 waits until section 14 lists no promise a real endpoint has not answered, and for the author
+  having used stowage in a project of their own. A promise leaves section 14 when a scheduled run
+  observes it or when it is withdrawn.
 
 ## 12. Documentation
 
@@ -2114,7 +2171,7 @@ that disagrees with this document is corrected without a changeset.
 
 ## 13. Non-goals
 
-v0.3 does not have, and does not promise a path to:
+v0.4 does not have, and does not promise a path to:
 
 - Bucket and container management: creating, listing or deleting them.
 - A connection URL, a connection string or any other configuration string, and a key file or a
@@ -2155,13 +2212,11 @@ The following have not yet been observed against a real endpoint. A promise a sc
 disproves is withdrawn in a minor release, and 1.0 waits until the first list below is empty
 (section 11). The first run against AWS S3 and R2, the first run against the Azure account and the
 first run against the GCS bucket, each on Node and `workerd`, disproved none of the points they
-settled; those are stated in the sections they belong to. Each point left here names why no run
-has answered it.
+settled; those are stated in the sections they belong to. The one promise no run could provoke,
+that R2 answers `ExpiredRequest` for an expired credential, a probe of its own disproved, and it is
+withdrawn (section 7.2, ADR 0045). Each point left here names why no run has answered it.
 
-Promises:
-
-- R2 answers `ExpiredRequest` for an expired credential; the `Expired` case is skipped against R2
-  until a way to provoke it exists.
+Promises: none.
 
 Recorded only, since this document already states what follows from any answer:
 
