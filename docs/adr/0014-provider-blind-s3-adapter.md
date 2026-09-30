@@ -96,7 +96,9 @@ header: `responseContentType` equals `Content-Type`, `responseContentDisposition
   `InvalidCredentials`, and `ExpiredRequest` is provisionally mapped to `Expired` pending a real
   R2 observation; `InvalidObjectName` reaches `InvalidKey`, and `TooManyRequests` and
   `ServiceUnavailable` reach `ProviderError`. ADR 0013 retries the last two by status either way;
-  the table is what gives them a name the caller can read.
+  the table is what gives them a name the caller can read. ADR 0041 admits a compatible endpoint's
+  string beside them, without a flag and without a promise, where it names a condition one of the
+  two names otherwise.
 - `put` sends a `Content-Type` on every request and uses `application/octet-stream` where the
   caller named none, so what `stat` reports does not depend on which provider stored the object.
 - `CompleteMultipartUpload` is not judged by its status line. The adapter parses the response
