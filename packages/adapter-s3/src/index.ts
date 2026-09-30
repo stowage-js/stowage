@@ -35,7 +35,7 @@ import {
   requireKnownOptions,
 } from "./options.ts";
 import { send } from "./request.ts";
-import { partialContent, requireRange, wholeAnswerFailure } from "./range.ts";
+import { rangedAnswerFailure, requireRange } from "./range.ts";
 import { s3Error } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
 import { type ObjectWrite, putObject, putStream } from "./upload.ts";
@@ -147,9 +147,9 @@ class SimpleStorageServiceStorage implements S3Storage {
     const stat = describeResponse(this.bucket, key, "get", response);
 
     const refusal =
-      range === undefined || response.status === partialContent
+      range === undefined
         ? undefined
-        : wholeAnswerFailure(this.bucket, key, range, stat.size);
+        : rangedAnswerFailure(this.bucket, key, range, stat.size, response);
 
     if (refusal !== undefined) {
       await response.body?.cancel();
