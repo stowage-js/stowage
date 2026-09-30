@@ -69,6 +69,25 @@ export function wholeSizeOf(contentRange: string | null): number | undefined {
   return Number.isSafeInteger(size) ? size : undefined;
 }
 
+/**
+ * `ProviderError` where the value names a content coding other than `identity`. Spec 4.3 refuses
+ * every range on such an object: its `size` counts the stored bytes, while a provider may decode
+ * them on the way, so no range of what arrives is the range of what is stored (ADR 0044).
+ */
+export function contentCodingRefusal(
+  contentEncoding: string | null | undefined,
+  key: string,
+): { readonly code: "ProviderError"; readonly message: string } | undefined {
+  const coding = contentEncoding ?? "";
+
+  if (coding === "" || coding.toLowerCase() === "identity") return undefined;
+
+  return {
+    code: "ProviderError",
+    message: `The object under ${JSON.stringify(key)} is stored with the content coding ${JSON.stringify(coding)}, so no range of it can be read`,
+  };
+}
+
 function isOffset(value: number): boolean {
   return Number.isInteger(value) && value >= 0;
 }

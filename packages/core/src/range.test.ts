@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 
 import {
+  contentCodingRefusal,
   lastByteOf,
   rangeBoundsRefusal,
   rangeCoversWhole,
@@ -100,4 +101,26 @@ test.each([
   ["a size above the safe integers", "bytes 0-4/9007199254740993"],
 ])("%s names no whole size", (_name, field) => {
   expect(wholeSizeOf(field)).toBeUndefined();
+});
+
+test.each([
+  ["no value", undefined],
+  ["no field", null],
+  ["an empty value", ""],
+  ["`identity`", "identity"],
+  ["`identity` in another case", "IDENTITY"],
+])("%s names no content coding", (_name, contentEncoding) => {
+  expect(contentCodingRefusal(contentEncoding, "a.txt")).toBeUndefined();
+});
+
+test.each([
+  ["gzip", "gzip"],
+  ["gzip in another case", "GZip"],
+  ["br", "br"],
+  ["an unknown coding", "x-unheard-of"],
+])("%s names a content coding that refuses every range", (_name, contentEncoding) => {
+  expect(contentCodingRefusal(contentEncoding, "a.txt")).toEqual({
+    code: "ProviderError",
+    message: `The object under "a.txt" is stored with the content coding ${JSON.stringify(contentEncoding)}, so no range of it can be read`,
+  });
 });

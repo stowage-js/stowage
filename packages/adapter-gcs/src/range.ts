@@ -1,5 +1,6 @@
 import {
   type ByteRange,
+  contentCodingRefusal,
   isStorageError,
   rangeBoundsRefusal,
   rangeCoversWhole,
@@ -40,7 +41,7 @@ export function isUnsatisfiedRange(
  * resource named. Where that size leaves room for the range, the object changed between the
  * two requests, and the media failure's message explains the `InvalidRequest`. On an object
  * stored with a content coding the size measures the stored bytes, and the range is refused
- * for the coding instead (ADR 0040).
+ * for the coding instead (ADR 0040, ADR 0044).
  */
 export function reportedDownloadFailure(
   bucket: string,
@@ -51,14 +52,11 @@ export function reportedDownloadFailure(
 ): unknown {
   if (range === undefined || !isUnsatisfiedRange(range, failure)) return failure;
 
-  const coding = storedCodingOf(described);
+  const changedBetweenRequests = { code: "InvalidRequest" as const, message: failure.message };
   const reported =
-    coding === undefined
-      ? (rangeStartRefusal(range, described.stat.size, key) ?? {
-          code: "InvalidRequest" as const,
-          message: failure.message,
-        })
-      : codedRangeRefusal(key, coding);
+    contentCodingRefusal(contentEncodingOf(described), key) ??
+    rangeStartRefusal(range, described.stat.size, key) ??
+    changedBetweenRequests;
 
   return gcsError(bucket, {
     ...reported,
@@ -95,10 +93,9 @@ export function answeredRangeRefusal(
     status: response.status,
     requestId: response.headers.get(requestIdHeader) ?? undefined,
   };
-  const coding = storedCodingOf(described, response);
+  const codingRefusal = contentCodingRefusal(contentEncodingOf(described, response), key);
 
-  if (coding !== undefined)
-    return gcsError(bucket, { ...codedRangeRefusal(key, coding), ...answered });
+  if (codingRefusal !== undefined) return gcsError(bucket, { ...codingRefusal, ...answered });
 
   const { size } = described.stat;
 
@@ -116,21 +113,12 @@ export function answeredRangeRefusal(
 }
 
 /**
- * The content coding the object is stored with, off its resource or its media download.
- * GCS names `identity` on the download of an object stored without one.
+ * The value naming the object's stored content coding, off its resource or its media download.
+ * GCS sends `identity` on the download of an object stored without one.
  */
-function storedCodingOf(described: DescribedObject, response?: Response): string | undefined {
-  const coding = described.contentEncoding ?? response?.headers.get(storedCodingHeader) ?? "";
-
-  return coding === "" || coding.toLowerCase() === "identity" ? undefined : coding;
-}
-
-function codedRangeRefusal(
-  key: string,
-  coding: string,
-): { readonly code: "ProviderError"; readonly message: string } {
-  return {
-    code: "ProviderError",
-    message: `The object under ${JSON.stringify(key)} is stored with the content coding ${JSON.stringify(coding)}, so no range of it can be read`,
-  };
+function contentEncodingOf(
+  described: DescribedObject,
+  response?: Response,
+): string | null | undefined {
+  return described.contentEncoding ?? response?.headers.get(storedCodingHeader);
 }
