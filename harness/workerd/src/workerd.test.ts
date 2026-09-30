@@ -4,6 +4,7 @@ import { azureProbeNames } from "../../azure-blob/src/first-run.ts";
 import { gcsProbeNames } from "../../gcs/src/first-run.ts";
 import { firstRunSuite } from "../../s3/src/first-run.ts";
 import { describeWorkerd, observationOf } from "./describe-workerd.ts";
+import { answerIn } from "./reply.ts";
 
 const { probes, flowOne } = await describeWorkerd({ describe, test });
 
@@ -40,7 +41,7 @@ describe.skipIf(measurements.length === 0)(firstRunSuite, () => {
 
 describe("the flags of spec 1", () => {
   test("leave the harness worker no Node API", () => {
-    expect(probes.harness.nodeApi).toEqual({
+    expect(answerIn(probes.harness.nodeApi)).toEqual({
       process: "undefined",
       Buffer: "undefined",
       "node:os": "rejected",
@@ -50,7 +51,7 @@ describe("the flags of spec 1", () => {
 
   // Without this, a probe that could not see a Node API at all would pass the test above.
   test("differ from the defaults, where the same worker reaches Node APIs", () => {
-    expect(probes.defaults.nodeApi).toEqual({
+    expect(answerIn(probes.defaults.nodeApi)).toEqual({
       process: "object",
       Buffer: "function",
       "node:os": "loaded",
@@ -64,7 +65,7 @@ describe("`fromEnv` on `workerd`", () => {
   // `ReferenceError`. Where an S3 endpoint is configured the worker also has an
   // `AWS_ACCESS_KEY_ID` binding, and without `process` it does not reach `fromEnv`.
   test("finds no `process` at the flags of spec 1 and names the missing variable", () => {
-    expect(probes.harness.fromEnv).toEqual({
+    expect(answerIn(probes.harness.fromEnv)).toEqual({
       refusal: {
         code: "InvalidCredentials",
         message: expect.stringContaining("AWS_ACCESS_KEY_ID"),
@@ -75,7 +76,7 @@ describe("`fromEnv` on `workerd`", () => {
   // Spec 7.3: under `nodejs_compat`, which the pinned date turns on by default, the
   // bindings of `workerd.capnp` reach `process.env`.
   test("reads the three variables from the bindings at the defaults", () => {
-    expect(probes.defaults.fromEnv).toEqual({
+    expect(answerIn(probes.defaults.fromEnv)).toEqual({
       credentials: {
         accessKeyId: "access-key-from-binding",
         secretAccessKey: "secret-from-binding",

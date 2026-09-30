@@ -23,10 +23,11 @@ import { configuredEndpoint as configuredGcsEndpoint } from "../../gcs/src/envir
 import { describeGcsEndpointCheck } from "../../gcs/src/target.ts";
 import { configuredStorage } from "../../s3/src/environment.ts";
 import { describeEndpointCheck } from "../../s3/src/target.ts";
-import { type CoreCheckResult, describeCoreResults } from "../../targets/src/core.ts";
+import type { CoreCheckResult } from "../../targets/src/core.ts";
 import { endpointTiersFrom } from "../../targets/src/endpoints.ts";
 import type { FromEnvOutcome } from "./from-env.ts";
 import type { NodeApiReach } from "./node-api.ts";
+import { describeCoreReply, describeResults, type Reply, settled } from "./reply.ts";
 
 const harnessDirectory = fileURLToPath(new URL("..", import.meta.url));
 
@@ -35,7 +36,8 @@ const harnessDirectory = fileURLToPath(new URL("..", import.meta.url));
  * and answers with the results, and the harness reports each one on Node as a test of its
  * own, named as `describeConformance` names the case. What each worker reports about
  * itself beside the cases, and what flow 1 cost against the Azure account and the GCS
- * bucket, is handed back for the caller to assert on and report.
+ * bucket, is handed back for the caller to assert on and report. Each request to the worker
+ * reports on its own, so that one that fails leaves the answers of the others in the report.
  */
 export async function describeWorkerd(framework: ConformanceFramework): Promise<WorkerdRun> {
   await bundleWorker();
@@ -60,23 +62,25 @@ export async function describeWorkerd(framework: ConformanceFramework): Promise<
       const { origins } = workerd;
 
       return {
-        core: await answerOf<readonly CoreCheckResult[]>(origins.harness, "core"),
-        memory: await resultsOf(workerd, "harness", "adapter-memory"),
+        core: await settled(answerOf<readonly CoreCheckResult[]>(origins.harness, "core")),
+        memory: await settled(resultsOf(workerd, "harness", "adapter-memory")),
         s3:
-          configured === undefined ? undefined : await resultsOf(workerd, "harness", "adapter-s3"),
+          configured === undefined
+            ? undefined
+            : await settled(resultsOf(workerd, "harness", "adapter-s3")),
         azureBlob:
           configuredAzureBlob === undefined
             ? undefined
             : {
-                harness: await resultsOf(workerd, "harness", "adapter-azure-blob"),
-                defaults: await resultsOf(workerd, "defaults", "adapter-azure-blob"),
+                harness: await settled(resultsOf(workerd, "harness", "adapter-azure-blob")),
+                defaults: await settled(resultsOf(workerd, "defaults", "adapter-azure-blob")),
               },
         gcs:
           configuredGcs === undefined
             ? undefined
             : {
-                harness: await resultsOf(workerd, "harness", "adapter-gcs"),
-                defaults: await resultsOf(workerd, "defaults", "adapter-gcs"),
+                harness: await settled(resultsOf(workerd, "harness", "adapter-gcs")),
+                defaults: await settled(resultsOf(workerd, "defaults", "adapter-gcs")),
               },
         probes: {
           harness: await probesOf(origins.harness),
@@ -93,7 +97,7 @@ export async function describeWorkerd(framework: ConformanceFramework): Promise<
     },
   );
 
-  describeCoreResults(framework, core);
+  describeCoreReply(framework, core);
 
   describeResults(framework, "@stowage/adapter-memory", memory);
 
@@ -161,11 +165,12 @@ async function measureFlowOne(
 ): Promise<Measurement> {
   const cpuBefore = await cpuSecondsOf(workerd.pid);
   const started = performance.now();
+  // A lost request reads as no result, and the run of every case reports its own failure.
   const [result] = await resultsOf(
     workerd,
     "harness",
     `${adapter}?case=${encodeURIComponent("flow/1-large-upload")}`,
-  );
+  ).catch(() => []);
   const seconds = (performance.now() - started) / 1000;
   const cpuAfter = await cpuSecondsOf(workerd.pid);
 
@@ -229,8 +234,8 @@ const socketFlags: Record<Socket, string> = {
 
 /** What one worker answers about itself beside the cases. */
 export interface Probes {
-  readonly nodeApi: NodeApiReach;
-  readonly fromEnv: FromEnvOutcome;
+  readonly nodeApi: Reply<NodeApiReach>;
+  readonly fromEnv: Reply<FromEnvOutcome>;
 }
 
 /** `src/worker.ts` as the one module `workerd.capnp` embeds. */
@@ -388,8 +393,8 @@ async function resultsOf(
 
 async function probesOf(origin: string): Promise<Probes> {
   return {
-    nodeApi: await answerOf<NodeApiReach>(origin, "node-api"),
-    fromEnv: await answerOf<FromEnvOutcome>(origin, "from-env"),
+    nodeApi: await settled(answerOf<NodeApiReach>(origin, "node-api")),
+    fromEnv: await settled(answerOf<FromEnvOutcome>(origin, "from-env")),
   };
 }
 
@@ -401,23 +406,4 @@ async function answerOf<T>(origin: string, path: string): Promise<T> {
   const answer: T = await response.json();
 
   return answer;
-}
-
-function describeResults(
-  framework: ConformanceFramework,
-  name: string,
-  results: readonly ConformanceResult[],
-): void {
-  framework.describe(name, () => {
-    for (const result of results) {
-      if (result.status === "skipped") {
-        framework.test(`${result.case.name} (skipped: ${result.reason})`, async () => {});
-        continue;
-      }
-
-      framework.test(result.case.name, async () => {
-        if (result.status === "failed") throw Object.assign(new Error(), result.error);
-      });
-    }
-  });
 }
