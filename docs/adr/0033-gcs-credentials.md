@@ -56,7 +56,7 @@ two parsers for the same refusal and left `HEAD` without one.
   as an `error_description`, a genuine `Expired` can be added in a minor release. The first run
   against the bucket asked with a token of a 60-second lifetime past its expiry and saw the answer
   a made-up token gets, `401` with `error=invalid_token`, the reason `authError` and "Invalid
-  Credentials", from the second it expired, so the adapter still never reports `Expired`.
+  Credentials", 0 and 1 seconds after it expired, so the adapter still never reports `Expired`.
 - `adapter-gcs` exports no `fromEnv`. An access token in an environment variable is a snapshot that
   stops working within an hour, the reason ADR 0021 did not read one, and
   `GOOGLE_APPLICATION_CREDENTIALS` names a file, which `workerd` cannot read.

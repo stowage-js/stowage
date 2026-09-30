@@ -1442,13 +1442,12 @@ reached through `adapter-s3` over the XML API is an S3-compatible endpoint like 
   0036).
 - A function is called with `{ forceRefresh: false }`, and with `{ forceRefresh: true }` once after
   the provider answered `401` with `error=invalid_token` in `WWW-Authenticate`, which GCS answers
-  alike to an expired, a revoked and a malformed token: a token past its expiry is answered from
-  the second it expires with the reason `authError` and the message "Invalid Credentials", as a
-  made-up one is. That repeat has no delay and is not switched off by `retry: false`. Where the
-  repeat is refused too, the failure is `InvalidCredentials` with `attempts: 2`, and its message
-  says that the token expired or is not accepted. Any other `401` is `InvalidCredentials` and not
-  repeated. The adapter never reports `Expired`, since no answer tells an expired token apart (ADR
-  0033).
+  alike to an expired, a revoked and a malformed token: a token past its expiry is answered as a
+  made-up one is, with the provider code `authError`. That repeat has no delay and is not switched
+  off by `retry: false`. Where the repeat is refused too, the failure is `InvalidCredentials` with
+  `attempts: 2`, and its message says that the token expired or is not accepted. Any other `401` is
+  `InvalidCredentials` and not repeated. The adapter never reports `Expired`, since no answer tells
+  an expired token apart (ADR 0033).
 - Before a request goes out with it, the resolved object is checked to hold `accessToken` as a
   non-empty string and no other field; a violation is `InvalidCredentials` naming the field, with
   `attempts: 0`.
@@ -1474,15 +1473,14 @@ reached through `adapter-s3` over the XML API is an S3-compatible endpoint like 
 - `stat` and `exists` read the object's resource. `get` sends the resource request and the media
   download side by side, since the media download carries no user metadata. Where the two name
   different generations, because a writer replaced the object between them, the resource is read
-  again pinned to the media download's generation, and the body is kept. GCS answers a request
-  pinned to a generation a writer replaced with `404`, `notFound` on the resource and without a
+  again pinned to the media download's generation, and the body is kept. GCS answers `404` to a
+  request pinned to a generation a writer replaced, `notFound` on the resource and without a
   provider code on the media download. Where the pinned resource answers `404 notFound`, the body
   is canceled and the media download is sent again pinned to the first resource's generation, with
-  the range. Where that answers `404` as well, `get` rejects with
-  `NotFound` whose `key` is set, although the key may hold a newer object. Each of the two is one
-  request on the budget of section 9.5, and `stat` describes the bytes the body carries. Which
-  generation is newer is not read from their numbers, which GCS does not promise to increase (ADR
-  0032, ADR 0040).
+  the range. Where that answers `404` as well, `get` rejects with `NotFound` whose `key` is set,
+  although the key may hold a newer object. Each of the two is one request on the budget of section
+  9.5, and `stat` describes the bytes the body carries. Which generation is newer is not read from
+  their numbers, which GCS does not promise to increase (ADR 0032, ADR 0040).
 - A `userMetadata` key is sent folded to lower case, and values travel in the JSON body as
   written, raw Unicode included. Keys are handed back as stored, so an object another tool wrote
   with `A` and `a` returns both. A stored value that holds RFC 2047 encoded words is decoded on the
