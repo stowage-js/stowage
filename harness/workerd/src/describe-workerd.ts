@@ -165,7 +165,7 @@ async function measureFlowOne(
 ): Promise<Measurement> {
   const cpuBefore = await cpuSecondsOf(workerd.pid);
   const started = performance.now();
-  // A lost request reads as no result, and the run of every case reports its own failure.
+  // A lost request reads as no result rather than ending the job.
   const [result] = await resultsOf(
     workerd,
     "harness",

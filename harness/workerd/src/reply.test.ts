@@ -92,7 +92,7 @@ test("a lost answer of the core checks reports one failed test under the core", 
   await expect(only?.body()).rejects.toBe(lost);
 });
 
-test("a test reading a lost probe fails with the error of the request", async () => {
+test("a test reading a probe gets its answer, or the error of the lost request", async () => {
   const lost = new Error("fetch failed");
 
   expect(answerIn(await settled(Promise.resolve({ process: "undefined" })))).toEqual({

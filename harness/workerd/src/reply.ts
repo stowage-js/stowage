@@ -21,7 +21,7 @@ export async function settled<T>(request: Promise<T>): Promise<Reply<T>> {
   }
 }
 
-/** The answer, for a test to assert on, which a lost request fails with the error of the request. */
+/** The answer, for a test to assert on; where the request was lost, its error is thrown instead. */
 export function answerIn<T>(reply: Reply<T>): T {
   if (reply.status === "rejected") throw reply.reason;
 
