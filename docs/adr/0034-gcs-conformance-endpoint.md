@@ -68,7 +68,9 @@ federated principal cannot sign, and `signBlob` needs a service account to sign 
   plain text, CORS as one wildcard, and no limits enforced. Three shape the adapter rather than
   the list: it sends `maxResults` on every listing, it reads a `404` without a parsable body by
   its status alone, and it reads a batch answer whose `Content-ID`s echo the subrequests as sent,
-  `0` where GCS answers `<response-0>`, in that form where the GCS form cannot read it (spec 9.4).
+  `0` where GCS answers `response-0`, in that form where the GCS form cannot read it (spec 9.4).
+  The research that measured it sent `<0>` and saw `<response-0>`; GCS brackets the answer only
+  where the id came in brackets, which the first run against the bucket showed (#256).
   The last one keeps `delete`, `deleteAll` and the default `cleanup` in the per-commit run: as
   expected failures, every case that writes would leave its objects behind, and deletion would
   meet a real endpoint only on the schedule. No answer reads in both forms, so the fallback never

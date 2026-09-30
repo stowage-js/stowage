@@ -19,8 +19,11 @@ import { batchPath, objectPath, requestIdHeader, send } from "./request.ts";
 /** What one batch carries at most, and so what spec 9.1 sends one request per. */
 const subrequestsPerBatch = 100;
 
-/** GCS answers a subrequest sent as `0` under `<response-0>`. */
-const inResponseBrackets = (contentId: string) => `<response-${contentId}>`;
+/**
+ * GCS answers a subrequest sent as `0` under `response-0`, the brackets only where the id came
+ * with them (#256).
+ */
+const behindResponse = (contentId: string) => `response-${contentId}`;
 
 /** fake-gcs-server answers it under `0`, as sent. */
 const echoedAsSent = (contentId: string) => contentId;
@@ -206,7 +209,7 @@ function readBatchAnswer(
   body: string,
   subrequestCount: number,
 ): SubresponseReading {
-  const reading = readSubresponses(contentType, body, subrequestCount, inResponseBrackets);
+  const reading = readSubresponses(contentType, body, subrequestCount, behindResponse);
 
   if (!("unreadable" in reading)) return reading;
 

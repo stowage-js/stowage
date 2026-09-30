@@ -86,18 +86,18 @@ test("the subresponses come back in the order of the subrequests, paired by `Con
   expect(second?.headers.get("x-ms-error-code")).toBe("BlobNotFound");
 });
 
-const inResponseBrackets = (contentId: string) => `<response-${contentId}>`;
+const behindResponse = (contentId: string) => `response-${contentId}`;
 
-/** How GCS answers a batch: lines ending in LF, and each `Content-ID` echoed in brackets. */
+/** How GCS answers a batch: lines ending in LF, and each bare `Content-ID` echoed behind `response-`. */
 const gcsAnswer =
   "--batch_pK7JBAk73-E=_AA5eFwv4m2Q=\n" +
   "Content-Type: application/http\n" +
-  "Content-ID: <response-0>\n\n" +
+  "Content-ID: response-0\n\n" +
   "HTTP/1.1 204 No Content\n" +
   "Content-Length: 0\n\n\n" +
   "--batch_pK7JBAk73-E=_AA5eFwv4m2Q=\n" +
   "Content-Type: application/http\n" +
-  "Content-ID: <response-1>\n\n" +
+  "Content-ID: response-1\n\n" +
   "HTTP/1.1 404 Not Found\n" +
   "Content-Type: application/json; charset=UTF-8\n\n" +
   '{"error":{"code":404,"message":"No such object: b/a"}}\n' +
@@ -107,13 +107,13 @@ test.each([
   ["bare", "multipart/mixed; boundary=batch_pK7JBAk73-E=_AA5eFwv4m2Q="],
   ["quoted", 'multipart/mixed; boundary="batch_pK7JBAk73-E=_AA5eFwv4m2Q="'],
 ])("an answer in LF lines under a %s boundary is read", (_label, contentType) => {
-  const reading = readSubresponses(contentType, gcsAnswer, 2, inResponseBrackets);
+  const reading = readSubresponses(contentType, gcsAnswer, 2, behindResponse);
 
   const subresponses = subresponsesIn(reading);
 
   expect(subresponses.map(({ contentId, status }) => [contentId, status])).toEqual([
-    ["<response-0>", 204],
-    ["<response-1>", 404],
+    ["response-0", 204],
+    ["response-1", 404],
   ]);
   expect(subresponses[0]?.body).toBe("");
   expect(subresponses[1]?.headers.get("content-type")).toBe("application/json; charset=UTF-8");
@@ -129,7 +129,7 @@ test("a `Content-ID` in another form than the one the adapter names is unexpecte
       asSent,
     ),
   ).toEqual({
-    unreadable: 'an answer for unexpected Content-ID "<response-0>"',
+    unreadable: 'an answer for unexpected Content-ID "response-0"',
   });
 });
 

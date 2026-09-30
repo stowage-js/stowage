@@ -2100,12 +2100,13 @@ function subanswerOf(status: number, providerCode: string, message: string): Sub
 const absent = subanswerOf(404, "notFound", "No such object: conformance/absent");
 
 /**
- * A batch answered as GCS answers one: lines ending in LF, each `Content-ID` echoed in
- * brackets, and the outer answer alone carrying `x-guploader-uploadid`.
+ * A batch answered as GCS answers one: lines ending in LF, each bare `Content-ID` echoed
+ * behind `response-`, and the outer answer alone carrying `x-guploader-uploadid`. Measured
+ * against the bucket by the first scheduled run (#256).
  */
 function batchAnswer(
   subanswers: readonly Subanswer[],
-  echo: (place: number) => string = (place) => `<response-${place}>`,
+  echo: (place: number) => string = (place) => `response-${place}`,
 ): Response {
   const boundary = "batch_pK7JBAk73-E=_AA5eFwv4m2Q=";
   const parts = subanswers.map(
@@ -2298,6 +2299,16 @@ test("a `Content-ID` echoed as sent, as fake-gcs-server echoes it, is read as we
   const report = await storage().delete("absent", "denied");
 
   expect(report.failed.map(({ code, key }) => [code, key])).toEqual([["AccessDenied", "denied"]]);
+});
+
+// GCS answers `<response-0>` to `<0>` alone, which the adapter never sends.
+test("a `Content-ID` echoed in brackets is a `ProviderError`", async () => {
+  stubFetch(() => batchAnswer([deleted], (place) => `<response-${place}>`));
+
+  const failure = await failureOf(() => storage().delete("one"));
+
+  expect(failure).toMatchObject({ code: "ProviderError", operation: "delete" });
+  expect(failure.message).toContain('unexpected Content-ID "<response-0>"');
 });
 
 test("a failed batch as a whole is repeated on the budget and then rejects the call", async () => {
