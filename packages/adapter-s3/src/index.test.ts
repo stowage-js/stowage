@@ -560,6 +560,26 @@ test.each(followUpsLeavingTheHead)(
   },
 );
 
+// Spec 4.10: a `GET` that received no response is no answer, so it cannot leave the `HEAD`'s
+// standing, and `exists` rethrows it rather than answering `false`.
+test.each(["stat", "exists"] as const)(
+  "a `GET` after the `HEAD` of `%s` that receives no response rejects with `NetworkError`",
+  async (operation) => {
+    recordedDelays();
+    stubFetch((request) => {
+      if (request.method === "HEAD") return new Response(null, { status: 404 });
+
+      throw new TypeError("fetch failed");
+    });
+
+    const failure = await rejection(
+      async () => await s3Storage(options())[operation]("object.txt"),
+    );
+
+    expect(failure).toMatchObject({ code: "NetworkError", operation, key: "object.txt" });
+  },
+);
+
 test.each(["stat", "exists"] as const)(
   "`%s` of a key that exists costs the one `HEAD`",
   async (operation) => {

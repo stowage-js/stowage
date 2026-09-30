@@ -1076,6 +1076,8 @@ status alone, with one exception: a `404` to their `HEAD` is followed by a `GET`
 with `Range: bytes=0-0`, and where its body names `NoSuchBucket` the call rejects with that failure,
 `NotFound` without `key`. Any other answer to that `GET`, a success, a `416` and a body without a
 code included, leaves the `HEAD`'s answer standing, so an absent key costs two requests (ADR 0043).
+A `GET` that receives no response is no answer: the call rejects with its `NetworkError`, which
+`exists` rethrows.
 A `400` for a key above 1024 bytes is `InvalidKey`, the `KeyTooLongError` the body would have
 named.
 

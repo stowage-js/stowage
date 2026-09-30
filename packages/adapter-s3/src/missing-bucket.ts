@@ -11,7 +11,8 @@ export type HeadRequest = Pick<S3Request, "operation" | "signal"> & { readonly k
  * byte does, needing the `s3:GetObject` the `HEAD` needed. Only a missing bucket is an
  * answer: a success or a `416` means a writer created the object in between, and a
  * compatible endpoint may name no code at all, so either leaves the `HEAD`'s answer
- * standing (ADR 0043).
+ * standing (ADR 0043). A `GET` that received no response is no answer, and rejects the call
+ * with its `NetworkError`, which `exists` rethrows rather than answering `false`.
  */
 export async function probeMissingBucket(
   configuration: S3Configuration,
@@ -31,7 +32,7 @@ export async function probeMissingBucket(
     // Spec 4.10: the caller's abort travels on as the runtime's `AbortError`.
     if (!isStorageError(failure)) throw failure;
 
-    return isMissingBucket(failure) ? failure : undefined;
+    return isMissingBucket(failure) || failure.code === "NetworkError" ? failure : undefined;
   }
 }
 
