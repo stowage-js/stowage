@@ -16,9 +16,15 @@ _Avoid_: cloud, backend, service
 A provider stowage keeps its promises against: AWS S3; Cloudflare R2; Azure Blob Storage, as a
 general-purpose v2 account without hierarchical namespace in the public cloud; Google Cloud
 Storage, as a bucket with uniform bucket-level access and without hierarchical namespace in the
-public cloud; and the local file systems of Linux and macOS. Another endpoint speaking the same wire protocol can be configured and is not promised. An adapter is not
+public cloud; and the local file systems of Linux and macOS. A compatible endpoint can be configured and is not promised. An adapter is not
 told which promised provider it faces.
 _Avoid_: supported provider, tested provider, official provider
+
+**Compatible endpoint**:
+An endpoint that speaks a promised provider's wire protocol without being a promised provider, such
+as Google Cloud Storage's XML API or MinIO. It can be configured and is not promised. An emulator is
+one.
+_Avoid_: unsupported provider, third-party provider, S3-compatible provider
 
 **Adapter**:
 An implementation of the storage API for one provider.
