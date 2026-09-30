@@ -61,7 +61,7 @@ _Avoid_: file, blob, entry
 **Content-coded object**:
 An object another tool stored with a content coding such as gzip, which stowage never writes. Its
 size counts the bytes the storage holds. No range of it can be read, and read whole it may arrive
-decoded and longer than its size, depending on the runtime.
+decoded and longer than its size, depending on the runtime and the adapter.
 _Avoid_: compressed object, gzipped object, encoded object
 
 **Stored object**:
