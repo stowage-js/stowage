@@ -38,7 +38,7 @@ const scheduled = {
 
 /**
  * The Actions runtime, STS and IAM Credentials, where IAM Credentials names the service
- * account and the scope of each token it issues.
+ * account, the scope and the lifetime of each token it issues.
  */
 function stubFederation(): void {
   vi.stubGlobal("fetch", async (url: string, init: RequestInit = {}): Promise<Response> => {
@@ -57,9 +57,13 @@ function stubFederation(): void {
       typeof init.body === "string" ? init.body : "",
     );
 
+    const { lifetime = "3600s" }: { readonly lifetime?: string } = JSON.parse(
+      typeof init.body === "string" ? init.body : "",
+    );
+
     return Response.json({
-      accessToken: `${account} ${scope.join(" ")}`,
-      expireTime: new Date(Date.now() + 3_600_000).toISOString(),
+      accessToken: `${account} ${scope.join(" ")} ${lifetime}`,
+      expireTime: new Date(Date.now() + Number.parseInt(lifetime, 10) * 1000).toISOString(),
     });
   });
 }
@@ -102,7 +106,7 @@ test("the real bucket runs under the service account's token with the storage sc
   const endpoint = gcsEndpointFrom(scheduled);
 
   await expect(resolve(endpoint?.options.credentials)).resolves.toEqual({
-    accessToken: `${serviceAccount} https://www.googleapis.com/auth/devstorage.read_write`,
+    accessToken: `${serviceAccount} https://www.googleapis.com/auth/devstorage.read_write 3600s`,
   });
 });
 
@@ -117,7 +121,7 @@ test("the real bucket signs through `signBlob` as the service account, under a t
 
   expect(signer.serviceAccount).toBe(serviceAccount);
   await expect(resolve("credentials" in signer ? signer.credentials : undefined)).resolves.toEqual({
-    accessToken: `${serviceAccount} https://www.googleapis.com/auth/iam`,
+    accessToken: `${serviceAccount} https://www.googleapis.com/auth/iam 3600s`,
   });
 });
 
@@ -129,7 +133,7 @@ test("the denied credential is the second service account's token with the stora
   if (endpoint?.kind !== "bucket") throw new Error("The scheduled job names no real bucket");
 
   await expect(resolve(endpoint.deniedCredentials)).resolves.toEqual({
-    accessToken: `${deniedServiceAccount} https://www.googleapis.com/auth/devstorage.read_write`,
+    accessToken: `${deniedServiceAccount} https://www.googleapis.com/auth/devstorage.read_write 3600s`,
   });
 });
 
@@ -171,6 +175,30 @@ test("the bad credential is a token Google refuses, on every call", async () => 
   await expect(resolve(credentials, { forceRefresh: true })).resolves.toEqual({
     accessToken: "not-a-google-token",
   });
+});
+
+// Spec 14: the probe asks the bucket with a token of the account the suite runs as.
+test("the expiring token is the service account's with the storage scope, for the lifetime asked", async () => {
+  stubFederation();
+
+  const endpoint = gcsEndpointFrom(scheduled);
+
+  if (endpoint?.kind !== "bucket") throw new Error("The scheduled job names no real bucket");
+
+  await expect(endpoint.expiringToken(60)).resolves.toEqual({
+    accessToken: `${serviceAccount} https://www.googleapis.com/auth/devstorage.read_write 60s`,
+    expiresAt: expect.any(Number),
+  });
+});
+
+test("a job lacking the federation's variables is told where the expiring token is asked", async () => {
+  const endpoint = gcsEndpointFrom({ ...scheduled, ACTIONS_ID_TOKEN_REQUEST_URL: undefined });
+
+  if (endpoint?.kind !== "bucket") throw new Error("The scheduled job names no real bucket");
+
+  await expect(endpoint.expiringToken(60)).rejects.toThrow(
+    "`STOWAGE_GCS_SERVICE_ACCOUNT` is set, and `ACTIONS_ID_TOKEN_REQUEST_URL` is not",
+  );
 });
 
 test("the endpoint name is what the job or `start.sh` names", () => {

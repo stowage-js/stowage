@@ -1,7 +1,11 @@
 import type { GcsAdapterOptions, GcsSigner } from "../../../packages/adapter-gcs/src/index.ts";
 import type { Variables } from "../../s3/src/configuration.ts";
 import { unsetVariablesResolver } from "../../targets/src/federation.ts";
-import { type WorkloadIdentityFederation, workloadIdentityFederation } from "./federated-token.ts";
+import {
+  type ExpiringToken,
+  type WorkloadIdentityFederation,
+  workloadIdentityFederation,
+} from "./federated-token.ts";
 
 type Credentials = GcsAdapterOptions["credentials"];
 
@@ -18,6 +22,8 @@ export type GcsEndpoint =
       readonly signer: GcsSigner;
       readonly badCredentials: Credentials;
       readonly deniedCredentials: Credentials;
+      /** A token of the service account `options` runs as, issued for `lifetimeSeconds` alone. */
+      readonly expiringToken: (lifetimeSeconds: number) => Promise<ExpiringToken>;
     };
 
 /**
@@ -48,7 +54,7 @@ export function gcsEndpointFrom(variables: Variables): GcsEndpoint | undefined {
     };
   }
 
-  const impersonate = federationFrom(variables);
+  const { impersonate, expiring } = federationFrom(variables);
   const deniedServiceAccount = filled(variables[deniedServiceAccountVariable]);
 
   return {
@@ -68,6 +74,8 @@ export function gcsEndpointFrom(variables: Variables): GcsEndpoint | undefined {
       deniedServiceAccount === undefined
         ? unsetVariablesResolver(serviceAccountVariable, [deniedServiceAccountVariable])
         : impersonate(deniedServiceAccount, "devstorage.read_write"),
+    expiringToken: async (lifetimeSeconds) =>
+      await expiring(serviceAccount, "devstorage.read_write", lifetimeSeconds),
   };
 }
 
@@ -80,8 +88,6 @@ const deniedServiceAccountVariable = "STOWAGE_GCS_DENIED_SERVICE_ACCOUNT";
  */
 const badCredentials: Credentials = async () => ({ accessToken: "not-a-google-token" });
 
-type Impersonate = WorkloadIdentityFederation["impersonate"];
-
 /** What the job names beside the service accounts, the Actions runtime's two among them. */
 const federationVariables = [
   "STOWAGE_GCS_WORKLOAD_IDENTITY_PROVIDER",
@@ -90,7 +96,7 @@ const federationVariables = [
 ] as const;
 
 /** A job that names a service account and lacks the rest gets resolvers that say so. */
-function federationFrom(variables: Variables): Impersonate {
+function federationFrom(variables: Variables): WorkloadIdentityFederation {
   const [provider, idTokenRequestUrl, idTokenRequestToken] = federationVariables.map((name) =>
     filled(variables[name]),
   );
@@ -101,12 +107,12 @@ function federationFrom(variables: Variables): Impersonate {
     idTokenRequestToken === undefined
   ) {
     const unset = federationVariables.filter((name) => filled(variables[name]) === undefined);
+    const refusal = unsetVariablesResolver(serviceAccountVariable, unset);
 
-    return () => unsetVariablesResolver(serviceAccountVariable, unset);
+    return { impersonate: () => refusal, expiring: refusal };
   }
 
-  return workloadIdentityFederation({ provider, idTokenRequestUrl, idTokenRequestToken })
-    .impersonate;
+  return workloadIdentityFederation({ provider, idTokenRequestUrl, idTokenRequestToken });
 }
 
 /** Which server answers, for the harness alone: no case reads it (ADR 0012). */
