@@ -1,5 +1,14 @@
 # @stowage/adapter-memory
 
+## 0.3.0
+
+### Patch Changes
+
+- Updated dependencies [2a91517]
+- Updated dependencies [40fc422]
+- Updated dependencies [40fc422]
+  - @stowage/core@0.3.0
+
 ## 0.2.0
 
 ### Minor Changes
