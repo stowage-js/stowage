@@ -58,6 +58,12 @@ _Avoid_: secret, key, token
 A sequence of bytes stored under a key, together with its content type and its metadata.
 _Avoid_: file, blob, entry
 
+**Content-coded object**:
+An object another tool stored with a content coding such as gzip, which stowage never writes. Its
+size counts the bytes the storage holds. No range of it can be read, and read whole it may arrive
+decoded and longer than its size, depending on the runtime.
+_Avoid_: compressed object, gzipped object, encoded object
+
 **Stored object**:
 What `get` hands back: the object's description together with its bytes, readable as a stream, as
 bytes, as text or as JSON.
