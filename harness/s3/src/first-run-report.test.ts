@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { type FirstRunRun, firstRunReport, type JsonAssertion } from "./first-run-report.ts";
 import { azureProbeNames } from "../../azure-blob/src/first-run.ts";
+import { gcsProbeNames } from "../../gcs/src/first-run.ts";
 import { firstRunSuite, probeNames } from "./first-run.ts";
 
 const assertion = (overrides: Partial<JsonAssertion> & { title: string }): JsonAssertion => ({
@@ -246,6 +247,36 @@ describe("firstRunReport", () => {
       "passed in 6.2 s, 0.8 s of CPU in the `workerd` process",
     );
     expect(cellOf(report, "17 MiB upload of flow 1", "azure-blob-node-24")).toBe("—");
+  });
+
+  test("reads the GCS probes on Node in the bucket's Node columns alone", () => {
+    const expiredToken = assertion({
+      title: gcsProbeNames.expiredToken,
+      meta: { observed: "401 12 s past the expiry, `authError`: Invalid Credentials" },
+    });
+    const report = firstRunReport([
+      run("gcs-node-24", expiredToken, assertion({ title: gcsProbeNames.replacedGeneration })),
+      run("gcs-workerd", expiredToken),
+      run("azure-blob-node-24", expiredToken),
+    ]);
+
+    expect(cellOf(report, "past its expiry", "gcs-node-24")).toBe(
+      "401 12 s past the expiry, `authError`: Invalid Credentials",
+    );
+    expect(cellOf(report, "a generation that a writer replaced", "gcs-node-24")).toBe("held");
+    expect(cellOf(report, "past its expiry", "gcs-workerd")).toBe("—");
+    expect(cellOf(report, "past its expiry", "azure-blob-node-24")).toBe("—");
+  });
+
+  test("carries the duration and the CPU flow 1 spent on `workerd` against the GCS bucket", () => {
+    const observed = "passed in 9.4 s, 1.1 s of CPU in the `workerd` process";
+    const report = firstRunReport([
+      run("gcs-workerd", assertion({ title: gcsProbeNames.flowOneOnWorkerd, meta: { observed } })),
+      run("azure-blob-workerd", assertion({ title: gcsProbeNames.flowOneOnWorkerd })),
+    ]);
+
+    expect(cellOf(report, "time and CPU of flow 1", "gcs-workerd")).toBe(observed);
+    expect(cellOf(report, "time and CPU of flow 1", "azure-blob-workerd")).toBe("—");
   });
 
   test("states what becomes of a disproved promise", () => {
