@@ -218,7 +218,9 @@ async function failureOf(
     code: failure.code,
     message: failure.message,
     operation: request.operation,
-    key: request.key,
+    // Spec 4.10: an unset `key` is what tells a missing bucket from a missing object, which
+    // share the code `NotFound` (ADR 0043).
+    key: document.code === "NoSuchBucket" ? undefined : request.key,
     attempts,
     status: response.status,
     providerCode: document.code,

@@ -452,6 +452,123 @@ test("`exists` answers `false` for a missing key and rethrows every other failur
   );
 });
 
+const missingBucket = () => refused(404, "NoSuchBucket", "The specified bucket does not exist");
+
+// Spec 4.10: a missing bucket is `NotFound` without `key`, which no caller reads as a
+// missing object (ADR 0043).
+test.each<[string, (storage: ReturnType<typeof s3Storage>) => Promise<unknown>]>([
+  ["get", async (storage) => await storage.get("object.txt")],
+  ["put", async (storage) => await storage.put("object.txt", "body")],
+  ["list", async (storage) => await storage.list().page()],
+  ["delete", async (storage) => await storage.delete("object.txt")],
+  ["deleteAll", async (storage) => await storage.deleteAll("folder/")],
+])("`NoSuchBucket` on `%s` is `NotFound` without `key`", async (operation, act) => {
+  stubFetch(missingBucket);
+
+  const failure = await rejection(async () => await act(s3Storage(options())));
+
+  expect(failure).toMatchObject({
+    code: "NotFound",
+    operation,
+    status: 404,
+    providerCode: "NoSuchBucket",
+  });
+  expect(failure.key).toBeUndefined();
+});
+
+/** A `HEAD` answered `404` without a body, as S3 answers it for a missing key and bucket alike. */
+function answeringHeadWith404(followUp: () => Response): (request: SentRequest) => Response {
+  return (request) =>
+    request.method === "HEAD" ? new Response(null, { status: 404 }) : followUp();
+}
+
+// Spec 7.9: a `HEAD` carries no body to name the bucket, so a `404` to it is asked again as
+// a `GET` of one byte, whose body does (ADR 0043).
+test.each(["stat", "exists"] as const)(
+  "a `404` to the `HEAD` of `%s` is followed by one `GET` of the same key and its first byte",
+  async (operation) => {
+    const sent = stubFetch(answeringHeadWith404(() => refused(404, "NoSuchKey", "No such key")));
+
+    const storage = s3Storage(options());
+
+    await storage[operation]("folder/object.txt").catch(() => {});
+
+    expect(sent.map((request) => [request.method, request.url])).toEqual([
+      ["HEAD", "https://stowage.s3.eu-central-1.amazonaws.com/folder/object.txt"],
+      ["GET", "https://stowage.s3.eu-central-1.amazonaws.com/folder/object.txt"],
+    ]);
+    expect(sent[1]?.headers.get("range")).toBe("bytes=0-0");
+    expect(sent[1]?.headers.get("authorization")).toMatch(/^AWS4-HMAC-SHA256 /u);
+  },
+);
+
+test.each(["stat", "exists"] as const)(
+  "`NoSuchBucket` answered to the `GET` after the `HEAD` of `%s` is `NotFound` without `key`",
+  async (operation) => {
+    stubFetch(answeringHeadWith404(missingBucket));
+
+    const failure = await rejection(
+      async () => await s3Storage(options())[operation]("object.txt"),
+    );
+
+    expect(failure).toMatchObject({
+      code: "NotFound",
+      operation,
+      status: 404,
+      providerCode: "NoSuchBucket",
+      message: "The specified bucket does not exist",
+    });
+    expect(failure.key).toBeUndefined();
+  },
+);
+
+// Spec 7.9: an object a writer created in between, and a compatible endpoint that names no
+// code, keep the answer the `HEAD` gave.
+const followUpsLeavingTheHead: readonly [string, () => Response][] = [
+  ["`NoSuchKey`", () => refused(404, "NoSuchKey", "The specified key does not exist.")],
+  ["a success", () => storedResponse("b", { "content-range": "bytes 0-0/4" })],
+  ["a `416`", () => refused(416, "InvalidRange", "The requested range is not satisfiable")],
+  ["a body without a code", () => new Response("", { status: 404 })],
+];
+
+test.each(followUpsLeavingTheHead)(
+  "%s answered to the `GET` after the `HEAD` of `stat` leaves the `HEAD`'s `NotFound`",
+  async (_answer, followUp) => {
+    stubFetch(answeringHeadWith404(followUp));
+
+    const failure = await rejection(async () => await s3Storage(options()).stat("object.txt"));
+
+    expect(failure).toMatchObject({
+      code: "NotFound",
+      operation: "stat",
+      key: "object.txt",
+      status: 404,
+      attempts: 1,
+    });
+    expect(failure.providerCode).toBeUndefined();
+  },
+);
+
+test.each(followUpsLeavingTheHead)(
+  "%s answered to the `GET` after the `HEAD` of `exists` leaves it `false`",
+  async (_answer, followUp) => {
+    stubFetch(answeringHeadWith404(followUp));
+
+    expect(await s3Storage(options()).exists("object.txt")).toBe(false);
+  },
+);
+
+test.each(["stat", "exists"] as const)(
+  "`%s` of a key that exists costs the one `HEAD`",
+  async (operation) => {
+    const sent = stubFetch(() => storedResponse(""));
+
+    await s3Storage(options())[operation]("object.txt");
+
+    expect(sent.map((request) => request.method)).toEqual(["HEAD"]);
+  },
+);
+
 test("a request that repeatedly receives no response preserves the final attempt count", async () => {
   vi.spyOn(Math, "random").mockReturnValue(0);
   const sent = stubFetch(() => {
@@ -1794,21 +1911,28 @@ test("a `DELETE` of its own that spent its budget is the key's entry, `retryable
 });
 
 // Spec 4.7: a failure that says nothing about the key rejects the call, and the requests
-// after it are not sent, as the batches after a failed one are not.
+// after it are not sent, as the batches after a failed one are not. A missing bucket is
+// told without the key (spec 4.10).
 test.each([
-  ["a credential the provider refuses", () => refused(403, "InvalidAccessKeyId", "No such key id")],
-  ["a bucket that is not there", () => refused(404, "NoSuchBucket", "The bucket does not exist")],
+  [
+    "a credential the provider refuses",
+    () => refused(403, "InvalidAccessKeyId", "No such key id"),
+    "\uFFFE",
+  ],
+  ["a bucket that is not there", missingBucket, undefined],
   [
     "a clock the provider refuses",
     () => refused(403, "RequestTimeTooSkewed", "The difference between the times is too large"),
+    "\uFFFE",
   ],
   [
     "no response",
     () => {
       throw new TypeError("fetch failed");
     },
+    "\uFFFE",
   ],
-])("%s on a `DELETE` of its own rejects and stops the rest", async (_case, answer) => {
+])("%s on a `DELETE` of its own rejects and stops the rest", async (_case, answer, key) => {
   recordedDelays();
   const sent = stubFetch((request) => (request.method === "POST" ? deleteResult() : answer()));
 
@@ -1817,7 +1941,7 @@ test.each([
   );
 
   expect(failure.operation).toBe("delete");
-  expect(failure.key).toBe("\uFFFE");
+  expect(failure.key).toBe(key);
   expect(
     sent.filter((request) => request.method === "DELETE").map((request) => request.url),
   ).toEqual(
