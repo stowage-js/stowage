@@ -14,7 +14,7 @@ npm install --save-dev @stowage/conformance
 A `ConformanceTarget` tells the suite how to construct the storage under test. `createStorage`
 returns a storage the run may write to below any prefix, constructed from outside the adapter the
 way a caller would construct it
-([spec 9.3](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.2.0/docs/spec.md#93-what-the-target-promises)).
+([spec 10.3](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.3.0/docs/spec.md#103-what-the-target-promises)).
 
 ```ts
 import { memoryStorage } from "@stowage/adapter-memory";
@@ -41,7 +41,7 @@ The optional members widen the run:
 The suite reads what the storage supports from its `capabilities`, once per run, before the first
 case. The storage lists every name out of `capabilityNames` it implements, each once, and the list
 is fixed when it is constructed
-([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.2.0/docs/spec.md#49-capabilities)).
+([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.3.0/docs/spec.md#49-capabilities)).
 Every storage the target creates in one run declares the same; two configurations are two targets.
 
 A case whose `requires` the storage declares runs its `run` half. A case missing a name of its
@@ -49,7 +49,7 @@ A case whose `requires` the storage declares runs its `run` half. A case missing
 most refuse the call with `Unsupported` naming it, `presignedUrls` has `presignGet` and
 `presignPut` absent from the storage, and a few check the weaker behavior, such as a copy whose
 destination reads `{}`
-([spec 9.5](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.2.0/docs/spec.md#95-cases)).
+([spec 10.5](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.3.0/docs/spec.md#105-cases)).
 An adapter refuses such a call like this:
 
 ```ts
@@ -74,7 +74,7 @@ export function refuseUserMetadata(bucket: string): StorageError {
 
 `describeConformance(target, framework)` maps every case onto the `describe` and `test` of the
 framework it is handed
-([spec 9.2](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.2.0/docs/spec.md#92-running-the-suite)).
+([spec 10.2](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.3.0/docs/spec.md#102-running-the-suite)).
 It runs the `fast` cases, and both tiers with `includeSlow: true`.
 
 Vitest:
@@ -157,7 +157,7 @@ A failed result carries the error as `name`, `message`, `stack` and, for a `Stor
 
 ## Read an adapter
 
-[`@stowage/adapter-memory`](https://github.com/stowage-js/stowage/tree/@stowage/adapter-memory@0.2.0/packages/adapter-memory/src)
+[`@stowage/adapter-memory`](https://github.com/stowage-js/stowage/tree/@stowage/adapter-memory@0.3.0/packages/adapter-memory/src)
 is the implementation a third-party adapter is read against, out of the five adapters of this
 repository that pass these cases: `@stowage/adapter-memory`, `@stowage/adapter-fs`,
 `@stowage/adapter-s3`, `@stowage/adapter-azure-blob` and `@stowage/adapter-gcs`. It enforces the key rule exactly,
@@ -166,7 +166,7 @@ written against the behavior of S3, not against it.
 
 What the suite leaves to an adapter's own tests, such as flat memory during a large upload or the
 retry curve, is listed in
-[spec 9.4](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.2.0/docs/spec.md#94-what-the-suite-does-not-assert).
+[spec 10.4](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.3.0/docs/spec.md#104-what-the-suite-does-not-assert).
 
 ## Runtimes
 
@@ -176,10 +176,10 @@ The bundle measures 11.6 kB minified and gzipped, `@stowage/core` included.
 
 ## Specification
 
-[`docs/spec.md` at `@stowage/conformance@0.2.0`](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.2.0/docs/spec.md#9-stowageconformance)
+[`docs/spec.md` at `@stowage/conformance@0.3.0`](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.3.0/docs/spec.md#10-stowageconformance)
 is the contract: a caller may rely on what it states and on nothing else this package happens to
-export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.2.0/CONTEXT.md)
-and the [decisions behind it](https://github.com/stowage-js/stowage/tree/@stowage/conformance@0.2.0/docs/adr)
+export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.3.0/CONTEXT.md)
+and the [decisions behind it](https://github.com/stowage-js/stowage/tree/@stowage/conformance@0.3.0/docs/adr)
 are at the same tag.
 
 ## License
