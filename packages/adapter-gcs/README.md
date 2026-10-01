@@ -85,20 +85,20 @@ The bundle measures 14.8 kB minified and gzipped, `@stowage/core` included.
   promised
   ([spec 9.2](https://github.com/stowage-js/stowage/blob/@stowage/adapter-gcs@0.4.0/docs/spec.md#92-promised-provider)):
 
-| Point                              | What holds                                                                                                                                                |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Listing order                      | None. A page holds at most 1000 names                                                                                                                     |
-| Unicode-equivalent keys            | Two objects: an NFC and an NFD name are stored, listed and read apart. `keyBytesPreserved` is declared                                                    |
-| `userMetadata`                     | Any ASCII HTTP token as a key, stored in lower case and handed back as stored; values stored as written; 2 KB as spec 4.3 measures them                   |
-| Single request                     | Up to 5 TiB, the ceiling of an object                                                                                                                     |
-| Object size ceiling                | 5 TiB. A resumable session has no part limit; GCS refuses the chunk that crosses the ceiling                                                              |
-| `Content-Type`                     | Always sent by `put`, on the start of a resumable session as well, `application/octet-stream` where none was given                                        |
-| Writes per key                     | GCS answers `429` above one write per second and name; the retry of spec 9.5 may recover a collision, but does not guarantee it. The later commit wins    |
-| Incomplete uploads                 | A session whose cancel did not arrive keeps its bytes until GCS removes it a week after it started; stowage removes none                                  |
-| Storage class                      | `put` and `copy` write the bucket's default class; `move` keeps the source's                                                                              |
-| Objects stored compressed          | An object another tool stored with a content coding is read decoded, longer than its `size`, which is the stored size; any range on it is `ProviderError` |
-| Presigned URL host                 | The configured endpoint, path-style                                                                                                                       |
-| Response overrides on `presignGet` | Answered as the two response headers; GCS ignores `response-cache-control` and `response-expires`, so `GcsPresignGetOptions` carries neither              |
+| Point                              | What holds                                                                                                                                                    |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Listing order                      | None. A page holds at most 1000 names                                                                                                                         |
+| Unicode-equivalent keys            | Two objects: an NFC and an NFD name are stored, listed and read apart. `keyBytesPreserved` is declared                                                        |
+| `userMetadata`                     | Any ASCII HTTP token as a key, stored in lower case and handed back as stored; values stored as written; 2 KB as spec 4.3 measures them                       |
+| Single request                     | Up to 5 TiB, the ceiling of an object                                                                                                                         |
+| Object size ceiling                | 5 TiB. A resumable session has no part limit; GCS refuses the chunk that crosses the ceiling                                                                  |
+| `Content-Type`                     | Always sent by `put`, on the start of a resumable session as well, `application/octet-stream` where none was given                                            |
+| Writes per key                     | GCS answers `429` above one write per second and name; the retry of spec 9.5 may recover a collision, but does not guarantee it. The later commit wins        |
+| Incomplete uploads                 | A session whose cancel did not arrive keeps its bytes until GCS removes it a week after it started; stowage removes none                                      |
+| Storage class                      | `put` and `copy` write the bucket's default class; `move` keeps the source's                                                                                  |
+| Objects stored compressed          | An object another tool stored with a content coding may read decoded and longer than its `size`, which is the stored size; any range on it is `ProviderError` |
+| Presigned URL host                 | The configured endpoint, path-style                                                                                                                           |
+| Response overrides on `presignGet` | Answered as the two response headers; GCS ignores `response-cache-control` and `response-expires`, so `GcsPresignGetOptions` carries neither                  |
 
 ## Notes
 
