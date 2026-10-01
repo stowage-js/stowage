@@ -102,6 +102,16 @@ export function storageWithBadCredentials(
   return { ...configured, credentials: { accessToken: "not-a-jwt" } };
 }
 
+/**
+ * Spec 10.3: a container that does not exist, named at random for each storage so that no
+ * run and no container another one left behind can make it exist (ADR 0043).
+ */
+export function storageWithMissingContainer(
+  configured: AzureBlobAdapterOptions,
+): AzureBlobAdapterOptions {
+  return { ...configured, container: `stowage-missing-${crypto.randomUUID()}` };
+}
+
 /** Which server answers, for the harness alone: no case reads it (ADR 0012). */
 export function endpointNameFrom(variables: Variables): string | undefined {
   return filled(variables["STOWAGE_AZURE_BLOB_ENDPOINT_NAME"]);

@@ -8,6 +8,7 @@ import {
   accessTokenFrom,
   storageOptionsFrom,
   storageWithDeniedCredentials,
+  storageWithMissingContainer,
 } from "./configuration.ts";
 
 const azurite = {
@@ -128,4 +129,22 @@ test("without the reader identity no denied credential is supplied", () => {
   const configured = storageOptionsFrom(azurite, accessTokenFrom(azurite));
 
   expect(configured && storageWithDeniedCredentials(configured, azurite)).toBeUndefined();
+});
+
+// ADR 0043: a container named at random, so that no run and no container another left behind
+// can make it exist.
+test("the missing container is another one of the configured account, named anew on every call", () => {
+  const configured = storageOptionsFrom(azurite, accessTokenFrom(azurite));
+
+  if (configured === undefined) throw new Error("Azurite is configured above");
+
+  const first = storageWithMissingContainer(configured);
+  const second = storageWithMissingContainer(configured);
+
+  expect(first).toEqual({ ...configured, container: expect.stringMatching(/^stowage-missing-/u) });
+  expect(first.container).not.toBe(configured.container);
+  expect(first.container).not.toBe(second.container);
+  // What Azure takes as a container name: lower-case letters, digits and single hyphens
+  // between them, 3 to 63 characters.
+  expect(first.container).toMatch(/^(?=.{3,63}$)[a-z0-9]+(?:-[a-z0-9]+)*$/u);
 });
