@@ -16,6 +16,7 @@ import {
   endpointNameFrom,
   storageWithBadCredentials,
   storageWithDeniedCredentials,
+  storageWithMissingContainer,
 } from "./configuration.ts";
 import { withAzureBlobDivergences } from "./divergences.ts";
 
@@ -90,6 +91,7 @@ const coveredCases: ReadonlySet<string> = new Set([
   "errors/shape",
   "errors/bad-credentials",
   "errors/denied-credentials",
+  "errors/missing-bucket",
   "errors/not-a-storage-error",
   "presign/get",
   "presign/put",
@@ -120,6 +122,8 @@ export function azureBlobTarget(
     createStorage: () => azureBlobStorage(configured),
 
     createStorageWithBadCredentials: () => azureBlobStorage(storageWithBadCredentials(configured)),
+
+    createStorageWithMissingBucket: () => azureBlobStorage(storageWithMissingContainer(configured)),
 
     // Spec 10.2 keeps the case out of a run where the target supplies no factory, which is
     // what Azurite, checking no role, leaves (ADR 0023).

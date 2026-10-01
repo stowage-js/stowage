@@ -109,6 +109,9 @@ names the owner and the repository by name and id; a credential for
 with `AuthorizationPermissionMismatch` on a write, and `errors/denied-credentials` reads that as
 `AccessDenied`. Against Azurite, which checks no role, the case reports itself skipped.
 `createStorageWithBadCredentials` hands over a token that is not a JWT on both endpoints.
+`createStorageWithMissingBucket` binds the configured account to a container named at random, and
+both endpoints name it `ContainerNotFound`, on a `HEAD` and in every subresponse of a Blob Batch,
+which is `NotFound` without `key` (ADR 0043).
 
 The account carries two rules the CI identities may not change, set once by the account's owner.
 A lifecycle rule deletes a block blob one day after its last modification, which removes what a

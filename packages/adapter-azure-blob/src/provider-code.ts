@@ -179,13 +179,27 @@ export function providerError(container: string, response: FailedResponse): Stor
     code: failure.code,
     message: failure.message,
     operation: response.operation,
-    key: failure.onSource === true ? (response.copySource ?? response.key) : response.key,
+    key:
+      failure.onSource === true
+        ? (response.copySource ?? response.key)
+        : keyUnlessMissingContainer(response.key, providerCode),
     attempts: response.attempts,
     status: response.status,
     providerCode,
     requestId: response.headers.get("x-ms-request-id") ?? undefined,
     retryable: isTransientStatus(response.status),
   });
+}
+
+/**
+ * Spec 4.10: an unset `key` is what tells a missing container from a missing blob, which
+ * share the code `NotFound` (ADR 0043).
+ */
+function keyUnlessMissingContainer(
+  key: string | undefined,
+  providerCode: string | undefined,
+): string | undefined {
+  return providerCode === "ContainerNotFound" ? undefined : key;
 }
 
 function statusOf(header: string | null): number | undefined {
