@@ -529,6 +529,18 @@ test.each(["stat", "exists"] as const)(
 const followUpsLeavingTheHead: readonly [string, () => Response][] = [
   ["`NoSuchKey`", () => refused(404, "NoSuchKey", "The specified key does not exist.")],
   ["a success", () => storedResponse("b", { "content-range": "bytes 0-0/4" })],
+  [
+    "a success with an already-errored body",
+    () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.error(new TypeError("terminated"));
+          },
+        }),
+        { status: 200 },
+      ),
+  ],
   ["a `416`", () => refused(416, "InvalidRange", "The requested range is not satisfiable")],
   ["a body without a code", () => new Response("", { status: 404 })],
 ];
@@ -557,6 +569,32 @@ test.each(followUpsLeavingTheHead)(
     stubFetch(answeringHeadWith404(followUp));
 
     expect(await s3Storage(options()).exists("object.txt")).toBe(false);
+  },
+);
+
+test.each(["stat", "exists"] as const)(
+  "an abort while cancelling the successful `GET` after the `HEAD` of `%s` propagates",
+  async (operation) => {
+    const controller = new AbortController();
+    stubFetch(
+      answeringHeadWith404(
+        () =>
+          new Response(
+            new ReadableStream({
+              cancel() {
+                controller.abort();
+
+                throw new TypeError("terminated");
+              },
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+
+    await expect(
+      s3Storage(options())[operation]("object.txt", { signal: controller.signal }),
+    ).rejects.toThrow(expect.objectContaining({ name: "AbortError" }));
   },
 );
 

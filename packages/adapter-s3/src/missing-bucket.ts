@@ -25,7 +25,12 @@ export async function probeMissingBucket(
       headers: [["range", "bytes=0-0"]],
     });
 
-    await response.body?.cancel();
+    try {
+      await response.body?.cancel();
+    } catch {
+      // Cleanup cannot replace the HEAD's answer, but the caller's abort still travels on.
+      request.signal?.throwIfAborted();
+    }
 
     return undefined;
   } catch (failure) {
