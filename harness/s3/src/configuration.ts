@@ -86,7 +86,7 @@ export interface ExpiredCredentials {
 /**
  * Spec 10.3: a credential that has already expired. ADR 0012 has the scheduled run take a
  * 900-second STS token at its start and record the expiration; an endpoint without such
- * a token leaves the case skipped, which is what R2 does.
+ * a token leaves the case skipped, as R2 does, where the case cannot pass (ADR 0045).
  */
 export function storageWithExpiredCredentials(
   configured: S3AdapterOptions,

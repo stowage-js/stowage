@@ -81,7 +81,7 @@ function isAsked(point: FirstRunPoint, label: string): boolean {
 function cellFor(point: FirstRunPoint, results: JsonResults): string {
   const outcomes = point.tests.map((wanted) => ({
     title: wanted.title,
-    outcome: outcomeOf(findAssertion(results, wanted), wanted),
+    outcome: outcomeOf(findAssertion(results, wanted)),
   }));
   const [first] = outcomes;
 
@@ -92,31 +92,14 @@ function cellFor(point: FirstRunPoint, results: JsonResults): string {
   return outcomes.map((each) => `${each.title}: ${each.outcome}`).join("<br>");
 }
 
-/** Where `describeCases` skips a case, the factory it lacked is part of the test's name. */
-const skippedSuffix = /^ \(skipped: (?<reason>.+)\)$/u;
-
 function findAssertion(results: JsonResults, wanted: FirstRunTest): JsonAssertion | undefined {
   return results.testResults
     .flatMap((file) => file.assertionResults)
-    .find(
-      (each) =>
-        each.ancestorTitles.includes(wanted.suite) &&
-        (each.title === wanted.title || skippedReason(each, wanted) !== undefined),
-    );
+    .find((each) => each.ancestorTitles.includes(wanted.suite) && each.title === wanted.title);
 }
 
-function skippedReason(assertion: JsonAssertion, wanted: FirstRunTest): string | undefined {
-  if (!assertion.title.startsWith(wanted.title)) return undefined;
-
-  return skippedSuffix.exec(assertion.title.slice(wanted.title.length))?.groups?.["reason"];
-}
-
-function outcomeOf(assertion: JsonAssertion | undefined, wanted: FirstRunTest): string {
+function outcomeOf(assertion: JsonAssertion | undefined): string {
   if (assertion === undefined) return "not run";
-
-  const skipped = skippedReason(assertion, wanted);
-
-  if (skipped !== undefined) return `not settled: no \`${skipped}\``;
 
   if (assertion.status === "failed") {
     const [message = ""] = assertion.failureMessages ?? [];

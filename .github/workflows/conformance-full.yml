@@ -110,8 +110,8 @@ jobs:
       STOWAGE_GCS_DENIED_SERVICE_ACCOUNT: ${{ vars.STOWAGE_GCS_DENIED_SERVICE_ACCOUNT }}
     steps:
       # ADR 0012: the token is taken first, and the harness hands it to the `Expired` case
-      # once the expiration STS returned and a margin have passed. R2, Azure and GCS have no
-      # such token, and the case reports itself skipped there.
+      # once the expiration STS returned and a margin have passed. Azure and GCS have no such
+      # token and R2 cannot pass the case (ADR 0045), so it reports itself skipped on all three.
       - name: Take a 900-second STS token
         if: matrix.provider == 'aws-s3'
         run: |

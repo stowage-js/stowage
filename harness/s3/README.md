@@ -92,8 +92,9 @@ anything else, and the harness hands that token to the `Expired` case once its e
 minute have passed. Its policy grants `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`,
 `s3:ListBucket`, `s3:ListBucketMultipartUploads` and `s3:AbortMultipartUpload` on the bucket.
 On R2 both are API tokens scoped to the bucket, `Object Read & Write` and `Object Read only`.
-R2 issues no token that could be let expire on purpose, so the `Expired` case reports itself
-skipped there.
+The `Expired` case reports itself skipped there, because it cannot pass: R2 answers an expired
+credential with `403 SignatureDoesNotMatch`, which `adapter-s3` reads as `InvalidCredentials`
+after one attempt (ADR 0045).
 
 Both buckets carry the rule of `lifecycle.json`: objects expire after one day and a multipart
 upload left behind is aborted after one day, which removes what a run that died before its

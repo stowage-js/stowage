@@ -81,22 +81,6 @@ describe("firstRunReport", () => {
     );
   });
 
-  test("reads a case the target supplied no factory for as a point not settled", () => {
-    const report = firstRunReport([
-      run(
-        "r2-node-24",
-        assertion({
-          ancestorTitles: ["@stowage/adapter-s3"],
-          title: "errors/expired-credentials (skipped: createStorageWithExpiredCredentials)",
-        }),
-      ),
-    ]);
-
-    expect(cellOf(report, "`ExpiredRequest`", "r2-node-24")).toBe(
-      "not settled: no `createStorageWithExpiredCredentials`",
-    );
-  });
-
   test("carries what a probe observed", () => {
     const report = firstRunReport([
       run(
@@ -127,13 +111,10 @@ describe("firstRunReport", () => {
 
   test("leaves a point about R2 out of the columns of AWS S3", () => {
     const report = firstRunReport([
-      run(
-        "aws-s3-node-24",
-        assertion({ ancestorTitles: ["@stowage/adapter-s3"], title: "errors/expired-credentials" }),
-      ),
+      run("aws-s3-node-24", assertion({ title: probeNames.responseOverrides })),
     ]);
 
-    expect(cellOf(report, "`ExpiredRequest`", "aws-s3-node-24")).toBe("—");
+    expect(cellOf(report, "R2 honors the four response overrides", "aws-s3-node-24")).toBe("—");
   });
 
   test("reads the case against the endpoint and not the one of the same name against memory", () => {
