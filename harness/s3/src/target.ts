@@ -7,6 +7,7 @@ import {
   storageWithBadCredentials,
   storageWithDeniedCredentials,
   storageWithExpiredCredentials,
+  storageWithMissingBucket,
   type Variables,
 } from "./configuration.ts";
 
@@ -30,6 +31,8 @@ export function s3Target(configured: S3AdapterOptions, variables: Variables): Co
     createStorage: () => s3Storage(configured),
 
     createStorageWithBadCredentials: () => s3Storage(storageWithBadCredentials(configured)),
+
+    createStorageWithMissingBucket: () => s3Storage(storageWithMissingBucket(configured)),
 
     // Spec 10.2 keeps the case out of a run where the target supplies no factory, which is
     // what an endpoint without the second identity of `s3.json` leaves.

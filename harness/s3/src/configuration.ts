@@ -46,6 +46,14 @@ export function storageWithBadCredentials(configured: S3AdapterOptions): S3Adapt
 }
 
 /**
+ * Spec 10.3: a bucket that does not exist, named at random for each storage so that no run
+ * and no bucket another one left behind can make it exist (ADR 0043).
+ */
+export function storageWithMissingBucket(configured: S3AdapterOptions): S3AdapterOptions {
+  return { ...configured, bucket: `stowage-missing-${crypto.randomUUID()}` };
+}
+
+/**
  * Spec 10.3: a credential the provider accepts and refuses the write to. It reads and
  * lists and may not write, which is what tells the `403` that means this caller may not
  * do this from the two that fail to authenticate.

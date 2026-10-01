@@ -21,6 +21,7 @@ import { deleteBelow, deleteKeys } from "./delete.ts";
 import { defaultContentType, describeResponse } from "./description.ts";
 import { requireKey } from "./key.ts";
 import { createListing } from "./listing.ts";
+import { type HeadRequest, probeMissingBucket } from "./missing-bucket.ts";
 import {
   presignGet,
   presignPut,
@@ -83,6 +84,8 @@ const s3Capabilities: readonly CapabilityName[] = Object.freeze([
 ]);
 
 const utf8 = new TextEncoder();
+
+const notFound = 404;
 
 class SimpleStorageServiceStorage implements S3Storage {
   readonly provider = "s3" as const;
@@ -170,9 +173,12 @@ class SimpleStorageServiceStorage implements S3Storage {
 
       return true;
     } catch (failure) {
-      // Spec 4.10: `exists` answers `false` for `NotFound` alone and rethrows the rest,
-      // including the `403` a credential without `s3:ListBucket` meets for a missing key.
-      if (isStorageError(failure) && failure.code === "NotFound") return false;
+      // Spec 4.10: `exists` answers `false` for a `NotFound` carrying `key` alone and
+      // rethrows the rest, a missing bucket among them, and the `403` a credential without
+      // `s3:ListBucket` meets for a missing key.
+      if (isStorageError(failure) && failure.code === "NotFound" && failure.key !== undefined) {
+        return false;
+      }
 
       throw failure;
     }
@@ -236,12 +242,17 @@ class SimpleStorageServiceStorage implements S3Storage {
 
     options?.signal?.throwIfAborted();
 
-    return await send(this.#configuration, {
-      method: "HEAD",
-      operation,
-      key,
-      signal: options?.signal,
-    });
+    const request: HeadRequest = { operation, key, signal: options?.signal };
+
+    try {
+      return await send(this.#configuration, { method: "HEAD", ...request });
+    } catch (failure) {
+      if (isStorageError(failure) && failure.status === notFound) {
+        throw (await probeMissingBucket(this.#configuration, request)) ?? failure;
+      }
+
+      throw failure;
+    }
   }
 
   /**
