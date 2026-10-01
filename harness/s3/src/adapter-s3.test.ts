@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { gzipSync } from "node:zlib";
 
 import {
   AbortMultipartUploadCommand,
@@ -229,6 +230,44 @@ describe.skipIf(configured === undefined)("adapter-s3 against the endpoint", () 
     await expect(storage().stat(slashEnded)).resolves.toMatchObject({ key: slashEnded, size: 0 });
     await expect((await storage().get(slashEnded)).bytes()).resolves.toHaveLength(0);
     await expect((await storage().get(long)).text()).resolves.toBe("written elsewhere");
+  });
+
+  // Spec 4.3 and ADR 0044: stowage cannot write such an object, so the SDK stores it. How
+  // long the whole body reads depends on whether the runtime's `fetch` decodes it.
+  test("a content-coded object takes no range and is read whole", async () => {
+    const key = `${prefix}stored-gzipped.txt`;
+    const stored = gzipSync("x".repeat(1000));
+
+    await sdkClient().send(
+      new PutObjectCommand({
+        Bucket: endpointOrFail().bucket,
+        Key: key,
+        Body: stored,
+        ContentEncoding: "gzip",
+      }),
+    );
+
+    await expect(storage().stat(key)).resolves.toMatchObject({ size: stored.length });
+
+    const whole = await storage().get(key);
+
+    expect(whole.stat.size).toBe(stored.length);
+    await expect(whole.bytes()).resolves.toBeInstanceOf(Uint8Array);
+
+    await Promise.all(
+      [{ start: 0 }, { start: 2, end: 5 }].map(async (range) => {
+        await expect(storage().get(key, { range })).rejects.toMatchObject({
+          code: "ProviderError",
+          message: expect.stringContaining('"gzip"'),
+        });
+      }),
+    );
+
+    // The `416` names no coding, so a start beyond the stored bytes stays the refusal of
+    // spec 4.3 for every object.
+    await expect(storage().get(key, { range: { start: stored.length } })).rejects.toMatchObject({
+      code: "InvalidRequest",
+    });
   });
 
   // Spec 7.4: the endpoint answers a `DeleteObjects` body holding U+FFFE with

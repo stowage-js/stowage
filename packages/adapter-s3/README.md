@@ -68,18 +68,19 @@ The bundle measures 14.3 kB minified and gzipped, `@stowage/core` included.
 - Where AWS S3 and R2 answer differently, the adapter is written to the stricter side
   ([spec 7.2](https://github.com/stowage-js/stowage/blob/@stowage/adapter-s3@0.3.0/docs/spec.md#72-promised-providers)):
 
-| Point                              | What holds                                                                                                               |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Listing order                      | None. A page holds at most 1000 keys                                                                                     |
-| `userMetadata`                     | 2 KB of encoded header bytes; keys handed back in lower case                                                             |
-| Single `PUT`                       | Up to 5 GB for a `Uint8Array` or string; a stream that fills more than one part goes as a multipart upload               |
-| Object size ceiling                | The provider's, answered with `EntityTooLarge`                                                                           |
-| `Content-Type`                     | Always sent by `put`, `application/octet-stream` where none was given                                                    |
-| `CompleteMultipartUpload`          | Judged by its body, which may carry an error under `200`                                                                 |
-| Writes per key                     | R2 answers `429` above one write per second and key; the retry may recover a single collision, but does not guarantee it |
-| Incomplete multipart uploads       | Removed by a lifecycle rule on AWS, after seven days by default on R2; stowage removes none                              |
-| Presigned URL host                 | The endpoint that signed it; on R2 the `r2.cloudflarestorage.com` endpoint and not a custom domain                       |
-| Response overrides on `presignGet` | Answered as the four response headers, on AWS and on R2                                                                  |
+| Point                              | What holds                                                                                                                                                                             |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Listing order                      | None. A page holds at most 1000 keys                                                                                                                                                   |
+| `userMetadata`                     | 2 KB of encoded header bytes; keys handed back in lower case                                                                                                                           |
+| Single `PUT`                       | Up to 5 GB for a `Uint8Array` or string; a stream that fills more than one part goes as a multipart upload                                                                             |
+| Object size ceiling                | The provider's, answered with `EntityTooLarge`                                                                                                                                         |
+| `Content-Type`                     | Always sent by `put`, `application/octet-stream` where none was given                                                                                                                  |
+| `CompleteMultipartUpload`          | Judged by its body, which may carry an error under `200`                                                                                                                               |
+| Writes per key                     | R2 answers `429` above one write per second and key; the retry may recover a single collision, but does not guarantee it                                                               |
+| Incomplete multipart uploads       | Removed by a lifecycle rule on AWS, after seven days by default on R2; stowage removes none                                                                                            |
+| Presigned URL host                 | The endpoint that signed it; on R2 the `r2.cloudflarestorage.com` endpoint and not a custom domain                                                                                     |
+| Response overrides on `presignGet` | Answered as the four response headers, on AWS and on R2                                                                                                                                |
+| Objects stored compressed          | An object another tool stored with a content coding may read decoded and longer than its `size`, which is the stored size, or as stored; a range starting inside it is `ProviderError` |
 
 ## Notes
 

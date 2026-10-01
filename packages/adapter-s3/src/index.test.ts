@@ -899,6 +899,151 @@ test.each([["bytes 0-3"], ["bytes 0-3/*"], ["items 0-3/4"], [undefined]])(
   },
 );
 
+// A stored content coding (spec 4.3, ADR 0044)
+
+/** A `206` over the stored bytes of an object another tool stored under `coding`. */
+function codedPart(coding: string, body: BodyInit = "0123"): Response {
+  return new Response(body, {
+    status: 206,
+    headers: {
+      "content-length": "4",
+      "content-range": "bytes 2-5/39",
+      "content-encoding": coding,
+      "last-modified": "Sun, 30 Aug 2015 12:36:00 GMT",
+      "x-amz-request-id": "coded-request",
+    },
+  });
+}
+
+/** A `200` carrying the whole of an object another tool stored under `coding`. */
+function codedWhole(coding: string, body: BodyInit = "x".repeat(39)): Response {
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "content-length": "39",
+      "content-encoding": coding,
+      "last-modified": "Sun, 30 Aug 2015 12:36:00 GMT",
+      "x-amz-request-id": "coded-request",
+    },
+  });
+}
+
+test("a range the provider honored on a content-coded object is a `ProviderError` naming the coding", async () => {
+  const cancel = vi.fn<() => void>();
+
+  stubFetch(() => codedPart("gzip", new ReadableStream({ cancel })));
+
+  const failure = await rejection(
+    async () => await s3Storage(options()).get("object.txt", { range: { start: 2, end: 5 } }),
+  );
+
+  expect(failure).toMatchObject({
+    code: "ProviderError",
+    operation: "get",
+    key: "object.txt",
+    status: 206,
+    requestId: "coded-request",
+    attempts: 1,
+  });
+  expect(failure.message).toContain('"gzip"');
+  expect(cancel).toHaveBeenCalledOnce();
+});
+
+test.each([200, 206])(
+  "a content-coded range preserves its `ProviderError` when the body is already errored (%i)",
+  async (status) => {
+    const bodyFailure = new Error("The response body failed");
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.error(bodyFailure);
+      },
+    });
+    const cancel = vi.spyOn(body, "cancel");
+
+    stubFetch(() => (status === 206 ? codedPart("gzip", body) : codedWhole("gzip", body)));
+
+    const failure = await rejection(
+      async () => await s3Storage(options()).get("object.txt", { range: { start: 2, end: 5 } }),
+    );
+
+    expect(failure).toMatchObject({
+      code: "ProviderError",
+      operation: "get",
+      key: "object.txt",
+      status,
+      requestId: "coded-request",
+      attempts: 1,
+    });
+    expect(failure.message).toContain('"gzip"');
+    expect(cancel).toHaveBeenCalledOnce();
+    await expect(cancel.mock.results[0]?.value).rejects.toBe(bodyFailure);
+  },
+);
+
+test.each([
+  ["covering the stored bytes", { start: 0 }],
+  ["ending beyond them", { start: 0, end: 5000 }],
+  ["inside them", { start: 2, end: 5 }],
+])(
+  "a range %s answered with the whole content-coded object is a `ProviderError`",
+  async (_case, range) => {
+    const cancel = vi.fn<() => void>();
+
+    stubFetch(() => codedWhole("gzip", new ReadableStream({ cancel })));
+
+    const failure = await rejection(
+      async () => await s3Storage(options()).get("object.txt", { range }),
+    );
+
+    expect(failure).toMatchObject({ code: "ProviderError", status: 200 });
+    expect(failure.message).toContain('"gzip"');
+    expect(cancel).toHaveBeenCalledOnce();
+  },
+);
+
+test.each([["br"], ["GZIP"], ["x-unheard-of"]])(
+  "the coding %j refuses a range as well",
+  async (coding) => {
+    stubFetch(() => codedPart(coding));
+
+    const failure = await rejection(
+      async () => await s3Storage(options()).get("object.txt", { range: { start: 2, end: 5 } }),
+    );
+
+    expect(failure.code).toBe("ProviderError");
+    expect(failure.message).toContain(JSON.stringify(coding));
+  },
+);
+
+test.each([["identity"], ["Identity"], [""]])(
+  "the coding %j names none and leaves a range honored",
+  async (coding) => {
+    stubFetch(() => codedPart(coding));
+
+    const stored = await s3Storage(options()).get("object.txt", { range: { start: 2, end: 5 } });
+
+    expect(stored.stat.size).toBe(39);
+    expect(await stored.text()).toBe("0123");
+  },
+);
+
+test("`identity` on a whole answer covering the range leaves it what was asked for", async () => {
+  stubFetch(() => codedWhole("identity"));
+
+  const stored = await s3Storage(options()).get("object.txt", { range: { start: 0 } });
+
+  expect(await stored.text()).toHaveLength(39);
+});
+
+test("a `get` without a range reads a content-coded object, its `size` the stored size", async () => {
+  stubFetch(() => codedWhole("gzip", "x".repeat(1000)));
+
+  const stored = await s3Storage(options()).get("object.txt");
+
+  expect(stored.stat.size).toBe(39);
+  expect(await stored.bytes()).toHaveLength(1000);
+});
+
 test("an unknown option is refused by name before any request", async () => {
   const sent = stubFetch(accepted);
   const failure = await rejection(
