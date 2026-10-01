@@ -33,14 +33,14 @@ The bundle measures 3.9 kB minified and gzipped, `@stowage/core` included.
 ## Limits
 
 - `presignedUrls` is not declared: `MemoryStorage` has neither `presignGet` nor `presignPut`
-  ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-memory@0.3.0/docs/spec.md#49-capabilities)).
+  ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-memory@0.4.0/docs/spec.md#49-capabilities)).
 - Every object is held whole in memory, with no size limit of its own, so memory grows with what
-  the storage holds ([spec 5](https://github.com/stowage-js/stowage/blob/@stowage/adapter-memory@0.3.0/docs/spec.md#5-stowageadapter-memory)).
+  the storage holds ([spec 5](https://github.com/stowage-js/stowage/blob/@stowage/adapter-memory@0.4.0/docs/spec.md#5-stowageadapter-memory)).
 
 ## Notes
 
 `put` takes no `Blob`. A caller holding one passes its stream
-([spec 4.2](https://github.com/stowage-js/stowage/blob/@stowage/adapter-memory@0.3.0/docs/spec.md#42-bodies)):
+([spec 4.2](https://github.com/stowage-js/stowage/blob/@stowage/adapter-memory@0.4.0/docs/spec.md#42-bodies)):
 
 ```ts
 import { memoryStorage } from "@stowage/adapter-memory";
@@ -52,7 +52,7 @@ await storage.put("report.csv", blob.stream(), { contentType: blob.type });
 ```
 
 stowage reports no progress
-([spec 13](https://github.com/stowage-js/stowage/blob/@stowage/adapter-memory@0.3.0/docs/spec.md#13-non-goals)).
+([spec 13](https://github.com/stowage-js/stowage/blob/@stowage/adapter-memory@0.4.0/docs/spec.md#13-non-goals)).
 A caller who wants it counts the bytes on their way into `put`:
 
 ```ts
@@ -81,10 +81,10 @@ await storage.put("fixture.json", response.body.pipeThrough(countBytes(console.l
 
 ## Specification
 
-[`docs/spec.md` at `@stowage/adapter-memory@0.3.0`](https://github.com/stowage-js/stowage/blob/@stowage/adapter-memory@0.3.0/docs/spec.md#5-stowageadapter-memory)
+[`docs/spec.md` at `@stowage/adapter-memory@0.4.0`](https://github.com/stowage-js/stowage/blob/@stowage/adapter-memory@0.4.0/docs/spec.md#5-stowageadapter-memory)
 is the contract: a caller may rely on what it states and on nothing else this package happens to
-export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/adapter-memory@0.3.0/CONTEXT.md)
-and the [decisions behind it](https://github.com/stowage-js/stowage/tree/@stowage/adapter-memory@0.3.0/docs/adr)
+export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/adapter-memory@0.4.0/CONTEXT.md)
+and the [decisions behind it](https://github.com/stowage-js/stowage/tree/@stowage/adapter-memory@0.4.0/docs/adr)
 are at the same tag.
 
 ## License
