@@ -1,5 +1,18 @@
 # @stowage/adapter-fs
 
+## 0.4.0
+
+### Minor Changes
+
+- 3daefb2: The spec states what `adapter-fs` already did in v0.3: an operation against a root that does not exist rejects with `NotFound` without `key`, the shape providers use when they distinctly report a missing bucket. An inaccessible root may instead return `AccessDenied`. A wrong root must never read as an absent object (spec 4.10, 6, ADR 0043).
+
+### Patch Changes
+
+- Updated dependencies [3daefb2]
+- Updated dependencies [3daefb2]
+- Updated dependencies [e506599]
+  - @stowage/core@0.4.0
+
 ## 0.3.0
 
 ### Patch Changes

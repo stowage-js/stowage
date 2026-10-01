@@ -1,5 +1,13 @@
 # @stowage/core
 
+## 0.4.0
+
+### Minor Changes
+
+- 3daefb2: Nothing lies below an adapter's concrete type: a storage exposes no request, signer, credential or request hook, and `@stowage/core` exports no adapter-specific request, signer or credential. A caller who needs to send a request that stowage does not send signs it with code of their own, such as aws4fetch using the same access key (spec 4.1). A member added to a concrete type an adapter's factory returns, such as `S3Storage`, is a minor release before and after 1.0, as a name added to `StorageErrorCode` or `capabilityNames` is. A test double for code that stays portable is typed as `Storage`, removing or narrowing a member stays breaking, and `Storage` and `ConformanceTarget` are not concrete types in this sense. Below 1.0 a new member is a minor either way, so this takes nothing from a caller. 1.0 no longer waits for a shape of the `raw` escape hatch, and section 14 now lists no promise (spec 11, 13, 14, ADR 0042, ADR 0045).
+- 3daefb2: An object another tool stored with a content coding may arrive decoded and longer than `size`, or as stored, depending on the runtime and the adapter. Spec 4.4 gave `fetch` decoding every content coding as the reason, which does not hold on Deno: under the `accept-encoding: identity` of `adapter-s3` and `adapter-azure-blob` it decodes no coding, and on `adapter-gcs` it decodes `gzip` and `br` and passes any other coding through. No code changes, and a range on such an object stays `ProviderError` on `adapter-gcs` (spec 4.4, 9.2, ADR 0044).
+- e506599: `@stowage/core` exports `contentCodingRefusal(contentEncoding, key)`, the one definition of the rule of spec 4.3 that an object another tool stored with a content coding takes no range. It returns `ProviderError` naming the coding and the key, or `undefined` for an absent value, an empty value and `identity` in any case (spec 4.13, ADR 0044). `@stowage/adapter-gcs` refuses such a range through it instead of its own copy; it still reads the coding off the resource's `contentEncoding` or the download's `x-goog-stored-content-encoding`, and the error and its message are unchanged.
+
 ## 0.3.0
 
 ### Minor Changes
