@@ -152,7 +152,7 @@ class SimpleStorageServiceStorage implements S3Storage {
         : rangedAnswerFailure(this.bucket, key, range, stat.size, response);
 
     if (refusal !== undefined) {
-      await response.body?.cancel();
+      await response.body?.cancel().catch(() => {});
 
       throw refusal;
     }

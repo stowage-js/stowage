@@ -949,6 +949,37 @@ test("a range the provider honored on a content-coded object is a `ProviderError
   expect(cancel).toHaveBeenCalledOnce();
 });
 
+test.each([200, 206])(
+  "a content-coded range preserves its `ProviderError` when the body is already errored (%i)",
+  async (status) => {
+    const bodyFailure = new Error("The response body failed");
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.error(bodyFailure);
+      },
+    });
+    const cancel = vi.spyOn(body, "cancel");
+
+    stubFetch(() => (status === 206 ? codedPart("gzip", body) : codedWhole("gzip", body)));
+
+    const failure = await rejection(
+      async () => await s3Storage(options()).get("object.txt", { range: { start: 2, end: 5 } }),
+    );
+
+    expect(failure).toMatchObject({
+      code: "ProviderError",
+      operation: "get",
+      key: "object.txt",
+      status,
+      requestId: "coded-request",
+      attempts: 1,
+    });
+    expect(failure.message).toContain('"gzip"');
+    expect(cancel).toHaveBeenCalledOnce();
+    await expect(cancel.mock.results[0]?.value).rejects.toBe(bodyFailure);
+  },
+);
+
 test.each([
   ["covering the stored bytes", { start: 0 }],
   ["ending beyond them", { start: 0, end: 5000 }],
