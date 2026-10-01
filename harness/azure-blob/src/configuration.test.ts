@@ -131,8 +131,6 @@ test("without the reader identity no denied credential is supplied", () => {
   expect(configured && storageWithDeniedCredentials(configured, azurite)).toBeUndefined();
 });
 
-// ADR 0043: a container named at random, so that no run and no container another left behind
-// can make it exist.
 test("the missing container is another one of the configured account, named anew on every call", () => {
   const configured = storageOptionsFrom(azurite, accessTokenFrom(azurite));
 
