@@ -68,18 +68,19 @@ The bundle measures 14.9 kB minified and gzipped, `@stowage/core` included.
   another endpoint speaking the Blob wire protocol can be configured and are not promised
   ([spec 8.2](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.3.0/docs/spec.md#82-promised-provider)):
 
-| Point                              | What holds                                                                                                                                     |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Listing order                      | None. A page holds at most 1000 names                                                                                                          |
-| Unicode-equivalent keys            | Two blobs: an NFC and an NFD name are stored, listed and read apart                                                                            |
-| `userMetadata`                     | ASCII identifier keys, stored and handed back in lower case; 2 KB as spec 4.3 measures them                                                    |
-| Single `Put Blob`                  | Up to 5,000 MiB for a `Uint8Array` or string; a stream that fills more than one part goes as blocks                                            |
-| Object size ceiling                | 50,000 blocks of at most 4,000 MiB; the upload stops at 50,000 parts                                                                           |
-| `Content-Type`                     | Always sent by `put`, on the commit of a block upload as well, `application/octet-stream` where none was given                                 |
-| Writes per key                     | Of two writers, one may be rejected                                                                                                            |
-| Uncommitted blocks                 | Kept until the next commit or `Put Blob` to the name, or until the service discards them seven days after the last block; stowage removes none |
-| Presigned URL host                 | The endpoint that signed it                                                                                                                    |
-| Response overrides on `presignGet` | Answered as the three response headers; Azure has no override for `Expires`                                                                    |
+| Point                              | What holds                                                                                                                                                                             |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Listing order                      | None. A page holds at most 1000 names                                                                                                                                                  |
+| Unicode-equivalent keys            | Two blobs: an NFC and an NFD name are stored, listed and read apart                                                                                                                    |
+| `userMetadata`                     | ASCII identifier keys, stored and handed back in lower case; 2 KB as spec 4.3 measures them                                                                                            |
+| Single `Put Blob`                  | Up to 5,000 MiB for a `Uint8Array` or string; a stream that fills more than one part goes as blocks                                                                                    |
+| Object size ceiling                | 50,000 blocks of at most 4,000 MiB; the upload stops at 50,000 parts                                                                                                                   |
+| `Content-Type`                     | Always sent by `put`, on the commit of a block upload as well, `application/octet-stream` where none was given                                                                         |
+| Writes per key                     | Of two writers, one may be rejected                                                                                                                                                    |
+| Uncommitted blocks                 | Kept until the next commit or `Put Blob` to the name, or until the service discards them seven days after the last block; stowage removes none                                         |
+| Presigned URL host                 | The endpoint that signed it                                                                                                                                                            |
+| Response overrides on `presignGet` | Answered as the three response headers; Azure has no override for `Expires`                                                                                                            |
+| Objects stored compressed          | An object another tool stored with a content coding may read decoded and longer than its `size`, which is the stored size, or as stored; a range starting inside it is `ProviderError` |
 
 ## Notes
 

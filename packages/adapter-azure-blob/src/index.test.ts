@@ -618,6 +618,143 @@ test.each([
   expect(failure.code).toBe(code);
 });
 
+// A stored content coding (spec 4.3, ADR 0044)
+
+/** A `206` over the stored bytes of an object another tool stored under `coding`. */
+function codedPart(coding: string, body: BodyInit = "0123"): Response {
+  return new Response(body, {
+    status: 206,
+    headers: {
+      ...Object.fromEntries(blob("0123").headers),
+      "content-range": "bytes 2-5/39",
+      "content-encoding": coding,
+      "x-ms-request-id": "coded-request",
+    },
+  });
+}
+
+/** A `200` carrying the whole of an object another tool stored under `coding`. */
+function codedWhole(coding: string, body: BodyInit = "x".repeat(39)): Response {
+  return new Response(body, {
+    status: 200,
+    headers: {
+      ...Object.fromEntries(blob("x".repeat(39)).headers),
+      "content-encoding": coding,
+      "x-ms-request-id": "coded-request",
+    },
+  });
+}
+
+test("a range the provider honored on a content-coded object is a `ProviderError` naming the coding", async () => {
+  const cancel = vi.fn<() => void>();
+
+  stubFetch(() => codedPart("gzip", new ReadableStream({ cancel })));
+
+  const failure = await failureOf(() => storage().get("object", { range: { start: 2, end: 5 } }));
+
+  expect(failure).toMatchObject({
+    code: "ProviderError",
+    operation: "get",
+    key: "object",
+    status: 206,
+    requestId: "coded-request",
+    attempts: 1,
+  });
+  expect(failure.message).toContain('"gzip"');
+  expect(cancel).toHaveBeenCalledOnce();
+});
+
+test.each([
+  ["covering the stored bytes", { start: 0 }],
+  ["ending beyond them", { start: 0, end: 5000 }],
+  ["inside them", { start: 2, end: 5 }],
+])(
+  "a range %s answered with the whole content-coded object is a `ProviderError`",
+  async (_case, range) => {
+    const cancel = vi.fn<() => void>();
+
+    stubFetch(() => codedWhole("gzip", new ReadableStream({ cancel })));
+
+    const failure = await failureOf(() => storage().get("object", { range }));
+
+    expect(failure).toMatchObject({ code: "ProviderError", status: 200 });
+    expect(failure.message).toContain('"gzip"');
+    expect(cancel).toHaveBeenCalledOnce();
+  },
+);
+
+test.each([["br"], ["GZIP"], ["x-unheard-of"]])(
+  "the coding %j refuses a range as well",
+  async (coding) => {
+    stubFetch(() => codedPart(coding));
+
+    const failure = await failureOf(() => storage().get("object", { range: { start: 2, end: 5 } }));
+
+    expect(failure.code).toBe("ProviderError");
+    expect(failure.message).toContain(JSON.stringify(coding));
+  },
+);
+
+test.each([["identity"], ["Identity"], ["IDENTITY"], [""]])(
+  "the coding %j names none and leaves a range honored",
+  async (coding) => {
+    stubFetch(() => codedPart(coding));
+
+    const stored = await storage().get("object", { range: { start: 2, end: 5 } });
+
+    expect(stored.stat.size).toBe(39);
+    expect(await stored.text()).toBe("0123");
+  },
+);
+
+test("`identity` on a whole answer covering the range leaves it what was asked for", async () => {
+  stubFetch(() => codedWhole("identity"));
+
+  const stored = await storage().get("object", { range: { start: 0 } });
+
+  expect(await stored.text()).toHaveLength(39);
+});
+
+// Azure's `416` names no coding, and spec 4.3 names a start beyond the stored bytes the same
+// refusal for every object, so Azurite's `206` for no byte keeps it too.
+test("a partial answer that starts at the size of a content-coded object stays `InvalidRequest`", async () => {
+  stubFetch(() => codedPart("gzip", ""));
+
+  const failure = await failureOf(() => storage().get("object", { range: { start: 39 } }));
+
+  expect(failure.code).toBe("InvalidRequest");
+});
+
+test("a `get` without a range reads a content-coded object, its `size` the stored size", async () => {
+  stubFetch(() => codedWhole("gzip", "x".repeat(1000)));
+
+  const stored = await storage().get("object");
+
+  expect(stored.stat.size).toBe(39);
+  expect(await stored.bytes()).toHaveLength(1000);
+});
+
+// Spec 8.4: no request invites a coding of the provider's own on the way.
+test("every request sends `Accept-Encoding: identity`", async () => {
+  const sent = stubFetch((request) => {
+    if (request.url.includes("comp=list")) return listingOf("");
+    if (request.method === "DELETE") return new Response(null, { status: 202 });
+
+    return copied()(request);
+  });
+
+  await storage().put("object", "body");
+  await storage().move("from.txt", "to.txt");
+  await storage().list().page();
+
+  expect(new Set(sent.map((request) => request.method))).toEqual(
+    new Set(["PUT", "HEAD", "DELETE", "GET"]),
+  );
+  expect(sent.map((request) => request.headers.get("accept-encoding"))).toEqual(
+    sent.map(() => "identity"),
+  );
+});
+
 // The options are as unknown to the types as they are to the storage, which is what the
 // case is about: the type catches one at the call site, and this the rest.
 // oxlint-disable-next-line no-unsafe-type-assertion -- the point of the case
