@@ -1141,25 +1141,22 @@ test("`stat` sends one `HEAD` and describes the blob from its headers", async ()
 test.each([
   ["BlobNotFound", "absent"],
   ["ContainerNotFound", undefined],
-])(
-  "`stat` reads `%s` off the header of a `HEAD`, with `key` set to %s",
-  async (providerCode, key) => {
-    stubFetch(() => headRefused(404, providerCode));
+])("`stat` reads `%s` off the header of a `HEAD`", async (providerCode, key) => {
+  stubFetch(() => headRefused(404, providerCode));
 
-    const failure = await failureOf(() => storage().stat("absent"));
+  const failure = await failureOf(() => storage().stat("absent"));
 
-    expect(failure).toMatchObject({
-      code: "NotFound",
-      operation: "stat",
-      key,
-      status: 404,
-      providerCode,
-      requestId: "request-1",
-      attempts: 1,
-    });
-    expect(failure.message).toContain(providerCode);
-  },
-);
+  expect(failure).toMatchObject({
+    code: "NotFound",
+    operation: "stat",
+    key,
+    status: 404,
+    providerCode,
+    requestId: "request-1",
+    attempts: 1,
+  });
+  expect(failure.message).toContain(providerCode);
+});
 
 test("`exists` answers `true` for a blob and `false` for a `NotFound` carrying `key` alone", async () => {
   stubFetch(() => described());
@@ -2350,6 +2347,7 @@ test("`deleteAll` reports a key's failure and tells a failed listing as its own"
   const failure = await failureOf(() => storage().deleteAll(""));
 
   expect(failure.code).toBe("NotFound");
+  expect(failure.key).toBeUndefined();
   expect(failure.operation).toBe("deleteAll");
 });
 
