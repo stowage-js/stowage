@@ -349,6 +349,22 @@ test("`get` of a missing blob is `NotFound` carrying what the provider answered"
   expect(failure.attempts).toBe(1);
 });
 
+test.each([
+  ["get", () => storage().get("object")],
+  ["put", () => storage().put("object", "Hello")],
+  ["list", () => storage().list().page()],
+])("`%s` in a missing container is `NotFound` without `key`", async (operation, call) => {
+  stubFetch(() => refused(404, "ContainerNotFound", "The specified container does not exist."));
+
+  const failure = await failureOf(call);
+
+  expect(failure.code).toBe("NotFound");
+  expect(failure.key).toBeUndefined();
+  expect(failure.operation).toBe(operation);
+  expect(failure.providerCode).toBe("ContainerNotFound");
+  expect(failure.message).toBe("The specified container does not exist.");
+});
+
 test("a request that keeps receiving no response is a `NetworkError` after three attempts", async () => {
   vi.spyOn(Math, "random").mockReturnValue(0);
   const sent = stubFetch(() => {
@@ -1122,9 +1138,12 @@ test("`stat` sends one `HEAD` and describes the blob from its headers", async ()
   });
 });
 
-test.each(["BlobNotFound", "ContainerNotFound"])(
-  "`stat` reads `%s` off the header of a `HEAD`",
-  async (providerCode) => {
+test.each([
+  ["BlobNotFound", "absent"],
+  ["ContainerNotFound", undefined],
+])(
+  "`stat` reads `%s` off the header of a `HEAD`, with `key` set to %s",
+  async (providerCode, key) => {
     stubFetch(() => headRefused(404, providerCode));
 
     const failure = await failureOf(() => storage().stat("absent"));
@@ -1132,7 +1151,7 @@ test.each(["BlobNotFound", "ContainerNotFound"])(
     expect(failure).toMatchObject({
       code: "NotFound",
       operation: "stat",
-      key: "absent",
+      key,
       status: 404,
       providerCode,
       requestId: "request-1",
@@ -1142,23 +1161,26 @@ test.each(["BlobNotFound", "ContainerNotFound"])(
   },
 );
 
-test("`exists` answers `true` for a blob and `false` for `NotFound` alone", async () => {
+test("`exists` answers `true` for a blob and `false` for a `NotFound` carrying `key` alone", async () => {
   stubFetch(() => described());
 
   expect(await storage().exists("object")).toBe(true);
 
-  const sent = stubFetch(() => headRefused(404, "ContainerNotFound"));
+  const sent = stubFetch(() => headRefused(404, "BlobNotFound"));
 
   expect(await storage().exists("object")).toBe(false);
   expect(sent[0]?.method).toBe("HEAD");
 });
 
-test("`exists` rethrows every failure other than `NotFound`", async () => {
-  stubFetch(() => headRefused(403, "AuthorizationPermissionMismatch"));
+test.each([
+  [403, "AuthorizationPermissionMismatch", "AccessDenied"],
+  [404, "ContainerNotFound", "NotFound"],
+])("`exists` rethrows `%i %s`", async (status, providerCode, code) => {
+  stubFetch(() => headRefused(status, providerCode));
 
   const failure = await failureOf(() => storage().exists("object"));
 
-  expect(failure.code).toBe("AccessDenied");
+  expect(failure.code).toBe(code);
   expect(failure.operation).toBe("exists");
 });
 
@@ -2026,22 +2048,41 @@ test("any other failed subrequest is the key's entry in `failed`, told by spec 8
   expect(denied?.attempts).toBe(1);
 });
 
-test("a `404` for anything but the blob, such as the container, is a failure of the key", async () => {
+test("a subresponse answered `404 ContainerNotFound` rejects the whole `delete` with `NotFound` without `key`", async () => {
   stubFetch(() =>
     batchAnswer([
+      { status: 202 },
       {
         status: 404,
         code: "ContainerNotFound",
         message: "The specified container does not exist.",
       },
+      { status: 404, code: "BlobNotFound" },
     ]),
   );
 
-  const report = await storage().delete("object");
+  const failure = await failureOf(() => storage().delete("first", "second", "third"));
 
-  expect(report.failed.map((failure) => [failure.key, failure.code])).toEqual([
-    ["object", "NotFound"],
-  ]);
+  expect(failure.code).toBe("NotFound");
+  expect(failure.key).toBeUndefined();
+  expect(failure.operation).toBe("delete");
+  expect(failure.providerCode).toBe("ContainerNotFound");
+  expect(failure.status).toBe(404);
+  expect(failure.requestId).toBe("sub-1");
+});
+
+test("a `ContainerNotFound` subresponse rejects `deleteAll` as well", async () => {
+  stubFetch((request) =>
+    new URL(request.url).searchParams.get("comp") === "batch"
+      ? batchAnswer([{ status: 404, code: "ContainerNotFound" }])
+      : enumeration([listedBlob("object")]),
+  );
+
+  const failure = await failureOf(() => storage().deleteAll(""));
+
+  expect(failure.code).toBe("NotFound");
+  expect(failure.key).toBeUndefined();
+  expect(failure.operation).toBe("deleteAll");
 });
 
 test("subresponses are told apart by `Content-ID`, not by the order they arrive in", async () => {

@@ -153,7 +153,19 @@ async function deleteBatch(
     if (failure !== undefined) failed.push(failure);
   }
 
+  // Spec 8.4: Azure answers a batch in a missing container with `202` and a
+  // `ContainerNotFound` in every subresponse, and a report of one such entry per key would
+  // hide the wrong container name the way an `exists` answering `false` does (ADR 0043).
+  const missingContainer = failed.find(isMissingContainer);
+
+  if (missingContainer !== undefined) throw missingContainer;
+
   return failed;
+}
+
+/** Spec 4.10: `NotFound` without `key` is a missing container, with it a missing blob. */
+function isMissingContainer(failure: StorageError): boolean {
+  return failure.code === "NotFound" && failure.key === undefined;
 }
 
 async function deleteSubrequests(

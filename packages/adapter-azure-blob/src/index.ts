@@ -171,8 +171,11 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
 
       return true;
     } catch (failure) {
-      // Spec 4.10: `exists` answers `false` for `NotFound` alone and rethrows the rest.
-      if (isStorageError(failure) && failure.code === "NotFound") return false;
+      // Spec 4.10: `exists` answers `false` for a `NotFound` carrying `key` alone and
+      // rethrows the rest, a missing container among them.
+      if (isStorageError(failure) && failure.code === "NotFound" && failure.key !== undefined) {
+        return false;
+      }
 
       throw failure;
     }
