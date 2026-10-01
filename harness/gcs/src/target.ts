@@ -23,8 +23,8 @@ import { withGcsDivergences } from "./divergences.ts";
  * suite and goes. The `Expired` case stays in the list and reports itself skipped on every
  * endpoint, and the Bad and Denied cases against fake-gcs-server, since the target supplies
  * no factory there (ADR 0033, ADR 0034). `flow/3-file-browser`, the three rejections a
- * presigned URL owes and the two cases of `move` run against fake-gcs-server as divergences
- * (`divergences.ts`).
+ * presigned URL owes, the two cases of `move` and `errors/missing-bucket` run against
+ * fake-gcs-server as divergences (`divergences.ts`).
  */
 const coveredCases: ReadonlySet<string> = new Set([
   "declaration/valid-names",
@@ -101,6 +101,7 @@ const coveredCases: ReadonlySet<string> = new Set([
   "errors/bad-credentials",
   "errors/denied-credentials",
   "errors/expired-credentials",
+  "errors/missing-bucket",
   "errors/not-a-storage-error",
   "flow/1-large-upload",
   "flow/2-presigned-put",
@@ -149,20 +150,34 @@ export function gcsTarget(endpoint: GcsEndpoint): ConformanceTarget {
 
       createStorageWithDeniedCredentials: () =>
         gcsStorage({ ...options, credentials: deniedCredentials }),
+
+      createStorageWithMissingBucket: () =>
+        gcsStorage({ ...options, signer, bucket: missingBucket() }),
     };
   }
 
   let signer: Promise<GcsSigner> | undefined;
+  const emulatorStorage = async (bucket: string) => {
+    signer ??= generatedSigner();
+
+    return gcsStorage({ ...endpoint.options, bucket, signer: await signer });
+  };
 
   return {
     name,
 
-    async createStorage() {
-      signer ??= generatedSigner();
+    createStorage: async () => await emulatorStorage(endpoint.options.bucket),
 
-      return gcsStorage({ ...endpoint.options, signer: await signer });
-    },
+    createStorageWithMissingBucket: async () => await emulatorStorage(missingBucket()),
   };
+}
+
+/**
+ * ADR 0043: a name drawn for each storage, so that no run and no bucket another one left
+ * behind can make it exist.
+ */
+function missingBucket(): string {
+  return `stowage-missing-${crypto.randomUUID()}`;
 }
 
 /** A key of Web Crypto's own on every runtime, and never extractable, since nothing reads it. */

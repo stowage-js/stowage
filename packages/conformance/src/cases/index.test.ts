@@ -76,6 +76,7 @@ const specified: readonly SpecifiedCase[] = [
   ["errors/bad-credentials", [], "fast"],
   ["errors/denied-credentials", [], "fast"],
   ["errors/expired-credentials", [], "slow"],
+  ["errors/missing-bucket", [], "fast"],
   ["presign/get", ["presignedUrls"], "fast"],
   ["presign/put", ["presignedUrls"], "fast"],
   ["presign/expires-in-bounds", ["presignedUrls"], "fast"],
@@ -105,7 +106,7 @@ test("every case naming a capability carries the `runWithout` half of its row", 
   }
 });
 
-test("the cases hanging on a credential factory of spec 10.3 name the one their row marks", () => {
+test("the cases hanging on a factory of spec 10.3 name the one their row marks", () => {
   const marked = conformanceCaseSources
     .filter((source) => source.factory !== undefined)
     .map((source) => [source.name, source.factory]);
@@ -114,6 +115,7 @@ test("the cases hanging on a credential factory of spec 10.3 name the one their 
     ["errors/bad-credentials", "createStorageWithBadCredentials"],
     ["errors/denied-credentials", "createStorageWithDeniedCredentials"],
     ["errors/expired-credentials", "createStorageWithExpiredCredentials"],
+    ["errors/missing-bucket", "createStorageWithMissingBucket"],
   ]);
 });
 

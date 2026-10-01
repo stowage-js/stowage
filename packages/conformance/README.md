@@ -33,8 +33,12 @@ The optional members widen the run:
   interfere.
 - `createStorageWithBadCredentials`, `createStorageWithExpiredCredentials` and
   `createStorageWithDeniedCredentials` return storages whose credential the provider refuses, has
-  expired, or accepts for reading alone. A case that needs a factory the target leaves out is
-  reported `skipped`.
+  expired, or accepts for reading alone.
+- `createStorageWithMissingBucket` returns a storage bound to a bucket, container or root that
+  does not exist and is otherwise configured as the one `createStorage` returns. An adapter with
+  no bucket to miss leaves it out.
+
+A case that needs a factory the target leaves out is reported `skipped`.
 
 ## Fill the declaration
 

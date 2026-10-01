@@ -51,6 +51,28 @@ test("no endpoint supplies an expired credential", () => {
   expect(targetFor(scheduled)).not.toHaveProperty("createStorageWithExpiredCredentials");
 });
 
+// ADR 0043: both endpoints know the bucket by name alone, so both can be handed one no run
+// created.
+test.each([
+  ["fake-gcs-server", printed],
+  ["the real bucket", scheduled],
+])("%s supplies a storage bound to a missing bucket", async (_endpoint, variables) => {
+  const target = targetFor(variables);
+  const missing = await target.createStorageWithMissingBucket?.();
+  const configured = await target.createStorage();
+
+  expect(missing?.bucket).toMatch(/^stowage-missing-/u);
+  expect(missing?.bucket).not.toBe(configured.bucket);
+});
+
+test("the missing bucket is a new one on every call", async () => {
+  const target = targetFor(printed);
+
+  expect((await target.createStorageWithMissingBucket?.())?.bucket).not.toBe(
+    (await target.createStorageWithMissingBucket?.())?.bucket,
+  );
+});
+
 // ADR 0012: the divergences of the emulator are what the real bucket settles.
 test("the real bucket runs the cases as the suite states them", () => {
   const options = { includeSlow: true };
