@@ -3,6 +3,7 @@ import { createServer, type Server } from "node:http";
 import { afterEach, describe, expect, test } from "vitest";
 
 import {
+  acceptUpload,
   type NodeRequest,
   type NodeResponse,
   serveObject,
@@ -10,6 +11,50 @@ import {
   writeResponse,
 } from "./index.ts";
 import { statOf, storedObject, streamOf, stubStorage } from "./stubs.ts";
+
+/** A request whose body a test hands over event by event, recording `pause` and `resume`. */
+class StreamingRequest implements NodeRequest {
+  readonly url = "/uploads/report";
+  readonly headers = { host: "example.test" };
+  readonly socket = {};
+  readableDidRead = false;
+  paused = false;
+  readonly method: string;
+  private readonly listeners = new Map<string, ((value: never) => void)[]>();
+
+  constructor(method = "PUT") {
+    this.method = method;
+  }
+
+  on(event: "data", listener: (chunk: Uint8Array) => void): this;
+  on(event: "end", listener: () => void): this;
+  on(event: "error", listener: (error: Error) => void): this;
+  on(event: string, listener: (value: never) => void): this {
+    this.listeners.set(event, [...(this.listeners.get(event) ?? []), listener]);
+
+    return this;
+  }
+
+  pause(): this {
+    this.paused = true;
+
+    return this;
+  }
+
+  resume(): this {
+    this.paused = false;
+
+    return this;
+  }
+
+  emit(event: "data", chunk: Uint8Array): void;
+  emit(event: "end"): void;
+  emit(event: "error", error: Error): void;
+  emit(event: string, value?: unknown): void {
+    // oxlint-disable-next-line no-unsafe-type-assertion -- each overload above pairs an event with its value
+    for (const listener of this.listeners.get(event) ?? []) listener(value as never);
+  }
+}
 
 /** A response that records what the bridge does to it, and that a test closes at will. */
 class RecordedResponse implements NodeResponse {
@@ -156,6 +201,102 @@ describe("`toWebRequest`", () => {
     res.end();
 
     expect(request.signal.aborted).toBe(false);
+  });
+
+  test("leaves its signal alone once the request body has ended", async () => {
+    const req = new StreamingRequest();
+    const request = toWebRequest(req, new RecordedResponse());
+    const read = request.text();
+
+    req.emit("data", bytes("x"));
+    req.emit("end");
+
+    expect(await read).toBe("x");
+    expect(request.signal.aborted).toBe(false);
+  });
+});
+
+describe("the body of `toWebRequest`", () => {
+  test.each(["GET", "HEAD"])("is `null` for `%s`", (method) => {
+    expect(toWebRequest(new StreamingRequest(method), new RecordedResponse()).body).toBeNull();
+  });
+
+  test.each(["PUT", "POST", "DELETE", "PATCH", "OPTIONS"])(
+    "streams the body of `req` for `%s`",
+    async (method) => {
+      const req = new StreamingRequest(method);
+      const read = toWebRequest(req, new RecordedResponse()).text();
+
+      req.emit("data", bytes("one "));
+      req.emit("data", bytes("two"));
+      req.emit("end");
+
+      expect(await read).toBe("one two");
+    },
+  );
+
+  test("pauses `req` while a chunk waits unread, and resumes it once the chunk is read", async () => {
+    const req = new StreamingRequest();
+    const reader = toWebRequest(req, new RecordedResponse()).body?.getReader();
+
+    req.emit("data", bytes("one"));
+
+    expect(req.paused).toBe(true);
+
+    const chunk = await reader?.read();
+
+    expect(new TextDecoder().decode(chunk?.value)).toBe("one");
+    expect(req.paused).toBe(false);
+  });
+
+  test("fails with the error of `req`", async () => {
+    const req = new StreamingRequest();
+    const failure = new Error("aborted");
+    const read = toWebRequest(req, new RecordedResponse()).text();
+
+    req.emit("data", bytes("one"));
+    req.emit("error", failure);
+
+    await expect(read).rejects.toBe(failure);
+  });
+
+  test("fails before its signal aborts once `res` closes while the body is unread", async () => {
+    const req = new StreamingRequest();
+    const res = new RecordedResponse();
+    // An adapter stops reading at the signal, as `pipeTo` does, and rejects with its reason.
+    const storage = stubStorage({
+      put: async (_key, body, options) => {
+        if (!(body instanceof ReadableStream)) throw new Error("The layer handed `put` no stream");
+
+        await body.pipeTo(new WritableStream(), { signal: options?.signal });
+
+        return statOf();
+      },
+    });
+    const answered = acceptUpload(storage, "a", toWebRequest(req, res), { maxSize: 1024 });
+
+    req.emit("data", bytes("one"));
+    await settle();
+    // Node closes the response of a reset connection before the request emits its error,
+    // and the layer answers a body that failed with `400`, an abort by throwing it on.
+    res.emit("close");
+
+    expect((await answered).status).toBe(400);
+  });
+
+  test("resumes `req` once the body is canceled and drops what follows", async () => {
+    const req = new StreamingRequest();
+    const body = toWebRequest(req, new RecordedResponse()).body;
+
+    req.emit("data", bytes("one"));
+
+    expect(req.paused).toBe(true);
+
+    await body?.cancel();
+    req.emit("data", bytes("two"));
+    req.emit("end");
+
+    expect(req.paused).toBe(false);
   });
 });
 

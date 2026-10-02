@@ -38,28 +38,90 @@ interface Exchange {
 const exchanges = new WeakMap<NodeResponse, Exchange>();
 
 /**
- * The web `Request` for a Node request. Its signal aborts once `res` closes before it has
- * finished, which is a client disconnecting; the request's own `close` is no such signal,
- * since Node emits it as soon as the body is read.
+ * The web `Request` for a Node request. Its body streams `req` with backpressure for any
+ * method but `GET` and `HEAD`. Its signal aborts once `res` closes before it has finished,
+ * which is a client disconnecting; the request's own `close` is no such signal, since Node
+ * emits it as soon as the body is read.
  */
 export function toWebRequest(req: NodeRequest, res: NodeResponse): Request {
   const method = req.method ?? "GET";
   const exchange: Exchange = { method, disconnected: false };
   const controller = new AbortController();
+  const body = method === "GET" || method === "HEAD" ? undefined : streamedBody(req);
 
   exchanges.set(res, exchange);
   res.on("close", () => {
     if (res.writableFinished) return;
 
     exchange.disconnected = true;
+    // Node closes the response of a reset connection before `req` emits its error, and
+    // the abort would reach `put` before the failed body, which `acceptUpload` answers
+    // with `400` where it throws an abort on.
+    body?.fail(new Error("The connection closed before the request body ended"));
     controller.abort();
   });
 
-  return new Request(urlOf(req), {
+  // Node and Deno take a stream as a body only with `duplex`, which the lib does not
+  // declare, so the init is no literal that the compiler would check for it.
+  const init = {
     method,
     headers: headersOf(req.headers),
     signal: controller.signal,
+    body: body?.stream ?? null,
+    duplex: "half",
+  };
+
+  return new Request(urlOf(req), init);
+}
+
+interface StreamedBody {
+  readonly stream: ReadableStream<Uint8Array>;
+  /** Errors the stream, unless it ended, failed or was canceled already. */
+  fail(reason: Error): void;
+}
+
+/** The body of `req`, which is paused while a chunk waits unread and resumed as it is read. */
+function streamedBody(req: NodeRequest): StreamedBody {
+  let settled = false;
+  let opened: ReadableStreamDefaultController<Uint8Array> | undefined;
+
+  const fail = (reason: Error): void => {
+    if (settled) return;
+
+    settled = true;
+    opened?.error(reason);
+  };
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      opened = controller;
+
+      req.on("data", (chunk) => {
+        if (settled) return;
+
+        controller.enqueue(chunk);
+        if ((controller.desiredSize ?? 0) <= 0) req.pause();
+      });
+      req.on("end", () => {
+        if (settled) return;
+
+        settled = true;
+        controller.close();
+      });
+      req.on("error", fail);
+    },
+    pull() {
+      req.resume();
+    },
+    cancel() {
+      settled = true;
+      // Node reads the next request on the connection only once this one's body is read,
+      // so the rest is let flow and dropped.
+      req.resume();
+    },
   });
+
+  return { stream, fail };
 }
 
 // No function of the layer reads the URL, so it carries nothing the layer depends on, and a
