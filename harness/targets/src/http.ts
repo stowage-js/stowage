@@ -23,6 +23,50 @@ export interface ServedTarget {
   close(): Promise<void>;
 }
 
+/** The routes of spec 14.8 on a server that runs. */
+export interface StartedServer {
+  readonly url: HttpConformanceTarget["url"];
+  close(): Promise<void>;
+}
+
+/**
+ * What a repository test may configure beyond spec 14.8's routes: the flat-memory test
+ * uploads far more than the suite's 1 MiB.
+ */
+export interface RouteOptions {
+  readonly maxSize: number;
+}
+
+/**
+ * A server of spec 2's second table, with `adapter-s3` behind it as ADR 0050 has every
+ * server. Which runtime it runs on is the harness's to say, since the bridge on
+ * `createServer` is one server on Node, Bun and Deno alike.
+ */
+export interface HttpServer {
+  readonly name: string;
+  start(storage: S3AdapterOptions, routes?: RouteOptions): Promise<StartedServer>;
+}
+
+/** Spec 14.8's `maxSize` of the `upload` route. */
+const suiteRoutes: RouteOptions = { maxSize: 1048576 };
+
+/** The HTTP suite's target against `server`, started with the routes spec 14.8 fixes. */
+export async function servedTarget(
+  server: HttpServer,
+  configured: S3AdapterOptions,
+): Promise<ServedTarget> {
+  const started = await server.start(configured);
+
+  return {
+    target: {
+      name: server.name,
+      createStorage: () => s3Storage(configured),
+      url: started.url,
+    },
+    close: started.close,
+  };
+}
+
 /**
  * The HTTP suite against a server that runs, and one test saying why none does: ADR 0050
  * puts `adapter-s3` on SeaweedFS behind every server, so a run without that endpoint has no
@@ -45,13 +89,21 @@ export function describeServed(
 const routePattern = /^\/(serve|redirect|upload|presign)\/([^/?]*)$/u;
 
 /**
- * Spec 2's cells of `@stowage/http` and of the Node bridge on `node:http`'s `createServer`,
- * with `adapter-s3` behind the server as ADR 0050 has every server. The key travels as one
- * encoded path segment, so that a key holding `/`, `?` or `%` arrives as it was sent.
+ * Spec 2's cells of `@stowage/http` and of the Node bridge on `node:http`'s `createServer`.
+ * The key travels as one encoded path segment, so that a key holding `/`, `?` or `%`
+ * arrives as it was sent.
  */
-export async function nodeBridgeTarget(configured: S3AdapterOptions): Promise<ServedTarget> {
+export const nodeBridge: HttpServer = {
+  name: "@stowage/http through the Node bridge",
+  start: async (configured, routes = suiteRoutes) => await startNodeBridge(configured, routes),
+};
+
+async function startNodeBridge(
+  configured: S3AdapterOptions,
+  routes: RouteOptions,
+): Promise<StartedServer> {
   const storage = s3Storage(configured);
-  const server = createServer((req, res) => void handle(storage, req, res));
+  const server = createServer((req, res) => void handle(storage, routes, req, res));
 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 
@@ -62,11 +114,7 @@ export async function nodeBridgeTarget(configured: S3AdapterOptions): Promise<Se
   const origin = `http://127.0.0.1:${address.port}`;
 
   return {
-    target: {
-      name: "@stowage/http through the Node bridge",
-      createStorage: () => s3Storage(configured),
-      url: (route, key) => new URL(`/${route}/${encodeURIComponent(key)}`, origin),
-    },
+    url: (route, key) => new URL(`/${route}/${encodeURIComponent(key)}`, origin),
     close: async () => {
       // `fetch` keeps its connections alive, which would hold `close` open until they idle out.
       server.closeAllConnections();
@@ -79,11 +127,12 @@ export async function nodeBridgeTarget(configured: S3AdapterOptions): Promise<Se
 
 async function handle(
   storage: S3Storage,
+  routes: RouteOptions,
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
   try {
-    await writeResponse(res, await answer(storage, req, res));
+    await writeResponse(res, await answer(storage, routes, req, res));
   } catch (failure) {
     // The case would otherwise wait on an answer that never comes; the rejection still
     // reaches Vitest as an unhandled one, which fails the run with its stack.
@@ -98,9 +147,13 @@ async function handle(
   }
 }
 
-/** Spec 14.8 fixes what each route is configured with. Any other path answers `404`. */
+/**
+ * Spec 14.8 fixes what each route is configured with, `routes` aside. Any other path
+ * answers `404`.
+ */
 async function answer(
   storage: S3Storage,
+  routes: RouteOptions,
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<Response> {
@@ -118,7 +171,7 @@ async function answer(
     return await redirectToObject(storage, key, toWebRequest(req, res), { expiresIn: 60 });
   }
   if (route === "upload") {
-    return await acceptUpload(storage, key, toWebRequest(req, res), { maxSize: 1048576 });
+    return await acceptUpload(storage, key, toWebRequest(req, res), { maxSize: routes.maxSize });
   }
   if (route === "presign") return await presign(storage, key, req);
 
