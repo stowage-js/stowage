@@ -9,6 +9,7 @@
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "test": "vitest run",
+    "test:hono-floor": "vitest run --config harness/hono-floor/vitest.config.ts",
     "test:bun": "pnpm --filter @stowage/harness-bun test",
     "test:deno": "pnpm --filter @stowage/harness-deno test",
     "test:workerd": "pnpm --filter @stowage/harness-workerd test",
