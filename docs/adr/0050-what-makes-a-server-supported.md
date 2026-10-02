@@ -61,9 +61,8 @@ object on demand.
 - An integration promises the runtimes its framework promises, within stowage's four. Hono names
   all four and runs on them (`research/hono-integration`, commit `b9feab7`). NestJS names Node
   alone, although Bun and Deno behaved alike in every measured case (`research/nestjs-integration`,
-  commit `15b6565`). Next.js promises Node; Next.js 16 deprecated the `middleware.ts` convention
-  and renamed it to `proxy.ts` (`research/nextjs-integration`, commit `be1540b`). Promising NestJS
-  on Bun and Deno would have
+  commit `15b6565`). Next.js promises Node, its edge runtime deprecated since 16.3
+  (`research/nextjs-integration`, commit `be1540b`). Promising NestJS on Bun and Deno would have
   promised more than its framework does, and ADR 0002's matrix promises less than a runtime can do,
   never more. Express or Fastify on Bun or Deno still reaches stowage through the Node bridge.
 - Spec section 2 gains a second table against the four runtimes, with rows for `@stowage/http` on
@@ -110,7 +109,8 @@ object on demand.
   with the same `expiresIn` and `maxSize`. That body is the target's route, not a protocol of the
   layer. The `serve`, `redirect` and `upload` routes hand each method the cases send to the layer,
   so the layer answers `405`. The `presign` route itself answers non-`POST` methods with `405`
-  and `Allow: POST`.
+  and `Allow: POST`, because `presignUpload` takes no `Request` (ADR 0049) and cannot see the
+  method, so the one route that hands out a URL to write with would otherwise answer every method.
 - A new value of the `answer` that `url` addresses counts as a new required member of
   `HttpConformanceTarget`, and is breaking. `HttpConformanceTarget` is no concrete type under ADR
   0042's member rule.

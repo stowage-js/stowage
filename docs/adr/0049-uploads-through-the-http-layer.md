@@ -83,3 +83,6 @@ takes no `signal` on any adapter.
   touched.
 - ADR 0052 adds that `acceptUpload` rejects with a `TypeError` before `put` starts when the
   request's `bodyUsed` is `true`.
+- ADR 0046 corrects when the Node bridge aborts the signal: when the Node response closes before it
+  has finished, not when the request closes. Node closes the request as soon as its body is read,
+  while `put` may still be completing.
