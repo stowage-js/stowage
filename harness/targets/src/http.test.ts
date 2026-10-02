@@ -1,12 +1,21 @@
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 
-import { presignUpload, redirectToObject, serveObject } from "../../../packages/http/src/index.ts";
+import {
+  acceptUpload,
+  presignUpload,
+  redirectToObject,
+  serveObject,
+} from "../../../packages/http/src/index.ts";
 import { nodeBridgeTarget, type ServedTarget } from "./http.ts";
 
 vi.mock("../../../packages/http/src/index.ts", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../packages/http/src/index.ts")>()),
   serveObject: vi.fn<typeof serveObject>(async () => new Response("served")),
   redirectToObject: vi.fn<typeof redirectToObject>(async () => new Response("redirected")),
+  acceptUpload: vi.fn<typeof acceptUpload>(async (_storage, _key, request) => {
+    // The route hands the body to the layer, which a test reads back through the answer.
+    return new Response(request.body === null ? "no body" : await request.text());
+  }),
   presignUpload: vi.fn<typeof presignUpload>(async () => new Response("presigned")),
 }));
 
@@ -67,6 +76,32 @@ test.each(["GET", "HEAD", "POST", "PUT", "DELETE"])(
     );
   },
 );
+
+test.each(["GET", "HEAD", "POST", "PUT", "DELETE"])(
+  "the upload route hands `%s` to acceptUpload with `maxSize: 1048576`",
+  async (method) => {
+    const url = served.target.url("upload", "docs/report?100%.txt");
+    const response = await fetch(url, { method });
+
+    expect(response.status).toBe(200);
+    await response.arrayBuffer();
+    expect(acceptUpload).toHaveBeenCalledExactlyOnceWith(
+      expect.any(Object),
+      "docs/report?100%.txt",
+      expect.objectContaining({ method, url: url.href }),
+      { maxSize: 1048576 },
+    );
+  },
+);
+
+test("the upload route hands the body of a `PUT` to acceptUpload as it was sent", async () => {
+  const response = await fetch(served.target.url("upload", "report.txt"), {
+    method: "PUT",
+    body: "the bytes",
+  });
+
+  expect(await response.text()).toBe("the bytes");
+});
 
 test.each([
   ["the values a case sends", { contentType: "text/plain", contentLength: 11 }],
