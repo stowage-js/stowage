@@ -50,15 +50,52 @@ const suffixRange = "bytes=-3";
 
 const unsatisfiableRange = `bytes=${objectSize}-`;
 
-/** A `GET` with one `Range`, and the words its assertions name it by. */
-async function serveRange(
+/** A `GET` with `headers`, named as written, and the words its assertions name it by. */
+async function serveWith(
+  ctx: HttpConformanceContext,
+  key: string,
+  headers: Readonly<Record<string, string>>,
+): Promise<{ response: Response; what: string }> {
+  const fields = Object.entries(headers).map(([name, value]) => `\`${name}: ${value}\``);
+
+  return {
+    response: await serve(ctx, key, { headers }),
+    what: `\`GET\` with ${fields.join(" and ")}`,
+  };
+}
+
+const serveRange = async (
   ctx: HttpConformanceContext,
   key: string,
   range: string,
-): Promise<{ response: Response; what: string }> {
+): Promise<{ response: Response; what: string }> => await serveWith(ctx, key, { Range: range });
+
+/** A tag no object of the suite carries. */
+const otherTag = '"stowage-other"';
+
+/**
+ * The validators a client holds after a first `GET`. `modified` is `lastModified` at whole
+ * seconds, the `Last-Modified` of that `GET` unless the server capped it at its `Date`
+ * (spec 10.3); sent back, a capped one would meet a later cap on the next answer, a
+ * provider's clock running ahead. `secondBefore` lies a second before the `Last-Modified`
+ * the `GET` carried, which every later answer's `Last-Modified` is past whatever the cap.
+ */
+async function validatorsOf(
+  ctx: HttpConformanceContext,
+  key: string,
+): Promise<{ etag: string | null; modified: string; secondBefore: string }> {
+  const stat = await ctx.storage.stat(key);
+  const response = await serve(ctx, key);
+
+  await expectStatus(response, 200, "The first `GET`");
+
+  const lastModified = Date.parse(response.headers.get("last-modified") ?? "");
+  const second = 1000;
+
   return {
-    response: await serve(ctx, key, { headers: { range } }),
-    what: `\`GET\` with \`Range: ${range}\``,
+    etag: response.headers.get("etag"),
+    modified: new Date(Math.floor(stat.lastModified.getTime() / second) * second).toUTCString(),
+    secondBefore: new Date(lastModified - second).toUTCString(),
   };
 }
 
@@ -79,6 +116,23 @@ function lastModifiedFor(stat: ObjectStat, response: Response): string {
   const date = Date.parse(response.headers.get("date") ?? "");
 
   return new Date(Number.isNaN(date) ? modified : Math.min(modified, date)).toUTCString();
+}
+
+/**
+ * The `If-Range` fields `serve/if-range` sends and the answer each has: the strong `ETag`
+ * lets the range through, and nothing else does, a date included (spec 10.3).
+ */
+async function ifRangesOf(
+  ctx: HttpConformanceContext,
+  key: string,
+): Promise<readonly (readonly [string, "range" | "whole"])[]> {
+  const { etag, modified } = await validatorsOf(ctx, key);
+  const others = [
+    [otherTag, "whole"],
+    [modified, "whole"],
+  ] as const;
+
+  return etag === null ? others : [[etag, "range"], ...others];
 }
 
 export const serveCases: readonly HttpConformanceCase[] = [
@@ -318,6 +372,163 @@ export const serveCases: readonly HttpConformanceCase[] = [
         const what = `\`GET\` with \`Range: ${range}\``;
         // oxlint-disable-next-line no-await-in-loop -- one request after the other
         const response = await serve(ctx, key, { headers: { range } });
+
+        // oxlint-disable-next-line no-await-in-loop -- one request after the other
+        await expectWhole(response, bytes, what);
+      }
+    },
+  },
+  {
+    name: "serve/if-none-match",
+    requires: [],
+    cost: "fast",
+    async run(ctx) {
+      const key = keyFor(ctx, "serve/if-none-match");
+
+      await seed(ctx, key);
+
+      const { etag } = await validatorsOf(ctx, key);
+      // Spec 10.3: `If-None-Match` compares weakly, and without an `etag` only `*` names
+      // the object.
+      const matching = etag === null ? ["*"] : [etag, `W/${etag}`, "*"];
+
+      for (const field of matching) {
+        // oxlint-disable-next-line no-await-in-loop -- one request after the other
+        const { response, what } = await serveWith(ctx, key, { "If-None-Match": field });
+
+        // oxlint-disable-next-line no-await-in-loop -- one request after the other
+        await expectEmpty(response, 304, what);
+      }
+
+      if (etag !== null) {
+        const { response, what } = await serveWith(ctx, key, { "If-None-Match": otherTag });
+
+        await expectStatus(response, 200, what);
+      }
+    },
+  },
+  {
+    name: "serve/if-modified-since",
+    requires: [],
+    cost: "fast",
+    async run(ctx) {
+      const key = keyFor(ctx, "serve/if-modified-since");
+
+      await seed(ctx, key);
+
+      const { modified, secondBefore } = await validatorsOf(ctx, key);
+
+      for (const [headers, status] of [
+        [{ "If-Modified-Since": modified }, 304],
+        [{ "If-Modified-Since": secondBefore }, 200],
+        // RFC 9110 13.1.3: `If-Modified-Since` counts only without `If-None-Match`.
+        [{ "If-None-Match": otherTag, "If-Modified-Since": modified }, 200],
+      ] as const) {
+        // oxlint-disable-next-line no-await-in-loop -- one request after the other
+        const { response, what } = await serveWith(ctx, key, headers);
+
+        // oxlint-disable-next-line no-await-in-loop -- one request after the other
+        await expectStatus(response, status, what);
+      }
+    },
+  },
+  {
+    name: "serve/if-match",
+    requires: [],
+    cost: "fast",
+    async run(ctx) {
+      const key = keyFor(ctx, "serve/if-match");
+
+      await seed(ctx, key);
+
+      const { etag } = await validatorsOf(ctx, key);
+      // Spec 10.3: `If-Match` compares strongly, and without an `etag` it holds for `*`
+      // alone.
+      const fields =
+        etag === null
+          ? ([
+              ["*", 200],
+              [otherTag, 412],
+            ] as const)
+          : ([
+              [etag, 200],
+              ["*", 200],
+              [otherTag, 412],
+              [`W/${etag}`, 412],
+            ] as const);
+
+      for (const [field, status] of fields) {
+        // oxlint-disable-next-line no-await-in-loop -- one request after the other
+        const { response, what } = await serveWith(ctx, key, { "If-Match": field });
+
+        // oxlint-disable-next-line no-await-in-loop -- one request after the other
+        await expectStatus(response, status, what);
+      }
+    },
+  },
+  {
+    name: "serve/if-unmodified-since",
+    requires: [],
+    cost: "fast",
+    async run(ctx) {
+      const key = keyFor(ctx, "serve/if-unmodified-since");
+
+      await seed(ctx, key);
+
+      const { modified, secondBefore } = await validatorsOf(ctx, key);
+
+      for (const [headers, status] of [
+        [{ "If-Unmodified-Since": secondBefore }, 412],
+        [{ "If-Unmodified-Since": modified }, 200],
+        // RFC 9110 13.1.4: `If-Unmodified-Since` counts only without `If-Match`.
+        [{ "If-Match": "*", "If-Unmodified-Since": secondBefore }, 200],
+      ] as const) {
+        // oxlint-disable-next-line no-await-in-loop -- one request after the other
+        const { response, what } = await serveWith(ctx, key, headers);
+
+        // oxlint-disable-next-line no-await-in-loop -- one request after the other
+        await expectStatus(response, status, what);
+      }
+    },
+  },
+  {
+    name: "serve/if-range",
+    requires: ["rangeReads"],
+    cost: "fast",
+    async run(ctx) {
+      const key = keyFor(ctx, "serve/if-range");
+      const bytes = await seed(ctx, key);
+
+      for (const [field, answer] of await ifRangesOf(ctx, key)) {
+        // oxlint-disable-next-line no-await-in-loop -- one request after the other
+        const { response, what } = await serveWith(ctx, key, {
+          Range: "bytes=2-5",
+          "If-Range": field,
+        });
+
+        if (answer === "whole") {
+          // oxlint-disable-next-line no-await-in-loop -- one request after the other
+          await expectWhole(response, bytes, what);
+        } else {
+          assertSameBytes(
+            // oxlint-disable-next-line no-await-in-loop -- one request after the other
+            await expectStatus(response, 206, what),
+            bytes.subarray(2, 6),
+            `The body of the ${what}`,
+          );
+        }
+      }
+    },
+    async runWithout(ctx) {
+      const key = keyFor(ctx, "serve/if-range");
+      const bytes = await seed(ctx, key);
+
+      for (const [field] of await ifRangesOf(ctx, key)) {
+        // oxlint-disable-next-line no-await-in-loop -- one request after the other
+        const { response, what } = await serveWith(ctx, key, {
+          Range: "bytes=2-5",
+          "If-Range": field,
+        });
 
         // oxlint-disable-next-line no-await-in-loop -- one request after the other
         await expectWhole(response, bytes, what);
