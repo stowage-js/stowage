@@ -21,9 +21,25 @@ export function storageErrorOf(response: Response): StorageError | undefined {
 export function answerFor(thrown: unknown): Response {
   if (!isStorageError(thrown)) throw thrown;
 
-  const response = new Response(null, { status: statusOf(thrown) });
+  return answerWith(thrown, statusOf(thrown));
+}
 
-  errorsBehind.set(response, thrown);
+/**
+ * Spec 10.3's `416`, naming the size of the object. Built from the `InvalidRequest` of a
+ * ranged `get` where one refused the range, and from none where the layer refused it.
+ */
+export function rangeNotSatisfiable(size: number, error?: StorageError): Response {
+  const headers = { "content-range": `bytes */${size}` };
+
+  return error === undefined
+    ? new Response(null, { status: 416, headers })
+    : answerWith(error, 416, headers);
+}
+
+function answerWith(error: StorageError, status: number, headers?: HeadersInit): Response {
+  const response = new Response(null, { status, headers });
+
+  errorsBehind.set(response, error);
 
   return response;
 }

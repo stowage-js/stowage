@@ -15,7 +15,11 @@ type Flaw =
   | "head-with-body"
   | "post-served"
   | "invalid-key-400"
-  | "range-honored";
+  | "range-honored"
+  | "range-without-length"
+  | "range-undeclared"
+  | "suffix-from-start"
+  | "unsatisfiable-whole";
 
 interface Held {
   readonly bytes: Uint8Array<ArrayBuffer>;
@@ -33,7 +37,7 @@ const refuse = (key: string, code: "NotFound" | "InvalidKey"): StorageError =>
     key,
   });
 
-function heldStorage(): Storage {
+function heldStorage(capabilities: readonly string[]): Storage {
   const held = new Map<string, Held>();
   const read = (key: string): Held => {
     if (key.includes("//")) throw refuse(key, "InvalidKey");
@@ -46,6 +50,7 @@ function heldStorage(): Storage {
   };
 
   return stubStorage({
+    capabilities,
     put: async (key: string, body: PutBody, options) => {
       if (body instanceof ReadableStream) throw new Error("The stub stores bytes alone");
 
@@ -137,14 +142,73 @@ async function answer(
     return new Response(bytes.subarray(0, 2), { status: 206, headers });
   }
 
+  const honorsRanges = storage.capabilities.includes("rangeReads") || flaw === "range-undeclared";
+
+  if (honorsRanges) headers.set("accept-ranges", "bytes");
+
+  const range =
+    honorsRanges && request.method === "GET"
+      ? rangeOf(request.headers.get("range"), bytes.byteLength, flaw)
+      : undefined;
+
+  if (range === "unsatisfiable") {
+    return new Response(null, {
+      status: 416,
+      headers: { "content-range": `bytes */${bytes.byteLength}` },
+    });
+  }
+
+  if (range !== undefined) {
+    const [start, last] = range;
+
+    headers.set("content-range", `bytes ${start}-${last}/${bytes.byteLength}`);
+
+    if (flaw !== "range-without-length") headers.set("content-length", String(last - start + 1));
+
+    return new Response(bytes.subarray(start, last + 1), { status: 206, headers });
+  }
+
   const sendsBody = request.method !== "HEAD" || flaw === "head-with-body";
 
   return new Response(sendsBody ? bytes : null, { status: 200, headers });
 }
 
-/** Runs one case against a server that answers as `answer` does with `flaw` and `dateOf`. */
-async function runAgainst(name: string, flaw?: Flaw, dateOf?: () => Date): Promise<void> {
-  const storage = heldStorage();
+/**
+ * The first and last byte of the one range spec 10.3 honors, `"unsatisfiable"` for one
+ * starting beyond the object, `undefined` for a `Range` it ignores.
+ */
+function rangeOf(
+  field: string | null,
+  size: number,
+  flaw?: Flaw,
+): readonly [number, number] | "unsatisfiable" | undefined {
+  const [, first = "", last = ""] = /^bytes=(\d*)-(\d*)$/u.exec(field ?? "") ?? [];
+
+  if (first === "" && last === "") return undefined;
+
+  if (first === "") {
+    const length = Number(last);
+
+    return flaw === "suffix-from-start" ? [0, length - 1] : [Math.max(0, size - length), size - 1];
+  }
+
+  const start = Number(first);
+
+  if (start >= size) return flaw === "unsatisfiable-whole" ? undefined : "unsatisfiable";
+
+  return [start, Math.min(last === "" ? size - 1 : Number(last), size - 1)];
+}
+
+interface Server {
+  readonly flaw?: Flaw;
+  readonly dateOf?: () => Date;
+  readonly capabilities?: readonly string[];
+}
+
+/** Runs one case against a server that answers as `answer` does, as `server` describes it. */
+async function runAgainst(name: string, server: Server = {}): Promise<void> {
+  const { flaw, dateOf, capabilities = [] } = server;
+  const storage = heldStorage(capabilities);
   const target: HttpConformanceTarget = {
     name: "reference",
     createStorage: () => storage,
@@ -171,6 +235,7 @@ test.each(httpConformanceCases.map((source) => source.name))(
   "`%s` passes against a server answering as spec 10.3 has it",
   async (name) => {
     await expect(runAgainst(name)).resolves.toBeUndefined();
+    await expect(runAgainst(name, { capabilities: ["rangeReads"] })).resolves.toBeUndefined();
   },
 );
 
@@ -185,13 +250,31 @@ test.each<[string, Flaw, string]>([
   ["serve/method-not-allowed", "post-served", "`POST` answers 200"],
   ["serve/ignored-range", "range-honored", "answers 206"],
 ])("`%s` fails against a server with the flaw %s", async (name, flaw, message) => {
-  await expect(runAgainst(name, flaw)).rejects.toThrow(message);
+  await expect(runAgainst(name, { flaw })).rejects.toThrow(message);
 });
+
+test.each<[string, Flaw, string]>([
+  ["serve/range", "range-without-length", "content-length"],
+  ["serve/suffix-range", "suffix-from-start", "The body of the `GET` with `Range: bytes=-3`"],
+  ["serve/unsatisfiable-range", "unsatisfiable-whole", "answers 200 and not 416"],
+])(
+  "`%s` fails against a server with the flaw %s behind a storage declaring `rangeReads`",
+  async (name, flaw, message) => {
+    await expect(runAgainst(name, { flaw, capabilities: ["rangeReads"] })).rejects.toThrow(message);
+  },
+);
+
+test.each(["serve/range", "serve/suffix-range", "serve/unsatisfiable-range"])(
+  "`%s` fails where the server honors a range its storage does not declare",
+  async (name) => {
+    await expect(runAgainst(name, { flaw: "range-undeclared" })).rejects.toThrow("and not 200");
+  },
+);
 
 test("`serve/head` passes where each answer caps `Last-Modified` at its own `Date`", async () => {
   // Earlier than the stub's `lastModified`, a second further on for every answer.
   let answered = 0;
   const dateOf = (): Date => new Date(Date.UTC(2026, 8, 1, 10, 20, 20 + answered++));
 
-  await expect(runAgainst("serve/head", undefined, dateOf)).resolves.toBeUndefined();
+  await expect(runAgainst("serve/head", { dateOf })).resolves.toBeUndefined();
 });

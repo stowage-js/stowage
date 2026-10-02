@@ -29,15 +29,18 @@ test("every HTTP case becomes one test inside `<name> over HTTP`, with the clean
   expect(tests).toEqual([...httpConformanceCases.map((source) => source.name), "cleanup"]);
 });
 
-test("the HTTP list holds the serving cases of spec 14.9 that answer a whole object", () => {
-  expect(httpConformanceCases.map((source) => source.name)).toEqual([
-    "serve/whole",
-    "serve/headers",
-    "serve/disposition",
-    "serve/head",
-    "serve/not-found",
-    "serve/method-not-allowed",
-    "serve/ignored-range",
+test("the HTTP list holds the serving cases of spec 14.9 short of the preconditions", () => {
+  expect(httpConformanceCases.map((source) => [source.name, source.requires])).toEqual([
+    ["serve/whole", []],
+    ["serve/headers", []],
+    ["serve/disposition", []],
+    ["serve/head", []],
+    ["serve/not-found", []],
+    ["serve/method-not-allowed", []],
+    ["serve/range", ["rangeReads"]],
+    ["serve/suffix-range", ["rangeReads"]],
+    ["serve/unsatisfiable-range", ["rangeReads"]],
+    ["serve/ignored-range", []],
   ]);
 });
 

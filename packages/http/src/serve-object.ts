@@ -1,7 +1,15 @@
-import type { ObjectStat, Storage } from "@stowage/core";
+import {
+  type ByteRange,
+  isStorageError,
+  lastByteOf,
+  type ObjectStat,
+  type Storage,
+  type StoredObject,
+} from "@stowage/core";
 
-import { answerFor, methodNotAllowed } from "./answers.ts";
+import { answerFor, methodNotAllowed, rangeNotSatisfiable } from "./answers.ts";
 import { contentDisposition, lastSegmentOf } from "./disposition.ts";
+import { type RequestedRange, requestedRangeOf, suffixOf } from "./range.ts";
 
 export interface ServeObjectOptions {
   /** The name a download is saved under; the key's last segment where it is absent. */
@@ -18,7 +26,9 @@ export interface ServeObjectOptions {
 
 /**
  * Answers `GET` with the object streamed from `get`, and `HEAD` from `stat` with the same
- * headers and no body (spec 10.3). Any other method is `405`.
+ * headers and no body (spec 10.3). Any other method is `405`. Where the storage declares
+ * `rangeReads`, one range of `bytes` is `206`, or `416` where it is unsatisfiable; any other
+ * `Range` is ignored.
  */
 export async function serveObject(
   storage: Storage,
@@ -32,38 +42,98 @@ export async function serveObject(
 
   if (method !== "GET" && method !== "HEAD") return methodNotAllowed("GET, HEAD");
 
-  const signal = request.signal;
+  const serving: ServeRequest = { storage, key, signal: request.signal, options };
 
   try {
     if (method === "HEAD") {
-      const stat = await storage.stat(key, { signal });
+      const stat = await storage.stat(key, { signal: serving.signal });
 
-      return new Response(null, {
-        status: 200,
-        headers: objectHeaders(storage, key, stat, options),
-      });
+      return new Response(null, { status: 200, headers: objectHeaders(serving, stat) });
     }
 
-    const object = await storage.get(key, { signal });
+    const requested = storage.capabilities.includes("rangeReads")
+      ? requestedRangeOf(request.headers.get("range"))
+      : undefined;
 
-    // No `Content-Length`: an object another tool stored with a content coding may arrive
-    // decoded and longer than `size`, and Node and Deno would cut such a body to `size`
-    // and end the response as complete.
-    return new Response(object.stream(), {
-      status: 200,
-      headers: objectHeaders(storage, key, object.stat, options),
-    });
+    return requested === undefined
+      ? await serveWhole(serving)
+      : await serveRequested(serving, requested);
   } catch (thrown) {
     return answerFor(thrown);
   }
 }
 
-function objectHeaders(
-  storage: Storage,
-  key: string,
-  stat: ObjectStat,
-  options: ServeObjectOptions,
-): Headers {
+/** One `GET` or `HEAD` the layer answers, as `serveObject` was called for it. */
+interface ServeRequest {
+  readonly storage: Storage;
+  readonly key: string;
+  readonly signal: AbortSignal;
+  readonly options: ServeObjectOptions;
+}
+
+async function serveWhole(serving: ServeRequest): Promise<Response> {
+  const object = await serving.storage.get(serving.key, { signal: serving.signal });
+
+  // No `Content-Length`: an object another tool stored with a content coding may arrive
+  // decoded and longer than `size`, and Node and Deno would cut such a body to `size`
+  // and end the response as complete.
+  return new Response(object.stream(), {
+    status: 200,
+    headers: objectHeaders(serving, object.stat),
+  });
+}
+
+/**
+ * The one range asked for. Only a suffix needs the size before `get` (ADR 0048); RFC 9110
+ * 14.1.2 makes an empty suffix unsatisfiable, and any other suffix of an empty object the
+ * whole of it, which no `Content-Range` can name.
+ */
+async function serveRequested(serving: ServeRequest, requested: RequestedRange): Promise<Response> {
+  if (!("suffixLength" in requested)) return await serveRange(serving, requested);
+
+  const { size } = await serving.storage.stat(serving.key, { signal: serving.signal });
+
+  if (requested.suffixLength === 0) return rangeNotSatisfiable(size);
+  if (size === 0) return await serveWhole(serving);
+
+  return await serveRange(serving, suffixOf(requested.suffixLength, size));
+}
+
+/** A `206` whose `Content-Range` follows the `stat` of `get`, which describes the bytes sent. */
+async function serveRange(serving: ServeRequest, range: ByteRange): Promise<Response> {
+  const { storage, key, signal } = serving;
+  let object: StoredObject;
+
+  try {
+    object = await storage.get(key, { signal, range });
+  } catch (thrown) {
+    if (!isStorageError(thrown)) throw thrown;
+
+    // Spec 4.3 refuses a start at or beyond the size without naming the size.
+    if (thrown.code === "InvalidRequest") {
+      return rangeNotSatisfiable((await storage.stat(key, { signal })).size, thrown);
+    }
+
+    // ADR 0048: the refused range of a content-coded object (ADR 0044), which only the
+    // message tells apart from a provider's failure, and that fails the whole `get` alike.
+    if (thrown.code === "ProviderError" && !thrown.retryable) return await serveWhole(serving);
+
+    throw thrown;
+  }
+
+  const { size } = object.stat;
+  const last = lastByteOf(range, size);
+  const headers = objectHeaders(serving, object.stat);
+
+  // A ranged `get` never hands over an object stored with a content coding (ADR 0044),
+  // so the length holds here where a `200` could not carry one.
+  headers.set("content-range", `bytes ${range.start}-${last}/${size}`);
+  headers.set("content-length", String(last - range.start + 1));
+
+  return new Response(object.stream(), { status: 206, headers });
+}
+
+function objectHeaders({ storage, key, options }: ServeRequest, stat: ObjectStat): Headers {
   const headers = new Headers({
     "content-type": stat.contentType,
     "x-content-type-options": "nosniff",
