@@ -3,6 +3,7 @@ import { readdir } from "node:fs/promises";
 import { expect, test } from "vitest";
 
 import changesetConfig from "../.changeset/config.json" with { type: "json" };
+import harnessTargets from "../harness/targets/package.json" with { type: "json" };
 import adapterAzureBlob from "../packages/adapter-azure-blob/package.json" with { type: "json" };
 import adapterFs from "../packages/adapter-fs/package.json" with { type: "json" };
 import adapterGcs from "../packages/adapter-gcs/package.json" with { type: "json" };
@@ -106,4 +107,11 @@ test.each(published)("$name exports one entry point for every runtime", (manifes
 test("@stowage/http depends on @stowage/core alone", () => {
   expect(http.dependencies).toEqual({ "@stowage/core": "workspace:^" });
   expect("peerDependencies" in http).toBe(false);
+});
+
+// The harness builds its Hono applications with `withStorage` from the sources, whose types
+// resolve the copy `@stowage/hono` installs, and Hono's `Context` has private members: two
+// copies at two versions are two types to the compiler.
+test("the harness serves Hono at the version @stowage/hono is checked against", () => {
+  expect(harnessTargets.devDependencies.hono).toBe(hono.devDependencies.hono);
 });
