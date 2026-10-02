@@ -1,8 +1,8 @@
-import type { ObjectStat, PutBody, PutOptions, Storage, StorageErrorFields } from "@stowage/core";
+import type { Storage, StorageErrorFields } from "@stowage/core";
 import { describe, expect, test } from "vitest";
 
 import { acceptUpload, type AcceptUploadOptions, objectStatOf, storageErrorOf } from "./index.ts";
-import { statOf, storageError, stubStorage } from "./stubs.ts";
+import { holdingStorage, statOf, storageError, stubStorage } from "./stubs.ts";
 
 const bytes = (text: string): Uint8Array<ArrayBuffer> => new TextEncoder().encode(text);
 
@@ -12,11 +12,16 @@ const text = (held: Uint8Array | undefined): string | undefined =>
 /** A `PUT` of `body`, which a `Uint8Array` sends without the `Content-Type` a string gets. */
 const upload = (
   body: BodyInit | null,
-  fields: { readonly method?: string; readonly headers?: HeadersInit } = {},
+  fields: {
+    readonly method?: string;
+    readonly headers?: HeadersInit;
+    readonly signal?: AbortSignal;
+  } = {},
 ): Request =>
   new Request("http://localhost/uploads/report", {
     method: fields.method ?? "PUT",
     headers: fields.headers,
+    signal: fields.signal,
     body,
     // Node and Deno take a stream as a body only with `duplex`, which no lib declares.
     ...({ duplex: "half" } as object),
@@ -43,60 +48,6 @@ function streamed(
   );
 }
 
-interface Put {
-  readonly key: string;
-  readonly body: PutBody;
-  readonly options: PutOptions | undefined;
-}
-
-/**
- * A storage keeping what `put` stores, reading a stream to its end as an adapter does. A
- * stream that fails rejects `put` with a `NetworkError`, as an adapter that wraps it would,
- * and leaves the key as it was: the layer's own refusal has to win over that error's `503`.
- */
-function holding(
-  fields: { readonly etag?: string | undefined; readonly held?: Record<string, string> } = {},
-): Storage & { readonly held: Map<string, Uint8Array>; readonly puts: Put[] } {
-  const held = new Map<string, Uint8Array>(
-    Object.entries(fields.held ?? {}).map(([key, value]) => [key, bytes(value)] as const),
-  );
-  const puts: Put[] = [];
-  const etag = "etag" in fields ? fields.etag : "e1";
-  const storage = stubStorage({
-    put: async (key, body, options): Promise<ObjectStat> => {
-      puts.push({ key, body, options });
-
-      // Spec 10.1: the layer buffers no body, so `put` gets the stream it counts.
-      if (!(body instanceof ReadableStream)) throw new Error("The layer handed `put` no stream");
-
-      let stored: Uint8Array;
-
-      try {
-        stored = await new Response(body).bytes();
-      } catch (failure) {
-        throw storageError({
-          code: "NetworkError",
-          operation: "put",
-          retryable: true,
-          cause: failure,
-        });
-      }
-
-      held.set(key, stored);
-
-      return statOf({
-        key,
-        size: stored.byteLength,
-        etag,
-        contentType: options?.contentType ?? "application/octet-stream",
-        userMetadata: options?.userMetadata ?? {},
-      });
-    },
-  });
-
-  return Object.assign(storage, { held, puts });
-}
-
 const limited = (
   maxSize = 1024,
   fields: Partial<AcceptUploadOptions> = {},
@@ -107,7 +58,7 @@ const limited = (
 
 describe("a stored object", () => {
   test("streams the body into `put` under the key and answers `201` with an empty body", async () => {
-    const storage = holding();
+    const storage = holdingStorage();
     const response = await acceptUpload(
       storage,
       "uploads/report.txt",
@@ -122,7 +73,7 @@ describe("a stored object", () => {
 
   test("carries the `etag` of `put` as a quoted strong `ETag`", async () => {
     const response = await acceptUpload(
-      holding({ etag: "0123abcd" }),
+      holdingStorage({ etag: "0123abcd" }),
       "a",
       upload(bytes("x")),
       limited(),
@@ -133,7 +84,7 @@ describe("a stored object", () => {
 
   test("carries no `ETag` where `put` hands over no `etag`", async () => {
     const response = await acceptUpload(
-      holding({ etag: undefined }),
+      holdingStorage({ etag: undefined }),
       "a",
       upload(bytes("x")),
       limited(),
@@ -144,7 +95,7 @@ describe("a stored object", () => {
   });
 
   test("answers `201` over an object the key held before", async () => {
-    const storage = holding({ held: { a: "before" } });
+    const storage = holdingStorage({ held: { a: "before" } });
     const response = await acceptUpload(storage, "a", upload(bytes("after")), limited());
 
     expect(response.status).toBe(201);
@@ -152,7 +103,7 @@ describe("a stored object", () => {
   });
 
   test("hands `request.signal` to `put`", async () => {
-    const storage = holding();
+    const storage = holdingStorage();
     const sent = upload(bytes("x"));
 
     await acceptUpload(storage, "a", sent, limited());
@@ -161,7 +112,7 @@ describe("a stored object", () => {
   });
 
   test("stores an empty object for a request whose `body` is `null`", async () => {
-    const storage = holding();
+    const storage = holdingStorage();
     const response = await acceptUpload(storage, "a", upload(null), limited());
 
     expect(response.status).toBe(201);
@@ -169,7 +120,7 @@ describe("a stored object", () => {
   });
 
   test("the answer's headers are the caller's to change", async () => {
-    const response = await acceptUpload(holding(), "a", upload(bytes("x")), limited());
+    const response = await acceptUpload(holdingStorage(), "a", upload(bytes("x")), limited());
 
     response.headers.set("location", "/files/a");
 
@@ -179,7 +130,7 @@ describe("a stored object", () => {
 
 describe("`objectStatOf`", () => {
   test("answers the `ObjectStat` `put` resolved with", async () => {
-    const storage = holding();
+    const storage = holdingStorage();
     const response = await acceptUpload(
       storage,
       "uploads/report.txt",
@@ -198,7 +149,7 @@ describe("`objectStatOf`", () => {
   });
 
   test("answers `undefined` for a copy of the answer and for any other `Response`", async () => {
-    const response = await acceptUpload(holding(), "a", upload(bytes("x")), limited());
+    const response = await acceptUpload(holdingStorage(), "a", upload(bytes("x")), limited());
 
     expect(objectStatOf(response.clone())).toBeUndefined();
     expect(objectStatOf(new Response(null, response))).toBeUndefined();
@@ -207,7 +158,7 @@ describe("`objectStatOf`", () => {
 
   test("answers `undefined` for a refusal", async () => {
     const response = await acceptUpload(
-      holding(),
+      holdingStorage(),
       "a",
       upload(null, { method: "POST" }),
       limited(),
@@ -243,7 +194,7 @@ describe("`maxSize`", () => {
   ])(
     "%s, no non-negative integer and not `Infinity`, rejects with a `TypeError`",
     async (_, maxSize) => {
-      const storage = holding();
+      const storage = holdingStorage();
       // oxlint-disable-next-line no-unsafe-type-assertion -- a caller's value, which no type holds back in JavaScript
       const options = { maxSize } as unknown as AcceptUploadOptions;
 
@@ -255,7 +206,7 @@ describe("`maxSize`", () => {
   );
 
   test("a `Content-Length` above it answers `413` before the body is read", async () => {
-    const storage = holding();
+    const storage = holdingStorage();
     const sent = upload(streamed(["0123456789"]), { headers: { "content-length": "10" } });
     const response = await acceptUpload(storage, "a", sent, limited(9));
 
@@ -267,7 +218,7 @@ describe("`maxSize`", () => {
   });
 
   test("a body of exactly `maxSize` bytes is stored", async () => {
-    const storage = holding();
+    const storage = holdingStorage();
     const response = await acceptUpload(
       storage,
       "a",
@@ -280,7 +231,7 @@ describe("`maxSize`", () => {
   });
 
   test("a body without a length that passes it answers `413` and leaves the key as it was", async () => {
-    const storage = holding({ held: { a: "before" } });
+    const storage = holdingStorage({ held: { a: "before" } });
     const response = await acceptUpload(
       storage,
       "a",
@@ -295,7 +246,7 @@ describe("`maxSize`", () => {
   });
 
   test("`Infinity` stores a body of any size", async () => {
-    const storage = holding();
+    const storage = holdingStorage();
     const chunks = Array.from({ length: 64 }, () => "x".repeat(1024));
     const response = await acceptUpload(storage, "a", upload(streamed(chunks)), limited(Infinity));
 
@@ -304,7 +255,7 @@ describe("`maxSize`", () => {
   });
 
   test("`0` stores an empty body and refuses one byte", async () => {
-    const storage = holding();
+    const storage = holdingStorage();
 
     expect((await acceptUpload(storage, "a", upload(streamed([])), limited(0))).status).toBe(201);
     expect((await acceptUpload(storage, "b", upload(streamed(["x"])), limited(0))).status).toBe(
@@ -316,7 +267,7 @@ describe("`maxSize`", () => {
 
 describe("a body that contradicts its `Content-Length`", () => {
   test("ending short of it answers `400` and leaves the key as it was", async () => {
-    const storage = holding({ held: { a: "before" } });
+    const storage = holdingStorage({ held: { a: "before" } });
     const sent = upload(streamed(["01234"]), { headers: { "content-length": "10" } });
     const response = await acceptUpload(storage, "a", sent, limited());
 
@@ -327,7 +278,7 @@ describe("a body that contradicts its `Content-Length`", () => {
   });
 
   test("running past it answers `400` and leaves the key as it was", async () => {
-    const storage = holding({ held: { a: "before" } });
+    const storage = holdingStorage({ held: { a: "before" } });
     const sent = upload(streamed(["01234", "56789"]), { headers: { "content-length": "5" } });
     const response = await acceptUpload(storage, "a", sent, limited());
 
@@ -336,14 +287,14 @@ describe("a body that contradicts its `Content-Length`", () => {
   });
 
   test("running past it and past `maxSize` alike answers `400`, since it ran past the length first", async () => {
-    const storage = holding();
+    const storage = holdingStorage();
     const sent = upload(streamed(["0123456789"]), { headers: { "content-length": "5" } });
 
     expect((await acceptUpload(storage, "a", sent, limited(8))).status).toBe(400);
   });
 
   test("a `null` body under a `Content-Length` other than `0` answers `400`", async () => {
-    const storage = holding();
+    const storage = holdingStorage();
     const sent = upload(null, { headers: { "content-length": "5" } });
 
     expect((await acceptUpload(storage, "a", sent, limited())).status).toBe(400);
@@ -353,7 +304,7 @@ describe("a body that contradicts its `Content-Length`", () => {
   test.each(["", "abc", "-1", "1.5", "5, 5"])(
     "a `Content-Length` of %j, no length at all, answers `400` before the body is read",
     async (length) => {
-      const storage = holding();
+      const storage = holdingStorage();
       const sent = upload(streamed(["01234"]), { headers: { "content-length": length } });
 
       expect((await acceptUpload(storage, "a", sent, limited())).status).toBe(400);
@@ -363,7 +314,7 @@ describe("a body that contradicts its `Content-Length`", () => {
   );
 
   test("matching it exactly is stored", async () => {
-    const storage = holding();
+    const storage = holdingStorage();
     const sent = upload(streamed(["01234"]), { headers: { "content-length": "5" } });
 
     expect((await acceptUpload(storage, "a", sent, limited())).status).toBe(201);
@@ -373,7 +324,7 @@ describe("a body that contradicts its `Content-Length`", () => {
 
 describe("a body that fails while it is read", () => {
   test("answers `400` without a `StorageError` and leaves the key as it was", async () => {
-    const storage = holding({ held: { a: "before" } });
+    const storage = holdingStorage({ held: { a: "before" } });
     const sent = upload(streamed(["01234"], { fails: new Error("The connection was reset") }));
     const response = await acceptUpload(storage, "a", sent, limited());
 
@@ -386,7 +337,7 @@ describe("a body that fails while it is read", () => {
 
 describe("the content type", () => {
   test("is `contentType` where it is given, over the request's `Content-Type`", async () => {
-    const storage = holding();
+    const storage = holdingStorage();
     const sent = upload(bytes("x"), { headers: { "content-type": "text/html" } });
 
     await acceptUpload(storage, "a", sent, limited(1024, { contentType: "text/plain" }));
@@ -395,7 +346,7 @@ describe("the content type", () => {
   });
 
   test("is the request's `Content-Type` without `contentType`", async () => {
-    const storage = holding();
+    const storage = holdingStorage();
     const sent = upload(bytes("x"), { headers: { "content-type": "image/png" } });
 
     await acceptUpload(storage, "a", sent, limited());
@@ -404,7 +355,7 @@ describe("the content type", () => {
   });
 
   test("is left to the storage's default without either", async () => {
-    const storage = holding();
+    const storage = holdingStorage();
 
     await acceptUpload(storage, "a", upload(bytes("x")), limited());
 
@@ -414,7 +365,7 @@ describe("the content type", () => {
 
 describe("user metadata", () => {
   test("is `userMetadata` alone, never a request header", async () => {
-    const storage = holding();
+    const storage = holdingStorage();
     const sent = upload(bytes("x"), { headers: { "x-amz-meta-a": "1", "x-ms-meta-a": "1" } });
 
     await acceptUpload(storage, "a", sent, limited(1024, { userMetadata: { owner: "7" } }));
@@ -423,7 +374,7 @@ describe("user metadata", () => {
   });
 
   test("is none without `userMetadata`, whatever the request's headers say", async () => {
-    const storage = holding();
+    const storage = holdingStorage();
     const sent = upload(bytes("x"), { headers: { "x-amz-meta-a": "1" } });
 
     await acceptUpload(storage, "a", sent, limited());
@@ -436,7 +387,7 @@ describe("`Content-Encoding`", () => {
   test.each(["gzip", "br", "identity, gzip", "x-unknown"])(
     "`%s` answers `415` and reaches no storage",
     async (coding) => {
-      const storage = holding();
+      const storage = holdingStorage();
       const sent = upload(bytes("x"), { headers: { "content-encoding": coding } });
       const response = await acceptUpload(storage, "a", sent, limited());
 
@@ -448,7 +399,7 @@ describe("`Content-Encoding`", () => {
   );
 
   test.each(["identity", "Identity", ""])("`%s` is stored as it was sent", async (coding) => {
-    const storage = holding();
+    const storage = holdingStorage();
     const sent = upload(bytes("x"), { headers: { "content-encoding": coding } });
 
     expect((await acceptUpload(storage, "a", sent, limited())).status).toBe(201);
@@ -457,7 +408,7 @@ describe("`Content-Encoding`", () => {
 
 describe("a body already read", () => {
   test("rejects with a `TypeError` before `put` starts", async () => {
-    const storage = holding();
+    const storage = holdingStorage();
     const sent = upload(bytes("x"));
 
     await sent.arrayBuffer();
