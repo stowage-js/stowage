@@ -15,6 +15,21 @@
     {
       "matchDepNames": ["bun", "deno"],
       "groupName": "Bun and Deno"
+    },
+    {
+      "description": "Spec 2: the floor of a peer range stays where it is, CI running it beside the newest release (ADR 0050)",
+      "matchFileNames": ["harness/hono-floor/package.json"],
+      "enabled": false
+    },
+    {
+      "description": "Spec 15: an integration adds a framework major once CI covers it, so no peer range widens on its own",
+      "matchDepTypes": ["peerDependencies"],
+      "enabled": false
+    },
+    {
+      "description": "Spec 1: @stowage/hono promises Hono 4, whose newest release CI runs",
+      "matchDepNames": ["hono"],
+      "allowedVersions": "^4"
     }
   ],
   "customManagers": [
