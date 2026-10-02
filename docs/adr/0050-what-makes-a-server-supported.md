@@ -109,7 +109,8 @@ object on demand.
   with the same `expiresIn` and `maxSize`. That body is the target's route, not a protocol of the
   layer. The `serve`, `redirect` and `upload` routes hand each method the cases send to the layer,
   so the layer answers `405`. The `presign` route itself answers non-`POST` methods with `405`
-  and `Allow: POST`.
+  and `Allow: POST`, because `presignUpload` takes no `Request` (ADR 0049) and cannot see the
+  method, so the one route that hands out a URL to write with would otherwise answer every method.
 - A new value of the `answer` that `url` addresses counts as a new required member of
   `HttpConformanceTarget`, and is breaking. `HttpConformanceTarget` is no concrete type under ADR
   0042's member rule.
