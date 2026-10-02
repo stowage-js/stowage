@@ -69,7 +69,11 @@ export function routesOf(
  * answers any method but `POST` itself, and hands both values of the JSON body on as they
  * arrived, so that the layer's own checks of spec 10.6 are what a case meets.
  */
-async function presign(storage: S3Storage, key: string, request: Request): Promise<Response> {
+export async function presign(
+  storage: S3Storage,
+  key: string,
+  request: Request,
+): Promise<Response> {
   if (request.method !== "POST") {
     return new Response(null, { status: 405, headers: { allow: "POST" } });
   }
