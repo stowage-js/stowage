@@ -1,7 +1,7 @@
-import { s3Storage } from "../../../packages/adapter-s3/src/index.ts";
+import { type S3AdapterOptions, s3Storage } from "../../../packages/adapter-s3/src/index.ts";
 import * as http from "../../../packages/http/src/index.ts";
 import { storageOptionsFrom, type Variables } from "../../s3/src/configuration.ts";
-import { routesOf } from "../../targets/src/routes.ts";
+import { type RouteOptions, routesOf } from "../../targets/src/routes.ts";
 import { nodeApiReach } from "./node-api.ts";
 
 let answer: ((request: Request) => Promise<Response>) | undefined;
@@ -24,7 +24,7 @@ export default {
 };
 
 /** As in `src/worker.ts`, the credential arrives as two bindings beside the endpoint. */
-function storageOptionsOf(variables: Variables): Parameters<typeof s3Storage>[0] {
+function storageOptionsOf(variables: Variables): S3AdapterOptions {
   const configured = storageOptionsFrom(variables, {
     accessKeyId: variables["AWS_ACCESS_KEY_ID"] ?? "",
     secretAccessKey: variables["AWS_SECRET_ACCESS_KEY"] ?? "",
@@ -35,7 +35,7 @@ function storageOptionsOf(variables: Variables): Parameters<typeof s3Storage>[0]
   return configured;
 }
 
-function routesFrom(variables: Variables): Parameters<typeof routesOf>[1] {
+function routesFrom(variables: Variables): RouteOptions | undefined {
   const maxSize = variables["STOWAGE_HTTP_MAX_SIZE"];
 
   return maxSize === undefined || maxSize === null ? undefined : { maxSize: Number(maxSize) };
