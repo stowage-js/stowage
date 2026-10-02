@@ -31,6 +31,12 @@ export function routeUrls(origin: string): HttpConformanceTarget["url"] {
   return (route, key) => new URL(`/${route}/${encodeURIComponent(key)}`, origin);
 }
 
+/** Spec 14.8's routes over `storage` as one `fetch` handler, the layer's or an application's. */
+export type RoutesHandler = (
+  storage: S3Storage,
+  routes?: RouteOptions,
+) => (request: Request) => Response | Promise<Response>;
+
 /**
  * Spec 14.8's routes as one `fetch` handler, which `Bun.serve`, `Deno.serve`, a worker's
  * `fetch` and the Node bridge each hand their requests to. It imports no `node:` module,
