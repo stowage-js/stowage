@@ -1972,9 +1972,11 @@ export function writeResponse(res: NodeResponse, response: Response): Promise<vo
 - Ranges, where the storage declares `rangeReads`: one range of the unit `bytes`, a suffix range
   included. A satisfiable range is `206` with `Content-Range` and `Content-Length`. An
   unsatisfiable one is `416` with `Content-Range: bytes */<size>`, the size taken from a `stat`
-  after the failed `get`. Several ranges, another unit, a malformed header and any `Range` on a
-  storage without `rangeReads` are ignored, and the whole object is `200`. There is no
-  `multipart/byteranges`.
+  after the failed `get`. A suffix of length zero is unsatisfiable (RFC 9110 14.1.2) and is `416`
+  with the size of the `stat` before it, without a `get`. Any other suffix of an empty object is
+  `200` with the whole object, since no `Content-Range` names zero bytes. Several ranges, another
+  unit, a malformed header and any `Range` on a storage without `rangeReads` are ignored, and the
+  whole object is `200`. There is no `multipart/byteranges`.
 - A ranged `get` that rejects with a `ProviderError` with `retryable: false` is followed by one
   whole `get`, answered `200`. That is the content-coded object of section 4.3, which only the
   error's message tells apart, and a genuine provider failure fails the second `get` alike.
