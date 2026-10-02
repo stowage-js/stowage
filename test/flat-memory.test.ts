@@ -1,9 +1,6 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { memoryUsage } from "node:process";
-import { setFlagsFromString } from "node:v8";
-import { runInNewContext } from "node:vm";
 
 import { afterEach, expect, test, vi } from "vitest";
 
@@ -14,103 +11,16 @@ import {
 import { type FsStorage, fsStorage } from "../packages/adapter-fs/src/index.ts";
 import { memoryStorage } from "../packages/adapter-memory/src/index.ts";
 import { type S3AdapterOptions, s3Storage } from "../packages/adapter-s3/src/index.ts";
-
-// Spec 14.4: flows 1 and 4 promise that memory does not grow with the size of the object,
-// which no call of the core API can observe. What these tests measure is the memory held
-// in buffers once everything unreachable is collected: without a collection first, the
-// chunks already passed on stay counted until the collector happens to run, and the
-// measurement says more about the collector than about the adapter. The flag is set here
-// rather than in `vitest.config.ts`, so it stays with the one file that measures.
-setFlagsFromString("--expose-gc");
-const exposedCollector: unknown = runInNewContext("gc");
-
-function collectGarbage(): void {
-  if (typeof exposedCollector !== "function") throw new Error("V8 exposed no `gc`");
-
-  Reflect.apply(exposedCollector, undefined, []);
-}
-
-const mebibyte = 1024 * 1024;
-
-/** Many times what any adapter may hold, so an object held whole cannot pass unnoticed. */
-const objectSize = 256 * mebibyte;
-
-/** What a run holds besides the adapter: the chunk in hand, the stub's answers, V8's own. */
-const slack = 16 * mebibyte;
-
-/**
- * Spec 7.6 and spec 8.6: the part buffers an upload of `adapter-s3` or `adapter-azure-blob`
- * holds for an object of any size.
- */
-const defaultPartSize = 8 * mebibyte;
-const defaultConcurrency = 4;
-
-const measurementTimeout = 60_000;
-
-/** How often a run samples, in bytes passed: often enough to see every part in flight. */
-const sampleInterval = 8 * mebibyte;
-
-function liveBufferBytes(): number {
-  collectGarbage();
-
-  return memoryUsage().arrayBuffers;
-}
-
-/**
- * The largest amount of buffer memory alive at any sample, above what was alive before.
- * `memoryUsage()` counts the whole process, which Vitest's default `forks` pool gives this
- * file to itself; under the `threads` pool the other files' buffers would count as well.
- */
-function bufferMeter(): { sample: () => void; growth: () => number } {
-  const baseline = liveBufferBytes();
-  let peak = baseline;
-
-  return {
-    sample() {
-      peak = Math.max(peak, liveBufferBytes());
-    },
-    growth: () => peak - baseline,
-  };
-}
-
-/**
- * `size` bytes made one chunk at a time as they are pulled, so the source holds nothing the
- * adapter did not ask for. `onSample` runs every `sampleInterval` bytes.
- */
-function generatedStream(size: number, onSample?: () => void): ReadableStream<Uint8Array> {
-  let pulled = 0;
-
-  return new ReadableStream({
-    pull(controller) {
-      if (pulled >= size) {
-        controller.close();
-        return;
-      }
-
-      const length = Math.min(mebibyte, size - pulled);
-
-      controller.enqueue(new Uint8Array(length).fill(pulled / mebibyte));
-      pulled += length;
-
-      if (pulled % sampleInterval === 0) onSample?.();
-    },
-  });
-}
-
-/** Reads a stream to its end and keeps none of it, answering how many bytes it read. */
-async function drain(stream: ReadableStream<Uint8Array>, onSample: () => void): Promise<number> {
-  let read = 0;
-
-  for await (const chunk of stream) {
-    const before = read;
-
-    read += chunk.byteLength;
-
-    if (Math.floor(read / sampleInterval) > Math.floor(before / sampleInterval)) onSample();
-  }
-
-  return read;
-}
+import {
+  bufferMeter,
+  defaultConcurrency,
+  defaultPartSize,
+  drain,
+  generatedStream,
+  measurementTimeout,
+  objectSize,
+  slack,
+} from "../harness/targets/src/buffer-meter.ts";
 
 const roots: string[] = [];
 
