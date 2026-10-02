@@ -61,9 +61,8 @@ object on demand.
 - An integration promises the runtimes its framework promises, within stowage's four. Hono names
   all four and runs on them (`research/hono-integration`, commit `b9feab7`). NestJS names Node
   alone, although Bun and Deno behaved alike in every measured case (`research/nestjs-integration`,
-  commit `15b6565`). Next.js promises Node; Next.js 16 deprecated the `middleware.ts` convention
-  and renamed it to `proxy.ts` (`research/nextjs-integration`, commit `be1540b`). Promising NestJS
-  on Bun and Deno would have
+  commit `15b6565`). Next.js promises Node, its edge runtime deprecated since 16.3
+  (`research/nextjs-integration`, commit `be1540b`). Promising NestJS on Bun and Deno would have
   promised more than its framework does, and ADR 0002's matrix promises less than a runtime can do,
   never more. Express or Fastify on Bun or Deno still reaches stowage through the Node bridge.
 - Spec section 2 gains a second table against the four runtimes, with rows for `@stowage/http` on
