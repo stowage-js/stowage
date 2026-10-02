@@ -473,6 +473,213 @@ describe("a ranged `get` rejecting with a `ProviderError`", () => {
   });
 });
 
+/** A `GET` of the object of `rangingStorage`, whose `etag` is `0123abcd`, with `headers`. */
+const serveConditional = async (
+  headers: Record<string, string>,
+  storage: Storage = rangingStorage().storage,
+  method = "GET",
+): Promise<Response> => await serveObject(storage, "docs/report.pdf", request(method, { headers }));
+
+describe("`If-None-Match`", () => {
+  test("with the `ETag` is `304` with the headers of the `200`, from `stat` alone", async () => {
+    const { storage, calls } = rangingStorage();
+    const whole = await serve("GET", {}, storage);
+    const response = await serveConditional({ "if-none-match": '"0123abcd"' }, storage);
+
+    expect(response.status).toBe(304);
+    expect(await response.text()).toBe("");
+    expect([...response.headers]).toEqual([...whole.headers]);
+    expect(calls).toEqual(["get", "stat"]);
+  });
+
+  test.each([
+    ["the `ETag` as weak", 'W/"0123abcd"'],
+    ["a list holding the `ETag`", '"other", W/"0123abcd"'],
+    ["`*`", "*"],
+  ])("with %s is `304`", async (_, field) => {
+    expect((await serveConditional({ "if-none-match": field })).status).toBe(304);
+  });
+
+  test("with another tag is `200` from `stat` and one `get`", async () => {
+    const { storage, calls } = rangingStorage();
+    const response = await serveConditional({ "if-none-match": '"other", "0123abcd-1"' }, storage);
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(sixteenBytes);
+    expect(calls).toEqual(["stat", "get"]);
+  });
+
+  test("without an `etag` holds for any tag and fails for `*` alone", async () => {
+    const storage = holding({ etag: undefined });
+
+    expect((await serveConditional({ "if-none-match": '"0123abcd"' }, storage)).status).toBe(200);
+    expect((await serveConditional({ "if-none-match": "*" }, storage)).status).toBe(304);
+  });
+});
+
+describe("`If-Match`", () => {
+  test.each([
+    ["the `ETag`", '"0123abcd"'],
+    ["a list holding the `ETag`", '"other", "0123abcd"'],
+    ["`*`", "*"],
+  ])("with %s is `200`", async (_, field) => {
+    const response = await serveConditional({ "if-match": field });
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(sixteenBytes);
+  });
+
+  test.each([
+    ["another tag", '"other"'],
+    ["the `ETag` as weak", 'W/"0123abcd"'],
+    ["a field that is no list of tags", "0123abcd"],
+  ])("with %s is `412` with an empty body, from `stat` alone", async (_, field) => {
+    const { storage, calls } = rangingStorage();
+    const response = await serveConditional({ "if-match": field }, storage);
+
+    expect(response.status).toBe(412);
+    expect(await response.text()).toBe("");
+    expect(storageErrorOf(response)).toBeUndefined();
+    expect(calls).toEqual(["stat"]);
+  });
+
+  test("without an `etag` fails for any tag and holds for `*` alone", async () => {
+    const storage = holding({ etag: undefined });
+
+    expect((await serveConditional({ "if-match": '"0123abcd"' }, storage)).status).toBe(412);
+    expect((await serveConditional({ "if-match": "*" }, storage)).status).toBe(200);
+  });
+
+  test("is evaluated before `If-None-Match`", async () => {
+    const response = await serveConditional({
+      "if-match": '"other"',
+      "if-none-match": '"0123abcd"',
+    });
+
+    expect(response.status).toBe(412);
+  });
+});
+
+/** The `Last-Modified` of the object of `statOf`, whose `lastModified` lies at `.456`. */
+const lastModified = "Tue, 01 Sep 2026 10:20:30 GMT";
+const secondBefore = "Tue, 01 Sep 2026 10:20:29 GMT";
+
+describe("`If-Modified-Since`", () => {
+  test.each([
+    ["the `Last-Modified`", lastModified],
+    ["a later date", "Wed, 02 Sep 2026 00:00:00 GMT"],
+    ["the `Last-Modified` in RFC 850's form", "Tuesday, 01-Sep-26 10:20:30 GMT"],
+    ["the `Last-Modified` in `asctime`'s form", "Tue Sep  1 10:20:30 2026"],
+  ])("with %s is `304` from `stat` alone", async (_, field) => {
+    const { storage, calls } = rangingStorage();
+    const response = await serveConditional({ "if-modified-since": field }, storage);
+
+    expect(response.status).toBe(304);
+    expect(calls).toEqual(["stat"]);
+  });
+
+  test("with a second before the `Last-Modified` is `200`", async () => {
+    expect((await serveConditional({ "if-modified-since": secondBefore })).status).toBe(200);
+  });
+
+  test("compares with the `Last-Modified` the answer carries where `lastModified` is later", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-01T10:20:29.900Z"));
+
+    expect((await serveConditional({ "if-modified-since": secondBefore })).status).toBe(304);
+  });
+
+  test.each([
+    ["no date", "yesterday"],
+    ["two dates", `${lastModified}, ${lastModified}`],
+    ["a day the month lacks", "Wed, 31 Sep 2026 10:20:30 GMT"],
+    ["another zone", "Tue, 01 Sep 2026 10:20:30 CET"],
+  ])("with %s is ignored, without a `stat`", async (_, field) => {
+    const { storage, calls } = rangingStorage();
+    const response = await serveConditional({ "if-modified-since": field }, storage);
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual(["get"]);
+  });
+
+  test("beside `If-None-Match` is ignored", async () => {
+    const response = await serveConditional({
+      "if-none-match": '"other"',
+      "if-modified-since": lastModified,
+    });
+
+    expect(response.status).toBe(200);
+  });
+});
+
+describe("`If-Unmodified-Since`", () => {
+  test("with the `Last-Modified` is `200`", async () => {
+    expect((await serveConditional({ "if-unmodified-since": lastModified })).status).toBe(200);
+  });
+
+  test("with a second before the `Last-Modified` is `412` from `stat` alone", async () => {
+    const { storage, calls } = rangingStorage();
+    const response = await serveConditional({ "if-unmodified-since": secondBefore }, storage);
+
+    expect(response.status).toBe(412);
+    expect(calls).toEqual(["stat"]);
+  });
+
+  test("beside `If-Match` is ignored", async () => {
+    const response = await serveConditional({
+      "if-match": "*",
+      "if-unmodified-since": secondBefore,
+    });
+
+    expect(response.status).toBe(200);
+  });
+
+  test("is evaluated before `If-None-Match`", async () => {
+    const response = await serveConditional({
+      "if-unmodified-since": secondBefore,
+      "if-none-match": '"0123abcd"',
+    });
+
+    expect(response.status).toBe(412);
+  });
+});
+
+describe("preconditions on a `HEAD`", () => {
+  test.each([
+    ["a failed `If-None-Match`", 304, { "if-none-match": '"0123abcd"' }],
+    ["a failed `If-Modified-Since`", 304, { "if-modified-since": lastModified }],
+    ["a failed `If-Match`", 412, { "if-match": '"other"' }],
+    ["a failed `If-Unmodified-Since`", 412, { "if-unmodified-since": secondBefore }],
+    ["preconditions that hold", 200, { "if-match": "*", "if-none-match": '"other"' }],
+  ])("answer %s with %i from `stat` alone", async (_, status, headers) => {
+    const { storage, calls } = rangingStorage();
+    const response = await serveConditional(headers, storage, "HEAD");
+
+    expect(response.status).toBe(status);
+    expect(await response.text()).toBe("");
+    expect(calls).toEqual(["stat"]);
+  });
+});
+
+test("a missing object is `404` whatever preconditions the request carries", async () => {
+  const gone = storageError({ code: "NotFound", key: "docs/report.pdf" });
+  const storage = stubStorage({
+    stat: async () => {
+      throw gone;
+    },
+  });
+
+  for (const headers of [{ "if-match": "*" }, { "if-none-match": "*" }]) {
+    for (const method of ["GET", "HEAD"]) {
+      // oxlint-disable-next-line no-await-in-loop -- one request after the other
+      const response = await serveConditional(headers, storage, method);
+
+      expect(response.status).toBe(404);
+      expect(storageErrorOf(response)).toBe(gone);
+    }
+  }
+});
+
 type Failure = Partial<StorageErrorFields> & Pick<StorageErrorFields, "code">;
 
 /** Spec 10.2's table, row by row, with a `StorageError` of each code from `get` and `stat`. */

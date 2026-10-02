@@ -9,6 +9,8 @@ import {
 
 import { answerFor, methodNotAllowed, rangeNotSatisfiable } from "./answers.ts";
 import { contentDisposition, lastSegmentOf } from "./disposition.ts";
+import { lastModifiedOf } from "./http-date.ts";
+import { type Preconditions, preconditionsOf, verdictOf } from "./preconditions.ts";
 import { type RequestedRange, requestedRangeOf, suffixOf } from "./range.ts";
 
 export interface ServeObjectOptions {
@@ -43,12 +45,23 @@ export async function serveObject(
   if (method !== "GET" && method !== "HEAD") return methodNotAllowed("GET, HEAD");
 
   const serving: ServeRequest = { storage, key, signal: request.signal, options };
+  const preconditions = preconditionsOf(request.headers);
 
   try {
     if (method === "HEAD") {
       const stat = await storage.stat(key, { signal: serving.signal });
 
-      return new Response(null, { status: 200, headers: objectHeaders(serving, stat) });
+      return (
+        failedPrecondition(serving, preconditions, stat) ??
+        new Response(null, { status: 200, headers: objectHeaders(serving, stat) })
+      );
+    }
+
+    if (preconditions !== undefined) {
+      const stat = await storage.stat(key, { signal: serving.signal });
+      const failed = failedPrecondition(serving, preconditions, stat);
+
+      if (failed !== undefined) return failed;
     }
 
     const requested = storage.capabilities.includes("rangeReads")
@@ -133,6 +146,20 @@ async function serveRange(serving: ServeRequest, range: ByteRange): Promise<Resp
   return new Response(object.stream(), { status: 206, headers });
 }
 
+/** The `304` or `412` of a precondition that fails on `stat`, `undefined` where all hold. */
+function failedPrecondition(
+  serving: ServeRequest,
+  preconditions: Preconditions | undefined,
+  stat: ObjectStat,
+): Response | undefined {
+  const verdict = preconditions === undefined ? "perform" : verdictOf(preconditions, stat);
+
+  if (verdict === "perform") return undefined;
+  if (verdict === 412) return new Response(null, { status: 412 });
+
+  return new Response(null, { status: 304, headers: objectHeaders(serving, stat) });
+}
+
 function objectHeaders({ storage, key, options }: ServeRequest, stat: ObjectStat): Headers {
   const headers = new Headers({
     "content-type": stat.contentType,
@@ -142,7 +169,7 @@ function objectHeaders({ storage, key, options }: ServeRequest, stat: ObjectStat
       options.filename ?? lastSegmentOf(key),
     ),
     "cache-control": options.cacheControl ?? "private, no-cache",
-    "last-modified": lastModifiedOf(stat),
+    "last-modified": lastModifiedOf(stat).toUTCString(),
   });
 
   // A storage that hands over no `etag`, `adapter-fs`, gets none derived for it: a tag
@@ -151,18 +178,4 @@ function objectHeaders({ storage, key, options }: ServeRequest, stat: ObjectStat
   if (storage.capabilities.includes("rangeReads")) headers.set("accept-ranges", "bytes");
 
   return headers;
-}
-
-/**
- * At whole seconds, and never later than now: RFC 9110 8.8.2 has a server send no
- * `Last-Modified` in its future, which a provider's clock ahead of the server's would
- * otherwise produce. The server writes its `Date` after this runs, so the cap stands in
- * for that date and never lies after it.
- */
-function lastModifiedOf(stat: ObjectStat): string {
-  const second = 1000;
-  const modified = Math.floor(stat.lastModified.getTime() / second) * second;
-  const now = Math.floor(Date.now() / second) * second;
-
-  return new Date(Math.min(modified, now)).toUTCString();
 }
