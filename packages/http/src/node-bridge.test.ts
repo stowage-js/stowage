@@ -13,7 +13,10 @@ import {
 } from "./index.ts";
 import { holdingStorage, statOf, storedObject, streamOf, stubStorage } from "./stubs.ts";
 
-/** A request whose body a test hands over event by event, recording `pause` and `resume`. */
+/**
+ * A request whose body a test hands over event by event, recording `pause` and `resume`. As
+ * on Node, chunks and the end wait until a `data` listener asks for them.
+ */
 class StreamingRequest implements NodeRequest {
   readonly url = "/uploads/report";
   readonly headers = { host: "example.test" };
@@ -22,6 +25,8 @@ class StreamingRequest implements NodeRequest {
   paused = false;
   readonly method: string;
   private readonly listeners = new Map<string, ((value: never) => void)[]>();
+  private readonly unread: Uint8Array[] = [];
+  private endUnread = false;
 
   constructor(method = "PUT") {
     this.method = method;
@@ -32,6 +37,11 @@ class StreamingRequest implements NodeRequest {
   on(event: "error", listener: (error: Error) => void): this;
   on(event: string, listener: (value: never) => void): this {
     this.listeners.set(event, [...(this.listeners.get(event) ?? []), listener]);
+
+    if (event === "data") {
+      for (const chunk of this.unread.splice(0)) this.emit("data", chunk);
+      if (this.endUnread) this.emit("end");
+    }
 
     return this;
   }
@@ -48,10 +58,20 @@ class StreamingRequest implements NodeRequest {
     return this;
   }
 
+  listenerCount(event: string): number {
+    return this.listeners.get(event)?.length ?? 0;
+  }
+
   emit(event: "data", chunk: Uint8Array): void;
   emit(event: "end"): void;
   emit(event: "error", error: Error): void;
   emit(event: string, value?: unknown): void {
+    if (event !== "error" && this.listenerCount("data") === 0) {
+      if (value instanceof Uint8Array) this.unread.push(value);
+      else this.endUnread = true;
+      return;
+    }
+
     // oxlint-disable-next-line no-unsafe-type-assertion -- each overload above pairs an event with its value
     for (const listener of this.listeners.get(event) ?? []) listener(value as never);
   }
@@ -242,17 +262,38 @@ describe("the body of `toWebRequest`", () => {
     },
   );
 
-  test("pauses `req` while a chunk waits unread, and resumes it once the chunk is read", async () => {
+  test("leaves `req` without a `data` listener until the body is read", async () => {
+    const req = new StreamingRequest();
+    const body = toWebRequest(req, new RecordedResponse()).body;
+
+    // Node discards a body no `data` listener asked for once the response has ended, so a
+    // refusal the layer answers unread leaves the connection free for the next request.
+    expect(req.listenerCount("data")).toBe(0);
+
+    const read = body?.getReader().read();
+
+    await settle();
+
+    expect(req.listenerCount("data")).toBe(1);
+
+    req.emit("data", bytes("one"));
+    await read;
+  });
+
+  test("pauses `req` once a chunk is handed over, and resumes it at the next read", async () => {
     const req = new StreamingRequest();
     const reader = toWebRequest(req, new RecordedResponse()).body?.getReader();
+    const first = reader?.read();
 
+    await settle();
     req.emit("data", bytes("one"));
 
     expect(req.paused).toBe(true);
+    expect(new TextDecoder().decode((await first)?.value)).toBe("one");
 
-    const chunk = await reader?.read();
+    void reader?.read();
+    await settle();
 
-    expect(new TextDecoder().decode(chunk?.value)).toBe("one");
     expect(req.paused).toBe(false);
   });
 
@@ -293,13 +334,16 @@ describe("the body of `toWebRequest`", () => {
 
   test("resumes `req` once the body is canceled and drops what follows", async () => {
     const req = new StreamingRequest();
-    const body = toWebRequest(req, new RecordedResponse()).body;
+    const reader = toWebRequest(req, new RecordedResponse()).body?.getReader();
+    const first = reader?.read();
 
+    await settle();
     req.emit("data", bytes("one"));
+    await first;
 
     expect(req.paused).toBe(true);
 
-    await body?.cancel();
+    await reader?.cancel();
     req.emit("data", bytes("two"));
     req.emit("end");
 
@@ -490,21 +534,25 @@ describe("over `node:http`", () => {
   });
 });
 
-/** Writes `sent` as it is, lets `then` end the socket, and waits for it to close. */
+/**
+ * Writes `sent` as it is, lets `then` end the socket, and resolves with what the server
+ * wrote back once the socket closed.
+ */
 const sendRaw = async (
   port: number,
   sent: string,
   then: (socket: Socket) => void | Promise<void>,
-): Promise<void> =>
-  await new Promise<void>((resolve) => {
+): Promise<string> =>
+  await new Promise<string>((resolve) => {
+    let received = "";
     const socket = connect(port, "127.0.0.1", () => {
       socket.write(sent);
       void then(socket);
     });
 
     socket.on("error", () => {});
-    socket.on("close", () => resolve());
-    socket.resume();
+    socket.on("data", (chunk: Uint8Array) => void (received += new TextDecoder().decode(chunk)));
+    socket.on("close", () => resolve(received));
   });
 
 const textOf = (held: Uint8Array | undefined): string | undefined =>
@@ -592,6 +640,17 @@ describe("an upload over a raw socket", () => {
 
     expect((await answered).status).toBe(400);
     expect(textOf(held.get("a"))).toBe("before");
+  });
+
+  test("a body refused by its `Content-Length` is discarded, and the next request answered", async () => {
+    const { port, answered } = await listen();
+    const refused = `PUT /a HTTP/1.1\r\nHost: localhost\r\nContent-Length: 4194304\r\n\r\n${"x".repeat(4194304)}`;
+    const next =
+      "PUT /a HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok";
+    const received = await sendRaw(port, refused + next, () => {});
+
+    expect((await answered).status).toBe(413);
+    expect(received.match(/^HTTP\/1\.1 \d+/gmu)).toEqual(["HTTP/1.1 413", "HTTP/1.1 201"]);
   });
 
   test("a body that matches its `Content-Length` is stored", async () => {

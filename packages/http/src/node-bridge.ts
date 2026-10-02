@@ -87,9 +87,15 @@ interface StreamedBody {
   fail(reason: Error): void;
 }
 
-/** The body of `req`, which is paused while a chunk waits unread and resumed as it is read. */
+/**
+ * The body of `req`, which is paused while a chunk waits unread and resumed as it is read.
+ * Nothing listens for its chunks before the first read: Node discards a body no `data`
+ * listener asked for once the response has ended, so a refusal answered unread, a `413`
+ * by `Content-Length` among them, leaves the connection free for the next request.
+ */
 function streamedBody(req: NodeRequest): StreamedBody {
   let settled = false;
+  let listening = false;
   let opened: ReadableStreamDefaultController<Uint8Array> | undefined;
 
   const fail = (reason: Error): void => {
@@ -99,34 +105,43 @@ function streamedBody(req: NodeRequest): StreamedBody {
     opened?.error(reason);
   };
 
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      opened = controller;
+  const listen = (controller: ReadableStreamDefaultController<Uint8Array>): void => {
+    listening = true;
+    req.on("data", (chunk) => {
+      if (settled) return;
 
-      req.on("data", (chunk) => {
-        if (settled) return;
+      controller.enqueue(chunk);
+      if ((controller.desiredSize ?? 0) <= 0) req.pause();
+    });
+  };
 
-        controller.enqueue(chunk);
-        if ((controller.desiredSize ?? 0) <= 0) req.pause();
-      });
-      req.on("end", () => {
-        if (settled) return;
+  const stream = new ReadableStream<Uint8Array>(
+    {
+      start(controller) {
+        opened = controller;
+        req.on("end", () => {
+          if (settled) return;
 
+          settled = true;
+          controller.close();
+        });
+        req.on("error", fail);
+      },
+      pull(controller) {
+        if (!listening) listen(controller);
+
+        req.resume();
+      },
+      cancel() {
         settled = true;
-        controller.close();
-      });
-      req.on("error", fail);
+        // Node reads the next request on the connection only once this one's body is
+        // read, so the rest is let flow and dropped.
+        req.resume();
+      },
     },
-    pull() {
-      req.resume();
-    },
-    cancel() {
-      settled = true;
-      // Node reads the next request on the connection only once this one's body is read,
-      // so the rest is let flow and dropped.
-      req.resume();
-    },
-  });
+    // A pull before the first read would already ask for the body.
+    { highWaterMark: 0 },
+  );
 
   return { stream, fail };
 }
