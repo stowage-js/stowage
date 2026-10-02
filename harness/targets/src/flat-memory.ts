@@ -111,29 +111,32 @@ async function downloadInFlatMemory(
   const storage = s3Storage(configured);
   const key = largeKey();
 
-  await storage.put(key, generatedStream(objectSize));
-
-  const started = await server.start(configured);
-
   try {
-    const meter = bufferMeter();
-    const response = await fetch(started.url("serve", key));
+    await storage.put(key, generatedStream(objectSize));
 
-    assert(response.status === 200, `The download answered ${response.status}`);
-    assert(response.body !== null, "The download answered no body");
+    const started = await server.start(configured);
 
-    const read = await drain(response.body, meter.sample);
+    try {
+      const meter = bufferMeter();
+      const response = await fetch(started.url("serve", key));
 
-    assert(read === objectSize, `The download read ${read} of ${objectSize} bytes`);
+      assert(response.status === 200, `The download answered ${response.status}`);
+      assert(response.body !== null, "The download answered no body");
 
-    const growth = meter.growth();
+      const read = await drain(response.body, meter.sample);
 
-    assert(
-      growth <= downloadBound,
-      `The download held ${growth} bytes, more than ${downloadBound}`,
-    );
+      assert(read === objectSize, `The download read ${read} of ${objectSize} bytes`);
+
+      const growth = meter.growth();
+
+      assert(
+        growth <= downloadBound,
+        `The download held ${growth} bytes, more than ${downloadBound}`,
+      );
+    } finally {
+      await started.close();
+    }
   } finally {
-    await started.close();
     await storage.delete(key);
   }
 }
@@ -147,9 +150,17 @@ async function streamedUpload(url: URL, body: ReadableStream<Uint8Array>): Promi
   const sent = request(url, { method: "PUT" });
   const answered = once(sent, "response");
 
-  for await (const chunk of body) {
-    // oxlint-disable-next-line no-await-in-loop -- the next chunk waits for the server
-    if (!sent.write(chunk)) await once(sent, "drain");
+  // A request can fail while the body is still being read, before `answered` is awaited.
+  void answered.catch(() => {});
+
+  try {
+    for await (const chunk of body) {
+      // oxlint-disable-next-line no-await-in-loop -- the next chunk waits for the server
+      if (!sent.write(chunk)) await once(sent, "drain");
+    }
+  } catch (failure) {
+    sent.destroy();
+    throw failure;
   }
 
   sent.end();

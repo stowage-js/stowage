@@ -111,6 +111,7 @@ async function leaveAfterFirstBytes(url: URL): Promise<void> {
       else reject(new Error(`The server answered the \`GET\` with \`${statusLine}\``));
     });
     socket.once("error", reject);
+    socket.once("close", () => reject(new Error("The server closed before sending any data")));
   });
 }
 
