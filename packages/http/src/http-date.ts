@@ -2,6 +2,8 @@ import type { ObjectStat } from "@stowage/core";
 
 const second = 1000;
 
+const wholeSecondOf = (time: number): number => Math.floor(time / second) * second;
+
 /**
  * `lastModified` as `Last-Modified` carries it: at whole seconds, and never later than now.
  * RFC 9110 8.8.2 has a server send no `Last-Modified` in its future, which a provider's
@@ -9,50 +11,36 @@ const second = 1000;
  * this runs, so the cap stands in for that date and never lies after it.
  */
 export function lastModifiedOf(stat: ObjectStat): Date {
-  const modified = Math.floor(stat.lastModified.getTime() / second) * second;
-  const now = Math.floor(Date.now() / second) * second;
-
-  return new Date(Math.min(modified, now));
+  return new Date(Math.min(wholeSecondOf(stat.lastModified.getTime()), wholeSecondOf(Date.now())));
 }
 
 const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const monthName = `(${months.join("|")})`;
-const day = "(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)";
-const time = String.raw`(\d{2}):(\d{2}):(\d{2})`;
+const monthName = `(?<month>${months.join("|")})`;
+const weekday = "(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)";
+const clock = String.raw`(?<hours>\d{2}):(?<minutes>\d{2}):(?<seconds>\d{2})`;
 
-// RFC 9110 5.6.7: a recipient accepts the IMF-fixdate a server sends and both obsolete forms.
-const imfFixdate = new RegExp(String.raw`^${day}, (\d{2}) ${monthName} (\d{4}) ${time} GMT$`, "u");
-const rfc850Date = new RegExp(
-  String.raw`^(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day, (\d{2})-${monthName}-(\d{2}) ${time} GMT$`,
-  "u",
-);
-const asctimeDate = new RegExp(String.raw`^${day} ${monthName} ([ \d]\d) ${time} (\d{4})$`, "u");
+// RFC 9110 5.6.7: a recipient accepts the IMF-fixdate a server sends and both obsolete forms,
+// RFC 850's with a two-digit year.
+const httpDates = [
+  String.raw`${weekday}, (?<date>\d{2}) ${monthName} (?<year>\d{4}) ${clock} GMT`,
+  String.raw`(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day, (?<date>\d{2})-${monthName}-(?<shortYear>\d{2}) ${clock} GMT`,
+  String.raw`${weekday} ${monthName} (?<date>[ \d]\d) ${clock} (?<year>\d{4})`,
+].map((form) => new RegExp(`^${form}$`, "u"));
 
 /** The time an HTTP-date names, `undefined` for a field that is no single HTTP-date. */
 export function httpDateOf(field: string): number | undefined {
-  const fixdate = imfFixdate.exec(field);
+  for (const form of httpDates) {
+    const fields = form.exec(field)?.groups;
 
-  if (fixdate !== null) {
-    const [, date, name, year, ...clock] = fixdate;
+    if (fields !== undefined) {
+      const { shortYear, year, month: name = "", date, hours, minutes, seconds } = fields;
 
-    return timeOf([Number(year), months.indexOf(name ?? ""), Number(date), ...clock.map(Number)]);
-  }
-
-  const rfc850 = rfc850Date.exec(field);
-
-  if (rfc850 !== null) {
-    const [, date, name, year, ...clock] = rfc850;
-    const fullYear = yearOfTwoDigits(Number(year));
-
-    return timeOf([fullYear, months.indexOf(name ?? ""), Number(date), ...clock.map(Number)]);
-  }
-
-  const asctime = asctimeDate.exec(field);
-
-  if (asctime !== null) {
-    const [, name, date, hours, minutes, seconds, year] = asctime;
-
-    return timeOf([year, months.indexOf(name ?? ""), date, hours, minutes, seconds].map(Number));
+      return timeOf([
+        shortYear === undefined ? Number(year) : yearOfTwoDigits(Number(shortYear)),
+        months.indexOf(name),
+        ...[date, hours, minutes, seconds].map(Number),
+      ]);
+    }
   }
 
   return undefined;
