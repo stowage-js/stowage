@@ -1,4 +1,5 @@
-export { storageErrorOf } from "./answers.ts";
+export { acceptUpload, type AcceptUploadOptions } from "./accept-upload.ts";
+export { objectStatOf, storageErrorOf } from "./answers.ts";
 export { type PresignsPut, presignUpload, type PresignUploadOptions } from "./presign-upload.ts";
 export {
   type PresignsGet,

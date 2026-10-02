@@ -8,8 +8,8 @@ import {
 } from "@stowage/core";
 
 /**
- * A storage for this package's own tests, answering `get` and `stat` as a test says and
- * leaving every other operation to throw. Nothing here is part of the entry point, so the
+ * A storage for this package's own tests, answering `get`, `stat` and `put` as a test says
+ * and leaving every other operation to throw. Nothing here is part of the entry point, so the
  * build never reaches it and the tarball never holds it.
  */
 export function stubStorage(
@@ -17,6 +17,7 @@ export function stubStorage(
     readonly capabilities?: readonly CapabilityName[];
     readonly get?: Storage["get"];
     readonly stat?: Storage["stat"];
+    readonly put?: Storage["put"];
   } = {},
 ): Storage {
   return {
@@ -25,7 +26,7 @@ export function stubStorage(
     capabilities: fields.capabilities ?? [],
     get: fields.get ?? unreachable("get"),
     stat: fields.stat ?? unreachable("stat"),
-    put: unreachable("put"),
+    put: fields.put ?? unreachable("put"),
     exists: unreachable("exists"),
     list: () => {
       throw new Error("The stub storage has no `list`");
