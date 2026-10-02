@@ -74,11 +74,12 @@ const serveRange = async (
 const otherTag = '"stowage-other"';
 
 /**
- * The validators a client holds after a first `GET`. `modified` is `lastModified` at whole
- * seconds, the `Last-Modified` of that `GET` unless the server capped it at its `Date`
- * (spec 10.3); sent back, a capped one would meet a later cap on the next answer, a
- * provider's clock running ahead. `secondBefore` lies a second before the `Last-Modified`
- * the `GET` carried, which every later answer's `Last-Modified` is past whatever the cap.
+ * The validators a client holds after a first `GET`, as spec 14.9 has the date cases send
+ * them. Where the provider's clock runs ahead, a server caps `Last-Modified` at its `Date`
+ * (spec 10.3), and the next answer's cap lies later: the `Last-Modified` sent back would then
+ * read as older than the object. So `modified` is `lastModified` at whole seconds, which no
+ * cap exceeds, and `secondBefore` a second before the `Last-Modified` of the first `GET`,
+ * which every later cap exceeds.
  */
 async function validatorsOf(
   ctx: HttpConformanceContext,
@@ -90,11 +91,10 @@ async function validatorsOf(
   await expectStatus(response, 200, "The first `GET`");
 
   const lastModified = Date.parse(response.headers.get("last-modified") ?? "");
-  const second = 1000;
 
   return {
     etag: response.headers.get("etag"),
-    modified: new Date(Math.floor(stat.lastModified.getTime() / second) * second).toUTCString(),
+    modified: new Date(modifiedOf(stat)).toUTCString(),
     secondBefore: new Date(lastModified - second).toUTCString(),
   };
 }
@@ -105,14 +105,19 @@ async function expectWhole(response: Response, bytes: Uint8Array, what: string):
   assertHeaderOf(response, "content-range", null, what);
 }
 
+const second = 1000;
+
+/** `lastModified` at whole seconds, which spec 10.3 compares dates at. */
+const modifiedOf = (stat: ObjectStat): number =>
+  Math.floor(stat.lastModified.getTime() / second) * second;
+
 /**
  * `lastModified` at whole seconds as an HTTP date, or the answer's `Date` where that is
  * earlier: spec 10.3 keeps `Last-Modified` out of the server's future, and the provider's
  * clock may run ahead of the server's.
  */
 function lastModifiedFor(stat: ObjectStat, response: Response): string {
-  const second = 1000;
-  const modified = Math.floor(stat.lastModified.getTime() / second) * second;
+  const modified = modifiedOf(stat);
   const date = Date.parse(response.headers.get("date") ?? "");
 
   return new Date(Number.isNaN(date) ? modified : Math.min(modified, date)).toUTCString();
