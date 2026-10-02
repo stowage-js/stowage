@@ -20,12 +20,6 @@ function collectGarbage(): void {
 
 export const mebibyte: number = 1024 * 1024;
 
-/** Many times what any adapter may hold, so an object held whole cannot pass unnoticed. */
-export const objectSize: number = 256 * mebibyte;
-
-/** What a run holds besides the adapter: the chunk in hand, the stub's answers, V8's own. */
-export const slack: number = 16 * mebibyte;
-
 /**
  * Spec 7.6 and spec 8.6: the part buffers an upload of `adapter-s3` or `adapter-azure-blob`
  * holds for an object of any size.

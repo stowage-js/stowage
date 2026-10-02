@@ -18,9 +18,14 @@ import {
   drain,
   generatedStream,
   measurementTimeout,
-  objectSize,
-  slack,
+  mebibyte,
 } from "../harness/targets/src/buffer-meter.ts";
+
+/** Many times what any adapter may hold, so an object held whole cannot pass unnoticed. */
+const objectSize = 256 * mebibyte;
+
+/** What a run holds besides the adapter: the chunk in hand, the stub's answers, V8's own. */
+const slack = 16 * mebibyte;
 
 const roots: string[] = [];
 
