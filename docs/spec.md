@@ -1882,6 +1882,7 @@ export interface NodeResponse {
   statusCode: number;
   readonly writableEnded: boolean;
   readonly writableFinished: boolean;
+  readonly destroyed: boolean;
   setHeader(name: string, value: string | readonly string[]): unknown;
   write(chunk: Uint8Array): boolean;
   end(): unknown;
@@ -2084,7 +2085,13 @@ framework. `IncomingMessage` and `ServerResponse` of `node:http` satisfy `NodeRe
   waiting for `drain`. A `HEAD` answer and a `304` carry no body. It resolves once the response has
   ended. A client disconnecting cancels the body and resolves; a body that errors destroys `res`,
   so the client sees an incomplete answer rather than a complete short one, and rejects with that
-  error.
+  error. That the request was a `HEAD` it learns from `toWebRequest` on the same `res`; without
+  that call it writes the body it is handed, which no answer of the layer carries for a `HEAD`.
+- A client that left before `toWebRequest` or `writeResponse` was called is read from
+  `res.destroyed`, since a closed `res` emits no `close` for a listener added later and answers
+  every `write` with `false` and no `drain`. The signal of `toWebRequest` is then aborted when the
+  `Request` is built, and `writeResponse` cancels the body and resolves. Node, Bun and Deno set
+  `destroyed` on such a response; Deno sets no `closed`.
 
 ## 11. `@stowage/nestjs`
 

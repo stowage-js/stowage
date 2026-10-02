@@ -1,12 +1,13 @@
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 
+import type { S3AdapterOptions } from "../../../packages/adapter-s3/src/index.ts";
 import {
   acceptUpload,
   presignUpload,
   redirectToObject,
   serveObject,
 } from "../../../packages/http/src/index.ts";
-import { nodeBridgeTarget, type ServedTarget } from "./http.ts";
+import { nodeBridge, type ServedTarget, servedTarget } from "./http.ts";
 
 vi.mock("../../../packages/http/src/index.ts", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../packages/http/src/index.ts")>()),
@@ -19,14 +20,17 @@ vi.mock("../../../packages/http/src/index.ts", async (importOriginal) => ({
   presignUpload: vi.fn<typeof presignUpload>(async () => new Response("presigned")),
 }));
 
+// The layer is mocked, so no request reaches the endpoint these name.
+const storageOptions: S3AdapterOptions = {
+  bucket: "stowage",
+  region: "eu-central-1",
+  credentials: { accessKeyId: "AKIDEXAMPLE", secretAccessKey: "secret" },
+};
+
 let served: ServedTarget;
 
 beforeAll(async () => {
-  served = await nodeBridgeTarget({
-    bucket: "stowage",
-    region: "eu-central-1",
-    credentials: { accessKeyId: "AKIDEXAMPLE", secretAccessKey: "secret" },
-  });
+  served = await servedTarget(nodeBridge, storageOptions);
 });
 
 afterAll(async () => await served.close());
@@ -93,6 +97,24 @@ test.each(["GET", "HEAD", "POST", "PUT", "DELETE"])(
     );
   },
 );
+
+test("the upload route of a server started with a `maxSize` hands that one to acceptUpload", async () => {
+  const started = await nodeBridge.start(storageOptions, { maxSize: Infinity });
+
+  try {
+    const response = await fetch(started.url("upload", "report.txt"), { method: "PUT" });
+
+    await response.arrayBuffer();
+    expect(acceptUpload).toHaveBeenCalledExactlyOnceWith(
+      expect.any(Object),
+      "report.txt",
+      expect.any(Request),
+      { maxSize: Infinity },
+    );
+  } finally {
+    await started.close();
+  }
+});
 
 test("the upload route hands the body of a `PUT` to acceptUpload as it was sent", async () => {
   const response = await fetch(served.target.url("upload", "report.txt"), {
