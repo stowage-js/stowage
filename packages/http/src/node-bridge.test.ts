@@ -1,4 +1,5 @@
 import { createServer, type Server } from "node:http";
+import { connect, type Socket } from "node:net";
 
 import { afterEach, describe, expect, test } from "vitest";
 
@@ -10,7 +11,7 @@ import {
   toWebRequest,
   writeResponse,
 } from "./index.ts";
-import { statOf, storedObject, streamOf, stubStorage } from "./stubs.ts";
+import { holdingStorage, statOf, storedObject, streamOf, stubStorage } from "./stubs.ts";
 
 /** A request whose body a test hands over event by event, recording `pause` and `resume`. */
 class StreamingRequest implements NodeRequest {
@@ -486,5 +487,123 @@ describe("over `node:http`", () => {
     expect(head.status).toBe(200);
     expect(await head.text()).toBe("");
     expect(head.headers.get("etag")).toBe('"0123abcd"');
+  });
+});
+
+/** Writes `sent` as it is, lets `then` end the socket, and waits for it to close. */
+const sendRaw = async (
+  port: number,
+  sent: string,
+  then: (socket: Socket) => void | Promise<void>,
+): Promise<void> =>
+  await new Promise<void>((resolve) => {
+    const socket = connect(port, "127.0.0.1", () => {
+      socket.write(sent);
+      void then(socket);
+    });
+
+    socket.on("error", () => {});
+    socket.on("close", () => resolve());
+    socket.resume();
+  });
+
+const textOf = (held: Uint8Array | undefined): string | undefined =>
+  held === undefined ? undefined : new TextDecoder().decode(held);
+
+// Spec 14.8: `fetch` cannot send a body that contradicts its `Content-Length`, nor fail one
+// partway, so these are sent over a socket of their own. Node answers such a request with a
+// `400` of its own and closes the connection, so what the layer answered is read on the
+// server's side. A body that runs past its `Content-Length` cannot reach the layer through
+// `node:http`, which reads the bytes after it as the next request; `acceptUpload`'s own
+// tests send that one as a web `Request`.
+describe("an upload over a raw socket", () => {
+  let server: Server | undefined;
+
+  afterEach(async () => {
+    server?.closeAllConnections();
+    await new Promise((resolve) => server?.close(resolve));
+  });
+
+  /**
+   * A server storing a `PUT` under `a`, which holds `before`. `arrived` resolves once the
+   * request reached the layer, `answered` with what the layer answered it.
+   */
+  const listen = async (): Promise<{
+    readonly port: number;
+    readonly held: Map<string, Uint8Array>;
+    readonly arrived: Promise<void>;
+    readonly answered: Promise<Response>;
+  }> => {
+    const storage = holdingStorage({ held: { a: "before" } });
+    const arrived = Promise.withResolvers<void>();
+    const answered = Promise.withResolvers<Response>();
+
+    server = createServer((req, res) => {
+      const answer = acceptUpload(storage, "a", toWebRequest(req, res), { maxSize: 1024 });
+
+      arrived.resolve();
+      answer.then(answered.resolve, answered.reject);
+      void answer.then(
+        async (response) => await writeResponse(res, response),
+        () => res.destroy(),
+      );
+    });
+
+    await new Promise<void>((resolve) => server?.listen(0, "127.0.0.1", resolve));
+
+    const address = server.address();
+
+    if (address === null || typeof address === "string") throw new Error("No TCP port to reach");
+
+    return {
+      port: address.port,
+      held: storage.held,
+      arrived: arrived.promise,
+      answered: answered.promise,
+    };
+  };
+
+  test("a body that ends short of its `Content-Length` answers `400` and leaves the key as it was", async () => {
+    const { port, held, answered } = await listen();
+
+    await sendRaw(
+      port,
+      "PUT /a HTTP/1.1\r\nHost: localhost\r\nContent-Length: 10\r\n\r\n01234",
+      (socket) => void socket.end(),
+    );
+
+    expect((await answered).status).toBe(400);
+    expect(textOf(held.get("a"))).toBe("before");
+  });
+
+  test("a body that fails while it is read answers `400` and leaves the key as it was", async () => {
+    const { port, held, arrived, answered } = await listen();
+
+    await sendRaw(
+      port,
+      "PUT /a HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n5\r\n01234\r\n",
+      async (socket) => {
+        // The reset follows the first chunk once the layer reads the body.
+        await arrived;
+        await settle();
+        socket.resetAndDestroy();
+      },
+    );
+
+    expect((await answered).status).toBe(400);
+    expect(textOf(held.get("a"))).toBe("before");
+  });
+
+  test("a body that matches its `Content-Length` is stored", async () => {
+    const { port, held, answered } = await listen();
+
+    await sendRaw(
+      port,
+      "PUT /a HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\nConnection: close\r\n\r\n01234",
+      () => {},
+    );
+
+    expect((await answered).status).toBe(201);
+    expect(textOf(held.get("a"))).toBe("01234");
   });
 });
