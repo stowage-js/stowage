@@ -106,6 +106,9 @@ function countedBody(source: ReadableStream<Uint8Array>, limits: Limits): Counte
   const reader = source.getReader();
   let count = 0;
   let refused: 400 | 413 | undefined;
+  // Once `put` canceled the body, at an abort among others, the read pending on the source
+  // ends early, and that end is no body short of its length.
+  let canceled = false;
 
   const refuse = (
     controller: ReadableStreamDefaultController<Uint8Array>,
@@ -126,10 +129,14 @@ function countedBody(source: ReadableStream<Uint8Array>, limits: Limits): Counte
         try {
           chunk = await reader.read();
         } catch (failure) {
+          if (canceled) return;
+
           refused = 400;
           controller.error(failure);
           return;
         }
+
+        if (canceled) return;
 
         if (chunk.done) {
           if (limits.length === undefined || count === limits.length) controller.close();
@@ -149,7 +156,10 @@ function countedBody(source: ReadableStream<Uint8Array>, limits: Limits): Counte
           controller.enqueue(chunk.value);
         }
       },
-      cancel: async (reason) => await reader.cancel(reason),
+      async cancel(reason) {
+        canceled = true;
+        await reader.cancel(reason);
+      },
     },
     // No chunk is read ahead of `put`, so a refused body never sits in this stream's queue.
     { highWaterMark: 0 },

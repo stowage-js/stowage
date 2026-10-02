@@ -335,6 +335,26 @@ describe("a body that fails while it is read", () => {
   });
 });
 
+describe("an abort while the body streams", () => {
+  test("is thrown on, with no refusal standing in for the body `put` canceled", async () => {
+    const storage = holdingStorage({ held: { a: "before" } });
+    const aborting = new AbortController();
+    // The body never ends, so the abort alone stops `put`, and the read it cuts short
+    // ends the source before its `Content-Length`.
+    const body = new ReadableStream<Uint8Array>({
+      start: (opened) => opened.enqueue(bytes("01234")),
+    });
+    const sent = upload(body, { headers: { "content-length": "10" }, signal: aborting.signal });
+    const answered = acceptUpload(storage, "a", sent, limited());
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    aborting.abort();
+
+    await expect(answered).rejects.toMatchObject({ name: "AbortError" });
+    expect(text(storage.held.get("a"))).toBe("before");
+  });
+});
+
 describe("the content type", () => {
   test("is `contentType` where it is given, over the request's `Content-Type`", async () => {
     const storage = holdingStorage();
