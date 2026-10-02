@@ -1,4 +1,10 @@
-import type { OperationOptions, Storage, StorageError, StorageErrorFields } from "@stowage/core";
+import type {
+  ObjectStat,
+  OperationOptions,
+  Storage,
+  StorageError,
+  StorageErrorFields,
+} from "@stowage/core";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { serveObject, type ServeObjectOptions, storageErrorOf } from "./index.ts";
@@ -471,6 +477,568 @@ describe("a ranged `get` rejecting with a `ProviderError`", () => {
     expect(storageErrorOf(response)).toBe(refusal);
     expect(calls).toEqual(["get 2-5"]);
   });
+});
+
+/** A `GET` of the object of `rangingStorage`, whose `etag` is `0123abcd`, with `headers`. */
+const serveConditional = async (
+  headers: Record<string, string>,
+  storage: Storage = rangingStorage().storage,
+  method = "GET",
+): Promise<Response> => await serveObject(storage, "docs/report.pdf", request(method, { headers }));
+
+describe("`If-None-Match`", () => {
+  test("with the `ETag` is `304` with the headers of the `200`, from `stat` alone", async () => {
+    const { storage, calls } = rangingStorage();
+    const whole = await serve("GET", {}, storage);
+    const response = await serveConditional({ "if-none-match": '"0123abcd"' }, storage);
+
+    expect(response.status).toBe(304);
+    expect(await response.text()).toBe("");
+    expect([...response.headers]).toEqual([...whole.headers]);
+    expect(calls).toEqual(["get", "stat"]);
+  });
+
+  test.each([
+    ["the `ETag` as weak", 'W/"0123abcd"'],
+    ["a list holding the `ETag`", '"other", W/"0123abcd"'],
+    ["`*`", "*"],
+  ])("with %s is `304`", async (_, field) => {
+    expect((await serveConditional({ "if-none-match": field })).status).toBe(304);
+  });
+
+  test("with another tag is `200` from `stat` and one `get`", async () => {
+    const { storage, calls } = rangingStorage();
+    const response = await serveConditional({ "if-none-match": '"other", "0123abcd-1"' }, storage);
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(sixteenBytes);
+    expect(calls).toEqual(["stat", "get"]);
+  });
+
+  test("without an `etag` holds for any tag and fails for `*` alone", async () => {
+    const storage = holding({ etag: undefined });
+
+    expect((await serveConditional({ "if-none-match": '"0123abcd"' }, storage)).status).toBe(200);
+    expect((await serveConditional({ "if-none-match": "*" }, storage)).status).toBe(304);
+  });
+});
+
+describe("`If-Match`", () => {
+  test.each([
+    ["the `ETag`", '"0123abcd"'],
+    ["a list holding the `ETag`", '"other", "0123abcd"'],
+    ["`*`", "*"],
+  ])("with %s is `200`", async (_, field) => {
+    const response = await serveConditional({ "if-match": field });
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(sixteenBytes);
+  });
+
+  test.each([
+    ["another tag", '"other"'],
+    ["the `ETag` as weak", 'W/"0123abcd"'],
+    ["a field that is no list of tags", "0123abcd"],
+  ])("with %s is `412` with an empty body, from `stat` alone", async (_, field) => {
+    const { storage, calls } = rangingStorage();
+    const response = await serveConditional({ "if-match": field }, storage);
+
+    expect(response.status).toBe(412);
+    expect(await response.text()).toBe("");
+    expect(storageErrorOf(response)).toBeUndefined();
+    expect(calls).toEqual(["stat"]);
+  });
+
+  test("without an `etag` fails for any tag and holds for `*` alone", async () => {
+    const storage = holding({ etag: undefined });
+
+    expect((await serveConditional({ "if-match": '"0123abcd"' }, storage)).status).toBe(412);
+    expect((await serveConditional({ "if-match": "*" }, storage)).status).toBe(200);
+  });
+
+  test("is evaluated before `If-None-Match`", async () => {
+    const response = await serveConditional({
+      "if-match": '"other"',
+      "if-none-match": '"0123abcd"',
+    });
+
+    expect(response.status).toBe(412);
+  });
+});
+
+/** The `Last-Modified` of the object of `statOf`, whose `lastModified` lies at `.456`. */
+const lastModified = "Tue, 01 Sep 2026 10:20:30 GMT";
+const secondBefore = "Tue, 01 Sep 2026 10:20:29 GMT";
+
+describe("`If-Modified-Since`", () => {
+  test.each([
+    ["the `Last-Modified`", lastModified],
+    ["a later date", "Wed, 02 Sep 2026 00:00:00 GMT"],
+    ["the `Last-Modified` in RFC 850's form", "Tuesday, 01-Sep-26 10:20:30 GMT"],
+    ["the `Last-Modified` in `asctime`'s form", "Tue Sep  1 10:20:30 2026"],
+  ])("with %s is `304` from `stat` alone", async (_, field) => {
+    const { storage, calls } = rangingStorage();
+    const response = await serveConditional({ "if-modified-since": field }, storage);
+
+    expect(response.status).toBe(304);
+    expect(calls).toEqual(["stat"]);
+  });
+
+  test("with a second before the `Last-Modified` is `200`", async () => {
+    expect((await serveConditional({ "if-modified-since": secondBefore })).status).toBe(200);
+  });
+
+  test("compares with the `Last-Modified` the answer carries where `lastModified` is later", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-01T10:20:29.900Z"));
+
+    expect((await serveConditional({ "if-modified-since": secondBefore })).status).toBe(304);
+  });
+
+  test.each([
+    ["no date", "yesterday"],
+    ["two dates", `${lastModified}, ${lastModified}`],
+    ["a day the month lacks", "Wed, 31 Sep 2026 10:20:30 GMT"],
+    ["another zone", "Tue, 01 Sep 2026 10:20:30 CET"],
+  ])("with %s is ignored, without a `stat`", async (_, field) => {
+    const { storage, calls } = rangingStorage();
+    const response = await serveConditional({ "if-modified-since": field }, storage);
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual(["get"]);
+  });
+
+  test("beside `If-None-Match` is ignored", async () => {
+    const response = await serveConditional({
+      "if-none-match": '"other"',
+      "if-modified-since": lastModified,
+    });
+
+    expect(response.status).toBe(200);
+  });
+});
+
+describe("`If-Unmodified-Since`", () => {
+  test("with the `Last-Modified` is `200`", async () => {
+    expect((await serveConditional({ "if-unmodified-since": lastModified })).status).toBe(200);
+  });
+
+  test("with a second before the `Last-Modified` is `412` from `stat` alone", async () => {
+    const { storage, calls } = rangingStorage();
+    const response = await serveConditional({ "if-unmodified-since": secondBefore }, storage);
+
+    expect(response.status).toBe(412);
+    expect(calls).toEqual(["stat"]);
+  });
+
+  test("beside `If-Match` is ignored", async () => {
+    const response = await serveConditional({
+      "if-match": "*",
+      "if-unmodified-since": secondBefore,
+    });
+
+    expect(response.status).toBe(200);
+  });
+
+  test("is evaluated before `If-None-Match`", async () => {
+    const response = await serveConditional({
+      "if-unmodified-since": secondBefore,
+      "if-none-match": '"0123abcd"',
+    });
+
+    expect(response.status).toBe(412);
+  });
+});
+
+describe("preconditions on a `HEAD`", () => {
+  test.each([
+    ["a failed `If-None-Match`", 304, { "if-none-match": '"0123abcd"' }],
+    ["a failed `If-Modified-Since`", 304, { "if-modified-since": lastModified }],
+    ["a failed `If-Match`", 412, { "if-match": '"other"' }],
+    ["a failed `If-Unmodified-Since`", 412, { "if-unmodified-since": secondBefore }],
+    ["preconditions that hold", 200, { "if-match": "*", "if-none-match": '"other"' }],
+  ])("answer %s with %i from `stat` alone", async (_, status, headers) => {
+    const { storage, calls } = rangingStorage();
+    const response = await serveConditional(headers, storage, "HEAD");
+
+    expect(response.status).toBe(status);
+    expect(await response.text()).toBe("");
+    expect(calls).toEqual(["stat"]);
+  });
+});
+
+describe("`If-Range`", () => {
+  test("with the `ETag` is `206` with the range, after one `stat`", async () => {
+    const { storage, calls } = rangingStorage();
+    const response = await serveConditional(
+      { range: "bytes=2-5", "if-range": '"0123abcd"' },
+      storage,
+    );
+
+    expect(response.status).toBe(206);
+    expect(await response.text()).toBe("2345");
+    expect(calls).toEqual(["stat", "get 2-5"]);
+  });
+
+  test.each([
+    ["another tag", '"other"'],
+    ["the `ETag` as weak", 'W/"0123abcd"'],
+    ["the `ETag` in a list", '"0123abcd",'],
+    ["the `Last-Modified`", lastModified],
+    ["a later date", "Wed, 02 Sep 2026 00:00:00 GMT"],
+  ])("with %s is `200` with the whole object", async (_, field) => {
+    const { storage, calls } = rangingStorage();
+    const response = await serveConditional({ range: "bytes=2-5", "if-range": field }, storage);
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(sixteenBytes);
+    expect(response.headers.has("content-range")).toBe(false);
+    expect(calls).toEqual(["stat", "get"]);
+  });
+
+  test("with the `ETag` on a suffix is `206` after one `stat`", async () => {
+    const { storage, calls } = rangingStorage();
+    const response = await serveConditional(
+      { range: "bytes=-3", "if-range": '"0123abcd"' },
+      storage,
+    );
+
+    expect(response.status).toBe(206);
+    expect(calls).toEqual(["stat", "get 13-15"]);
+  });
+
+  test.each([
+    ["without a `Range`", {}, ["rangeReads"]],
+    ["beside a `Range` spec 10.3 ignores", { range: "bytes=0-1,3-4" }, ["rangeReads"]],
+    ["on a storage without `rangeReads`", { range: "bytes=2-5" }, []],
+  ] as const)("%s is ignored, without a `stat`", async (_, headers, capabilities) => {
+    const { storage, calls } = rangingStorage({ capabilities });
+    const response = await serveConditional({ ...headers, "if-range": '"other"' }, storage);
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual(["get"]);
+  });
+
+  test("on a `HEAD` is ignored", async () => {
+    const { storage, calls } = rangingStorage();
+    const response = await serveConditional(
+      { range: "bytes=2-5", "if-range": '"other"' },
+      storage,
+      "HEAD",
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual(["stat"]);
+  });
+
+  test("is evaluated after the other preconditions", async () => {
+    const response = await serveConditional({
+      range: "bytes=2-5",
+      "if-range": '"0123abcd"',
+      "if-none-match": '"0123abcd"',
+    });
+
+    expect(response.status).toBe(304);
+  });
+});
+
+test("a suffix beside preconditions is served after one `stat`", async () => {
+  const { storage, calls } = rangingStorage();
+  const response = await serveConditional({ range: "bytes=-3", "if-match": "*" }, storage);
+
+  expect(response.status).toBe(206);
+  expect(calls).toEqual(["stat", "get 13-15"]);
+});
+
+const sized = (fields: Partial<ObjectStat> = {}): ObjectStat =>
+  statOf({ size: sixteenBytes.length, ...fields });
+
+/**
+ * A storage declaring `rangeReads` whose `stat` sees the object `seen`, and whose `get`s
+ * each hand over the next of `handed`, as an object changing between the calls would. It
+ * records each call in `calls` and the `etag` of each body canceled in `canceled`.
+ */
+const changingStorage = (
+  seen: Partial<ObjectStat>,
+  ...handed: Partial<ObjectStat>[]
+): { storage: Storage; calls: string[]; canceled: (string | undefined)[] } => {
+  const calls: string[] = [];
+  const canceled: (string | undefined)[] = [];
+
+  const storage = stubStorage({
+    capabilities: ["rangeReads"],
+    stat: async () => {
+      calls.push("stat");
+
+      return sized(seen);
+    },
+    get: async (_key, options) => {
+      const range = options?.range;
+      const stat = sized(handed.shift());
+
+      calls.push(range === undefined ? "get" : `get ${range.start}-${range.end ?? ""}`);
+
+      const bytes = new TextEncoder().encode(
+        range === undefined ? sixteenBytes : sixteenBytes.slice(range.start, (range.end ?? 15) + 1),
+      );
+      // Pulled only once read, so that a canceled body is told apart from a read one.
+      const body = new ReadableStream<Uint8Array>(
+        {
+          pull: (controller) => {
+            controller.enqueue(bytes);
+            controller.close();
+          },
+          cancel: () => {
+            canceled.push(stat.etag);
+          },
+        },
+        { highWaterMark: 0 },
+      );
+
+      return storedObject(stat, body);
+    },
+  });
+
+  return { storage, calls, canceled };
+};
+
+describe("an object changing between `stat` and `get`", () => {
+  test("is answered by the `stat` of `get` where the outcome stays", async () => {
+    const { storage, calls, canceled } = changingStorage({ etag: "seen" }, { etag: "handed" });
+    const response = await serveConditional({ "if-none-match": '"other"' }, storage);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("etag")).toBe('"handed"');
+    expect(await response.text()).toBe(sixteenBytes);
+    expect(calls).toEqual(["stat", "get"]);
+    expect(canceled).toEqual([]);
+  });
+
+  test("has its body canceled and `304` answered where `If-None-Match` now fails", async () => {
+    const { storage, calls, canceled } = changingStorage({ etag: "seen" }, { etag: "handed" });
+    const response = await serveConditional({ "if-none-match": '"handed"' }, storage);
+
+    expect(response.status).toBe(304);
+    expect(response.headers.get("etag")).toBe('"handed"');
+    expect(await response.text()).toBe("");
+    expect(calls).toEqual(["stat", "get"]);
+    expect(canceled).toEqual(["handed"]);
+  });
+
+  test("has its body canceled and `412` answered where `If-Match` now fails", async () => {
+    const { storage, canceled } = changingStorage({ etag: "seen" }, { etag: "handed" });
+    const response = await serveConditional({ "if-match": '"seen"' }, storage);
+
+    expect(response.status).toBe(412);
+    expect(canceled).toEqual(["handed"]);
+  });
+
+  test("is followed by one whole `get` where `If-Range` no longer holds", async () => {
+    const { storage, calls, canceled } = changingStorage(
+      { etag: "seen" },
+      { etag: "handed" },
+      { etag: "handed" },
+    );
+    const response = await serveConditional({ range: "bytes=2-5", "if-range": '"seen"' }, storage);
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(sixteenBytes);
+    expect(response.headers.get("etag")).toBe('"handed"');
+    expect(calls).toEqual(["stat", "get 2-5", "get"]);
+    expect(canceled).toEqual(["handed"]);
+  });
+
+  test("is followed by one whole `get` where a suffix now names other bytes", async () => {
+    const { storage, calls } = changingStorage(
+      { etag: "seen" },
+      { etag: "handed", size: 20 },
+      { etag: "handed", size: 20 },
+    );
+    const response = await serveConditional({ range: "bytes=-3" }, storage);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.has("content-range")).toBe(false);
+    expect(calls).toEqual(["stat", "get 13-15", "get"]);
+  });
+
+  test("is still `206` where a suffix names the same bytes", async () => {
+    const { storage, calls } = changingStorage({ etag: "seen" }, { etag: "handed" });
+    const response = await serveConditional({ range: "bytes=-3" }, storage);
+
+    expect(response.status).toBe(206);
+    expect(response.headers.get("etag")).toBe('"handed"');
+    expect(calls).toEqual(["stat", "get 13-15"]);
+  });
+
+  test("answers a failed precondition after the one more `get`, and no third", async () => {
+    const { storage, calls, canceled } = changingStorage(
+      { etag: "seen" },
+      { etag: "handed" },
+      { etag: "third" },
+    );
+    const response = await serveConditional(
+      { range: "bytes=2-5", "if-range": '"seen"', "if-none-match": '"third"' },
+      storage,
+    );
+
+    expect(response.status).toBe(304);
+    expect(response.headers.get("etag")).toBe('"third"');
+    expect(calls).toEqual(["stat", "get 2-5", "get"]);
+    expect(canceled).toEqual(["handed", "third"]);
+  });
+
+  test("counts as changed without `etag`s where `lastModified` differs", async () => {
+    const { storage, canceled } = changingStorage(
+      { etag: undefined },
+      { etag: undefined, lastModified: new Date("2026-09-01T10:20:31Z") },
+    );
+    const response = await serveConditional({ "if-unmodified-since": lastModified }, storage);
+
+    expect(response.status).toBe(412);
+    expect(canceled).toEqual([undefined]);
+  });
+
+  test("counts as changed without `etag`s where `size` differs", async () => {
+    const { storage, calls } = changingStorage(
+      { etag: undefined },
+      { etag: undefined, size: 20 },
+      { etag: undefined, size: 20 },
+    );
+    const response = await serveConditional({ range: "bytes=-3" }, storage);
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual(["stat", "get 13-15", "get"]);
+  });
+
+  test("counts as unchanged where the `etag`s agree, whatever else differs", async () => {
+    const { storage, canceled } = changingStorage(
+      {},
+      { lastModified: new Date("2026-09-01T10:20:31Z") },
+    );
+    const response = await serveConditional({ "if-unmodified-since": lastModified }, storage);
+
+    expect(response.status).toBe(200);
+    expect(canceled).toEqual([]);
+  });
+});
+
+/** A range refused after `seen` changes, with `next` returned by the following `stat`. */
+const invalidatedRangeStorage = (
+  seen: Partial<ObjectStat>,
+  next: Partial<ObjectStat>,
+  handed: Partial<ObjectStat> = next,
+): { storage: Storage; calls: string[]; refusal: StorageError } => {
+  const calls: string[] = [];
+  const refusal = storageError({ code: "InvalidRequest" });
+  let stats = 0;
+
+  const storage = stubStorage({
+    capabilities: ["rangeReads"],
+    stat: async () => {
+      calls.push("stat");
+
+      return sized(stats++ === 0 ? seen : next);
+    },
+    get: async (_key, options) => {
+      const range = options?.range;
+
+      calls.push(range === undefined ? "get" : `get ${range.start}-${range.end ?? ""}`);
+
+      if (range !== undefined) throw refusal;
+
+      const stat = sized(handed);
+
+      return storedObject(stat, streamOf(sixteenBytes.slice(0, stat.size)));
+    },
+  });
+
+  return { storage, calls, refusal };
+};
+
+describe("a ranged `get` rejecting with `InvalidRequest` after planning", () => {
+  test.each([
+    ["if-match", '"seen"', 412],
+    ["if-none-match", '"next"', 304],
+  ])("answers the %s that now fails from the second `stat`", async (header, value, status) => {
+    const { storage, calls } = invalidatedRangeStorage({ etag: "seen" }, { etag: "next", size: 4 });
+    const response = await serveConditional({ range: "bytes=13-", [header]: value }, storage);
+
+    expect(response.status).toBe(status);
+    expect(await response.text()).toBe("");
+    expect(response.headers.has("content-range")).toBe(false);
+    expect(response.headers.get("etag")).toBe(status === 304 ? '"next"' : null);
+    expect(storageErrorOf(response)).toBeUndefined();
+    expect(calls).toEqual(["stat", "get 13-", "stat"]);
+  });
+
+  test.each([
+    ["If-Range no longer holds", "bytes=13-", { "if-range": '"seen"' }, 4, "seen", "next"],
+    ["a suffix names other bytes", "bytes=-3", {}, 4, "seen", "next"],
+    ["a suffix becomes empty", "bytes=-3", {}, 0, "seen", "next"],
+    ["a suffix changes without etags", "bytes=-3", {}, 4, undefined, undefined],
+  ])("serves the whole object where %s", async (_, range, headers, size, seen, next) => {
+    const { storage, calls } = invalidatedRangeStorage({ etag: seen }, { etag: next, size });
+    const response = await serveConditional({ range, ...headers }, storage);
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(sixteenBytes.slice(0, size));
+    expect(response.headers.has("content-range")).toBe(false);
+    expect(response.headers.has("content-length")).toBe(false);
+    expect(storageErrorOf(response)).toBeUndefined();
+    expect(calls).toEqual(["stat", range === "bytes=-3" ? "get 13-15" : "get 13-", "stat", "get"]);
+  });
+
+  test("rechecks preconditions against the whole `get` after the second `stat`", async () => {
+    const { storage, calls } = invalidatedRangeStorage(
+      { etag: "seen" },
+      { etag: "next", size: 4 },
+      { etag: "third", size: 4 },
+    );
+    const response = await serveConditional(
+      { range: "bytes=13-", "if-range": '"seen"', "if-none-match": '"third"' },
+      storage,
+    );
+
+    expect(response.status).toBe(304);
+    expect(response.headers.get("etag")).toBe('"third"');
+    expect(await response.text()).toBe("");
+    expect(calls).toEqual(["stat", "get 13-", "stat", "get"]);
+  });
+
+  test.each([
+    ["unchanged", "seen", 16],
+    ["changed", "next", 4],
+  ])("is still `416` where the %s object keeps the same range", async (_, etag, size) => {
+    const { storage, calls, refusal } = invalidatedRangeStorage({ etag: "seen" }, { etag, size });
+    const response = await serveConditional({ range: "bytes=16-", "if-match": "*" }, storage);
+
+    expect(response.status).toBe(416);
+    expect(response.headers.get("content-range")).toBe(`bytes */${size}`);
+    expect(await response.text()).toBe("");
+    expect(storageErrorOf(response)).toBe(refusal);
+    expect(calls).toEqual(["stat", "get 16-", "stat"]);
+  });
+});
+
+test("a missing object is `404` whatever preconditions the request carries", async () => {
+  const gone = storageError({ code: "NotFound", key: "docs/report.pdf" });
+  const storage = stubStorage({
+    stat: async () => {
+      throw gone;
+    },
+  });
+
+  const preconditions: Record<string, string>[] = [{ "if-match": "*" }, { "if-none-match": "*" }];
+
+  for (const headers of preconditions) {
+    for (const method of ["GET", "HEAD"]) {
+      // oxlint-disable-next-line no-await-in-loop -- one request after the other
+      const response = await serveConditional(headers, storage, method);
+
+      expect(response.status).toBe(404);
+      expect(storageErrorOf(response)).toBe(gone);
+    }
+  }
 });
 
 type Failure = Partial<StorageErrorFields> & Pick<StorageErrorFields, "code">;

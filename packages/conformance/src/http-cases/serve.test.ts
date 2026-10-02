@@ -19,7 +19,12 @@ type Flaw =
   | "range-without-length"
   | "range-undeclared"
   | "suffix-from-start"
-  | "unsatisfiable-whole";
+  | "unsatisfiable-whole"
+  | "strong-none-match"
+  | "modified-since-beside-none-match"
+  | "weak-match"
+  | "unmodified-since-beside-match"
+  | "if-range-date";
 
 interface Held {
   readonly bytes: Uint8Array<ArrayBuffer>;
@@ -37,7 +42,7 @@ const refuse = (key: string, code: "NotFound" | "InvalidKey"): StorageError =>
     key,
   });
 
-function heldStorage(capabilities: readonly string[]): Storage {
+function heldStorage(capabilities: readonly string[], etag: string | undefined): Storage {
   const held = new Map<string, Held>();
   const read = (key: string): Held => {
     if (key.includes("//")) throw refuse(key, "InvalidKey");
@@ -61,7 +66,7 @@ function heldStorage(capabilities: readonly string[]): Storage {
         key,
         size: bytes.byteLength,
         lastModified: new Date("2026-09-01T10:20:30.456Z"),
-        etag: "e1",
+        etag,
         contentType: options?.contentType ?? "application/octet-stream",
         userMetadata: {},
       };
@@ -124,9 +129,12 @@ async function answer(
         ? `attachment; filename="r_sum_ 100_.pdf"; filename*=UTF-8''r%C3%A9sum%C3%A9%20100%25.pdf`
         : `attachment; filename="${name}"`,
     "cache-control": "private, no-cache",
-    etag: flaw === "unquoted-etag" ? "e1" : '"e1"',
     "last-modified": "Tue, 01 Sep 2026 10:20:30 GMT",
   });
+
+  if (stat.etag !== undefined) {
+    headers.set("etag", flaw === "unquoted-etag" ? stat.etag : `"${stat.etag}"`);
+  }
 
   if (dateOf !== undefined) {
     const date = dateOf().toUTCString();
@@ -134,6 +142,11 @@ async function answer(
     headers.set("date", date);
     headers.set("last-modified", date);
   }
+
+  const refused = refusalOf(request.headers, stat, flaw);
+
+  if (refused === 304) return new Response(null, { status: 304, headers });
+  if (refused === 412) return new Response(null, { status: 412 });
 
   if (flaw === "no-nosniff") headers.delete("x-content-type-options");
   if (flaw === "content-length") headers.set("content-length", String(bytes.byteLength));
@@ -147,7 +160,7 @@ async function answer(
   if (honorsRanges) headers.set("accept-ranges", "bytes");
 
   const range =
-    honorsRanges && request.method === "GET"
+    honorsRanges && request.method === "GET" && ifRangeHolds(request.headers, stat, flaw)
       ? rangeOf(request.headers.get("range"), bytes.byteLength, flaw)
       : undefined;
 
@@ -171,6 +184,67 @@ async function answer(
   const sendsBody = request.method !== "HEAD" || flaw === "head-with-body";
 
   return new Response(sendsBody ? bytes : null, { status: 200, headers });
+}
+
+/** The tags of a field, each as it is written, `W/` included. */
+const tagsOf = (field: string): string[] => field.split(",").map((tag) => tag.trim());
+
+const secondOf = (time: number): number => Math.floor(time / 1000) * 1000;
+
+/** The `304` or `412` of RFC 9110 13.2.2 for a precondition that fails, short of `flaw`. */
+function refusalOf(headers: Headers, stat: ObjectStat, flaw?: Flaw): 304 | 412 | undefined {
+  const etag = stat.etag === undefined ? undefined : `"${stat.etag}"`;
+  const modified = secondOf(stat.lastModified.getTime());
+  const ifMatch = headers.get("if-match");
+  const ifUnmodifiedSince = headers.get("if-unmodified-since");
+  const ifNoneMatch = headers.get("if-none-match");
+  const ifModifiedSince = headers.get("if-modified-since");
+
+  if (ifMatch !== null) {
+    const tags = tagsOf(ifMatch).map((tag) =>
+      flaw === "weak-match" ? tag.replace(/^W\//u, "") : tag,
+    );
+
+    if (ifMatch !== "*" && (etag === undefined || !tags.includes(etag))) return 412;
+  }
+
+  if (
+    ifUnmodifiedSince !== null &&
+    (ifMatch === null || flaw === "unmodified-since-beside-match") &&
+    modified > Date.parse(ifUnmodifiedSince)
+  ) {
+    return 412;
+  }
+
+  if (ifNoneMatch !== null) {
+    const tags = tagsOf(ifNoneMatch).map((tag) =>
+      flaw === "strong-none-match" ? tag : tag.replace(/^W\//u, ""),
+    );
+
+    if (ifNoneMatch === "*" || (etag !== undefined && tags.includes(etag))) return 304;
+  }
+
+  if (
+    ifModifiedSince !== null &&
+    (ifNoneMatch === null || flaw === "modified-since-beside-none-match") &&
+    modified <= Date.parse(ifModifiedSince)
+  ) {
+    return 304;
+  }
+
+  return undefined;
+}
+
+/** Whether `If-Range` lets the range through: the strong `ETag` alone does. */
+function ifRangeHolds(headers: Headers, stat: ObjectStat, flaw?: Flaw): boolean {
+  const ifRange = headers.get("if-range");
+
+  if (ifRange === null) return true;
+  if (flaw === "if-range-date" && !ifRange.startsWith('"')) {
+    return secondOf(stat.lastModified.getTime()) <= Date.parse(ifRange);
+  }
+
+  return stat.etag !== undefined && ifRange === `"${stat.etag}"`;
 }
 
 /**
@@ -203,12 +277,14 @@ interface Server {
   readonly flaw?: Flaw;
   readonly dateOf?: () => Date;
   readonly capabilities?: readonly string[];
+  /** The `etag` the storage hands over, none for `undefined`, as `adapter-fs` does. */
+  readonly etag?: string | undefined;
 }
 
 /** Runs one case against a server that answers as `answer` does, as `server` describes it. */
 async function runAgainst(name: string, server: Server = {}): Promise<void> {
   const { flaw, dateOf, capabilities = [] } = server;
-  const storage = heldStorage(capabilities);
+  const storage = heldStorage(capabilities, "etag" in server ? server.etag : "e1");
   const target: HttpConformanceTarget = {
     name: "reference",
     createStorage: () => storage,
@@ -239,6 +315,16 @@ test.each(httpConformanceCases.map((source) => source.name))(
   },
 );
 
+test.each(httpConformanceCases.map((source) => source.name))(
+  "`%s` passes against such a server behind a storage handing over no `etag`",
+  async (name) => {
+    await expect(runAgainst(name, { etag: undefined })).resolves.toBeUndefined();
+    await expect(
+      runAgainst(name, { etag: undefined, capabilities: ["rangeReads"] }),
+    ).resolves.toBeUndefined();
+  },
+);
+
 test.each<[string, Flaw, string]>([
   ["serve/whole", "content-length", "carries `content-length"],
   ["serve/headers", "no-nosniff", "x-content-type-options"],
@@ -249,6 +335,10 @@ test.each<[string, Flaw, string]>([
   ["serve/not-found", "invalid-key-400", "`a//b` answers 400"],
   ["serve/method-not-allowed", "post-served", "`POST` answers 200"],
   ["serve/ignored-range", "range-honored", "answers 206"],
+  ["serve/if-none-match", "strong-none-match", "answers 200 and not 304"],
+  ["serve/if-modified-since", "modified-since-beside-none-match", "answers 304 and not 200"],
+  ["serve/if-match", "weak-match", "answers 200 and not 412"],
+  ["serve/if-unmodified-since", "unmodified-since-beside-match", "answers 412 and not 200"],
 ])("`%s` fails against a server with the flaw %s", async (name, flaw, message) => {
   await expect(runAgainst(name, { flaw })).rejects.toThrow(message);
 });
@@ -257,6 +347,7 @@ test.each<[string, Flaw, string]>([
   ["serve/range", "range-without-length", "content-length"],
   ["serve/suffix-range", "suffix-from-start", "The body of the `GET` with `Range: bytes=-3`"],
   ["serve/unsatisfiable-range", "unsatisfiable-whole", "answers 200 and not 416"],
+  ["serve/if-range", "if-range-date", "answers 206 and not 200"],
 ])(
   "`%s` fails against a server with the flaw %s behind a storage declaring `rangeReads`",
   async (name, flaw, message) => {

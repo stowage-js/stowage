@@ -9,6 +9,15 @@ import {
 
 import { answerFor, methodNotAllowed, rangeNotSatisfiable } from "./answers.ts";
 import { contentDisposition, lastSegmentOf } from "./disposition.ts";
+import { lastModifiedOf } from "./http-date.ts";
+import {
+  type FailedPrecondition,
+  failedPreconditionOf,
+  isFailedPrecondition,
+  type Preconditions,
+  preconditionsOf,
+  rangeHolds,
+} from "./preconditions.ts";
 import { type RequestedRange, requestedRangeOf, suffixOf } from "./range.ts";
 
 export interface ServeObjectOptions {
@@ -28,7 +37,8 @@ export interface ServeObjectOptions {
  * Answers `GET` with the object streamed from `get`, and `HEAD` from `stat` with the same
  * headers and no body (spec 10.3). Any other method is `405`. Where the storage declares
  * `rangeReads`, one range of `bytes` is `206`, or `416` where it is unsatisfiable; any other
- * `Range` is ignored.
+ * `Range` is ignored. The preconditions of RFC 9110 13.2.2 answer `304` or `412` where one
+ * fails, and `If-Range` sends the whole object for anything but the strong `ETag`.
  */
 export async function serveObject(
   storage: Storage,
@@ -43,21 +53,34 @@ export async function serveObject(
   if (method !== "GET" && method !== "HEAD") return methodNotAllowed("GET, HEAD");
 
   const serving: ServeRequest = { storage, key, signal: request.signal, options };
+  const preconditions = preconditionsOf(request.headers);
 
   try {
     if (method === "HEAD") {
       const stat = await storage.stat(key, { signal: serving.signal });
+      const failed = failedPreconditionOf(preconditions, stat);
 
-      return new Response(null, { status: 200, headers: objectHeaders(serving, stat) });
+      return failed === undefined
+        ? new Response(null, { status: 200, headers: objectHeaders(serving, stat) })
+        : failedAnswer(serving, failed, stat);
     }
 
     const requested = storage.capabilities.includes("rangeReads")
       ? requestedRangeOf(request.headers.get("range"))
       : undefined;
+    // RFC 9110 13.1.5: `If-Range` counts only beside a range the layer would serve.
+    const ifRange =
+      requested === undefined ? undefined : (request.headers.get("if-range") ?? undefined);
 
-    return requested === undefined
-      ? await serveWhole(serving)
-      : await serveRequested(serving, requested);
+    if (preconditions === undefined && ifRange === undefined) {
+      if (requested === undefined) return await serveWhole(serving);
+      if (!("suffixLength" in requested)) return await serveRange(serving, requested);
+    }
+
+    const stat = await storage.stat(key, { signal: serving.signal });
+    const asked: Asked = { preconditions, requested, ifRange };
+
+    return await servePlanned(serving, { stat, decide: (each) => planOf(asked, each) });
   } catch (thrown) {
     return answerFor(thrown);
   }
@@ -71,8 +94,98 @@ interface ServeRequest {
   readonly options: ServeObjectOptions;
 }
 
-async function serveWhole(serving: ServeRequest): Promise<Response> {
+/** What a `GET` asks beyond the object, which a `stat` decides (ADR 0048). */
+interface Asked {
+  readonly preconditions: Preconditions | undefined;
+  readonly requested: RequestedRange | undefined;
+  readonly ifRange: string | undefined;
+}
+
+/** The answer a `GET` gets from one `stat`, the range a `206` sends with it. */
+type Plan =
+  | { readonly status: 304 | 412 | 416 | 200 }
+  | { readonly status: 206; readonly range: ByteRange };
+
+/**
+ * RFC 9110 13.2.2, the range last. Only a suffix needs the size; RFC 9110 14.1.2 makes an
+ * empty suffix unsatisfiable, and any other suffix of an empty object the whole of it,
+ * which no `Content-Range` can name.
+ */
+function planOf({ preconditions, requested, ifRange }: Asked, stat: ObjectStat): Plan {
+  const failed = failedPreconditionOf(preconditions, stat);
+
+  if (failed !== undefined) return { status: failed };
+  if (requested === undefined || !rangeHolds(ifRange, stat)) return { status: 200 };
+  if (!("suffixLength" in requested)) return { status: 206, range: requested };
+  if (requested.suffixLength === 0) return { status: 416 };
+  if (stat.size === 0) return { status: 200 };
+
+  return { status: 206, range: suffixOf(requested.suffixLength, stat.size) };
+}
+
+/**
+ * The `stat` a plan is made from before `get`, and how to make it again from the `stat`
+ * of `get`, which describes the bytes sent (ADR 0048).
+ */
+interface Planning {
+  readonly stat: ObjectStat;
+  readonly decide: (stat: ObjectStat) => Plan;
+}
+
+async function servePlanned(serving: ServeRequest, planning: Planning): Promise<Response> {
+  const plan = planning.decide(planning.stat);
+
+  switch (plan.status) {
+    case 200:
+      return await serveWhole(serving, planning);
+    case 206:
+      return await serveRange(serving, plan.range, planning);
+    case 416:
+      return rangeNotSatisfiable(planning.stat.size);
+    default:
+      return failedAnswer(serving, plan.status, planning.stat);
+  }
+}
+
+/**
+ * The plan for an object `get` handed over in place of the one planned on, `undefined`
+ * where it is that one. Spec 10.3: the `etag`s tell a changed object, and without them
+ * `size` and `lastModified`.
+ */
+function changedPlanOf(planning: Planning | undefined, handed: ObjectStat): Plan | undefined {
+  if (planning === undefined) return undefined;
+
+  const { stat: seen } = planning;
+  const changed =
+    seen.etag !== undefined && handed.etag !== undefined
+      ? seen.etag !== handed.etag
+      : seen.size !== handed.size || seen.lastModified.getTime() !== handed.lastModified.getTime();
+
+  return changed ? planning.decide(handed) : undefined;
+}
+
+/** The answer of a failed precondition: `304` with the headers of a `200`, or `412`. */
+function failedAnswer(
+  serving: ServeRequest,
+  status: FailedPrecondition,
+  stat: ObjectStat,
+): Response {
+  return status === 304
+    ? new Response(null, { status, headers: objectHeaders(serving, stat) })
+    : new Response(null, { status });
+}
+
+async function serveWhole(serving: ServeRequest, planning?: Planning): Promise<Response> {
   const object = await serving.storage.get(serving.key, { signal: serving.signal });
+  const changed = changedPlanOf(planning, object.stat)?.status;
+
+  // Any other plan still takes the whole object, which RFC 9110 14.2 lets a server send
+  // for a range it would otherwise serve.
+  if (changed !== undefined && isFailedPrecondition(changed)) {
+    await discard(object);
+
+    return failedAnswer(serving, changed, object.stat);
+  }
 
   // No `Content-Length`: an object another tool stored with a content coding may arrive
   // decoded and longer than `size`, and Node and Deno would cut such a body to `size`
@@ -83,24 +196,12 @@ async function serveWhole(serving: ServeRequest): Promise<Response> {
   });
 }
 
-/**
- * The one range asked for. Only a suffix needs the size before `get` (ADR 0048); RFC 9110
- * 14.1.2 makes an empty suffix unsatisfiable, and any other suffix of an empty object the
- * whole of it, which no `Content-Range` can name.
- */
-async function serveRequested(serving: ServeRequest, requested: RequestedRange): Promise<Response> {
-  if (!("suffixLength" in requested)) return await serveRange(serving, requested);
-
-  const { size } = await serving.storage.stat(serving.key, { signal: serving.signal });
-
-  if (requested.suffixLength === 0) return rangeNotSatisfiable(size);
-  if (size === 0) return await serveWhole(serving);
-
-  return await serveRange(serving, suffixOf(requested.suffixLength, size));
-}
-
 /** A `206` whose `Content-Range` follows the `stat` of `get`, which describes the bytes sent. */
-async function serveRange(serving: ServeRequest, range: ByteRange): Promise<Response> {
+async function serveRange(
+  serving: ServeRequest,
+  range: ByteRange,
+  planning?: Planning,
+): Promise<Response> {
   const { storage, key, signal } = serving;
   let object: StoredObject;
 
@@ -111,14 +212,36 @@ async function serveRange(serving: ServeRequest, range: ByteRange): Promise<Resp
 
     // Spec 4.3 refuses a start at or beyond the size without naming the size.
     if (thrown.code === "InvalidRequest") {
-      return rangeNotSatisfiable((await storage.stat(key, { signal })).size, thrown);
+      const stat = await storage.stat(key, { signal });
+      const changed = changedPlanOf(planning, stat);
+
+      if (planning !== undefined && changed !== undefined && !sendsRange(changed, range)) {
+        return isFailedPrecondition(changed.status)
+          ? failedAnswer(serving, changed.status, stat)
+          : await serveWhole(serving, { ...planning, stat });
+      }
+
+      return rangeNotSatisfiable(stat.size, thrown);
     }
 
     // ADR 0048: the refused range of a content-coded object (ADR 0044), which only the
     // message tells apart from a provider's failure, and that fails the whole `get` alike.
-    if (thrown.code === "ProviderError" && !thrown.retryable) return await serveWhole(serving);
+    if (thrown.code === "ProviderError" && !thrown.retryable) {
+      return await serveWhole(serving, planning);
+    }
 
     throw thrown;
+  }
+
+  const changed = changedPlanOf(planning, object.stat);
+
+  if (planning !== undefined && changed !== undefined && !sendsRange(changed, range)) {
+    await discard(object);
+
+    // Spec 10.3: at most one more `get`, and a whole one, decided again by its own `stat`.
+    return isFailedPrecondition(changed.status)
+      ? failedAnswer(serving, changed.status, object.stat)
+      : await serveWhole(serving, { ...planning, stat: object.stat });
   }
 
   const { size } = object.stat;
@@ -133,6 +256,18 @@ async function serveRange(serving: ServeRequest, range: ByteRange): Promise<Resp
   return new Response(object.stream(), { status: 206, headers });
 }
 
+function sendsRange(plan: Plan, range: ByteRange): boolean {
+  return plan.status === 206 && plan.range.start === range.start && plan.range.end === range.end;
+}
+
+/** Cancels the body of an object the answer does not send, which reaches the provider. */
+async function discard(object: StoredObject): Promise<void> {
+  await object
+    .stream()
+    .cancel()
+    .catch(() => {});
+}
+
 function objectHeaders({ storage, key, options }: ServeRequest, stat: ObjectStat): Headers {
   const headers = new Headers({
     "content-type": stat.contentType,
@@ -142,7 +277,7 @@ function objectHeaders({ storage, key, options }: ServeRequest, stat: ObjectStat
       options.filename ?? lastSegmentOf(key),
     ),
     "cache-control": options.cacheControl ?? "private, no-cache",
-    "last-modified": lastModifiedOf(stat),
+    "last-modified": lastModifiedOf(stat).toUTCString(),
   });
 
   // A storage that hands over no `etag`, `adapter-fs`, gets none derived for it: a tag
@@ -151,18 +286,4 @@ function objectHeaders({ storage, key, options }: ServeRequest, stat: ObjectStat
   if (storage.capabilities.includes("rangeReads")) headers.set("accept-ranges", "bytes");
 
   return headers;
-}
-
-/**
- * At whole seconds, and never later than now: RFC 9110 8.8.2 has a server send no
- * `Last-Modified` in its future, which a provider's clock ahead of the server's would
- * otherwise produce. The server writes its `Date` after this runs, so the cap stands in
- * for that date and never lies after it.
- */
-function lastModifiedOf(stat: ObjectStat): string {
-  const second = 1000;
-  const modified = Math.floor(stat.lastModified.getTime() / second) * second;
-  const now = Math.floor(Date.now() / second) * second;
-
-  return new Date(Math.min(modified, now)).toUTCString();
 }

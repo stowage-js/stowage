@@ -29,7 +29,7 @@ test("every HTTP case becomes one test inside `<name> over HTTP`, with the clean
   expect(tests).toEqual([...httpConformanceCases.map((source) => source.name), "cleanup"]);
 });
 
-test("the HTTP list holds the serving cases of spec 14.9 short of the preconditions", () => {
+test("the HTTP list holds the serving cases of spec 14.9", () => {
   expect(httpConformanceCases.map((source) => [source.name, source.requires])).toEqual([
     ["serve/whole", []],
     ["serve/headers", []],
@@ -41,6 +41,11 @@ test("the HTTP list holds the serving cases of spec 14.9 short of the preconditi
     ["serve/suffix-range", ["rangeReads"]],
     ["serve/unsatisfiable-range", ["rangeReads"]],
     ["serve/ignored-range", []],
+    ["serve/if-none-match", []],
+    ["serve/if-modified-since", []],
+    ["serve/if-match", []],
+    ["serve/if-unmodified-since", []],
+    ["serve/if-range", ["rangeReads"]],
   ]);
 });
 
