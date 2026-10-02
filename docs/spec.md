@@ -111,6 +111,14 @@ The servers, each against the runtimes its package promises (section 1):
   disconnecting cancels the stream `get` returned and reaches the provider, on every runtime of the
   cell, and memory stays flat through an upload and a download, on Node. A cell failing the
   disconnect test carries no "yes".
+- Three runtimes' own servers change an answer of the layer on its way to the socket, which a
+  client of the cell sees: `Bun.serve` and `Deno.serve` answer a `HEAD` with `Content-Length: 0`,
+  `Bun.serve` sends `Content-Length` with a body that is complete before the headers are written,
+  a small object's among them, and `workerd` sends every body that is a stream chunked and without
+  `Content-Length`, a `206` among them. A list beside each server in the private harness names
+  each change: in `serve/head` on `Bun.serve` and `Deno.serve`, `serve/whole` on `Bun.serve` and
+  `serve/range` on `workerd` the harness undoes it on that server's answers, so that the rest of
+  the case runs, and fails the run where the case meets no changed answer.
 - CI runs the floor and the newest release of each framework's major on Node 24 and Node 26. The
   floors are `@nestjs/common`, `@nestjs/core`, `@nestjs/platform-express` and
   `@nestjs/platform-fastify` 12.1.2, `hono` 4.13.12 on `@hono/node-server` 2.1.3, and `next`
@@ -2087,6 +2095,8 @@ framework. `IncomingMessage` and `ServerResponse` of `node:http` satisfy `NodeRe
   so the client sees an incomplete answer rather than a complete short one, and rejects with that
   error. That the request was a `HEAD` it learns from `toWebRequest` on the same `res`; without
   that call it writes the body it is handed, which no answer of the layer carries for a `HEAD`.
+- Once `writeResponse` has ended the response, a request body that no read of the `Request` asked
+  for, the body of a `413` by `Content-Length` among them, is let flow and dropped.
 - A client that left before `toWebRequest` or `writeResponse` was called is read from
   `res.destroyed`, since a closed `res` emits no `close` for a listener added later and answers
   every `write` with `false` and no `drain`. The signal of `toWebRequest` is then aborted when the

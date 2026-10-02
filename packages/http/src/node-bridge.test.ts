@@ -23,6 +23,7 @@ class StreamingRequest implements NodeRequest {
   readonly socket = {};
   readableDidRead = false;
   paused = false;
+  resumed = false;
   readonly method: string;
   private readonly listeners = new Map<string, ((value: never) => void)[]>();
   private readonly unread: Uint8Array[] = [];
@@ -54,6 +55,7 @@ class StreamingRequest implements NodeRequest {
 
   resume(): this {
     this.paused = false;
+    this.resumed = true;
 
     return this;
   }
@@ -346,6 +348,65 @@ describe("the body of `toWebRequest`", () => {
     res.disconnect();
 
     expect((await answered).status).toBe(400);
+  });
+
+  test("lets `req` flow once `writeResponse` ended a response that left the body unread", async () => {
+    const req = new StreamingRequest();
+    const res = new RecordedResponse();
+
+    toWebRequest(req, res);
+    await writeResponse(res, new Response(null, { status: 413 }));
+
+    expect(req.resumed).toBe(true);
+    expect(req.listenerCount("data")).toBe(0);
+  });
+
+  test.each([null, "refused"])(
+    "drains a partially read body whose reader was released, with response body %s",
+    async (responseBody) => {
+      const req = new StreamingRequest();
+      const res = new RecordedResponse();
+      const body = toWebRequest(req, res).body;
+      const reader = body?.getReader();
+      const first = reader?.read();
+
+      await settle();
+      req.emit("data", bytes("one"));
+      await first;
+      reader?.releaseLock();
+
+      expect(req.paused).toBe(true);
+
+      await writeResponse(res, new Response(responseBody, { status: 413 }));
+      req.emit("data", bytes("two"));
+      req.emit("end");
+
+      expect(req.paused).toBe(false);
+      await expect(body?.getReader().read()).resolves.toEqual({ done: true, value: undefined });
+    },
+  );
+
+  test("leaves `req` paused where the body is still being read as the response ends", async () => {
+    const req = new StreamingRequest();
+    const res = new RecordedResponse();
+    const reader = toWebRequest(req, res).body?.getReader();
+    const first = reader?.read();
+
+    await settle();
+    req.emit("data", bytes("one"));
+    await first;
+    await writeResponse(res, new Response(null, { status: 202 }));
+
+    expect(req.paused).toBe(true);
+
+    const second = reader?.read();
+
+    await settle();
+    req.emit("data", bytes("two"));
+    req.emit("end");
+
+    expect(new TextDecoder().decode((await second)?.value)).toBe("two");
+    await expect(reader?.read()).resolves.toEqual({ done: true, value: undefined });
   });
 
   test("resumes `req` once the body is canceled and drops what follows", async () => {

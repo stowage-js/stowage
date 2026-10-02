@@ -1,17 +1,10 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { copyFile, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { get, type IncomingMessage } from "node:http";
-import { createRequire } from "node:module";
-import { join } from "node:path";
 import { env } from "node:process";
-import { createInterface } from "node:readline";
-import { Readable } from "node:stream";
 import { text } from "node:stream/consumers";
 import { setTimeout } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
-
-import { build } from "tsdown";
 
 import type { ConformanceFramework } from "../../../packages/conformance/src/describe.ts";
 import type { ConformanceResult } from "../../../packages/conformance/src/result.ts";
@@ -28,8 +21,7 @@ import { endpointTiersFrom } from "../../targets/src/endpoints.ts";
 import type { FromEnvOutcome } from "./from-env.ts";
 import type { NodeApiReach } from "./node-api.ts";
 import { describeCoreReply, describeResults, type Reply, settled } from "./reply.ts";
-
-const harnessDirectory = fileURLToPath(new URL("..", import.meta.url));
+import { listeningPorts, spawnWorkerd } from "./workerd-process.ts";
 
 /**
  * ADR 0006: `workerd` has no test function to hand the cases to, so the worker runs them
@@ -40,9 +32,6 @@ const harnessDirectory = fileURLToPath(new URL("..", import.meta.url));
  * reports on its own, so that one that fails leaves the answers of the others in the report.
  */
 export async function describeWorkerd(framework: ConformanceFramework): Promise<WorkerdRun> {
-  await bundleWorker();
-  await placeTrustedCertificate();
-
   const endpointTiers = endpointTiersFrom(env);
   const configured = endpointTiers.has("s3") ? configuredStorage() : undefined;
   const configuredAzureBlob = endpointTiers.has("azure-blob")
@@ -238,56 +227,16 @@ export interface Probes {
   readonly fromEnv: Reply<FromEnvOutcome>;
 }
 
-/** `src/worker.ts` as the one module `workerd.capnp` embeds. */
-async function bundleWorker(): Promise<void> {
-  await build({
-    config: false,
-    cwd: harnessDirectory,
-    entry: { worker: "src/worker.ts" },
-    outDir: "dist",
-    format: "esm",
-    platform: "neutral",
-    fixedExtension: false,
-    dts: false,
-    logLevel: "warn",
-  });
-}
-
-/**
- * ADR 0023: `workerd.capnp` trusts the certificate `harness/azure-blob/start.sh` generates,
- * and `workerd` refuses to start on a missing or empty file. Where no Azurite was started, a
- * certificate whose key nobody holds stands in, so that the run reports the missing endpoint
- * as a failed check (ADR 0012) and the other adapters' results still arrive.
- */
-async function placeTrustedCertificate(): Promise<void> {
-  const trusted = join(harnessDirectory, "dist", "trusted-certificate.pem");
-
-  try {
-    await copyFile(join(harnessDirectory, "..", "azure-blob", "certificate", "cert.pem"), trusted);
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
-
-    await copyFile(join(harnessDirectory, "placeholder-certificate.pem"), trusted);
-  }
-}
-
 async function withWorkerd<T>(
   { verbose }: { readonly verbose: boolean },
   use: (workerd: Workerd) => Promise<T>,
 ): Promise<T> {
-  // The package hands out the path of the binary built for this machine as its default
-  // export.
-  const workerd: { readonly default: string } = createRequire(import.meta.url)("workerd");
   const flags = verbose ? ["--verbose"] : [];
-
-  const child = spawn(workerd.default, ["serve", "workerd.capnp", "--control-fd=3", ...flags], {
-    cwd: harnessDirectory,
-    stdio: ["ignore", "inherit", "inherit", "pipe"],
-  });
+  const child = spawnWorkerd(["workerd.capnp", ...flags]);
   const exited = once(child, "exit").catch(() => {});
 
   try {
-    const ports = await listeningPorts(child);
+    const ports = await listeningPorts(child, sockets);
 
     return await use({
       origins: {
@@ -313,42 +262,6 @@ function stateOf(child: ChildProcess): string {
   if (child.exitCode !== null) return `\`workerd\` ended with exit code ${child.exitCode}`;
 
   return "`workerd` still running";
-}
-
-/** The ports `workerd` reports on the control descriptor once both sockets listen. */
-async function listeningPorts(child: ChildProcess): Promise<Record<Socket, number>> {
-  const [, , , control] = child.stdio;
-
-  if (!(control instanceof Readable)) throw new Error("`workerd` has no control descriptor");
-
-  const ports = new Map<Socket, number>();
-
-  for await (const line of createInterface({ input: control })) {
-    const message: {
-      readonly event?: unknown;
-      readonly socket?: unknown;
-      readonly port?: unknown;
-    } = JSON.parse(line);
-
-    if (
-      message.event === "listen" &&
-      isSocket(message.socket) &&
-      typeof message.port === "number"
-    ) {
-      ports.set(message.socket, message.port);
-    }
-
-    const harness = ports.get("harness");
-    const defaults = ports.get("defaults");
-
-    if (harness !== undefined && defaults !== undefined) return { harness, defaults };
-  }
-
-  throw new Error("`workerd` exited before its sockets listened");
-}
-
-function isSocket(value: unknown): value is Socket {
-  return sockets.some((socket) => socket === value);
 }
 
 /**
