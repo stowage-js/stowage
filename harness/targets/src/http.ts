@@ -8,7 +8,12 @@ import {
 import type { ConformanceFramework } from "../../../packages/conformance/src/describe.ts";
 import { describeHttpConformance } from "../../../packages/conformance/src/describe-http.ts";
 import type { HttpConformanceTarget } from "../../../packages/conformance/src/http-target.ts";
-import { serveObject, toWebRequest, writeResponse } from "../../../packages/http/src/index.ts";
+import {
+  redirectToObject,
+  serveObject,
+  toWebRequest,
+  writeResponse,
+} from "../../../packages/http/src/index.ts";
 
 export interface ServedTarget {
   readonly target: HttpConformanceTarget;
@@ -105,6 +110,7 @@ async function answer(storage: S3Storage, url: string, request: Request): Promis
   }
 
   if (route === "serve") return await serveObject(storage, key, request);
+  if (route === "redirect") return await redirectToObject(storage, key, request, { expiresIn: 60 });
 
   return new Response(null, { status: 404 });
 }

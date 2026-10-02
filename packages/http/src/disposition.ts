@@ -4,14 +4,28 @@ const utf8 = new TextEncoder();
  * Spec 10.3: the fallback holds no `%XX` and no `\` a recipient might decode, and
  * `filename*` is always sent beside it, so the fallback only has to be harmless.
  */
-export function contentDisposition(type: "attachment" | "inline", name: string): string {
+function contentDisposition(type: "attachment" | "inline", name: string): string {
   if (name === "") return type;
 
   return `${type}; filename="${fallbackOf(name)}"; filename*=UTF-8''${extendedValueOf(name)}`;
 }
 
+/**
+ * The `Content-Disposition` of a download of `key`, by default an attachment named after
+ * the key's last segment.
+ */
+export function dispositionOf(
+  key: string,
+  options: { readonly filename?: string; readonly disposition?: "attachment" | "inline" },
+): string {
+  return contentDisposition(
+    options.disposition ?? "attachment",
+    options.filename ?? lastSegmentOf(key),
+  );
+}
+
 /** The name a key gives a download: its last segment, empty for a key ending in `/`. */
-export function lastSegmentOf(key: string): string {
+function lastSegmentOf(key: string): string {
   return key.slice(key.lastIndexOf("/") + 1);
 }
 

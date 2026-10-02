@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from "vitest";
 
-import { serveObject } from "../../../packages/http/src/index.ts";
+import { redirectToObject, serveObject } from "../../../packages/http/src/index.ts";
 import { nodeBridgeTarget, type ServedTarget } from "./http.ts";
 
 vi.mock("../../../packages/http/src/index.ts", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../packages/http/src/index.ts")>()),
   serveObject: vi.fn<typeof serveObject>(async () => new Response("served")),
+  redirectToObject: vi.fn<typeof redirectToObject>(async () => new Response("redirected")),
 }));
 
 let served: ServedTarget;
@@ -45,6 +46,23 @@ test.each(["report.txt", "docs/report?100%.txt", "café 😀.txt", "%2F"])(
       expect.any(Object),
       key,
       expect.objectContaining({ method: "GET", url: url.href }),
+    );
+  },
+);
+
+test.each(["GET", "HEAD", "POST", "PUT", "DELETE"])(
+  "the redirect route hands `%s` to redirectToObject with `expiresIn: 60`",
+  async (method) => {
+    const url = served.target.url("redirect", "docs/report?100%.txt");
+    const response = await fetch(url, { method, redirect: "manual" });
+
+    expect(response.status).toBe(200);
+    await response.arrayBuffer();
+    expect(redirectToObject).toHaveBeenCalledExactlyOnceWith(
+      expect.any(Object),
+      "docs/report?100%.txt",
+      expect.objectContaining({ method, url: url.href }),
+      { expiresIn: 60 },
     );
   },
 );

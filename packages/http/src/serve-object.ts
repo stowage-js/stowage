@@ -8,7 +8,7 @@ import {
 } from "@stowage/core";
 
 import { answerFor, methodNotAllowed, rangeNotSatisfiable } from "./answers.ts";
-import { contentDisposition, lastSegmentOf } from "./disposition.ts";
+import { dispositionOf } from "./disposition.ts";
 import { lastModifiedOf } from "./http-date.ts";
 import {
   type FailedPrecondition,
@@ -272,10 +272,7 @@ function objectHeaders({ storage, key, options }: ServeRequest, stat: ObjectStat
   const headers = new Headers({
     "content-type": stat.contentType,
     "x-content-type-options": "nosniff",
-    "content-disposition": contentDisposition(
-      options.disposition ?? "attachment",
-      options.filename ?? lastSegmentOf(key),
-    ),
+    "content-disposition": dispositionOf(key, options),
     "cache-control": options.cacheControl ?? "private, no-cache",
     "last-modified": lastModifiedOf(stat).toUTCString(),
   });

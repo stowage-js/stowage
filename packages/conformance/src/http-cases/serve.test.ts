@@ -4,7 +4,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import type { HttpConformanceTarget } from "../http-target.ts";
 import { createKeyPrefix, selectHalf, startRun } from "../run.ts";
 import { stubStorage } from "../stubs.ts";
-import { httpConformanceCases } from "./index.ts";
+import { serveCases } from "./serve.ts";
 
 /** One way of answering that departs from spec 10.3, which exactly one case is after. */
 type Flaw =
@@ -290,7 +290,7 @@ async function runAgainst(name: string, server: Server = {}): Promise<void> {
     createStorage: () => storage,
     url: (route, key) => new URL(`http://server.test/${route}/${encodeURIComponent(key)}`),
   };
-  const source = httpConformanceCases.find((each) => each.name === name);
+  const source = serveCases.find((each) => each.name === name);
 
   if (source === undefined) throw new Error(`The HTTP suite holds no case named ${name}`);
 
@@ -307,7 +307,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test.each(httpConformanceCases.map((source) => source.name))(
+test.each(serveCases.map((source) => source.name))(
   "`%s` passes against a server answering as spec 10.3 has it",
   async (name) => {
     await expect(runAgainst(name)).resolves.toBeUndefined();
@@ -315,7 +315,7 @@ test.each(httpConformanceCases.map((source) => source.name))(
   },
 );
 
-test.each(httpConformanceCases.map((source) => source.name))(
+test.each(serveCases.map((source) => source.name))(
   "`%s` passes against such a server behind a storage handing over no `etag`",
   async (name) => {
     await expect(runAgainst(name, { etag: undefined })).resolves.toBeUndefined();
