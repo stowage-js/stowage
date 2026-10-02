@@ -5,8 +5,7 @@ import { withStorage } from "../../../packages/hono/src/index.ts";
 import { acceptUpload, redirectToObject, serveObject } from "../../../packages/http/src/index.ts";
 import { presign, type RouteOptions, suiteRoutes } from "./routes.ts";
 
-/** What a route reads besides the request: the storage `withStorage` set. */
-type Routed = { Variables: { storage: S3Storage } };
+type StorageVariables = { Variables: { storage: S3Storage } };
 
 /**
  * The methods spec 14.8 has the cases send to a route that hands each one to the layer.
@@ -24,8 +23,8 @@ const sentMethods = ["GET", "POST", "PUT", "DELETE"];
 export function honoApp<E extends Env>(
   storage: S3Storage | ((c: Context<E>) => S3Storage),
   routes: RouteOptions = suiteRoutes,
-): Hono<Routed> {
-  return new Hono<Routed>()
+): Hono<StorageVariables> {
+  return new Hono<StorageVariables>()
     .use(withStorage("storage", storage))
     .on(
       sentMethods,

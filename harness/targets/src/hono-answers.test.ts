@@ -18,7 +18,7 @@ import { listening } from "./http.ts";
 // apart from it.
 const NativeResponse = globalThis.Response;
 
-/** How an answer of the layer was built, and what the layer recognises it by. */
+/** Whether `answer` was built with the subclass rather than with the native `Response`. */
 function builtWith(answer: Response): { subclass: boolean } {
   return { subclass: answer.constructor !== NativeResponse && answer instanceof NativeResponse };
 }
