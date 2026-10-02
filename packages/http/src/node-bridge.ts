@@ -41,9 +41,16 @@ const exchanges = new WeakMap<NodeResponse, Exchange>();
  * The web `Request` for a Node request. Its body streams `req` with backpressure for any
  * method but `GET` and `HEAD`. Its signal aborts once `res` closes before it has finished,
  * which is a client disconnecting; the request's own `close` is no such signal, since Node
- * emits it as soon as the body is read.
+ * emits it as soon as the body is read. A `req` whose body was already read is a
+ * `TypeError` (ADR 0051).
  */
 export function toWebRequest(req: NodeRequest, res: NodeResponse): Request {
+  // A body parser in front, `express.json()` or NestJS's default among them, would leave
+  // the layer an empty body to store.
+  if (req.readableDidRead) {
+    throw new TypeError("The body of `req` was read before `toWebRequest`, by a body parser or so");
+  }
+
   const method = req.method ?? "GET";
   const exchange: Exchange = { method, disconnected: false };
   const controller = new AbortController();

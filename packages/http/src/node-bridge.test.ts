@@ -214,6 +214,12 @@ describe("`toWebRequest`", () => {
     expect(await read).toBe("x");
     expect(request.signal.aborted).toBe(false);
   });
+
+  test("throws a `TypeError` for a `req` whose body was already read", () => {
+    expect(() =>
+      toWebRequest(nodeRequest({ readableDidRead: true }), new RecordedResponse()),
+    ).toThrow(TypeError);
+  });
 });
 
 describe("the body of `toWebRequest`", () => {
