@@ -24,6 +24,17 @@ type Flaw =
 
 const provider = "http://provider.test";
 
+/** What the stub storage signs an upload with, which the reference server answers with. */
+async function presignPut(
+  key: string,
+  options: { readonly contentType: string },
+): Promise<{ url: string; headers: Record<string, string> }> {
+  return {
+    url: `${provider}/${encodeURIComponent(key)}?signed`,
+    headers: { "content-type": options.contentType },
+  };
+}
+
 interface Held {
   readonly bytes: Uint8Array;
   readonly contentType: string;
@@ -53,18 +64,11 @@ function heldStorage(
     },
   });
 
-  return fields.presigns
-    ? Object.assign(storage, {
-        presignPut: async (key: string, options: { contentType: string }) => ({
-          url: `${provider}/${encodeURIComponent(key)}?signed`,
-          headers: { "content-type": options.contentType },
-        }),
-      })
-    : storage;
+  return fields.presigns ? Object.assign(storage, { presignPut }) : storage;
 }
 
 /** Spec 10.6's checks of the client's values, short of what `flaw` lets through. */
-function refusalOf(key: string, contentType: unknown, contentLength: unknown, flaw?: Flaw) {
+function refusedStatus(key: string, contentType: unknown, contentLength: unknown, flaw?: Flaw) {
   const length = flaw === "string-length" ? Number(contentLength) : contentLength;
 
   if (typeof length !== "number" || !Number.isInteger(length) || length < 0) return 400;
@@ -77,12 +81,7 @@ function refusalOf(key: string, contentType: unknown, contentLength: unknown, fl
 }
 
 /** What spec 14.8 has a server answer for the `presign` route, short of what `flaw` breaks. */
-async function answer(
-  storage: Storage,
-  held: Map<string, Held>,
-  request: Request,
-  flaw?: Flaw,
-): Promise<Response> {
+async function answer(held: Map<string, Held>, request: Request, flaw?: Flaw): Promise<Response> {
   const key = decodeURIComponent(new URL(request.url).pathname.slice("/presign/".length));
 
   if (request.method === "PUT" && flaw === "put-stored") {
@@ -107,14 +106,11 @@ async function answer(
       ? // oxlint-disable-next-line no-unsafe-type-assertion -- what every case of this file sends
         ((await request.json()) as { contentType: unknown; contentLength: unknown })
       : { contentType: "text/plain", contentLength: 11 };
-  const status = refusalOf(key, contentType, contentLength, flaw);
+  const status = refusedStatus(key, contentType, contentLength, flaw);
 
   if (status !== undefined) return new Response(null, { status });
 
-  // oxlint-disable-next-line no-unsafe-type-assertion -- the storage presigns where it declares
-  const { url, headers } = await (storage as Storage & { presignPut: PresignPut }).presignPut(key, {
-    contentType: String(contentType),
-  });
+  const { url, headers } = await presignPut(key, { contentType: String(contentType) });
 
   return new Response(
     JSON.stringify({
@@ -132,11 +128,6 @@ async function answer(
     },
   );
 }
-
-type PresignPut = (
-  key: string,
-  options: { contentType: string },
-) => Promise<{ url: string; headers: Record<string, string> }>;
 
 /** The provider behind a presigned URL, storing a signed `PUT` with the type it carries. */
 async function upload(held: Map<string, Held>, request: Request): Promise<Response> {
@@ -181,7 +172,7 @@ async function runAgainst(name: string, server: Server = {}): Promise<void> {
 
     return request.url.startsWith(provider)
       ? await upload(held, request)
-      : await answer(storage, held, request, flaw);
+      : await answer(held, request, flaw);
   });
 
   await selectHalf(source, await startRun(target, createKeyPrefix())).run();
