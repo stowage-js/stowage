@@ -5,6 +5,7 @@ import type { ConformanceFramework } from "../../../packages/conformance/src/des
 import { describeHttpConformance } from "../../../packages/conformance/src/describe-http.ts";
 import type { HttpConformanceTarget } from "../../../packages/conformance/src/http-target.ts";
 import { toWebRequest, writeResponse } from "../../../packages/http/src/index.ts";
+import { describeDisconnect, type Runtime } from "./disconnect.ts";
 import { type RouteOptions, routeUrls, routesOf } from "./routes.ts";
 
 export interface ServedTarget {
@@ -46,21 +47,39 @@ export async function servedTarget(
 }
 
 /**
- * The HTTP suite against a server that runs, and one test saying why none does: ADR 0050
- * puts `adapter-s3` on SeaweedFS behind every server, so a run without that endpoint has no
- * server to start. Where the run asked for the endpoint, its check in `describeAdapters`
- * fails that run, which is the failure ADR 0012 asks for.
+ * Spec 2's cells of `servers` on `runtime`: the HTTP suite against each server that runs,
+ * and the disconnect test of spec 14.8 beside it, which a cell needs as much as the suite.
+ * ADR 0050 puts `adapter-s3` on SeaweedFS behind every server, so a run without that
+ * endpoint has no server to start, and one test per server says so; where the run asked
+ * for the endpoint, its check in `describeAdapters` fails that run, which is the failure
+ * ADR 0012 asks for. Resolves to what closes the servers once the run is over.
  */
-export function describeServed(
-  served: ServedTarget | undefined,
+export async function describeServers(
+  servers: readonly HttpServer[],
+  runtime: Runtime,
+  configured: S3AdapterOptions | undefined,
   framework: ConformanceFramework,
-): void {
-  if (served === undefined) {
-    framework.test("the HTTP conformance suite (skipped: no S3 endpoint)", async () => {});
-    return;
+): Promise<() => Promise<void>> {
+  const served =
+    configured === undefined
+      ? []
+      : await Promise.all(servers.map(async (server) => await servedTarget(server, configured)));
+
+  for (const [index, server] of servers.entries()) {
+    const target = served[index]?.target;
+
+    if (target === undefined) {
+      framework.test(`${server.name} over HTTP (skipped: no S3 endpoint)`, async () => {});
+    } else {
+      describeHttpConformance(target, framework);
+    }
+
+    describeDisconnect(server, runtime, configured, framework);
   }
 
-  describeHttpConformance(served.target, framework);
+  return async () => {
+    await Promise.all(served.map(async (each) => await each.close()));
+  };
 }
 
 /** Spec 2's cells of `@stowage/http` and of the Node bridge on `node:http`'s `createServer`. */
