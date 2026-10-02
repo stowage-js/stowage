@@ -32,14 +32,14 @@ const published = [
   conformance,
 ];
 
-/** Spec 12 gives `@stowage/conformance` a shape of its own and these six the same sections. */
+/** Spec 16 gives `@stowage/conformance` a shape of its own and these six the same sections. */
 const sectioned = [core, adapterMemory, adapterFs, adapterS3, adapterAzureBlob, adapterGcs];
 
-/** Spec 12: the sections a README carries, in this order, before anything else it holds. */
+/** Spec 16: the sections a README carries, in this order, before anything else it holds. */
 const packageSections = ["Install", "Example", "Runtimes", "Limits", "Notes", "Specification"];
 
 test.each(sectioned)(
-  "the README of $name carries the sections of spec 12 in order",
+  "the README of $name carries the sections of spec 16 in order",
   async (manifest) => {
     const headings = headingsOf(await readmeOf(manifest));
 
@@ -47,7 +47,7 @@ test.each(sectioned)(
   },
 );
 
-test("the README of @stowage/conformance carries the shape spec 12 gives it", async () => {
+test("the README of @stowage/conformance carries the shape spec 16 gives it", async () => {
   const text = await readmeOf(conformance);
 
   expect(text).toContain("describeConformance");
@@ -105,7 +105,7 @@ test("the README of @stowage/adapter-azure-blob writes its example with an acces
   expect(example).not.toContain("accountKey");
 });
 
-test("the README of @stowage/adapter-azure-blob names the limits of spec 12", async () => {
+test("the README of @stowage/adapter-azure-blob names the limits of spec 16", async () => {
   const limits = sectionOf(await readmeOf(adapterAzureBlob), "Limits");
 
   expect(limits).toContain("`userMetadataTokenKeys` is not declared");
@@ -117,9 +117,9 @@ test("the README of @stowage/adapter-azure-blob names the limits of spec 12", as
   expect(limits).toContain("#82-promised-provider");
 });
 
-// Spec 12 orders the notes of `adapter-azure-blob`; each marker is where one note first
+// Spec 16 orders the notes of `adapter-azure-blob`; each marker is where one note first
 // shows, so a note moved out of its place moves its marker past the next one.
-test("the README of @stowage/adapter-azure-blob orders its notes as spec 12 does", async () => {
+test("the README of @stowage/adapter-azure-blob orders its notes as spec 16 does", async () => {
   const notes = sectionOf(await readmeOf(adapterAzureBlob), "Notes");
   const positions = [
     "getToken",
@@ -142,7 +142,7 @@ test("the README of @stowage/adapter-gcs writes its example with an access token
   expect(example).not.toContain("privateKey");
 });
 
-test("the README of @stowage/adapter-gcs names the limits of spec 12", async () => {
+test("the README of @stowage/adapter-gcs names the limits of spec 16", async () => {
   const limits = sectionOf(await readmeOf(adapterGcs), "Limits");
 
   expect(limits).toContain("`presignedUrls` is declared only with a `signer`");
@@ -158,8 +158,8 @@ test("the README of @stowage/adapter-gcs names the limits of spec 12", async () 
   expect(limits).toContain("#92-promised-provider");
 });
 
-// Spec 12 gives the notes of `adapter-gcs` an order of their own, held by the same markers.
-test("the README of @stowage/adapter-gcs orders its notes as spec 12 does", async () => {
+// Spec 16 gives the notes of `adapter-gcs` an order of their own, held by the same markers.
+test("the README of @stowage/adapter-gcs orders its notes as spec 16 does", async () => {
   const notes = sectionOf(await readmeOf(adapterGcs), "Notes");
   const positions = [
     "GoogleAuth",
@@ -182,7 +182,7 @@ test("the README of @stowage/adapter-gcs names the scope a storage token needs",
   expect(notes).toContain("https://www.googleapis.com/auth/devstorage.read_write");
 });
 
-// Spec 12 shows no key exchange: a token is acquired by the caller's library or resolver,
+// Spec 16 shows no key exchange: a token is acquired by the caller's library or resolver,
 // never at Google's token endpoint in a block of this README.
 test("the README of @stowage/adapter-gcs shows no key exchange", async () => {
   const text = await readmeOf(adapterGcs);
@@ -205,7 +205,7 @@ function compareVersions(left: string, right: string): number {
   return 0;
 }
 
-// Spec 12 links the spec at the tag of the package's release, which changesets names
+// Spec 16 links the spec at the tag of the package's release, which changesets names
 // `<name>@<version>`. The version the tag names is the release the README goes out with, so
 // it is never older than the manifest's: a version bump that leaves the link behind fails
 // here instead of sending a caller to promises an older release made. The links are written

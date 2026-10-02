@@ -19,7 +19,7 @@ const expiryMargin = 60_000;
 
 /**
  * `adapter-s3` against the endpoint of ADR 0012, as every runtime's harness runs it. The
- * default cleanup of spec 10.2 is the one wanted: a fresh storage deleting below the prefix.
+ * default cleanup of spec 14.2 is the one wanted: a fresh storage deleting below the prefix.
  */
 export function s3Target(configured: S3AdapterOptions, variables: Variables): ConformanceTarget {
   const denied = storageWithDeniedCredentials(configured, variables);
@@ -34,7 +34,7 @@ export function s3Target(configured: S3AdapterOptions, variables: Variables): Co
 
     createStorageWithMissingBucket: () => s3Storage(storageWithMissingBucket(configured)),
 
-    // Spec 10.2 keeps the case out of a run where the target supplies no factory, which is
+    // Spec 14.2 keeps the case out of a run where the target supplies no factory, which is
     // what an endpoint without the second identity of `s3.json` leaves.
     ...(denied === undefined
       ? {}

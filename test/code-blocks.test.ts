@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { afterAll, beforeAll, expect, test } from "vitest";
 
-// Spec 12: every `ts` block in a README and in the spec compiles against the built
+// Spec 16: every `ts` block in a README and in the spec compiles against the built
 // declarations, so this test reads `packages/*/dist` and needs `pnpm build` in front of it.
 const repository = fileURLToPath(new URL("../", import.meta.url));
 
@@ -23,14 +23,19 @@ const documents = [
 ];
 
 /** The package whose declarations the blocks of a spec section are written against. */
-const packageOfSpecSection: Readonly<Record<string, string>> = {
+const packageOfSpecSection: Readonly<Record<string, string | null>> = {
   "4": "core",
   "5": "adapter-memory",
   "6": "adapter-fs",
   "7": "adapter-s3",
   "8": "adapter-azure-blob",
   "9": "adapter-gcs",
-  "10": "conformance",
+  // Defer these sections until the HTTP and integration packages exist.
+  "10": null,
+  "11": null,
+  "12": null,
+  "13": null,
+  "14": "conformance",
 };
 
 interface CodeBlock {
@@ -144,6 +149,13 @@ const blocks: CodeBlock[] = (
   await Promise.all(documents.map(async (document) => codeBlocksOf(document, await read(document))))
 ).flat();
 
+const deferredBlocks = new Set(
+  blocks.filter(
+    (block) => block.specSection !== undefined && packageOfSpecSection[block.specSection] === null,
+  ),
+);
+const compiledBlocks = blocks.filter((block) => !deferredBlocks.has(block));
+
 /** Every name a package exports, read from the declarations its build wrote. */
 async function exportsOf(name: string): Promise<string[]> {
   const declarations = await read(`packages/${name}/dist/index.d.ts`);
@@ -179,7 +191,8 @@ async function importLineFor(block: CodeBlock): Promise<string> {
 
   const name = packageOfSpecSection[block.specSection];
 
-  if (name === undefined) throw new Error(`${block.name} lies in no section of a package`);
+  if (name === undefined || name === null)
+    throw new Error(`${block.name} lies in no section of a package`);
 
   const declared = declaredNamesOf(block.source);
   const statements = await Promise.all(
@@ -216,7 +229,7 @@ beforeAll(async () => {
   await writeFile(join(directory, "package.json"), JSON.stringify({ type: "module" }));
 
   const files = await Promise.all(
-    blocks.map(async (block, index) => {
+    compiledBlocks.map(async (block, index) => {
       const file = `block-${index}.ts`;
 
       await writeFile(
@@ -246,7 +259,7 @@ beforeAll(async () => {
     }),
   );
 
-  const found = diagnosticsOf(await compile(directory), blocks);
+  const found = diagnosticsOf(await compile(directory), compiledBlocks);
 
   for (const [name, messages] of found) diagnostics.set(name, messages);
 });
@@ -343,10 +356,12 @@ async function compile(project: string): Promise<Compilation> {
 }
 
 test("the documents hold code blocks to compile", () => {
-  expect(blocks.length).toBeGreaterThan(0);
+  expect(compiledBlocks.length).toBeGreaterThan(0);
 });
 
-test.each(blocks)("$name compiles against the built declarations", (block) => {
+test.for(blocks)("$name compiles against the built declarations", (block, { skip }) => {
+  if (deferredBlocks.has(block)) skip("Awaiting this section's package implementation");
+
   expect(diagnostics.get(block.name) ?? []).toEqual([]);
 });
 

@@ -10,7 +10,7 @@ import { importPrivateKey, signWith } from "./private-key.ts";
  * are signed with: `storage/v1/v4_signatures.json` and `test_service_account.not-a-test.json` of
  * `googleapis/conformance-tests` at 905d67f4ecd6d0a172d369bbe5b4762f79edca49, under the Apache
  * License 2.0. The vectors are unchanged but for formatting; of the key file only the service
- * account and the key are kept (spec 10.4, ADR 0035).
+ * account and the key are kept (spec 14.4, ADR 0035).
  */
 
 interface SigningVector {

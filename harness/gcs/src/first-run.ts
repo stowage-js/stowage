@@ -16,7 +16,7 @@ const probe = (title: string): FirstRunTest => ({ suite: firstRunSuite, title })
 const conformanceCase = (title: string): FirstRunTest => ({ suite: gcsSuite, title });
 
 /**
- * Spec 14 on `adapter-gcs` as it stood before the first run against the bucket, point by
+ * Spec 18 on `adapter-gcs` as it stood before the first run against the bucket, point by
  * point, with what the scheduled run reads each one off. A point stated as a promise holds or
  * is disproved; the one recorded reads what the run observed.
  */

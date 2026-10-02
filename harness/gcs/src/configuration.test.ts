@@ -180,7 +180,7 @@ test("the bad credential is a token Google refuses, on every call", async () => 
   });
 });
 
-// Spec 14: the probe asks the bucket with a token of the account the suite runs as.
+// Spec 18: the probe asks the bucket with a token of the account the suite runs as.
 test("the expiring token is the service account's with the storage scope, for the lifetime asked", async () => {
   stubFederation();
 

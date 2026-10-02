@@ -16,7 +16,7 @@ const providerCodes: ReadonlyMap<string, StorageErrorCode> = new Map([
   // R2's, answered at `401`.
   ["Unauthorized", "InvalidCredentials"],
   ["ExpiredToken", "Expired"],
-  // R2's; provisional, because no run can provoke it against R2 yet (spec 14).
+  // R2's; provisional, because no run can provoke it against R2 yet (spec 18).
   ["ExpiredRequest", "Expired"],
   // A clock that has drifted is the caller's own bug and arrives at `403`, which is what
   // keeps it out of the retry group without a rule of its own (ADR 0013).

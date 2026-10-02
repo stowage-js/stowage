@@ -222,14 +222,36 @@ A host inherits what its runtime can do and adds limits of its own. stowage name
 hosts.
 _Avoid_: platform, provider, deployment target
 
+**HTTP layer**:
+The part of stowage that answers a web request on a storage's behalf — serving an object,
+redirecting to a presigned download, accepting an upload body, handing out a presigned upload — for
+a key the caller has already named. It speaks web `Request` and `Response` and knows no framework,
+so any framework that speaks them reaches stowage through it. Routing, authorization and naming the key stay with the caller.
+_Avoid_: neutral layer, middleware, handler, server
+
+**Integration**:
+A package that wires a storage into one framework, so the framework's own code reaches it the
+framework's own way, and serves it through the HTTP layer. stowage has one for NestJS, Hono and
+Next.js; every other framework is reached through the HTTP layer alone.
+_Avoid_: plugin, module, binding, adapter
+
+**Node bridge**:
+The part of the HTTP layer that translates between Node's own request and response and web
+`Request` and `Response`, for servers that cannot send a web `Response` themselves. What it promises
+is that protocol, not a framework built on it.
+_Avoid_: shim, polyfill, adapter
+
 **Reference flow**:
-One of the five call sequences that stowage is designed to support, each of which names the
-adapters and runtimes it covers and the conditions under which it counts as supported.
+One of the five call sequences against a storage that stowage is designed to support, each of
+which names the adapters and runtimes it covers and the conditions under which it counts as
+supported. A route of the HTTP layer carries a flow; it is not one.
 _Avoid_: use case, user story, scenario
 
 **Runtime matrix**:
-The grid of reference flows against runtimes that fixes what a release promises. A cell counts as
-supported only where the conformance suite covers it, and there is no weaker level below that.
+The grid that fixes what a release promises: reference flows against runtimes, and beside them the
+HTTP layer, the Node bridge and each integration against runtimes. A cell counts as supported only
+where the conformance suite or, for a server, the HTTP conformance suite covers it, and there is no
+weaker level below that.
 _Avoid_: support matrix, compatibility table
 
 **Conformance suite**:
@@ -246,6 +268,16 @@ _Avoid_: test, check, scenario
 What an adapter supplies so the conformance suite can run against it: how to construct a storage
 and how to clean up afterwards. What that storage supports the suite reads from the storage.
 _Avoid_: fixture, subject, adapter under test
+
+**HTTP conformance suite**:
+The published set of cases a server runs to show that it answers over HTTP as the HTTP layer
+specifies. It asserts what a client can observe over HTTP, and nothing below that.
+_Avoid_: integration tests, server tests, e2e suite
+
+**HTTP conformance target**:
+What a server supplies so the HTTP conformance suite can run against it: a storage addressing the
+objects the server serves, and the address of the route that gives each answer for a key.
+_Avoid_: test app, fixture, server under test
 
 **Harness**:
 The code that runs the conformance cases on one runtime and reports them. Every runtime has its

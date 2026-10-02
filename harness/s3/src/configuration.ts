@@ -33,7 +33,7 @@ export function storageOptionsFrom(
 }
 
 /**
- * Spec 10.3: a credential the provider refuses. No identity is configured for it — an
+ * Spec 14.3: a credential the provider refuses. No identity is configured for it — an
  * access key id no provider ever issued is refused by every one of them. It is shaped
  * like an R2 credential, because R2 answers one of another shape with `InvalidArgument`
  * before it looks the access key id up, which is no refusal of the credential.
@@ -46,7 +46,7 @@ export function storageWithBadCredentials(configured: S3AdapterOptions): S3Adapt
 }
 
 /**
- * Spec 10.3: a bucket that does not exist, named at random for each storage so that no run
+ * Spec 14.3: a bucket that does not exist, named at random for each storage so that no run
  * and no bucket another one left behind can make it exist (ADR 0043).
  */
 export function storageWithMissingBucket(configured: S3AdapterOptions): S3AdapterOptions {
@@ -54,7 +54,7 @@ export function storageWithMissingBucket(configured: S3AdapterOptions): S3Adapte
 }
 
 /**
- * Spec 10.3: a credential the provider accepts and refuses the write to. It reads and
+ * Spec 14.3: a credential the provider accepts and refuses the write to. It reads and
  * lists and may not write, which is what tells the `403` that means this caller may not
  * do this from the two that fail to authenticate.
  */
@@ -92,7 +92,7 @@ export interface ExpiredCredentials {
 }
 
 /**
- * Spec 10.3: a credential that has already expired. ADR 0012 has the scheduled run take a
+ * Spec 14.3: a credential that has already expired. ADR 0012 has the scheduled run take a
  * 900-second STS token at its start and record the expiration; an endpoint without such
  * a token leaves the case skipped, as R2 does, where the case cannot pass (ADR 0045).
  */

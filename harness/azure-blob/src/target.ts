@@ -125,7 +125,7 @@ export function azureBlobTarget(
 
     createStorageWithMissingBucket: () => azureBlobStorage(storageWithMissingContainer(configured)),
 
-    // Spec 10.2 keeps the case out of a run where the target supplies no factory, which is
+    // Spec 14.2 keeps the case out of a run where the target supplies no factory, which is
     // what Azurite, checking no role, leaves (ADR 0023).
     ...(denied === undefined
       ? {}

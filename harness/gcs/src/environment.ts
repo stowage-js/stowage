@@ -12,7 +12,7 @@ export function configuredEndpoint(): GcsEndpoint | undefined {
 
 /**
  * The real bucket where the scheduled job runs against it, which alone runs the tests the
- * suite does not assert (spec 10.4) and the probes of spec 14.
+ * suite does not assert (spec 14.4) and the probes of spec 18.
  */
 export function scheduledBucket(): GcsBucket | undefined {
   const endpoint = configuredEndpoint();

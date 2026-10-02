@@ -9,13 +9,13 @@ export interface ConformanceTarget {
   createStorageWithDeniedCredentials?(): Storage | Promise<Storage>;
   /**
    * A storage bound to a bucket, container or root that does not exist and otherwise
-   * configured as the storage of `createStorage()` (spec 10.3). A target whose adapter has
+   * configured as the storage of `createStorage()` (spec 14.3). A target whose adapter has
    * no bucket to miss leaves it out.
    */
   createStorageWithMissingBucket?(): Storage | Promise<Storage>;
 }
 
-/** The factories of spec 10.3, each of which a target may leave out. */
+/** The factories of spec 14.3, each of which a target may leave out. */
 export type ConformanceFactoryName =
   | "createStorageWithBadCredentials"
   | "createStorageWithDeniedCredentials"

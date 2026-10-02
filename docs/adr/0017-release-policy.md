@@ -96,3 +96,7 @@ the first time a month fills up is worse than no promise.
   factory returns is a minor release, before and after 1.0.
 - ADR 0043, ADR 0044 and ADR 0045 each withdraw a promise of a released adapter and name their
   conflict with the rule that a withdrawal takes something from the caller.
+- ADR 0047 adds a rule for framework majors beside the one for runtimes: a major is added in a minor
+  release once CI covers it, a major its framework no longer supports leaves outside the contract
+  as a Node line at end of life does, and dropping one its framework still supports is a
+  withdrawal. ADR 0050 makes raising an integration's peer floor a withdrawal as well.

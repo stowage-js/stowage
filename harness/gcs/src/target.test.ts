@@ -29,7 +29,7 @@ function targetFor(variables: Record<string, string>): ReturnType<typeof gcsTarg
   return gcsTarget(endpoint);
 }
 
-// Spec 10.2: a case whose factory the target does not supply reports itself skipped, and
+// Spec 14.2: a case whose factory the target does not supply reports itself skipped, and
 // ADR 0034 has both credential cases skipped against the emulator, which checks neither.
 test("against fake-gcs-server the target supplies no bad and no denied credential", () => {
   const target = targetFor(printed);

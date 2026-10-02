@@ -28,7 +28,7 @@ export interface WorkloadIdentityFederation {
   ) => (options?: ResolverOptions) => Promise<{ accessToken: string }>;
   /**
    * One token of the service account with `scope`, asked for `lifetimeSeconds` and kept by
-   * no resolver, for the probe of spec 14 that asks with it after it expired.
+   * no resolver, for the probe of spec 18 that asks with it after it expired.
    */
   readonly expiring: (
     serviceAccount: string,

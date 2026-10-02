@@ -50,3 +50,6 @@ never more.
   Node 24.21.0 — and every Node 24 release bundles undici 7. Multipart upload makes the part
   size the memory limit on every line, so no line needs a second code path and Node 26.5.0 gets
   no cell of its own.
+- ADR 0050 extends the matrix to servers: `@stowage/http`, its Node bridge and the three
+  integrations get cells of their own in a second table, supported where the HTTP conformance suite
+  covers them in CI on a real socket, with no weaker level.

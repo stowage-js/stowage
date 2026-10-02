@@ -14,4 +14,4 @@ No deadline is stated for an answer or for a fix.
 
 A fix lands in the current line alone: below 1.0 the newest minor release, from 1.0 on the newest
 major. An older line receives no fix, and the way to one is the current line
-([spec 11](docs/spec.md#11-versions)).
+([spec 15](docs/spec.md#15-versions)).

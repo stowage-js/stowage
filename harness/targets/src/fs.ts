@@ -13,7 +13,7 @@ import type { ConformanceTarget } from "../../../packages/conformance/src/target
 
 /**
  * What one path may measure, the root counted in. macOS bounds it at 1024 bytes, and the
- * boundary key of spec 10.2 measures 1024 on its own, so no root leaves room for it there
+ * boundary key of spec 14.2 measures 1024 on its own, so no root leaves room for it there
  * and spec 6 has the adapter refuse it. Linux holds it.
  */
 const pathByteLimit = platform === "darwin" ? 1024 : 4096;
@@ -37,7 +37,7 @@ const runnable = (name: string): boolean => {
 // ADR 0006: `adapter-fs` is read against the suite like any other adapter. The harness
 // reaches past `describeConformance` for the cases alone, so that a case the file system
 // rules out is left unrun rather than red: the path limit on a machine whose temporary
-// directory is one character too long, and a noncharacter on APFS (spec 10.7).
+// directory is one character too long, and a noncharacter on APFS (spec 14.7).
 export const fsCases = (options: ConformanceRunOptions): readonly ConformanceCaseSource[] =>
   selectedCases(options).filter((source) => runnable(source.name));
 
@@ -58,7 +58,7 @@ export const fsTarget: ConformanceTarget = {
   createStorageWithMissingBucket: () =>
     fsStorage({ root: join(tmpdir(), `stowage-missing-${crypto.randomUUID()}`) }),
 
-  // The default of spec 10.2 deletes below the prefix on a storage of its own, and a
+  // The default of spec 14.2 deletes below the prefix on a storage of its own, and a
   // storage of its own is a root of its own here, which holds nothing the run wrote. What
   // the run leaves behind are the roots themselves, so each of them is removed whole.
   async cleanup() {

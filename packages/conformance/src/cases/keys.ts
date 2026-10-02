@@ -2,7 +2,7 @@ import type { ConformanceContext } from "../target.ts";
 
 const utf8 = new TextEncoder();
 
-/** Spec 10.7 measures a key in UTF-8 bytes, and `adapter-fs` bounds one segment at 255. */
+/** Spec 14.7 measures a key in UTF-8 bytes, and `adapter-fs` bounds one segment at 255. */
 const segmentLimit = 255;
 
 /**
@@ -32,7 +32,7 @@ export function keyFor(ctx: ConformanceContext, caseName: string, name = "object
 
 /**
  * A key of exactly `bytes` UTF-8 bytes below `prefix`, in segments of at most 255 bytes:
- * the boundary key of spec 10.2 and the over-long key of spec 10.7 are both built here, so
+ * the boundary key of spec 14.2 and the over-long key of spec 14.7 are both built here, so
  * that the run's prefix counts toward the length rather than being added to it.
  */
 export function keyOfBytes(prefix: string, bytes: number): string {
@@ -54,12 +54,12 @@ export function keyOfBytes(prefix: string, bytes: number): string {
 }
 
 export interface ConformanceKey {
-  /** How spec 10.7 names the key, which is what a failing case reports. */
+  /** How spec 14.7 names the key, which is what a failing case reports. */
   readonly label: string;
   readonly key: string;
 }
 
-/** The accepted list of spec 10.7, below the prefix of the case that writes it. */
+/** The accepted list of spec 14.7, below the prefix of the case that writes it. */
 export function acceptedKeys(prefix: string): readonly ConformanceKey[] {
   return [
     ...acceptedNames.map((name) => ({ label: name, key: `${prefix}${name}` })),
@@ -82,14 +82,14 @@ const acceptedNames: readonly string[] = [
 
 /** What `exists` answers for a key `put` refused, once the write was refused. */
 export type RefusedKeyAnswer =
-  /** No addressable key either, which spec 10.5 leaves `exists` unasked about. */
+  /** No addressable key either, which spec 14.5 leaves `exists` unasked about. */
   | "unasked"
   /** Addressable, and nothing was written, so the object is not there. */
   | "false"
   /**
    * Addressable, and one a provider may refuse to hold rather than answer: S3 answers a
    * key above 1024 bytes with `KeyTooLongError`, which reaches the caller as `InvalidKey`
-   * (spec 10.7). Either answer says what the case is after, which is that nothing is there.
+   * (spec 14.7). Either answer says what the case is after, which is that nothing is there.
    */
   | "false-or-refusal";
 
@@ -98,7 +98,7 @@ export interface RefusedKey extends ConformanceKey {
 }
 
 /**
- * The list of spec 10.7 that `put` refuses, below the prefix of the case wherever the
+ * The list of spec 14.7 that `put` refuses, below the prefix of the case wherever the
  * prefix leaves the violated rule as it is: a key that is about the start of a key is
  * given as the spec writes it, and every other one goes below the run's prefix, so that
  * a run against a shared bucket asks `exists` about its own key space alone.
@@ -127,7 +127,7 @@ export function refusedWritableKeys(prefix: string): readonly RefusedKey[] {
 }
 
 /**
- * The list of spec 10.7 that `get`, `stat` and `exists` refuse, placed as the refused
+ * The list of spec 14.7 that `get`, `stat` and `exists` refuse, placed as the refused
  * writable list places its keys.
  */
 export function refusedAddressableKeys(prefix: string): readonly ConformanceKey[] {

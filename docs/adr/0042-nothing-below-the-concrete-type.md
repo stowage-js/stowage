@@ -59,3 +59,5 @@ stated the exception for closed unions.
 - `@stowage/core` gains no export for a hatch. The signers stay in their adapters (ADR 0019).
 - No README names a library for signing a request of one's own. Spec 12 keeps the READMEs outside
   the contract, and nothing in the spec depends on such a line.
+- `HttpConformanceTarget` of ADR 0050 is, like `ConformanceTarget`, no concrete type in the sense
+  of the member rule: a member added to it is no minor release by that rule (spec section 15).

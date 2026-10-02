@@ -24,10 +24,10 @@ import { bucketOrFail, bucketStorage, type GcsBucket, scheduledBucket } from "./
 import type { ExpiringToken } from "./federated-token.ts";
 import { gcsProbeNames } from "./first-run.ts";
 
-/* oxlint-disable vitest/valid-title -- the titles are the names the spec 14 report reads,
+/* oxlint-disable vitest/valid-title -- the titles are the names the spec 18 report reads,
    kept once in `first-run.ts` for both */
 
-// Spec 14: what only the bucket can answer, asked of it by the scheduled run under the
+// Spec 18: what only the bucket can answer, asked of it by the scheduled run under the
 // service account the suite runs as. fake-gcs-server checks no token and names no answer
 // the reference leaves open, so these run against the bucket alone. The requests go through
 // the adapter's own paths and failure mapping wherever the adapter can send them.

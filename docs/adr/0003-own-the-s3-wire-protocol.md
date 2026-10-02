@@ -58,3 +58,6 @@ that includes credentials` — the Fetch standard requires that on every runtime
   once a promised provider needs behavior that cannot be written here in reasonable time, or
   once wire-level defects reach users repeatedly instead of the conformance suite. It would
   carry its own ADR and pass the same conformance suite as every other adapter.
+- ADR 0047 replaces the statement that no package declares a peer dependency, for the
+  integrations alone: an integration declares its framework as a peer dependency and nothing else.
+  No package has a runtime dependency outside `@stowage/*`, as before.
