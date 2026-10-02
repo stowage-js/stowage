@@ -1,5 +1,5 @@
 import { answerFor, methodNotAllowed } from "./answers.ts";
-import { contentDisposition, lastSegmentOf } from "./disposition.ts";
+import { dispositionOf } from "./disposition.ts";
 
 /**
  * A storage that presigns a download, with the options every adapter declaring
@@ -42,10 +42,7 @@ export async function redirectToObject(
   try {
     location = await storage.presignGet(key, {
       expiresIn: options.expiresIn,
-      responseContentDisposition: contentDisposition(
-        options.disposition ?? "attachment",
-        options.filename ?? lastSegmentOf(key),
-      ),
+      responseContentDisposition: dispositionOf(key, options),
     });
   } catch (thrown) {
     return answerFor(thrown);
