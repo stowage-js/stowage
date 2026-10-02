@@ -81,3 +81,7 @@ per adapter, and R2 speaking S3's wire protocol makes that key a question of its
 - ADR 0032 moves the number of requests `get` costs out of the core: the stored object still
   describes the object whose bytes its body carries, and the GCS adapter sends two requests side by
   side for it, since its media download carries no user metadata.
+- ADR 0046 adds the HTTP layer, which takes a storage with every call and keeps no registry or
+  manager over several storages. ADR 0051, ADR 0052 and ADR 0053 hold every integration to one
+  storage per registration, named by the caller, for the same reason. ADR 0054 keeps the five
+  reference flows: a route of the HTTP layer carries flows 1, 2 and 4 and is not a flow.

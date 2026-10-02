@@ -64,3 +64,6 @@ and its cells, in a release that is meant to add three.
 - The NestJS integration serves Express through the same bridge rather than one of its own.
 - ADR 0048 adds a fourth answer, redirecting to a presigned download, with a structural type of its
   own for `presignGet`, separate from the one for presigned uploads.
+- ADR 0049 amends the wording that every function takes the web `Request`: `presignUpload` does
+  not. ADR 0051 has the Node bridge refuse a Node request whose body was already read, and ADR 0052
+  extends that refusal to `acceptUpload` on any `Request` whose `bodyUsed` is `true`.

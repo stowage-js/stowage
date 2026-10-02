@@ -68,3 +68,5 @@ there is no facade and no manager, so an application that uses two adapters hold
   floor, as ADR 0002 states.
 - `@stowage/adapter-s3-sdk`, which ADR 0003 names as the way back from the wire protocol, joins
   the same version group when it arrives.
+- ADR 0046 and ADR 0047 add `@stowage/http` and the integrations for NestJS, Hono and Next.js to
+  the `fixed` group, which holds eleven packages from v0.5 on.

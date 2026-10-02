@@ -69,9 +69,10 @@ takes no `signal` on any adapter.
   `contentLength` that is not a non-negative integer is `400`, one above `maxSize` is `413`, and a
   `contentType` that is empty or no valid header value is `400`, so a client's value never reaches
   `presignPut` as an `InvalidOption` answered `500`.
-- A presigned upload is `200` with `Content-Type: application/json`, `Cache-Control: private,
-  no-store` because the URL expires, and the body `{ "url", "method": "PUT", "headers" }`, `headers`
-  being what `presignPut` returns. A `StorageError` becomes a status by the table above.
+- A presigned upload is `200` with `Content-Type: application/json`,
+  `Cache-Control: private, no-store` because the URL expires, and the body
+  `{ "url", "method": "PUT", "headers" }`, `headers` being what `presignPut` returns. A `StorageError` becomes a
+  status by the table above.
 - Every `Response` of both functions has mutable headers, as ADR 0048 promises for serving, so a
   caller adds `Location` or anything else afterwards.
 - On Fastify a body reaches the layer only once a content type parser leaves the payload unread,
@@ -80,3 +81,5 @@ takes no `signal` on any adapter.
 - This amends ADR 0046's wording that every function of the layer takes the web `Request`:
   `presignUpload` does not. Neither ADR is released, so no promise is narrowed and ADR 0017 is not
   touched.
+- ADR 0052 adds that `acceptUpload` rejects with a `TypeError` before `put` starts when the
+  request's `bodyUsed` is `true`.

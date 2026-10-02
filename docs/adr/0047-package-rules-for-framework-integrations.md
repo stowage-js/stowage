@@ -64,3 +64,5 @@ already pays for, and with the rule above a dropped major is almost never a brea
 - Which runtimes each integration promises and which framework versions CI covers is decided under
   "When a framework integration counts as supported" (#308).
 - No promise a released package makes is narrowed, so ADR 0017 is extended, not contradicted.
+- ADR 0050 narrows the peer ranges above to start at the versions CI ran at v0.5's release. Spec
+  section 2 names them: `@nestjs/common` `^12.1.2`, `hono` `^4.13.12`, `next` `^16.3.8`.

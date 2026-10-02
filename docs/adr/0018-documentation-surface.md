@@ -80,3 +80,6 @@ someone writing an adapter outside this repository and needs the steps of that j
   not.
 - The READMEs are written by the first build session, out of the obligations the spec names. They
   need install lines, import paths and an example for packages that do not exist yet.
+- ADR 0055 gives the four READMEs of v0.5 the sections of the adapters, adds "Test a server" to
+  the README of `@stowage/conformance`, and has the code-block test compile each document with the
+  compiler options of its reader's application.
