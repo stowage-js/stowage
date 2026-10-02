@@ -84,9 +84,10 @@ function objectHeaders(
 }
 
 /**
- * At whole seconds, and never later than the response's own date: RFC 9110 8.8.2 has a
- * server send no `Last-Modified` in its future, which a provider's clock ahead of the
- * server's would otherwise produce.
+ * At whole seconds, and never later than now: RFC 9110 8.8.2 has a server send no
+ * `Last-Modified` in its future, which a provider's clock ahead of the server's would
+ * otherwise produce. The server writes its `Date` after this runs, so the cap stands in
+ * for that date and never lies after it.
  */
 function lastModifiedOf(stat: ObjectStat): string {
   const second = 1000;
