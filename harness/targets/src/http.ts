@@ -103,11 +103,15 @@ export async function listening(server: Server): Promise<StartedServer> {
   return {
     url: routeUrls(`http://127.0.0.1:${address.port}`),
     close: async () => {
-      // `fetch` keeps its connections alive, which would hold `close` open until they idle out.
-      server.closeAllConnections();
-      await new Promise<void>((resolve, reject) =>
+      const closed = new Promise<void>((resolve, reject) =>
         server.close((error) => (error === undefined ? resolve() : reject(error))),
       );
+
+      // `fetch` keeps its connections alive, which would hold `close` open until they idle
+      // out. After `close`, since Bun stops the server on `closeAllConnections` and its
+      // `close` then fails as not running.
+      server.closeAllConnections();
+      await closed;
     },
   };
 }
