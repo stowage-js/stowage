@@ -223,10 +223,10 @@ hosts.
 _Avoid_: platform, provider, deployment target
 
 **HTTP layer**:
-The part of stowage that answers a web request on a storage's behalf — serving an object, accepting
-an upload body, handing out a presigned upload — for a key the caller has already named. It speaks
-web `Request` and `Response` and knows no framework, so any framework that speaks them reaches
-stowage through it. Routing, authorization and naming the key stay with the caller.
+The part of stowage that answers a web request on a storage's behalf — serving an object,
+redirecting to a presigned download, accepting an upload body, handing out a presigned upload — for
+a key the caller has already named. It speaks web `Request` and `Response` and knows no framework,
+so any framework that speaks them reaches stowage through it. Routing, authorization and naming the key stay with the caller.
 _Avoid_: neutral layer, middleware, handler, server
 
 **Integration**:

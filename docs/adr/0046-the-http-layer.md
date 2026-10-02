@@ -62,3 +62,5 @@ and its cells, in a release that is meant to add three.
   presign endpoint" (#307); how the layer and the bridge are tested under "When a framework
   integration counts as supported" (#308).
 - The NestJS integration serves Express through the same bridge rather than one of its own.
+- ADR 0048 adds a fourth answer, redirecting to a presigned download, with a structural type of its
+  own for `presignGet`, separate from the one for presigned uploads.
