@@ -10,6 +10,7 @@ import adapterMemory from "../packages/adapter-memory/package.json" with { type:
 import adapterS3 from "../packages/adapter-s3/package.json" with { type: "json" };
 import conformance from "../packages/conformance/package.json" with { type: "json" };
 import core from "../packages/core/package.json" with { type: "json" };
+import hono from "../packages/hono/package.json" with { type: "json" };
 import http from "../packages/http/package.json" with { type: "json" };
 
 interface PackageManifest {
@@ -31,8 +32,12 @@ const published: readonly PackageManifest[] = [
   adapterAzureBlob,
   adapterGcs,
   http,
+  hono,
   conformance,
 ];
+
+/** Spec 1: each integration and the framework it declares as its one peer. */
+const frameworkOf: Readonly<Record<string, string>> = { [hono.name]: "hono" };
 
 test("every package under `packages` is checked here", async () => {
   const entries = await readdir(new URL("../packages/", import.meta.url), {
@@ -65,12 +70,29 @@ test.each(published)("$name keeps everything but `dist` out of the tarball", (ma
 });
 
 test.each(published)("$name has no runtime dependency outside `@stowage`", (manifest) => {
+  const framework = frameworkOf[manifest.name];
   const runtimeDependencies = [
     ...Object.keys(manifest.dependencies ?? {}),
     ...Object.keys(manifest.peerDependencies ?? {}),
   ];
 
-  expect(runtimeDependencies.filter((name) => !name.startsWith("@stowage/"))).toEqual([]);
+  expect(
+    runtimeDependencies.filter((name) => !name.startsWith("@stowage/") && name !== framework),
+  ).toEqual([]);
+});
+
+// Spec 1, ADR 0047: an integration declares its framework as a peer and nothing else as one.
+test.each(published)("$name declares a peer only where it integrates a framework", (manifest) => {
+  const framework = frameworkOf[manifest.name];
+
+  expect(Object.keys(manifest.peerDependencies ?? {})).toEqual(
+    framework === undefined ? [] : [framework],
+  );
+});
+
+// Spec 2, ADR 0050: the peer range starts at the floor CI runs.
+test("@stowage/hono promises Hono 4 from the floor CI runs", () => {
+  expect(hono.peerDependencies).toEqual({ hono: "^4.13.12" });
 });
 
 // Spec 1: nothing detects the runtime at import time, so no package hands one runtime an

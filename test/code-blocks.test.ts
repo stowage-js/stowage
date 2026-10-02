@@ -33,7 +33,7 @@ const packageOfSpecSection: Readonly<Record<string, string | null>> = {
   "10": "http",
   // Defer these sections until the integration packages exist.
   "11": null,
-  "12": null,
+  "12": "hono",
   "13": null,
   "14": "conformance",
 };
@@ -247,7 +247,12 @@ beforeAll(async () => {
       extends: join(repository, "tsconfig.base.json"),
       compilerOptions: {
         strictPropertyInitialization: false,
-        paths: { "@stowage/*": [join(repository, "packages/*/dist/index.d.ts")] },
+        paths: {
+          "@stowage/*": [join(repository, "packages/*/dist/index.d.ts")],
+          // The copy the declarations of `@stowage/hono` resolve, since Hono's `Context` is
+          // a class with private members and two copies are two types to the compiler.
+          hono: [join(repository, "packages/hono/node_modules/hono/dist/types/index.d.ts")],
+        },
       },
       files: [
         ...files,
