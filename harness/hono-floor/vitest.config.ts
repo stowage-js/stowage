@@ -4,24 +4,29 @@ import { defineConfig, type Plugin, type ViteUserConfig } from "vitest/config";
 
 import manifest from "./package.json" with { type: "json" };
 
-/**
- * Spec 2: CI runs the Hono cell on Node at the floor of the peer range beside the newest
- * release. The cell's files import Hono where the newest is installed; this run resolves
- * every import of either package as though this package made it, which reaches the floor
- * it installs. `@hono/node-server` then reaches Hono through its own peer, which pnpm
- * resolved to the same floor.
- */
-const importer = fileURLToPath(new URL("package.json", import.meta.url));
+const { hono, "@hono/node-server": nodeServer } = manifest.devDependencies;
 
-/** Each package this run moves to the floor, and the directory pnpm stores its floor in. */
+/**
+ * The directory pnpm stores each package's floor in. `@hono/node-server` is stored once per
+ * Hono it was resolved against, and reaches Hono through that peer: its directory names the
+ * floor of both.
+ */
 const floors = [
-  { pattern: /^hono(?:\/|$)/u, stored: `/hono@${manifest.devDependencies.hono}/` },
+  { pattern: /^hono(?:\/|$)/u, storeDirectory: `/hono@${hono}/` },
   {
     pattern: /^@hono\/node-server(?:\/|$)/u,
-    stored: `/@hono+node-server@${manifest.devDependencies["@hono/node-server"]}_`,
+    storeDirectory: `/@hono+node-server@${nodeServer}_hono@${hono}/`,
   },
 ];
 
+const importer = fileURLToPath(new URL("package.json", import.meta.url));
+
+/**
+ * Spec 2: CI runs the Hono cell on Node at the floor of the peer range beside the newest
+ * release. The cell's files import Hono where the newest is installed, so this run resolves
+ * every import of either package as though this package made it, which reaches the floor
+ * it installs.
+ */
 function atTheFloor(): Plugin {
   return {
     name: "stowage:hono-floor",
@@ -34,7 +39,7 @@ function atTheFloor(): Plugin {
       const resolved = await this.resolve(source, importer, { ...options, skipSelf: true });
 
       // A run that reached another copy would pass as the floor's and prove nothing about it.
-      if (resolved === null || !resolved.id.includes(floor.stored)) {
+      if (resolved === null || !resolved.id.includes(floor.storeDirectory)) {
         throw new Error(`\`${source}\` resolved to ${resolved?.id ?? "nothing"}, not the floor`);
       }
 
@@ -47,7 +52,6 @@ const config: ViteUserConfig = defineConfig({
   root: fileURLToPath(new URL("../..", import.meta.url)),
   plugins: [atTheFloor()],
   test: {
-    // The Hono cell on Node and the repository test that reads its `Response`.
     include: ["harness/node/src/hono*.test.ts", "harness/targets/src/hono*.test.ts"],
   },
 });
