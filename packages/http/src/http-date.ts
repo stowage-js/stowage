@@ -5,13 +5,13 @@ const second = 1000;
 const wholeSecondOf = (time: number): number => Math.floor(time / second) * second;
 
 /**
- * `lastModified` as `Last-Modified` carries it: at whole seconds, and never later than now.
- * RFC 9110 8.8.2 has a server send no `Last-Modified` in its future, which a provider's
- * clock ahead of the server's would otherwise produce. The server writes its `Date` after
- * this runs, so the cap stands in for that date and never lies after it.
+ * `lastModified` as `Last-Modified` carries it: at whole seconds, and never later than
+ * `answeredAt`, the time the answer sends as its `Date`. RFC 9110 8.8.2 has a server send no
+ * `Last-Modified` in its future, which a provider's clock ahead of the server's would
+ * otherwise produce.
  */
-export function lastModifiedOf(stat: ObjectStat): Date {
-  return new Date(Math.min(wholeSecondOf(stat.lastModified.getTime()), wholeSecondOf(Date.now())));
+export function lastModifiedOf(stat: ObjectStat, answeredAt: number): Date {
+  return new Date(Math.min(wholeSecondOf(stat.lastModified.getTime()), wholeSecondOf(answeredAt)));
 }
 
 const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

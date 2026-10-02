@@ -45,12 +45,13 @@ export function preconditionsOf(headers: Headers): Preconditions | undefined {
 export function failedPreconditionOf(
   preconditions: Preconditions | undefined,
   stat: ObjectStat,
+  answeredAt: number,
 ): FailedPrecondition | undefined {
   if (preconditions === undefined) return undefined;
 
   const { ifMatch, ifUnmodifiedSince, ifNoneMatch, ifModifiedSince } = preconditions;
   // Spec 10.3: dates compare with the `Last-Modified` the answer carries.
-  const modified = lastModifiedOf(stat).getTime();
+  const modified = lastModifiedOf(stat, answeredAt).getTime();
 
   if (ifMatch === undefined) {
     if (ifUnmodifiedSince !== undefined && modified > ifUnmodifiedSince) return 412;

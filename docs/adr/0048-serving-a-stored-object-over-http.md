@@ -59,7 +59,8 @@ ranged `get` never hands such an object over.
   provider failure fails the second `get` alike. No `multipart/byteranges`.
 - Preconditions: `If-Match` and `If-Range` compare strongly, `If-None-Match` weakly; dates are
   compared at whole seconds, and a `lastModified` later than the response's `Date` is replaced by
-  it. A storage that hands over no `etag`, `adapter-fs`, gets no `ETag` and none derived for it:
+  it. The layer sets that `Date` itself, since Bun and Deno write one of their own up to a second
+  behind their clock, which a `Last-Modified` capped at the clock could lie after. A storage that hands over no `etag`, `adapter-fs`, gets no `ETag` and none derived for it:
   revalidation works through `Last-Modified`, and `If-Match` fails. `If-Range` with a date never
   holds, since a date at second resolution is no strong validator, and the whole object is sent.
   The provider's `etag` is sent quoted as a strong tag.

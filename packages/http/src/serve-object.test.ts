@@ -158,6 +158,21 @@ describe("the headers of spec 10.3", () => {
     expect((await serve("GET")).headers.get("last-modified")).toBe("Tue, 01 Sep 2026 10:20:29 GMT");
   });
 
+  // Bun and Deno cache the `Date` they write by up to a second, so one the server added could
+  // lie before the `Last-Modified` the layer capped at its own clock.
+  test.each(["GET", "HEAD"])(
+    "`Date` on `%s` is the moment `Last-Modified` was capped at",
+    async (method) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date("2026-09-01T10:20:29.900Z"));
+
+      const { headers } = await serve(method);
+
+      expect(headers.get("date")).toBe("Tue, 01 Sep 2026 10:20:29 GMT");
+      expect(headers.get("last-modified")).toBe(headers.get("date"));
+    },
+  );
+
   test("`Accept-Ranges: bytes` is sent where the storage declares `rangeReads`", async () => {
     const declaring = holding({ capabilities: ["rangeReads"] });
 

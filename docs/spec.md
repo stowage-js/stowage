@@ -1972,6 +1972,9 @@ export function writeResponse(res: NodeResponse, response: Response): Promise<vo
   - `Cache-Control: private, no-cache` unless `cacheControl` is given, which replaces it.
   - `ETag`: the `etag` of the `stat` that describes the bytes sent, quoted as a strong tag. A
     storage that hands over no `etag`, `adapter-fs`, gets no `ETag` and none derived for it.
+  - `Date`: the time `serveObject` was called, which the layer sets itself. Bun and Deno write a
+    `Date` of their own up to a second behind their clock, and every server keeps the one an
+    answer carries.
   - `Last-Modified`: `lastModified` at whole seconds, replaced by the response's `Date` where it is
     later.
   - `Accept-Ranges: bytes` where the storage declares `rangeReads`.

@@ -52,13 +52,19 @@ export async function serveObject(
 
   if (method !== "GET" && method !== "HEAD") return methodNotAllowed("GET, HEAD");
 
-  const serving: ServeRequest = { storage, key, signal: request.signal, options };
+  const serving: ServeRequest = {
+    storage,
+    key,
+    signal: request.signal,
+    options,
+    answeredAt: Date.now(),
+  };
   const preconditions = preconditionsOf(request.headers);
 
   try {
     if (method === "HEAD") {
       const stat = await storage.stat(key, { signal: serving.signal });
-      const failed = failedPreconditionOf(preconditions, stat);
+      const failed = failedPreconditionOf(preconditions, stat, serving.answeredAt);
 
       return failed === undefined
         ? new Response(null, { status: 200, headers: objectHeaders(serving, stat) })
@@ -80,7 +86,10 @@ export async function serveObject(
     const stat = await storage.stat(key, { signal: serving.signal });
     const asked: Asked = { preconditions, requested, ifRange };
 
-    return await servePlanned(serving, { stat, decide: (each) => planOf(asked, each) });
+    return await servePlanned(serving, {
+      stat,
+      decide: (each) => planOf(asked, each, serving.answeredAt),
+    });
   } catch (thrown) {
     return answerFor(thrown);
   }
@@ -92,6 +101,12 @@ interface ServeRequest {
   readonly key: string;
   readonly signal: AbortSignal;
   readonly options: ServeObjectOptions;
+  /**
+   * The time the answer sends as its `Date` and caps `Last-Modified` at. Bun and Deno write
+   * a `Date` of their own up to a second behind their clock, which could lie before a
+   * `Last-Modified` capped at that clock; a `Date` the answer carries, every server keeps.
+   */
+  readonly answeredAt: number;
 }
 
 /** What a `GET` asks beyond the object, which a `stat` decides (ADR 0048). */
@@ -111,8 +126,12 @@ type Plan =
  * empty suffix unsatisfiable, and any other suffix of an empty object the whole of it,
  * which no `Content-Range` can name.
  */
-function planOf({ preconditions, requested, ifRange }: Asked, stat: ObjectStat): Plan {
-  const failed = failedPreconditionOf(preconditions, stat);
+function planOf(
+  { preconditions, requested, ifRange }: Asked,
+  stat: ObjectStat,
+  answeredAt: number,
+): Plan {
+  const failed = failedPreconditionOf(preconditions, stat, answeredAt);
 
   if (failed !== undefined) return { status: failed };
   if (requested === undefined || !rangeHolds(ifRange, stat)) return { status: 200 };
@@ -268,13 +287,17 @@ async function discard(object: StoredObject): Promise<void> {
     .catch(() => {});
 }
 
-function objectHeaders({ storage, key, options }: ServeRequest, stat: ObjectStat): Headers {
+function objectHeaders(
+  { storage, key, options, answeredAt }: ServeRequest,
+  stat: ObjectStat,
+): Headers {
   const headers = new Headers({
+    date: new Date(answeredAt).toUTCString(),
     "content-type": stat.contentType,
     "x-content-type-options": "nosniff",
     "content-disposition": dispositionOf(key, options),
     "cache-control": options.cacheControl ?? "private, no-cache",
-    "last-modified": lastModifiedOf(stat).toUTCString(),
+    "last-modified": lastModifiedOf(stat, answeredAt).toUTCString(),
   });
 
   // A storage that hands over no `etag`, `adapter-fs`, gets none derived for it: a tag
