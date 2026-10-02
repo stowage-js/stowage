@@ -115,9 +115,10 @@ The servers, each against the runtimes its package promises (section 1):
   client of the cell sees: `Bun.serve` and `Deno.serve` answer a `HEAD` with `Content-Length: 0`,
   `Bun.serve` sends `Content-Length` with a body that is complete before the headers are written,
   a small object's among them, and `workerd` sends every body that is a stream chunked and without
-  `Content-Length`, a `206` among them. A list beside each server in the private harness expects
-  `serve/head` to fail on `Bun.serve` and `Deno.serve`, `serve/whole` on `Bun.serve` and
-  `serve/range` on `workerd`, and fails the run where one passes.
+  `Content-Length`, a `206` among them. A list beside each server in the private harness names
+  each change: in `serve/head` on `Bun.serve` and `Deno.serve`, `serve/whole` on `Bun.serve` and
+  `serve/range` on `workerd` the harness undoes it on that server's answers, so that the rest of
+  the case runs, and fails the run where the case meets no changed answer.
 - CI runs the floor and the newest release of each framework's major on Node 24 and Node 26. The
   floors are `@nestjs/common`, `@nestjs/core`, `@nestjs/platform-express` and
   `@nestjs/platform-fastify` 12.1.2, `hono` 4.13.12 on `@hono/node-server` 2.1.3, and `next`
