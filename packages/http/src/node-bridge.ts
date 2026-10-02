@@ -270,9 +270,15 @@ async function pipe(body: ReadableStream<Uint8Array>, res: NodeResponse): Promis
     }
   } catch (failure) {
     piping.settled = true;
-    res.destroy(failure instanceof Error ? failure : undefined);
-    throw failure;
+
+    if (!hasDisconnected(res)) {
+      res.destroy(failure instanceof Error ? failure : undefined);
+      throw failure;
+    }
   }
 
-  await piping.canceled;
+  // `toWebRequest` aborts the request's signal at a disconnect as well, so the stream of
+  // `get` may fail at the signal rather than end at the cancel. Either way the client left,
+  // and no one is left to answer a failure to.
+  await piping.canceled?.catch(() => {});
 }

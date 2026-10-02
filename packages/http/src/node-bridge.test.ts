@@ -460,6 +460,25 @@ describe("`writeResponse`", () => {
     expect(res.writableEnded).toBe(false);
   });
 
+  test("resolves once the client disconnects and the body fails at the signal", async () => {
+    const res = new RecordedResponse();
+    const { signal } = toWebRequest(nodeRequest(), res);
+    // The stream of `get` fails at the request's signal, as `fetch` fails its body.
+    const body = new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        controller.enqueue(bytes("one"));
+        signal.addEventListener("abort", () => controller.error(signal.reason));
+      },
+    });
+    const written = writeResponse(res, new Response(body));
+
+    await settle();
+    res.disconnect();
+
+    await expect(written).resolves.toBeUndefined();
+    expect(res.destroyedWith).toBeUndefined();
+  });
+
   test("cancels the body while it waits for `drain` and the client disconnects", async () => {
     const res = new RecordedResponse();
     const { body, controller, canceled } = controlledBody();
