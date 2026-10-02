@@ -74,9 +74,9 @@ export function failedPreconditionOf(
 export function rangeHolds(ifRange: string | undefined, stat: ObjectStat): boolean {
   if (ifRange === undefined) return true;
 
-  const [tag, ...others] = tagsOf(ifRange);
+  const [, weak, opaque] = singleTag.exec(ifRange) ?? [];
 
-  return tag !== undefined && others.length === 0 && !tag.weak && tag.opaque === stat.etag;
+  return opaque !== undefined && weak === undefined && opaque === stat.etag;
 }
 
 interface EntityTag {
@@ -96,7 +96,10 @@ function matches(field: string, { etag }: ObjectStat, comparison: "strong" | "we
 
 // RFC 9110 8.8.3: `W/` is case-sensitive, and a tag holds any visible character but `"`,
 // a comma among them, so a list is split by its quotes and not at its commas.
-const listMember = /[ \t]*(?:(W\/)?"([\x21\x23-\x7e\x80-\xff]*)")?[ \t]*(?:,|$)/uy;
+const entityTag = String.raw`(W\/)?"([\x21\x23-\x7e\x80-\xff]*)"`;
+const listMember = new RegExp(String.raw`[ \t]*(?:${entityTag})?[ \t]*(?:,|$)`, "uy");
+// RFC 9110 13.1.5: `If-Range` names one tag, not a list.
+const singleTag = new RegExp(`^${entityTag}$`, "u");
 
 /** The tags a list names, none for a field that is no list of entity tags. */
 function tagsOf(field: string): readonly EntityTag[] {

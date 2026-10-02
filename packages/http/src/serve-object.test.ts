@@ -683,6 +683,7 @@ describe("`If-Range`", () => {
   test.each([
     ["another tag", '"other"'],
     ["the `ETag` as weak", 'W/"0123abcd"'],
+    ["the `ETag` in a list", '"0123abcd",'],
     ["the `Last-Modified`", lastModified],
     ["a later date", "Wed, 02 Sep 2026 00:00:00 GMT"],
   ])("with %s is `200` with the whole object", async (_, field) => {
