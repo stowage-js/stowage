@@ -1,4 +1,8 @@
 {
   "extends": "../../tsconfig.base.json",
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts"],
+  // The tests reach `node:http` to run the bridge against a real server, and the package
+  // itself reaches no Node API (spec 10.7). The repository's own config checks the tests
+  // with Node's types; this one keeps them away from the sources.
+  "exclude": ["src/**/*.test.ts"]
 }
