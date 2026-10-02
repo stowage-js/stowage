@@ -30,7 +30,8 @@ export interface ServeObjectOptions {
  * Answers `GET` with the object streamed from `get`, and `HEAD` from `stat` with the same
  * headers and no body (spec 10.3). Any other method is `405`. Where the storage declares
  * `rangeReads`, one range of `bytes` is `206`, or `416` where it is unsatisfiable; any other
- * `Range` is ignored.
+ * `Range` is ignored. The preconditions of RFC 9110 13.2.2 answer `304` or `412` where one
+ * fails, and `If-Range` sends the whole object for anything but the strong `ETag`.
  */
 export async function serveObject(
   storage: Storage,
@@ -69,8 +70,9 @@ export async function serveObject(
     }
 
     const stat = await storage.stat(key, { signal: serving.signal });
+    const conditions: Conditions = { preconditions, requested, ifRange };
 
-    return await servePlanned(serving, planOf({ preconditions, requested, ifRange }, stat), stat);
+    return await servePlanned(serving, { stat, decide: (each) => planOf(conditions, each) });
   } catch (thrown) {
     return answerFor(thrown);
   }
@@ -113,21 +115,45 @@ function planOf({ preconditions, requested, ifRange }: Conditions, stat: ObjectS
   return { status: 206, range: suffixOf(requested.suffixLength, stat.size) };
 }
 
-async function servePlanned(
-  serving: ServeRequest,
-  plan: Plan,
-  stat: ObjectStat,
-): Promise<Response> {
+/**
+ * A plan made from the `stat` before `get`, to be made again from the `stat` of `get`,
+ * which describes the bytes sent (ADR 0048).
+ */
+interface Planned {
+  readonly stat: ObjectStat;
+  readonly decide: (stat: ObjectStat) => Plan;
+}
+
+async function servePlanned(serving: ServeRequest, planned: Planned): Promise<Response> {
+  const plan = planned.decide(planned.stat);
+
   switch (plan.status) {
     case 200:
-      return await serveWhole(serving);
+      return await serveWhole(serving, planned);
     case 206:
-      return await serveRange(serving, plan.range);
+      return await serveRange(serving, plan.range, planned);
     case 416:
-      return rangeNotSatisfiable(stat.size);
+      return rangeNotSatisfiable(planned.stat.size);
     default:
-      return refusal(serving, plan.status, stat);
+      return refusal(serving, plan.status, planned.stat);
   }
+}
+
+/**
+ * The plan the `stat` of `get` makes, `undefined` where it describes the object planned
+ * on. Spec 10.3: the `etag`s tell a changed object, and without them `size` and
+ * `lastModified`.
+ */
+function replanned(planned: Planned | undefined, handed: ObjectStat): Plan | undefined {
+  if (planned === undefined) return undefined;
+
+  const { stat: seen } = planned;
+  const changed =
+    seen.etag !== undefined && handed.etag !== undefined
+      ? seen.etag !== handed.etag
+      : seen.size !== handed.size || seen.lastModified.getTime() !== handed.lastModified.getTime();
+
+  return changed ? planned.decide(handed) : undefined;
 }
 
 /** The answer of a failed precondition: `304` with the headers of a `200`, or `412`. */
@@ -137,8 +163,17 @@ function refusal(serving: ServeRequest, status: 304 | 412, stat: ObjectStat): Re
     : new Response(null, { status });
 }
 
-async function serveWhole(serving: ServeRequest): Promise<Response> {
+async function serveWhole(serving: ServeRequest, planned?: Planned): Promise<Response> {
   const object = await serving.storage.get(serving.key, { signal: serving.signal });
+  const plan = replanned(planned, object.stat);
+
+  // Any other plan still takes the whole object, which RFC 9110 14.2 lets a server send
+  // for a range it would otherwise serve.
+  if (plan?.status === 304 || plan?.status === 412) {
+    await discard(object);
+
+    return refusal(serving, plan.status, object.stat);
+  }
 
   // No `Content-Length`: an object another tool stored with a content coding may arrive
   // decoded and longer than `size`, and Node and Deno would cut such a body to `size`
@@ -150,7 +185,11 @@ async function serveWhole(serving: ServeRequest): Promise<Response> {
 }
 
 /** A `206` whose `Content-Range` follows the `stat` of `get`, which describes the bytes sent. */
-async function serveRange(serving: ServeRequest, range: ByteRange): Promise<Response> {
+async function serveRange(
+  serving: ServeRequest,
+  range: ByteRange,
+  planned?: Planned,
+): Promise<Response> {
   const { storage, key, signal } = serving;
   let object: StoredObject;
 
@@ -166,9 +205,22 @@ async function serveRange(serving: ServeRequest, range: ByteRange): Promise<Resp
 
     // ADR 0048: the refused range of a content-coded object (ADR 0044), which only the
     // message tells apart from a provider's failure, and that fails the whole `get` alike.
-    if (thrown.code === "ProviderError" && !thrown.retryable) return await serveWhole(serving);
+    if (thrown.code === "ProviderError" && !thrown.retryable) {
+      return await serveWhole(serving, planned);
+    }
 
     throw thrown;
+  }
+
+  const plan = replanned(planned, object.stat);
+
+  if (planned !== undefined && plan !== undefined && !sendsRange(plan, range)) {
+    await discard(object);
+
+    // Spec 10.3: at most one more `get`, and a whole one, decided again by its own `stat`.
+    return plan.status === 304 || plan.status === 412
+      ? refusal(serving, plan.status, object.stat)
+      : await serveWhole(serving, { ...planned, stat: object.stat });
   }
 
   const { size } = object.stat;
@@ -181,6 +233,18 @@ async function serveRange(serving: ServeRequest, range: ByteRange): Promise<Resp
   headers.set("content-length", String(last - range.start + 1));
 
   return new Response(object.stream(), { status: 206, headers });
+}
+
+function sendsRange(plan: Plan, range: ByteRange): boolean {
+  return plan.status === 206 && plan.range.start === range.start && plan.range.end === range.end;
+}
+
+/** Cancels the body of an object the answer does not send, which reaches the provider. */
+async function discard(object: StoredObject): Promise<void> {
+  await object
+    .stream()
+    .cancel()
+    .catch(() => {});
 }
 
 function objectHeaders({ storage, key, options }: ServeRequest, stat: ObjectStat): Headers {
