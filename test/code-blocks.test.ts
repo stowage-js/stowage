@@ -30,8 +30,8 @@ const packageOfSpecSection: Readonly<Record<string, string | null>> = {
   "7": "adapter-s3",
   "8": "adapter-azure-blob",
   "9": "adapter-gcs",
-  // Defer these sections until the HTTP and integration packages exist.
-  "10": null,
+  "10": "http",
+  // Defer these sections until the integration packages exist.
   "11": null,
   "12": null,
   "13": null,
