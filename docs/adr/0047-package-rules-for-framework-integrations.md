@@ -44,8 +44,11 @@ already pays for, and with the rule above a dropped major is almost never a brea
 - Spec section 1 reads: "No package has a runtime dependency outside `@stowage/*`. An integration
   declares its framework as a peer dependency and nothing else." This replaces ADR 0003's statement
   that no package declares a peer dependency for the integrations alone; the rest of ADR 0003
-  stands. `@stowage/http` and `@stowage/core` are regular `dependencies` of an integration, written
-  `workspace:^` as the adapters write `@stowage/core`.
+  stands. An integration's regular `dependencies` are the `@stowage/*` packages it imports,
+  written `workspace:^` as the adapters write `@stowage/core`. `@stowage/hono` imports
+  `@stowage/core` alone: its routes call `@stowage/http`, which the application installs beside
+  it (ADR 0052), and a dependency the package never imports would only put a second copy of the
+  layer into the graph where the application's range differs.
 - The peer ranges at v0.5 are `@nestjs/common` `^12`, `hono` `^4` and `next` `^16`. Spec section 1
   names each integration's promised majors; section 15 gains the rule for adding and dropping a
   framework major beside the one for runtimes and Node lines. Dropping a major its framework still
