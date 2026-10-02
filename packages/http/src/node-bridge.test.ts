@@ -357,8 +357,6 @@ describe("the body of `toWebRequest`", () => {
     toWebRequest(req, res);
     await writeResponse(res, new Response(null, { status: 413 }));
 
-    // Deno's `node:http`, unlike Node's, keeps a body no one read, and the next request on
-    // the connection never reaches the server.
     expect(req.resumed).toBe(true);
     expect(req.listenerCount("data")).toBe(0);
   });
