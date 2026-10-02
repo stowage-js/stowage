@@ -29,11 +29,13 @@ export interface NodeResponse {
 /**
  * What `toWebRequest` learned about the exchange a response belongs to, which no member of
  * `NodeResponse` carries: the method, so that `writeResponse` sends no body to a `HEAD`,
- * and whether the client left before the answer was written.
+ * whether the client left before the answer was written, and how to drop a body the
+ * answer left unread.
  */
 interface Exchange {
   readonly method: string;
   disconnected: boolean;
+  readonly discardUnreadBody: () => void;
 }
 
 const exchanges = new WeakMap<NodeResponse, Exchange>();
@@ -55,9 +57,13 @@ export function toWebRequest(req: NodeRequest, res: NodeResponse): Request {
   }
 
   const method = req.method ?? "GET";
-  const exchange: Exchange = { method, disconnected: false };
   const controller = new AbortController();
   const body = method === "GET" || method === "HEAD" ? undefined : streamedBody(req);
+  const exchange: Exchange = {
+    method,
+    disconnected: false,
+    discardUnreadBody: () => body?.discardUnread(),
+  };
 
   const disconnect = (): void => {
     exchange.disconnected = true;
@@ -95,13 +101,16 @@ interface StreamedBody {
   readonly stream: ReadableStream<Uint8Array>;
   /** Errors the stream, unless it ended, failed or was canceled already. */
   fail(reason: Error): void;
+  /** Lets the rest of `req` flow and drops it, where no read ever asked for it. */
+  discardUnread(): void;
 }
 
 /**
  * The body of `req`, which is paused while a chunk waits unread and resumed as it is read.
- * Nothing listens for its chunks before the first read: Node discards a body no `data`
- * listener asked for once the response has ended, so a refusal answered unread, a `413`
- * by `Content-Length` among them, leaves the connection free for the next request.
+ * Nothing listens for its chunks before the first read, so that a refusal answered unread,
+ * a `413` by `Content-Length` among them, can drop the body rather than read it. Node drops
+ * such a body once the response has ended; Deno's `node:http` keeps it, and the next
+ * request on the connection never arrives, so `writeResponse` drops it on both.
  */
 function streamedBody(req: NodeRequest): StreamedBody {
   let settled = false;
@@ -153,7 +162,14 @@ function streamedBody(req: NodeRequest): StreamedBody {
     { highWaterMark: 0 },
   );
 
-  return { stream, fail };
+  const discardUnread = (): void => {
+    if (listening || settled) return;
+
+    settled = true;
+    req.resume();
+  };
+
+  return { stream, fail, discardUnread };
 }
 
 // No function of the layer reads the URL, so it carries nothing the layer depends on, and a
@@ -214,11 +230,13 @@ export async function writeResponse(res: NodeResponse, response: Response): Prom
   // A `304` carries no body already: the Fetch standard gives that status a null body.
   if (body === null || exchange?.method === "HEAD") {
     res.end();
+    exchange?.discardUnreadBody();
     await body?.cancel();
     return;
   }
 
   await pipe(body, res);
+  exchange?.discardUnreadBody();
 }
 
 /** Node destroys the response of a client that left before it closes it. */

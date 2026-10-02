@@ -23,6 +23,7 @@ class StreamingRequest implements NodeRequest {
   readonly socket = {};
   readableDidRead = false;
   paused = false;
+  resumed = false;
   readonly method: string;
   private readonly listeners = new Map<string, ((value: never) => void)[]>();
   private readonly unread: Uint8Array[] = [];
@@ -54,6 +55,7 @@ class StreamingRequest implements NodeRequest {
 
   resume(): this {
     this.paused = false;
+    this.resumed = true;
 
     return this;
   }
@@ -346,6 +348,33 @@ describe("the body of `toWebRequest`", () => {
     res.disconnect();
 
     expect((await answered).status).toBe(400);
+  });
+
+  test("lets `req` flow once `writeResponse` ended a response that left the body unread", async () => {
+    const req = new StreamingRequest();
+    const res = new RecordedResponse();
+
+    toWebRequest(req, res);
+    await writeResponse(res, new Response(null, { status: 413 }));
+
+    // Deno's `node:http`, unlike Node's, keeps a body no one read, and the next request on
+    // the connection never reaches the server.
+    expect(req.resumed).toBe(true);
+    expect(req.listenerCount("data")).toBe(0);
+  });
+
+  test("leaves `req` paused where the body is still being read as the response ends", async () => {
+    const req = new StreamingRequest();
+    const res = new RecordedResponse();
+    const reader = toWebRequest(req, res).body?.getReader();
+    const first = reader?.read();
+
+    await settle();
+    req.emit("data", bytes("one"));
+    await first;
+    await writeResponse(res, new Response(null, { status: 202 }));
+
+    expect(req.paused).toBe(true);
   });
 
   test("resumes `req` once the body is canceled and drops what follows", async () => {
