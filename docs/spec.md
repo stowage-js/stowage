@@ -2589,9 +2589,10 @@ export function describeHttpConformance(
   `@stowage/conformance` depends on neither `@stowage/http` nor a framework.
 - `createStorage()` returns a storage that addresses the objects the server serves. `url` names the
   route that gives one answer for one key; how the key travels in the URL is the target's.
-- Every route hands each method the cases send, `GET`, `HEAD`, `POST`, `PUT` and `DELETE`, to the
-  layer, so that the layer answers `405` itself. The suite fixes what each route is configured
-  with:
+- The `serve`, `redirect` and `upload` routes hand each method the cases send, `GET`, `HEAD`,
+  `POST`, `PUT` and `DELETE`, to the layer, so that the layer answers `405` itself. The `presign`
+  route itself answers non-`POST` methods with `405` and `Allow: POST`. The suite fixes what each
+  route is configured with:
   - `serve`: `serveObject(storage, key, request)`, without options.
   - `redirect`: `redirectToObject(storage, key, request, { expiresIn: 60 })`.
   - `upload`: `acceptUpload(storage, key, request, { maxSize: 1048576 })`.
@@ -2679,6 +2680,7 @@ with `requires` carries a `runWithout` half, described in the last column.
 | Case                           | Requires        | Cost   | Asserts                                                                                                                                                                                                                                                                                        |
 | ------------------------------ | --------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `presign/put`                  | `presignedUrls` | `fast` | `contentType` `text/plain` and `contentLength` 11 answer `200`, `application/json`, `Cache-Control: private, no-store` and `{ url, method: "PUT", headers }`; `fetch` with `PUT`, `headers` and 11 bytes answers `2xx`, and `stat` reports both. Without: `"presignPut" in storage` is `false` |
+| `presign/method-not-allowed`   | `presignedUrls` | `fast` | `GET`, `HEAD`, `PUT` and `DELETE` answer `405` with `Allow: POST`; the key is absent. Without: as above                                                                                                                                                                                        |
 | `presign/too-large`            | `presignedUrls` | `fast` | `contentLength` 1048577 answers `413`. Without: as above                                                                                                                                                                                                                                       |
 | `presign/invalid-length`       | `presignedUrls` | `fast` | `contentLength` `-1`, `1.5` and `"11"` each answer `400`. Without: as above                                                                                                                                                                                                                    |
 | `presign/invalid-content-type` | `presignedUrls` | `fast` | `contentType` `""` and `"a\nb"` each answer `400`. Without: as above                                                                                                                                                                                                                           |

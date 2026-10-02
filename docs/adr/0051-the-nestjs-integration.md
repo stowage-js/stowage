@@ -45,9 +45,10 @@ have made every controller differ between Express and Fastify, where `reply.hija
 - The module has no lifecycle hook. A storage holds nothing to release (spec 4.1), and an upload in
   flight follows `request.signal`, which the Node bridge aborts when the connection closes
   (ADR 0049).
-- `webRequestOf(req)` builds the web `Request` from an Express request or from a Fastify request's
-  `raw`, and `sendResponse(res, response)` writes a `Response` into an Express response or, after
-  `reply.hijack()`, into a Fastify reply's `raw`. Both go through the Node bridge, which answers
+- `webRequestOf(req, res)` builds the web `Request` from an Express request and response or from a
+  Fastify request and reply through their `raw` fields. `sendResponse(res, response)` writes a
+  `Response` into an Express response or, after `reply.hijack()`, into a Fastify reply's `raw`.
+  Both go through the Node bridge, which answers
   `HEAD` without a body and cancels the source on disconnect. Both tell the platforms apart by
   their shape and import neither `express` nor `fastify`, so `@nestjs/common` stays the only peer,
   and a controller reads the same on both platforms:
@@ -55,11 +56,11 @@ have made every controller differ between Express and Fastify, where `reply.hija
   ```ts
   @Get("avatars/:id")
   async avatar(@Param("id") id: string, @Req() req: unknown, @Res() res: unknown) {
-    await sendResponse(res, await serveObject(this.avatars, `avatars/${id}`, webRequestOf(req)));
+    await sendResponse(res, await serveObject(this.avatars, `avatars/${id}`, webRequestOf(req, res)));
   }
   ```
 
-- The package exports no parameter decorator for the web `Request`; `webRequestOf(req)` is the one
+- The package exports no parameter decorator for the web `Request`; `webRequestOf(req, res)` is the one
   line it would save.
 - On Fastify an upload body reaches `acceptUpload` only once the application registers a content
   type parser that leaves the payload unread (ADR 0049). The package does not register it, since a

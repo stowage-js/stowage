@@ -47,13 +47,13 @@ already pays for, and with the rule above a dropped major is almost never a brea
   stands. `@stowage/http` and `@stowage/core` are regular `dependencies` of an integration, written
   `workspace:^` as the adapters write `@stowage/core`.
 - The peer ranges at v0.5 are `@nestjs/common` `^12`, `hono` `^4` and `next` `^16`. Spec section 1
-  names each integration's promised majors; section 11 gains the rule for adding and dropping a
+  names each integration's promised majors; section 15 gains the rule for adding and dropping a
   framework major beside the one for runtimes and Node lines. Dropping a major its framework still
   supports is a withdrawal, and its changeset starts with `**Breaking:**`.
 - The names are the framework's own, in lower case: `@stowage/nestjs`, `@stowage/hono`,
   `@stowage/nextjs`. No prefix like `adapter-`, which `CONTEXT.md` keeps for adapters, and not
   `@stowage/next`, which reads as the next stowage.
-- The `fixed` group in `.changeset/config.json` and spec section 11 list eleven packages:
+- The `fixed` group in `.changeset/config.json` and spec section 15 list eleven packages:
   the seven of v0.4, `@stowage/http` and the three integrations. Each new package needs a `0.0.0`
   placeholder on npm and trusted publishing from `release.yml` before its first release.
 - stowage's sources contain no decorator syntax. `@stowage/nestjs` calls NestJS's decorator

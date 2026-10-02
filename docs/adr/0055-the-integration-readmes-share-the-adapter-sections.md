@@ -15,7 +15,7 @@ Notes is what a caller writes themselves: a Fastify content type parser, `bodyPa
 test that replaces the storage. A task-ordered README would also have retold the layer's functions,
 which the spec already states; the example shows them once, and the spec holds the rest.
 
-Spec 12 has every `ts` block compile against the built declarations, and the shared `tsconfig` of
+Spec 16 has every `ts` block compile against the built declarations, and the shared `tsconfig` of
 ADR 0008 cannot compile a NestJS controller as its reader writes one: `@Inject(token)` in a
 constructor parameter property needs `experimentalDecorators` and is refused by
 `erasableSyntaxOnly`. Writing the NestJS blocks without decorators would compile and teach a
@@ -73,7 +73,7 @@ a README.
     before presigning in a Server Component; no `force-static`, `revalidate` or `'use cache'` around
     a `get`; a resolver built in the factory existing once per module graph; a test mocking the
     application's storage module (ADR 0053).
-- Spec 12 fixes no order among the notes of these four; none of them leads the way the access token
+- Spec 16 fixes no order among the notes of these four; none of them leads the way the access token
   leads the notes of `adapter-azure-blob` and `adapter-gcs`.
 - The README of `@stowage/conformance` gains a section "Test a server" after "Run the cases on
   `workerd`": how to write an `HttpConformanceTarget` and run the HTTP cases (ADR 0050), with

@@ -29,10 +29,10 @@ The caller writes the few lines that turn a `page()` into the JSON its own clien
   flow 1, `presignUpload` for flow 2, and for flow 4 `serveObject`, with `redirectToObject` as the
   alternative that hands ranges to the provider. The line promises nothing of its own; each flow's
   "Holds when" and "Fails as" stay as they are.
-- Section 10.6 keeps its five `flow/*` cases. The cases of the HTTP conformance suite carry no
+- Section 14.6 keeps its five `flow/*` cases. The cases of the HTTP conformance suite carry no
   `flow/` prefix and are named after the answer they request, `serve/`, `redirect/`, `upload/` and
   `presign/`, the four values of `url(answer, key)` on an `HttpConformanceTarget`.
-- Section 13 names a listing endpoint in `@stowage/http` as a non-goal.
+- Section 17 names a listing endpoint in `@stowage/http` as a non-goal.
 - `CONTEXT.md` sharpens Reference flow to a call sequence against a storage, which a route carries.
 - This extends ADR 0004 and contradicts none of it. No released promise changes, so ADR 0017 is not
   touched.
