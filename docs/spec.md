@@ -2096,9 +2096,7 @@ framework. `IncomingMessage` and `ServerResponse` of `node:http` satisfy `NodeRe
   error. That the request was a `HEAD` it learns from `toWebRequest` on the same `res`; without
   that call it writes the body it is handed, which no answer of the layer carries for a `HEAD`.
 - Once `writeResponse` has ended the response, a request body that no read of the `Request` asked
-  for, the body of a `413` by `Content-Length` among them, is let flow and dropped. Node drops it
-  on its own; Deno's `node:http` keeps it, and the next request on the connection never reaches
-  the server.
+  for, the body of a `413` by `Content-Length` among them, is let flow and dropped.
 - A client that left before `toWebRequest` or `writeResponse` was called is read from
   `res.destroyed`, since a closed `res` emits no `close` for a listener added later and answers
   every `write` with `false` and no `drain`. The signal of `toWebRequest` is then aborted when the
