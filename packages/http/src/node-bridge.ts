@@ -48,7 +48,9 @@ export function toWebRequest(req: NodeRequest, res: NodeResponse): Request {
   // A body parser in front, `express.json()` or NestJS's default among them, would leave
   // the layer an empty body to store.
   if (req.readableDidRead) {
-    throw new TypeError("The body of `req` was read before `toWebRequest`, by a body parser or so");
+    throw new TypeError(
+      "The body of `req` was read before `toWebRequest`, by a body parser among others",
+    );
   }
 
   const method = req.method ?? "GET";
@@ -61,9 +63,9 @@ export function toWebRequest(req: NodeRequest, res: NodeResponse): Request {
     if (res.writableFinished) return;
 
     exchange.disconnected = true;
-    // Node closes the response of a reset connection before `req` emits its error, and
-    // the abort would reach `put` before the failed body, which `acceptUpload` answers
-    // with `400` where it throws an abort on.
+    // Node closes the response of a reset connection before `req` emits its error. The
+    // body fails first, so that `acceptUpload` answers the reset with spec 10.5's `400`
+    // rather than throwing on the abort that would otherwise reach `put` before it.
     body?.fail(new Error("The connection closed before the request body ended"));
     controller.abort();
   });

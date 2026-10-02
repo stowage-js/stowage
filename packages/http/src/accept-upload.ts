@@ -50,11 +50,11 @@ export async function acceptUpload(
 
   if (announced !== null && !/^\d+$/u.test(announced)) return refusal(400);
 
-  const length = announced === null ? undefined : Number(announced);
+  const contentLength = announced === null ? undefined : Number(announced);
 
-  if (length !== undefined && length > maxSize) return refusal(413);
+  if (contentLength !== undefined && contentLength > maxSize) return refusal(413);
 
-  const counted = countedBody(request.body ?? emptyBody(), { maxSize, length });
+  const counted = countedBody(request.body ?? emptyBody(), { maxSize, contentLength });
   let stat: ObjectStat;
 
   try {
@@ -85,16 +85,18 @@ function emptyBody(): ReadableStream<Uint8Array> {
   return new ReadableStream({ start: (controller) => controller.close() });
 }
 
+/** `413` for a body past `maxSize`, `400` for one that contradicts its length or failed. */
+type BodyRefusal = 400 | 413;
+
 interface Limits {
   readonly maxSize: number;
-  /** The request's `Content-Length`, which the body has to match. */
-  readonly length: number | undefined;
+  readonly contentLength: number | undefined;
 }
 
 interface CountedBody {
   readonly body: ReadableStream<Uint8Array>;
-  /** The status of the layer's own the body was refused with, once it was. */
-  refused(): 400 | 413 | undefined;
+  /** The status the layer refused the body with, once it did. */
+  refused(): BodyRefusal | undefined;
 }
 
 /**
@@ -105,14 +107,14 @@ interface CountedBody {
 function countedBody(source: ReadableStream<Uint8Array>, limits: Limits): CountedBody {
   const reader = source.getReader();
   let count = 0;
-  let refused: 400 | 413 | undefined;
+  let refused: BodyRefusal | undefined;
   // Once `put` canceled the body, at an abort among others, the read pending on the source
   // ends early, and that end is no body short of its length.
   let canceled = false;
 
   const refuse = (
     controller: ReadableStreamDefaultController<Uint8Array>,
-    status: 400 | 413,
+    status: BodyRefusal,
     reason: Error,
   ): void => {
     refused = status;
@@ -139,7 +141,8 @@ function countedBody(source: ReadableStream<Uint8Array>, limits: Limits): Counte
         if (canceled) return;
 
         if (chunk.done) {
-          if (limits.length === undefined || count === limits.length) controller.close();
+          if (limits.contentLength === undefined || count === limits.contentLength)
+            controller.close();
           else refuse(controller, 400, new Error("The body ended short of its Content-Length"));
           return;
         }
@@ -148,7 +151,7 @@ function countedBody(source: ReadableStream<Uint8Array>, limits: Limits): Counte
 
         // A body below `maxSize` with a `Content-Length` runs past that length no later
         // than past `maxSize`, so the length is told first.
-        if (limits.length !== undefined && count > limits.length) {
+        if (limits.contentLength !== undefined && count > limits.contentLength) {
           refuse(controller, 400, new Error("The body runs past its Content-Length"));
         } else if (count > limits.maxSize) {
           refuse(controller, 413, new Error("The body runs past maxSize"));

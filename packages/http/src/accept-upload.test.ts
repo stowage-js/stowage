@@ -9,7 +9,11 @@ const bytes = (text: string): Uint8Array<ArrayBuffer> => new TextEncoder().encod
 const text = (held: Uint8Array | undefined): string | undefined =>
   held === undefined ? undefined : new TextDecoder().decode(held);
 
-/** A `PUT` of `body`, which a `Uint8Array` sends without the `Content-Type` a string gets. */
+/**
+ * A `PUT` of `body`, which a `Uint8Array` sends without the `Content-Type` a string gets.
+ * Node and Deno take a stream as a body only with `duplex`, which the lib does not declare,
+ * so the init is no literal that the compiler would check for it.
+ */
 const upload = (
   body: BodyInit | null,
   fields: {
@@ -17,15 +21,17 @@ const upload = (
     readonly headers?: HeadersInit;
     readonly signal?: AbortSignal;
   } = {},
-): Request =>
-  new Request("http://localhost/uploads/report", {
+): Request => {
+  const init = {
     method: fields.method ?? "PUT",
     headers: fields.headers,
     signal: fields.signal,
     body,
-    // Node and Deno take a stream as a body only with `duplex`, which no lib declares.
-    ...({ duplex: "half" } as object),
-  });
+    duplex: "half",
+  };
+
+  return new Request("http://localhost/uploads/report", init);
+};
 
 /** A body handing over `chunks` one by one as they are read, then ending or failing. */
 function streamed(

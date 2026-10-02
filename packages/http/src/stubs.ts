@@ -53,7 +53,11 @@ interface Put {
  * layer's own refusal has to win over that error's `503`.
  */
 export function holdingStorage(
-  fields: { readonly etag?: string | undefined; readonly held?: Record<string, string> } = {},
+  fields: {
+    /** `e1` where it is left out; `undefined` stands for a storage that hands over none. */
+    readonly etag?: string | undefined;
+    readonly held?: Record<string, string>;
+  } = {},
 ): Storage & { readonly held: Map<string, Uint8Array>; readonly puts: Put[] } {
   const held = new Map<string, Uint8Array>(
     Object.entries(fields.held ?? {}).map(
