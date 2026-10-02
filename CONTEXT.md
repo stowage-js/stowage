@@ -247,8 +247,10 @@ adapters and runtimes it covers and the conditions under which it counts as supp
 _Avoid_: use case, user story, scenario
 
 **Runtime matrix**:
-The grid of reference flows against runtimes that fixes what a release promises. A cell counts as
-supported only where the conformance suite covers it, and there is no weaker level below that.
+The grid that fixes what a release promises: reference flows against runtimes, and beside them the
+HTTP layer, the Node bridge and each integration against runtimes. A cell counts as supported only
+where the conformance suite or, for a server, the HTTP conformance suite covers it, and there is no
+weaker level below that.
 _Avoid_: support matrix, compatibility table
 
 **Conformance suite**:
@@ -265,6 +267,16 @@ _Avoid_: test, check, scenario
 What an adapter supplies so the conformance suite can run against it: how to construct a storage
 and how to clean up afterwards. What that storage supports the suite reads from the storage.
 _Avoid_: fixture, subject, adapter under test
+
+**HTTP conformance suite**:
+The published set of cases a server runs to show that it answers over HTTP as the HTTP layer
+specifies. It asserts what a client can observe over HTTP, and nothing below that.
+_Avoid_: integration tests, server tests, e2e suite
+
+**HTTP conformance target**:
+What a server supplies so the HTTP conformance suite can run against it: a storage addressing the
+objects the server serves, and the address of the route that gives each answer for a key.
+_Avoid_: test app, fixture, server under test
 
 **Harness**:
 The code that runs the conformance cases on one runtime and reports them. Every runtime has its
