@@ -1,4 +1,4 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { text } from "node:stream/consumers";
 
 import {
@@ -63,7 +63,7 @@ export async function servedTarget(
       createStorage: () => s3Storage(configured),
       url: started.url,
     },
-    close: started.close,
+    close: async () => await started.close(),
   };
 }
 
@@ -103,8 +103,15 @@ async function startNodeBridge(
   routes: RouteOptions,
 ): Promise<StartedServer> {
   const storage = s3Storage(configured);
-  const server = createServer((req, res) => void handle(storage, routes, req, res));
 
+  return await listening(createServer((req, res) => void handle(storage, routes, req, res)));
+}
+
+/**
+ * `server` listening on a free port of the loopback address, with the key of every route
+ * as one encoded path segment.
+ */
+export async function listening(server: Server): Promise<StartedServer> {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 
   const address = server.address();

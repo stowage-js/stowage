@@ -3,6 +3,7 @@ import { env } from "node:process";
 import { afterAll, describe, test } from "vitest";
 
 import { configuredStorage } from "../../s3/src/environment.ts";
+import { describeDisconnect } from "../../targets/src/disconnect.ts";
 import { endpointTiersFrom } from "../../targets/src/endpoints.ts";
 import { describeServed, nodeBridge, servedTarget } from "../../targets/src/http.ts";
 
@@ -14,3 +15,4 @@ const served = configured === undefined ? undefined : await servedTarget(nodeBri
 afterAll(async () => await served?.close());
 
 describeServed(served, { describe, test });
+describeDisconnect(nodeBridge, "Node", configured, { describe, test });
