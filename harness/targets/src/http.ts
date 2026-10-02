@@ -1,12 +1,17 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 
 import { type S3AdapterOptions, s3Storage } from "../../../packages/adapter-s3/src/index.ts";
-import type { ConformanceFramework } from "../../../packages/conformance/src/describe.ts";
-import { describeHttpConformance } from "../../../packages/conformance/src/describe-http.ts";
+import {
+  type ConformanceFramework,
+  describeCases,
+} from "../../../packages/conformance/src/describe.ts";
+import { httpConformanceCases } from "../../../packages/conformance/src/http-cases/index.ts";
 import type { HttpConformanceTarget } from "../../../packages/conformance/src/http-target.ts";
+import { casesOfTier } from "../../../packages/conformance/src/run.ts";
 import { toWebRequest, writeResponse } from "../../../packages/http/src/index.ts";
 import { describeDisconnect, type Runtime } from "./disconnect.ts";
 import { type RouteOptions, routeUrls, routesOf } from "./routes.ts";
+import { type ServerDivergence, withServerDivergences } from "./server-divergences.ts";
 
 export interface ServedTarget {
   readonly target: HttpConformanceTarget;
@@ -26,6 +31,8 @@ export interface StartedServer {
  */
 export interface HttpServer {
   readonly name: string;
+  /** The cases the runtime's own server changes the answer of, expected to fail on it. */
+  readonly divergences?: readonly ServerDivergence[];
   start(storage: S3AdapterOptions, routes?: RouteOptions): Promise<StartedServer>;
 }
 
@@ -71,7 +78,13 @@ export async function describeServers(
     if (target === undefined) {
       framework.test(`${server.name} over HTTP (skipped: no S3 endpoint)`, async () => {});
     } else {
-      describeHttpConformance(target, framework);
+      // What `describeHttpConformance` registers, with the server's divergences applied.
+      describeCases(
+        withServerDivergences(casesOfTier(httpConformanceCases, framework), server),
+        target,
+        framework,
+        `${target.name} over HTTP`,
+      );
     }
 
     describeDisconnect(server, runtime, configured, framework);
