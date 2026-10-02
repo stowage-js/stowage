@@ -96,7 +96,13 @@ async function handle(
  */
 async function answer(storage: S3Storage, url: string, request: Request): Promise<Response> {
   const [, route, encodedKey = ""] = routePattern.exec(url) ?? [];
-  const key = decodeURIComponent(encodedKey);
+  let key: string;
+
+  try {
+    key = decodeURIComponent(encodedKey);
+  } catch {
+    return new Response(null, { status: 404 });
+  }
 
   if (route === "serve") return await serveObject(storage, key, request);
 
