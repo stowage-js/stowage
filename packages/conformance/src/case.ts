@@ -2,20 +2,27 @@ import type { CapabilityName } from "@stowage/core";
 
 import type { ConformanceContext, ConformanceFactoryName } from "./target.ts";
 
-export type ConformanceCase =
+/**
+ * A case of either list against the context its suite hands it: the conformance suite of
+ * spec 14.1 and the HTTP conformance suite of spec 14.8 share the shape and differ in
+ * the context alone.
+ */
+export type CaseOf<Context> =
   | {
       readonly name: string;
       readonly requires: readonly [];
       readonly cost: "fast" | "slow";
-      run(ctx: ConformanceContext): Promise<void>;
+      run(ctx: Context): Promise<void>;
     }
   | {
       readonly name: string;
       readonly requires: readonly [CapabilityName, ...CapabilityName[]];
       readonly cost: "fast" | "slow";
-      run(ctx: ConformanceContext): Promise<void>;
-      runWithout(ctx: ConformanceContext): Promise<void>;
+      run(ctx: Context): Promise<void>;
+      runWithout(ctx: Context): Promise<void>;
     };
+
+export type ConformanceCase = CaseOf<ConformanceContext>;
 
 /**
  * A case as the suite writes it down: the published shape plus the factory of spec 14.3 it
