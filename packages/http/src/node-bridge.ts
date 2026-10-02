@@ -18,6 +18,7 @@ export interface NodeResponse {
   statusCode: number;
   readonly writableEnded: boolean;
   readonly writableFinished: boolean;
+  readonly destroyed: boolean;
   setHeader(name: string, value: string | readonly string[]): unknown;
   write(chunk: Uint8Array): boolean;
   end(): unknown;
@@ -58,17 +59,24 @@ export function toWebRequest(req: NodeRequest, res: NodeResponse): Request {
   const controller = new AbortController();
   const body = method === "GET" || method === "HEAD" ? undefined : streamedBody(req);
 
-  exchanges.set(res, exchange);
-  res.on("close", () => {
-    if (res.writableFinished) return;
-
+  const disconnect = (): void => {
     exchange.disconnected = true;
     // Node closes the response of a reset connection before `req` emits its error. The
     // body fails first, so that `acceptUpload` answers the reset with spec 10.5's `400`
     // rather than throwing on the abort that would otherwise reach `put` before it.
     body?.fail(new Error("The connection closed before the request body ended"));
     controller.abort();
-  });
+  };
+
+  exchanges.set(res, exchange);
+  // A `res` that closed already emits no `close` for a listener added now.
+  if (hasDisconnected(res)) {
+    disconnect();
+  } else {
+    res.on("close", () => {
+      if (!res.writableFinished) disconnect();
+    });
+  }
 
   // Node and Deno take a stream as a body only with `duplex`, which the lib does not
   // declare, so the init is no literal that the compiler would check for it.
@@ -197,7 +205,8 @@ export async function writeResponse(res: NodeResponse, response: Response): Prom
   const body = response.body;
   const exchange = exchanges.get(res);
 
-  if (exchange?.disconnected === true) {
+  // `pipe` would wait for a `drain` that a closed `res` never emits.
+  if (exchange?.disconnected === true || hasDisconnected(res)) {
     await body?.cancel();
     return;
   }
@@ -210,6 +219,11 @@ export async function writeResponse(res: NodeResponse, response: Response): Prom
   }
 
   await pipe(body, res);
+}
+
+/** Node destroys the response of a client that left before it closes it. */
+function hasDisconnected(res: NodeResponse): boolean {
+  return res.destroyed && !res.writableFinished;
 }
 
 /** How far `pipe` got, which the listeners on `res` read and write as the body streams. */

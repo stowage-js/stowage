@@ -82,6 +82,7 @@ class RecordedResponse implements NodeResponse {
   statusCode = 200;
   writableEnded = false;
   writableFinished = false;
+  destroyed = false;
   readonly headers = new Map<string, string | readonly string[]>();
   readonly chunks: string[] = [];
   destroyedWith: Error | "nothing" | undefined;
@@ -111,9 +112,16 @@ class RecordedResponse implements NodeResponse {
 
   destroy(error?: Error): this {
     this.destroyedWith = error ?? "nothing";
+    this.destroyed = true;
     this.emit("close");
 
     return this;
+  }
+
+  /** What Node does to a response whose client left: it is destroyed, then closes. */
+  disconnect(): void {
+    this.destroyed = true;
+    this.emit("close");
   }
 
   on(event: "drain" | "close", listener: () => void): this {
@@ -210,9 +218,17 @@ describe("`toWebRequest`", () => {
 
     expect(request.signal.aborted).toBe(false);
 
-    res.emit("close");
+    res.disconnect();
 
     expect(request.signal.aborted).toBe(true);
+  });
+
+  test("aborts its signal for a `res` that closed before it was called", () => {
+    const res = new RecordedResponse();
+
+    res.disconnect();
+
+    expect(toWebRequest(nodeRequest(), res).signal.aborted).toBe(true);
   });
 
   test("leaves its signal alone once `res` has finished", () => {
@@ -327,7 +343,7 @@ describe("the body of `toWebRequest`", () => {
     await settle();
     // Node closes the response of a reset connection before the request emits its error,
     // and the layer answers a body that failed with `400`, an abort by throwing it on.
-    res.emit("close");
+    res.disconnect();
 
     expect((await answered).status).toBe(400);
   });
@@ -437,7 +453,7 @@ describe("`writeResponse`", () => {
 
     controller.enqueue(bytes("one"));
     await settle();
-    res.emit("close");
+    res.disconnect();
     await written;
 
     expect(canceled()).toBe(true);
@@ -453,7 +469,7 @@ describe("`writeResponse`", () => {
 
     controller.enqueue(bytes("one"));
     await settle();
-    res.emit("close");
+    res.disconnect();
     await written;
 
     expect(canceled()).toBe(true);
@@ -464,7 +480,30 @@ describe("`writeResponse`", () => {
     const { body, canceled } = controlledBody();
 
     toWebRequest(nodeRequest(), res);
-    res.emit("close");
+    res.disconnect();
+    await writeResponse(res, new Response(body));
+
+    expect(canceled()).toBe(true);
+    expect(res.chunks).toEqual([]);
+  });
+
+  // A `res` that closed already emits no `close` that a listener added now would hear, and
+  // a `write` to it answers `false` with no `drain` to follow.
+  test.each([
+    ["without `toWebRequest`", (): void => {}],
+    [
+      "with `toWebRequest` after the close",
+      (res: RecordedResponse): void => {
+        toWebRequest(nodeRequest(), res);
+      },
+    ],
+  ])("cancels the body of a `res` that closed before it was written, %s", async (_, before) => {
+    const res = new RecordedResponse();
+    const { body, canceled } = controlledBody();
+
+    res.accepts = false;
+    res.disconnect();
+    before(res);
     await writeResponse(res, new Response(body));
 
     expect(canceled()).toBe(true);
@@ -531,6 +570,37 @@ describe("over `node:http`", () => {
     expect(head.status).toBe(200);
     expect(await head.text()).toBe("");
     expect(head.headers.get("etag")).toBe('"0123abcd"');
+  });
+
+  test("cancels the body for a client that left before the answer was written", async () => {
+    const { body, canceled } = controlledBody();
+    let written: Promise<void> | undefined;
+    const arrived = Promise.withResolvers<void>();
+    const closed = Promise.withResolvers<void>();
+
+    server = createServer((_req, res) => {
+      arrived.resolve();
+      res.on("close", () => {
+        written = writeResponse(res, new Response(body));
+        closed.resolve();
+      });
+    });
+    await new Promise<void>((resolve) => server?.listen(0, "127.0.0.1", resolve));
+
+    const address = server.address();
+
+    if (address === null || typeof address === "string") throw new Error("No TCP port to reach");
+
+    const client = new AbortController();
+    const answered = fetch(`http://127.0.0.1:${address.port}/`, { signal: client.signal });
+
+    await arrived.promise;
+    client.abort();
+    await answered.catch(() => {});
+    await closed.promise;
+    await written;
+
+    expect(canceled()).toBe(true);
   });
 });
 
