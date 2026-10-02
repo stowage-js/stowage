@@ -2625,9 +2625,10 @@ repository's servers, tested in this repository and not by the suite:
 - The status table of section 10.2, the whole `get` after a ranged `ProviderError`, and an object
   changing between `stat` and `get` (section 10.3), against a storage that answers so, since no
   endpoint in CI produces a content-coded object or a race on demand.
-- The `400` of `acceptUpload` for a body that ends short of its `Content-Length` or runs past it,
-  and for a body that fails while it is read, over a raw socket: `fetch` cannot send a
-  `Content-Length` that contradicts its body.
+- The `400` of `acceptUpload` for a body that ends short of its `Content-Length` and for a body
+  that fails while it is read, over a raw socket: `fetch` cannot send a `Content-Length` that
+  contradicts its body. A body that runs past its `Content-Length` is tested as a web `Request`,
+  since `node:http` reads the bytes after it as the next request and the layer never sees them.
 - The Node bridge on Node, Bun and Deno: the `TypeError` for a body already read, the signal of
   `toWebRequest` aborting when the response closes early and not when the request body ends, and
   `writeResponse` destroying the response for a body that errors.
