@@ -3,6 +3,7 @@ import { readdir } from "node:fs/promises";
 import { expect, test } from "vitest";
 
 import changesetConfig from "../.changeset/config.json" with { type: "json" };
+import honoFloor from "../harness/hono-floor/package.json" with { type: "json" };
 import harnessTargets from "../harness/targets/package.json" with { type: "json" };
 import adapterAzureBlob from "../packages/adapter-azure-blob/package.json" with { type: "json" };
 import adapterFs from "../packages/adapter-fs/package.json" with { type: "json" };
@@ -93,7 +94,7 @@ test.each(published)("$name declares a peer only where it integrates a framework
 
 // Spec 2, ADR 0050: the peer range starts at the floor CI runs.
 test("@stowage/hono promises Hono 4 from the floor CI runs", () => {
-  expect(hono.peerDependencies).toEqual({ hono: "^4.13.12" });
+  expect(hono.peerDependencies).toEqual({ hono: `^${honoFloor.devDependencies.hono}` });
 });
 
 // Spec 1: nothing detects the runtime at import time, so no package hands one runtime an
