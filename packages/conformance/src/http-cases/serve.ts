@@ -38,6 +38,30 @@ async function seed(ctx: HttpConformanceContext, key: string): Promise<Uint8Arra
   return bytes;
 }
 
+/** The ranges `serve/range` asks for, each with the first and last byte it is answered with. */
+const satisfiableRanges = [
+  ["bytes=2-5", 2, 5],
+  ["bytes=4-", 4, 15],
+  // Spec 4.3 clips an end beyond the size, and the answer names the clipped one.
+  ["bytes=2-999", 2, 15],
+] as const;
+
+const suffixRange = "bytes=-3";
+
+const unsatisfiableRange = `bytes=${objectSize}-`;
+
+/** A `GET` with one `Range`, and the words its assertions name it by. */
+async function serveRange(
+  ctx: HttpConformanceContext,
+  key: string,
+  range: string,
+): Promise<{ response: Response; what: string }> {
+  return {
+    response: await serve(ctx, key, { headers: { range } }),
+    what: `\`GET\` with \`Range: ${range}\``,
+  };
+}
+
 /** An answer of `200` with the whole object, which spec 10.3 gives a `Range` it ignores. */
 async function expectWhole(response: Response, bytes: Uint8Array, what: string): Promise<void> {
   assertSameBytes(await expectStatus(response, 200, what), bytes, `The body of the ${what}`);
@@ -205,15 +229,9 @@ export const serveCases: readonly HttpConformanceCase[] = [
       const key = keyFor(ctx, "serve/range");
       const bytes = await seed(ctx, key);
 
-      for (const [range, start, last] of [
-        ["bytes=2-5", 2, 5],
-        ["bytes=4-", 4, 15],
-        // Spec 4.3 clips an end beyond the size, and the answer names the clipped one.
-        ["bytes=2-999", 2, 15],
-      ] as const) {
-        const what = `\`GET\` with \`Range: ${range}\``;
+      for (const [range, start, last] of satisfiableRanges) {
         // oxlint-disable-next-line no-await-in-loop -- one request after the other
-        const response = await serve(ctx, key, { headers: { range } });
+        const { response, what } = await serveRange(ctx, key, range);
 
         assertSameBytes(
           // oxlint-disable-next-line no-await-in-loop -- one request after the other
@@ -231,10 +249,9 @@ export const serveCases: readonly HttpConformanceCase[] = [
       const bytes = await seed(ctx, key);
 
       // Spec 10.3 ignores any `Range` on a storage without `rangeReads`.
-      for (const range of ["bytes=2-5", "bytes=4-", "bytes=2-999"]) {
-        const what = `\`GET\` with \`Range: ${range}\``;
+      for (const [range] of satisfiableRanges) {
         // oxlint-disable-next-line no-await-in-loop -- one request after the other
-        const response = await serve(ctx, key, { headers: { range } });
+        const { response, what } = await serveRange(ctx, key, range);
 
         // oxlint-disable-next-line no-await-in-loop -- one request after the other
         await expectWhole(response, bytes, what);
@@ -249,8 +266,7 @@ export const serveCases: readonly HttpConformanceCase[] = [
     async run(ctx) {
       const key = keyFor(ctx, "serve/suffix-range");
       const bytes = await seed(ctx, key);
-      const what = "`GET` with `Range: bytes=-3`";
-      const response = await serve(ctx, key, { headers: { range: "bytes=-3" } });
+      const { response, what } = await serveRange(ctx, key, suffixRange);
 
       assertSameBytes(
         await expectStatus(response, 206, what),
@@ -262,9 +278,9 @@ export const serveCases: readonly HttpConformanceCase[] = [
     async runWithout(ctx) {
       const key = keyFor(ctx, "serve/suffix-range");
       const bytes = await seed(ctx, key);
-      const what = "`GET` with `Range: bytes=-3`";
+      const { response, what } = await serveRange(ctx, key, suffixRange);
 
-      await expectWhole(await serve(ctx, key, { headers: { range: "bytes=-3" } }), bytes, what);
+      await expectWhole(response, bytes, what);
     },
   },
   {
@@ -276,8 +292,7 @@ export const serveCases: readonly HttpConformanceCase[] = [
 
       await seed(ctx, key);
 
-      const what = `\`GET\` with \`Range: bytes=${objectSize}-\``;
-      const response = await serve(ctx, key, { headers: { range: `bytes=${objectSize}-` } });
+      const { response, what } = await serveRange(ctx, key, unsatisfiableRange);
 
       await expectStatus(response, 416, what);
       assertHeaderOf(response, "content-range", `bytes */${objectSize}`, what);
@@ -285,8 +300,7 @@ export const serveCases: readonly HttpConformanceCase[] = [
     async runWithout(ctx) {
       const key = keyFor(ctx, "serve/unsatisfiable-range");
       const bytes = await seed(ctx, key);
-      const what = `\`GET\` with \`Range: bytes=${objectSize}-\``;
-      const response = await serve(ctx, key, { headers: { range: `bytes=${objectSize}-` } });
+      const { response, what } = await serveRange(ctx, key, unsatisfiableRange);
 
       await expectWhole(response, bytes, what);
     },

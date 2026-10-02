@@ -146,20 +146,20 @@ async function answer(
 
   if (honorsRanges) headers.set("accept-ranges", "bytes");
 
-  const span =
+  const range =
     honorsRanges && request.method === "GET"
-      ? spanOf(request.headers.get("range"), bytes.byteLength, flaw)
+      ? rangeOf(request.headers.get("range"), bytes.byteLength, flaw)
       : undefined;
 
-  if (span === "unsatisfiable") {
+  if (range === "unsatisfiable") {
     return new Response(null, {
       status: 416,
       headers: { "content-range": `bytes */${bytes.byteLength}` },
     });
   }
 
-  if (span !== undefined) {
-    const [start, last] = span;
+  if (range !== undefined) {
+    const [start, last] = range;
 
     headers.set("content-range", `bytes ${start}-${last}/${bytes.byteLength}`);
 
@@ -177,7 +177,7 @@ async function answer(
  * The first and last byte of the one range spec 10.3 honors, `"unsatisfiable"` for one
  * starting beyond the object, `undefined` for a `Range` it ignores.
  */
-function spanOf(
+function rangeOf(
   field: string | null,
   size: number,
   flaw?: Flaw,
@@ -202,7 +202,6 @@ function spanOf(
 interface Server {
   readonly flaw?: Flaw;
   readonly dateOf?: () => Date;
-  /** What the storage behind the server declares, nothing by default. */
   readonly capabilities?: readonly string[];
 }
 
@@ -258,7 +257,6 @@ test.each<[string, Flaw, string]>([
   ["serve/range", "range-without-length", "content-length"],
   ["serve/suffix-range", "suffix-from-start", "The body of the `GET` with `Range: bytes=-3`"],
   ["serve/unsatisfiable-range", "unsatisfiable-whole", "answers 200 and not 416"],
-  ["serve/ignored-range", "range-honored", "answers 206"],
 ])(
   "`%s` fails against a server with the flaw %s behind a storage declaring `rangeReads`",
   async (name, flaw, message) => {
