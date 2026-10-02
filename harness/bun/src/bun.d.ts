@@ -9,6 +9,6 @@ declare namespace Bun {
   function serve(options: {
     readonly hostname: string;
     readonly port: number;
-    fetch(request: Request): Promise<Response>;
+    fetch(request: Request): Response | Promise<Response>;
   }): Server;
 }
