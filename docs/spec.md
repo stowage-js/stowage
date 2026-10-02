@@ -111,6 +111,13 @@ The servers, each against the runtimes its package promises (section 1):
   disconnecting cancels the stream `get` returned and reaches the provider, on every runtime of the
   cell, and memory stays flat through an upload and a download, on Node. A cell failing the
   disconnect test carries no "yes".
+- Three runtimes' own servers change an answer of the layer on its way to the socket, which a
+  client of the cell sees: `Bun.serve` and `Deno.serve` answer a `HEAD` with `Content-Length: 0`,
+  `Bun.serve` sends `Content-Length` with a body that is complete before the headers are written,
+  a small object's among them, and `workerd` sends every body that is a stream chunked and without
+  `Content-Length`, a `206` among them. A list beside each server in the private harness expects
+  `serve/head` to fail on `Bun.serve` and `Deno.serve`, `serve/whole` on `Bun.serve` and
+  `serve/range` on `workerd`, and fails the run where one passes.
 - CI runs the floor and the newest release of each framework's major on Node 24 and Node 26. The
   floors are `@nestjs/common`, `@nestjs/core`, `@nestjs/platform-express` and
   `@nestjs/platform-fastify` 12.1.2, `hono` 4.13.12 on `@hono/node-server` 2.1.3, and `next`
