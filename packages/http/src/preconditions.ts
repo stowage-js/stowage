@@ -2,7 +2,7 @@ import type { ObjectStat } from "@stowage/core";
 
 import { httpDateOf, lastModifiedOf } from "./http-date.ts";
 
-/** The preconditions of one request, each as its field names it, `undefined` where absent. */
+/** The preconditions of one request, `undefined` where a field is absent or ignored. */
 export interface Preconditions {
   readonly ifMatch?: string;
   readonly ifUnmodifiedSince?: number;
@@ -10,8 +10,11 @@ export interface Preconditions {
   readonly ifModifiedSince?: number;
 }
 
-/** What the preconditions make of a request: an answer of its own, or the method performed. */
-export type Verdict = 304 | 412 | "perform";
+/** The status of a failed precondition, which answers the request in place of the object. */
+export type FailedPrecondition = 304 | 412;
+
+export const isFailedPrecondition = (status: number): status is FailedPrecondition =>
+  status === 304 || status === 412;
 
 /**
  * The preconditions a request carries, `undefined` where it carries none. A date that is
@@ -35,11 +38,17 @@ export function preconditionsOf(headers: Headers): Preconditions | undefined {
     : undefined;
 }
 
-/** RFC 9110 13.2.2, in its order, against the `stat` of the object the answer would describe. */
-export function verdictOf(
-  { ifMatch, ifUnmodifiedSince, ifNoneMatch, ifModifiedSince }: Preconditions,
+/**
+ * RFC 9110 13.2.2, in its order, against the `stat` of the object the answer would describe:
+ * the status of the precondition that fails, `undefined` where every one holds.
+ */
+export function failedPreconditionOf(
+  preconditions: Preconditions | undefined,
   stat: ObjectStat,
-): Verdict {
+): FailedPrecondition | undefined {
+  if (preconditions === undefined) return undefined;
+
+  const { ifMatch, ifUnmodifiedSince, ifNoneMatch, ifModifiedSince } = preconditions;
   // Spec 10.3: dates compare with the `Last-Modified` the answer carries.
   const modified = lastModifiedOf(stat).getTime();
 
@@ -55,15 +64,15 @@ export function verdictOf(
     return 304;
   }
 
-  return "perform";
+  return undefined;
 }
 
 /**
  * RFC 9110 13.1.5: whether a range may be served under `If-Range`, which only the strong
  * `ETag` lets through. A date never does: at second resolution it is no strong validator.
  */
-export function rangeHolds(ifRange: string | null, stat: ObjectStat): boolean {
-  if (ifRange === null) return true;
+export function rangeHolds(ifRange: string | undefined, stat: ObjectStat): boolean {
+  if (ifRange === undefined) return true;
 
   const [tag, ...others] = tagsOf(ifRange);
 

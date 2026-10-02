@@ -10,7 +10,14 @@ import {
 import { answerFor, methodNotAllowed, rangeNotSatisfiable } from "./answers.ts";
 import { contentDisposition, lastSegmentOf } from "./disposition.ts";
 import { lastModifiedOf } from "./http-date.ts";
-import { type Preconditions, preconditionsOf, rangeHolds, verdictOf } from "./preconditions.ts";
+import {
+  type FailedPrecondition,
+  failedPreconditionOf,
+  isFailedPrecondition,
+  type Preconditions,
+  preconditionsOf,
+  rangeHolds,
+} from "./preconditions.ts";
 import { type RequestedRange, requestedRangeOf, suffixOf } from "./range.ts";
 
 export interface ServeObjectOptions {
@@ -51,28 +58,29 @@ export async function serveObject(
   try {
     if (method === "HEAD") {
       const stat = await storage.stat(key, { signal: serving.signal });
-      const verdict = preconditions === undefined ? "perform" : verdictOf(preconditions, stat);
+      const failed = failedPreconditionOf(preconditions, stat);
 
-      return verdict === "perform"
+      return failed === undefined
         ? new Response(null, { status: 200, headers: objectHeaders(serving, stat) })
-        : refusal(serving, verdict, stat);
+        : failedAnswer(serving, failed, stat);
     }
 
     const requested = storage.capabilities.includes("rangeReads")
       ? requestedRangeOf(request.headers.get("range"))
       : undefined;
     // RFC 9110 13.1.5: `If-Range` counts only beside a range the layer would serve.
-    const ifRange = requested === undefined ? null : request.headers.get("if-range");
+    const ifRange =
+      requested === undefined ? undefined : (request.headers.get("if-range") ?? undefined);
 
-    if (preconditions === undefined && ifRange === null) {
+    if (preconditions === undefined && ifRange === undefined) {
       if (requested === undefined) return await serveWhole(serving);
       if (!("suffixLength" in requested)) return await serveRange(serving, requested);
     }
 
     const stat = await storage.stat(key, { signal: serving.signal });
-    const conditions: Conditions = { preconditions, requested, ifRange };
+    const asked: Asked = { preconditions, requested, ifRange };
 
-    return await servePlanned(serving, { stat, decide: (each) => planOf(conditions, each) });
+    return await servePlanned(serving, { stat, decide: (each) => planOf(asked, each) });
   } catch (thrown) {
     return answerFor(thrown);
   }
@@ -86,11 +94,11 @@ interface ServeRequest {
   readonly options: ServeObjectOptions;
 }
 
-/** What of a `GET` decides its answer from a `stat` (ADR 0048). */
-interface Conditions {
+/** What a `GET` asks beyond the object, which a `stat` decides (ADR 0048). */
+interface Asked {
   readonly preconditions: Preconditions | undefined;
   readonly requested: RequestedRange | undefined;
-  readonly ifRange: string | null;
+  readonly ifRange: string | undefined;
 }
 
 /** The answer a `GET` gets from one `stat`, the range a `206` sends with it. */
@@ -103,10 +111,10 @@ type Plan =
  * empty suffix unsatisfiable, and any other suffix of an empty object the whole of it,
  * which no `Content-Range` can name.
  */
-function planOf({ preconditions, requested, ifRange }: Conditions, stat: ObjectStat): Plan {
-  const verdict = preconditions === undefined ? "perform" : verdictOf(preconditions, stat);
+function planOf({ preconditions, requested, ifRange }: Asked, stat: ObjectStat): Plan {
+  const failed = failedPreconditionOf(preconditions, stat);
 
-  if (verdict !== "perform") return { status: verdict };
+  if (failed !== undefined) return { status: failed };
   if (requested === undefined || !rangeHolds(ifRange, stat)) return { status: 200 };
   if (!("suffixLength" in requested)) return { status: 206, range: requested };
   if (requested.suffixLength === 0) return { status: 416 };
@@ -116,63 +124,67 @@ function planOf({ preconditions, requested, ifRange }: Conditions, stat: ObjectS
 }
 
 /**
- * A plan made from the `stat` before `get`, to be made again from the `stat` of `get`,
- * which describes the bytes sent (ADR 0048).
+ * The `stat` a plan is made from before `get`, and how to make it again from the `stat`
+ * of `get`, which describes the bytes sent (ADR 0048).
  */
-interface Planned {
+interface Planning {
   readonly stat: ObjectStat;
   readonly decide: (stat: ObjectStat) => Plan;
 }
 
-async function servePlanned(serving: ServeRequest, planned: Planned): Promise<Response> {
-  const plan = planned.decide(planned.stat);
+async function servePlanned(serving: ServeRequest, planning: Planning): Promise<Response> {
+  const plan = planning.decide(planning.stat);
 
   switch (plan.status) {
     case 200:
-      return await serveWhole(serving, planned);
+      return await serveWhole(serving, planning);
     case 206:
-      return await serveRange(serving, plan.range, planned);
+      return await serveRange(serving, plan.range, planning);
     case 416:
-      return rangeNotSatisfiable(planned.stat.size);
+      return rangeNotSatisfiable(planning.stat.size);
     default:
-      return refusal(serving, plan.status, planned.stat);
+      return failedAnswer(serving, plan.status, planning.stat);
   }
 }
 
 /**
- * The plan the `stat` of `get` makes, `undefined` where it describes the object planned
- * on. Spec 10.3: the `etag`s tell a changed object, and without them `size` and
- * `lastModified`.
+ * The plan for an object `get` handed over in place of the one planned on, `undefined`
+ * where it is that one. Spec 10.3: the `etag`s tell a changed object, and without them
+ * `size` and `lastModified`.
  */
-function replanned(planned: Planned | undefined, handed: ObjectStat): Plan | undefined {
-  if (planned === undefined) return undefined;
+function changedPlanOf(planning: Planning | undefined, handed: ObjectStat): Plan | undefined {
+  if (planning === undefined) return undefined;
 
-  const { stat: seen } = planned;
+  const { stat: seen } = planning;
   const changed =
     seen.etag !== undefined && handed.etag !== undefined
       ? seen.etag !== handed.etag
       : seen.size !== handed.size || seen.lastModified.getTime() !== handed.lastModified.getTime();
 
-  return changed ? planned.decide(handed) : undefined;
+  return changed ? planning.decide(handed) : undefined;
 }
 
 /** The answer of a failed precondition: `304` with the headers of a `200`, or `412`. */
-function refusal(serving: ServeRequest, status: 304 | 412, stat: ObjectStat): Response {
+function failedAnswer(
+  serving: ServeRequest,
+  status: FailedPrecondition,
+  stat: ObjectStat,
+): Response {
   return status === 304
     ? new Response(null, { status, headers: objectHeaders(serving, stat) })
     : new Response(null, { status });
 }
 
-async function serveWhole(serving: ServeRequest, planned?: Planned): Promise<Response> {
+async function serveWhole(serving: ServeRequest, planning?: Planning): Promise<Response> {
   const object = await serving.storage.get(serving.key, { signal: serving.signal });
-  const plan = replanned(planned, object.stat);
+  const changed = changedPlanOf(planning, object.stat)?.status;
 
   // Any other plan still takes the whole object, which RFC 9110 14.2 lets a server send
   // for a range it would otherwise serve.
-  if (plan?.status === 304 || plan?.status === 412) {
+  if (changed !== undefined && isFailedPrecondition(changed)) {
     await discard(object);
 
-    return refusal(serving, plan.status, object.stat);
+    return failedAnswer(serving, changed, object.stat);
   }
 
   // No `Content-Length`: an object another tool stored with a content coding may arrive
@@ -188,7 +200,7 @@ async function serveWhole(serving: ServeRequest, planned?: Planned): Promise<Res
 async function serveRange(
   serving: ServeRequest,
   range: ByteRange,
-  planned?: Planned,
+  planning?: Planning,
 ): Promise<Response> {
   const { storage, key, signal } = serving;
   let object: StoredObject;
@@ -206,21 +218,21 @@ async function serveRange(
     // ADR 0048: the refused range of a content-coded object (ADR 0044), which only the
     // message tells apart from a provider's failure, and that fails the whole `get` alike.
     if (thrown.code === "ProviderError" && !thrown.retryable) {
-      return await serveWhole(serving, planned);
+      return await serveWhole(serving, planning);
     }
 
     throw thrown;
   }
 
-  const plan = replanned(planned, object.stat);
+  const changed = changedPlanOf(planning, object.stat);
 
-  if (planned !== undefined && plan !== undefined && !sendsRange(plan, range)) {
+  if (planning !== undefined && changed !== undefined && !sendsRange(changed, range)) {
     await discard(object);
 
     // Spec 10.3: at most one more `get`, and a whole one, decided again by its own `stat`.
-    return plan.status === 304 || plan.status === 412
-      ? refusal(serving, plan.status, object.stat)
-      : await serveWhole(serving, { ...planned, stat: object.stat });
+    return isFailedPrecondition(changed.status)
+      ? failedAnswer(serving, changed.status, object.stat)
+      : await serveWhole(serving, { ...planning, stat: object.stat });
   }
 
   const { size } = object.stat;
