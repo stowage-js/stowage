@@ -2632,7 +2632,10 @@ repository's servers, tested in this repository and not by the suite:
 ### 14.9 HTTP cases
 
 Names are stable, as in section 14.5. Every case is `fast` and runs on every pull request. A case
-with `requires` carries a `runWithout` half, described in the last column.
+with `requires` carries a `runWithout` half, described in the last column. A date case sends
+`lastModified` of `stat` where it needs a date no `Last-Modified` lies after: a server caps
+`Last-Modified` at its `Date` (section 10.3), so where the provider's clock runs ahead, the
+`Last-Modified` of a first `GET` lies before the cap of the next answer.
 
 **Serving**
 
@@ -2649,9 +2652,9 @@ with `requires` carries a `runWithout` half, described in the last column.
 | `serve/unsatisfiable-range` | `rangeReads` | `fast` | `bytes=16-` on a 16-byte object answers `416` with `Content-Range: bytes */16`. Without: `200` and the whole object                                                                                              |
 | `serve/ignored-range`       |              | `fast` | `bytes=0-1,3-4`, `items=0-1` and `bytes=x` each answer `200` and the whole object                                                                                                                                |
 | `serve/if-none-match`       |              | `fast` | The `ETag` of a first `GET`, also as `W/`, and `*` answer `304` without a body; another tag answers `200`. Where the first `GET` carried no `ETag`, `*` alone is sent                                            |
-| `serve/if-modified-since`   |              | `fast` | The `Last-Modified` of a first `GET` answers `304`, a second earlier answers `200`; beside an `If-None-Match` that fails to match it is ignored and the answer is `200`                                          |
+| `serve/if-modified-since`   |              | `fast` | `lastModified` of `stat` at whole seconds answers `304`, a second before the `Last-Modified` of a first `GET` answers `200`; beside an `If-None-Match` that fails to match it is ignored and the answer is `200` |
 | `serve/if-match`            |              | `fast` | The strong `ETag` of a first `GET` and `*` answer `200`; another tag and the `ETag` as `W/` answer `412`. Where the first `GET` carried no `ETag`, any tag answers `412` and `*` answers `200`                   |
-| `serve/if-unmodified-since` |              | `fast` | A second before the `Last-Modified` of a first `GET` answers `412`, the `Last-Modified` itself answers `200`; beside an `If-Match: *` it is ignored and the answer is `200`                                      |
+| `serve/if-unmodified-since` |              | `fast` | A second before the `Last-Modified` of a first `GET` answers `412`, `lastModified` of `stat` at whole seconds answers `200`; beside an `If-Match: *` it is ignored and the answer is `200`                       |
 | `serve/if-range`            | `rangeReads` | `fast` | `Range: bytes=2-5` with the strong `ETag` of a first `GET` answers `206`; with another tag or with a date it answers `200` and the whole object. Without: `200` and the whole object for each                    |
 
 **Redirecting**
