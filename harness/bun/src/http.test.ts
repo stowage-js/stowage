@@ -11,6 +11,20 @@ import { routeUrls, routesOf } from "../../targets/src/routes.ts";
 /** Spec 2's Bun cell of `@stowage/http`, which runs on the runtime's own server. */
 const bunServe: HttpServer = {
   name: "@stowage/http on `Bun.serve`",
+  divergences: [
+    {
+      case: "serve/whole",
+      differs:
+        "`Bun.serve` sends `Content-Length` with a body that is complete before the headers are written, as the 16 bytes of the case are",
+      failureMessagePart: '`GET` carries `content-length: "16"` and not null',
+    },
+    {
+      case: "serve/head",
+      differs:
+        "`Bun.serve` answers a `HEAD` the layer left without a body and without `Content-Length` with `Content-Length: 0`",
+      failureMessagePart: '`HEAD` carries `content-length: "0"` and not null',
+    },
+  ],
   start: async (configured, routes) => {
     const server = Bun.serve({
       hostname: "127.0.0.1",
