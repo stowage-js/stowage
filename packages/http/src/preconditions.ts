@@ -58,6 +58,18 @@ export function verdictOf(
   return "perform";
 }
 
+/**
+ * RFC 9110 13.1.5: whether a range may be served under `If-Range`, which only the strong
+ * `ETag` lets through. A date never does: at second resolution it is no strong validator.
+ */
+export function rangeHolds(ifRange: string | null, stat: ObjectStat): boolean {
+  if (ifRange === null) return true;
+
+  const [tag, ...others] = tagsOf(ifRange);
+
+  return tag !== undefined && others.length === 0 && !tag.weak && tag.opaque === stat.etag;
+}
+
 interface EntityTag {
   readonly weak: boolean;
   readonly opaque: string;
