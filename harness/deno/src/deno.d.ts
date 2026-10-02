@@ -10,6 +10,6 @@ declare namespace Deno {
 
   function serve(
     options: { readonly hostname: string; readonly port: number; onListen(): void },
-    handler: (request: Request) => Promise<Response>,
+    handler: (request: Request) => Response | Promise<Response>,
   ): HttpServer;
 }
