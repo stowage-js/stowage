@@ -64,3 +64,8 @@ function statusOf(error: StorageError): number {
 export function methodNotAllowed(allow: string): Response {
   return new Response(null, { status: 405, headers: { allow } });
 }
+
+/** A refusal of the layer's own, which carries no `StorageError` and no body (spec 10.2). */
+export function refusal(status: number): Response {
+  return new Response(null, { status });
+}

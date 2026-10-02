@@ -1,6 +1,6 @@
 import type { PresignedPut } from "@stowage/core";
 
-import { answerFor } from "./answers.ts";
+import { answerFor, refusal } from "./answers.ts";
 
 /**
  * A storage that presigns an upload, with the options every adapter declaring
@@ -72,8 +72,4 @@ export async function presignUpload(
     status: 200,
     headers: { "content-type": "application/json", "cache-control": "private, no-store" },
   });
-}
-
-function refusal(status: number): Response {
-  return new Response(null, { status });
 }
