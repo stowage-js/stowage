@@ -1,14 +1,10 @@
 import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { copyFile, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { get, type IncomingMessage } from "node:http";
-import { join } from "node:path";
 import { env } from "node:process";
 import { text } from "node:stream/consumers";
 import { setTimeout } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
-
-import { build } from "tsdown";
 
 import type { ConformanceFramework } from "../../../packages/conformance/src/describe.ts";
 import type { ConformanceResult } from "../../../packages/conformance/src/result.ts";
@@ -27,8 +23,6 @@ import type { NodeApiReach } from "./node-api.ts";
 import { describeCoreReply, describeResults, type Reply, settled } from "./reply.ts";
 import { listeningPorts, spawnWorkerd } from "./workerd-process.ts";
 
-const harnessDirectory = fileURLToPath(new URL("..", import.meta.url));
-
 /**
  * ADR 0006: `workerd` has no test function to hand the cases to, so the worker runs them
  * and answers with the results, and the harness reports each one on Node as a test of its
@@ -38,9 +32,6 @@ const harnessDirectory = fileURLToPath(new URL("..", import.meta.url));
  * reports on its own, so that one that fails leaves the answers of the others in the report.
  */
 export async function describeWorkerd(framework: ConformanceFramework): Promise<WorkerdRun> {
-  await bundleWorker();
-  await placeTrustedCertificate();
-
   const endpointTiers = endpointTiersFrom(env);
   const configured = endpointTiers.has("s3") ? configuredStorage() : undefined;
   const configuredAzureBlob = endpointTiers.has("azure-blob")
@@ -234,39 +225,6 @@ const socketFlags: Record<Socket, string> = {
 export interface Probes {
   readonly nodeApi: Reply<NodeApiReach>;
   readonly fromEnv: Reply<FromEnvOutcome>;
-}
-
-/** `src/worker.ts` as the one module `workerd.capnp` embeds. */
-async function bundleWorker(): Promise<void> {
-  await build({
-    config: false,
-    cwd: harnessDirectory,
-    entry: { worker: "src/worker.ts" },
-    outDir: "dist",
-    format: "esm",
-    platform: "neutral",
-    fixedExtension: false,
-    dts: false,
-    logLevel: "warn",
-  });
-}
-
-/**
- * ADR 0023: `workerd.capnp` trusts the certificate `harness/azure-blob/start.sh` generates,
- * and `workerd` refuses to start on a missing or empty file. Where no Azurite was started, a
- * certificate whose key nobody holds stands in, so that the run reports the missing endpoint
- * as a failed check (ADR 0012) and the other adapters' results still arrive.
- */
-async function placeTrustedCertificate(): Promise<void> {
-  const trusted = join(harnessDirectory, "dist", "trusted-certificate.pem");
-
-  try {
-    await copyFile(join(harnessDirectory, "..", "azure-blob", "certificate", "cert.pem"), trusted);
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
-
-    await copyFile(join(harnessDirectory, "placeholder-certificate.pem"), trusted);
-  }
 }
 
 async function withWorkerd<T>(
