@@ -219,7 +219,7 @@ const sixteenBytes = "0123456789abcdef";
  * A storage holding one 16-byte object and honoring `range` as spec 4.3 has it, which
  * records every call it receives in `calls`.
  */
-const ranging = (
+const rangingStorage = (
   fields: { capabilities?: Storage["capabilities"]; get?: Storage["get"] } = {},
 ): { storage: Storage; calls: string[] } => {
   const calls: string[] = [];
@@ -250,13 +250,13 @@ const ranging = (
   return { storage, calls };
 };
 
-const ranged = async (storage: Storage, range: string, method = "GET"): Promise<Response> =>
+const serveRanged = async (storage: Storage, range: string, method = "GET"): Promise<Response> =>
   await serveObject(storage, "docs/report.pdf", request(method, { headers: { range } }));
 
 describe("a `Range` on a storage declaring `rangeReads`", () => {
-  test("of one span is `206` with the bytes, `Content-Range` and `Content-Length`", async () => {
-    const { storage, calls } = ranging();
-    const response = await ranged(storage, "bytes=2-5");
+  test("of one range is `206` with the bytes, `Content-Range` and `Content-Length`", async () => {
+    const { storage, calls } = rangingStorage();
+    const response = await serveRanged(storage, "bytes=2-5");
 
     expect(response.status).toBe(206);
     expect(await response.text()).toBe("2345");
@@ -266,9 +266,9 @@ describe("a `Range` on a storage declaring `rangeReads`", () => {
   });
 
   test("carries the headers of a `200` beside its own", async () => {
-    const { storage } = ranging();
+    const { storage } = rangingStorage();
     const whole = [...(await serve("GET", {}, storage)).headers];
-    const partial = [...(await ranged(storage, "bytes=2-5")).headers].filter(
+    const partial = [...(await serveRanged(storage, "bytes=2-5")).headers].filter(
       ([name]) => name !== "content-range" && name !== "content-length",
     );
 
@@ -280,7 +280,7 @@ describe("a `Range` on a storage declaring `rangeReads`", () => {
     ["bytes=2-999", "23456789abcdef", "bytes 2-15/16", "14"],
     ["bytes=15-15", "f", "bytes 15-15/16", "1"],
   ])("`%s` is `206` up to the last byte", async (range, body, contentRange, length) => {
-    const response = await ranged(ranging().storage, range);
+    const response = await serveRanged(rangingStorage().storage, range);
 
     expect(response.status).toBe(206);
     expect(await response.text()).toBe(body);
@@ -289,8 +289,8 @@ describe("a `Range` on a storage declaring `rangeReads`", () => {
   });
 
   test("of a suffix is `206` with the last bytes, after a `stat`", async () => {
-    const { storage, calls } = ranging();
-    const response = await ranged(storage, "bytes=-3");
+    const { storage, calls } = rangingStorage();
+    const response = await serveRanged(storage, "bytes=-3");
 
     expect(response.status).toBe(206);
     expect(await response.text()).toBe("def");
@@ -300,7 +300,7 @@ describe("a `Range` on a storage declaring `rangeReads`", () => {
   });
 
   test("of a suffix longer than the object is `206` with the whole object", async () => {
-    const response = await ranged(ranging().storage, "bytes=-20");
+    const response = await serveRanged(rangingStorage().storage, "bytes=-20");
 
     expect(response.status).toBe(206);
     expect(await response.text()).toBe(sixteenBytes);
@@ -308,8 +308,8 @@ describe("a `Range` on a storage declaring `rangeReads`", () => {
   });
 
   test("starting at the size is `416` with the size of a `stat` after the failed `get`", async () => {
-    const { storage, calls } = ranging();
-    const response = await ranged(storage, "bytes=16-");
+    const { storage, calls } = rangingStorage();
+    const response = await serveRanged(storage, "bytes=16-");
 
     expect(response.status).toBe(416);
     expect(response.headers.get("content-range")).toBe("bytes */16");
@@ -319,8 +319,8 @@ describe("a `Range` on a storage declaring `rangeReads`", () => {
   });
 
   test("of an empty suffix is `416` without a `get`", async () => {
-    const { storage, calls } = ranging();
-    const response = await ranged(storage, "bytes=-0");
+    const { storage, calls } = rangingStorage();
+    const response = await serveRanged(storage, "bytes=-0");
 
     expect(response.status).toBe(416);
     expect(response.headers.get("content-range")).toBe("bytes */16");
@@ -339,15 +339,15 @@ describe("a `Range` on a storage declaring `rangeReads`", () => {
         return storedObject(empty, streamOf(""));
       },
     });
-    const response = await ranged(storage, "bytes=-3");
+    const response = await serveRanged(storage, "bytes=-3");
 
     expect(response.status).toBe(200);
     expect(response.headers.has("content-range")).toBe(false);
   });
 
   test("with a position beyond a safe integer is held at the largest one", async () => {
-    const whole = await ranged(ranging().storage, "bytes=0-99999999999999999999");
-    const beyond = await ranged(ranging().storage, "bytes=99999999999999999999-");
+    const whole = await serveRanged(rangingStorage().storage, "bytes=0-99999999999999999999");
+    const beyond = await serveRanged(rangingStorage().storage, "bytes=99999999999999999999-");
 
     expect(whole.status).toBe(206);
     expect(whole.headers.get("content-range")).toBe("bytes 0-15/16");
@@ -365,14 +365,14 @@ describe("a `Range` on a storage declaring `rangeReads`", () => {
         throw gone;
       },
     });
-    const response = await ranged(storage, "bytes=16-");
+    const response = await serveRanged(storage, "bytes=16-");
 
     expect(response.status).toBe(404);
     expect(storageErrorOf(response)).toBe(gone);
   });
 
   test("of another case of `bytes` is honored", async () => {
-    expect((await ranged(ranging().storage, "Bytes=2-5")).status).toBe(206);
+    expect((await serveRanged(rangingStorage().storage, "Bytes=2-5")).status).toBe(206);
   });
 });
 
@@ -385,8 +385,8 @@ describe("a `Range` spec 10.3 ignores", () => {
     ["a last position before the first", "bytes=5-2"],
     ["a space inside the range", "bytes=2 -5"],
   ])("as %s answers `200` with the whole object from one `get`", async (_, range) => {
-    const { storage, calls } = ranging();
-    const response = await ranged(storage, range);
+    const { storage, calls } = rangingStorage();
+    const response = await serveRanged(storage, range);
 
     expect(response.status).toBe(200);
     expect(await response.text()).toBe(sixteenBytes);
@@ -396,9 +396,9 @@ describe("a `Range` spec 10.3 ignores", () => {
 
   test("on a storage without `rangeReads` answers `200` with the whole object", async () => {
     for (const range of ["bytes=2-5", "bytes=-3", "bytes=16-"]) {
-      const { storage, calls } = ranging({ capabilities: [] });
+      const { storage, calls } = rangingStorage({ capabilities: [] });
       // oxlint-disable-next-line no-await-in-loop -- one request after the other
-      const response = await ranged(storage, range);
+      const response = await serveRanged(storage, range);
 
       expect(response.status).toBe(200);
       expect(calls).toEqual(["get"]);
@@ -406,8 +406,8 @@ describe("a `Range` spec 10.3 ignores", () => {
   });
 
   test("on a `HEAD` answers `200` from `stat` alone", async () => {
-    const { storage, calls } = ranging();
-    const response = await ranged(storage, "bytes=2-5", "HEAD");
+    const { storage, calls } = rangingStorage();
+    const response = await serveRanged(storage, "bytes=2-5", "HEAD");
 
     expect(response.status).toBe(200);
     expect(response.headers.has("content-range")).toBe(false);
@@ -417,9 +417,9 @@ describe("a `Range` spec 10.3 ignores", () => {
 
 /** A storage refusing every range with `refusal`, and serving the whole object. */
 const refusingRanges = (refusal: StorageError): { storage: Storage; calls: string[] } => {
-  const whole = ranging().storage;
+  const whole = rangingStorage().storage;
 
-  return ranging({
+  return rangingStorage({
     get: async (key, options) => {
       if (options?.range !== undefined) throw refusal;
 
@@ -431,7 +431,7 @@ const refusingRanges = (refusal: StorageError): { storage: Storage; calls: strin
 describe("a ranged `get` rejecting with a `ProviderError`", () => {
   test("not retryable is followed by one whole `get`, answered `200`", async () => {
     const { storage, calls } = refusingRanges(storageError({ code: "ProviderError" }));
-    const response = await ranged(storage, "bytes=2-5");
+    const response = await serveRanged(storage, "bytes=2-5");
 
     expect(response.status).toBe(200);
     expect(await response.text()).toBe(sixteenBytes);
@@ -442,7 +442,7 @@ describe("a ranged `get` rejecting with a `ProviderError`", () => {
 
   test("not retryable on a suffix is followed by one whole `get`", async () => {
     const { storage, calls } = refusingRanges(storageError({ code: "ProviderError" }));
-    const response = await ranged(storage, "bytes=-3");
+    const response = await serveRanged(storage, "bytes=-3");
 
     expect(response.status).toBe(200);
     expect(calls).toEqual(["stat", "get 13-15", "get"]);
@@ -450,12 +450,12 @@ describe("a ranged `get` rejecting with a `ProviderError`", () => {
 
   test("not retryable answers the error of the whole `get` where that fails too", async () => {
     const second = storageError({ code: "ProviderError" });
-    const { storage, calls } = ranging({
+    const { storage, calls } = rangingStorage({
       get: async (_key, options) => {
         throw options?.range === undefined ? second : storageError({ code: "ProviderError" });
       },
     });
-    const response = await ranged(storage, "bytes=2-5");
+    const response = await serveRanged(storage, "bytes=2-5");
 
     expect(response.status).toBe(500);
     expect(storageErrorOf(response)).toBe(second);
@@ -465,7 +465,7 @@ describe("a ranged `get` rejecting with a `ProviderError`", () => {
   test("retryable is `503` without a second `get`", async () => {
     const refusal = storageError({ code: "ProviderError", retryable: true });
     const { storage, calls } = refusingRanges(refusal);
-    const response = await ranged(storage, "bytes=2-5");
+    const response = await serveRanged(storage, "bytes=2-5");
 
     expect(response.status).toBe(503);
     expect(storageErrorOf(response)).toBe(refusal);

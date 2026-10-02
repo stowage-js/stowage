@@ -42,67 +42,66 @@ export async function serveObject(
 
   if (method !== "GET" && method !== "HEAD") return methodNotAllowed("GET, HEAD");
 
-  const signal = request.signal;
+  const serving: ServeRequest = { storage, key, signal: request.signal, options };
 
   try {
     if (method === "HEAD") {
-      const stat = await storage.stat(key, { signal });
+      const stat = await storage.stat(key, { signal: serving.signal });
 
-      return new Response(null, {
-        status: 200,
-        headers: objectHeaders(storage, key, stat, options),
-      });
+      return new Response(null, { status: 200, headers: objectHeaders(serving, stat) });
     }
 
-    const served: Served = { storage, key, signal, options };
     const requested = storage.capabilities.includes("rangeReads")
       ? requestedRangeOf(request.headers.get("range"))
       : undefined;
 
-    return requested === undefined ? await serveWhole(served) : await servePart(served, requested);
+    return requested === undefined
+      ? await serveWhole(serving)
+      : await serveRequested(serving, requested);
   } catch (thrown) {
     return answerFor(thrown);
   }
 }
 
-interface Served {
+/** One `GET` or `HEAD` the layer answers, as `serveObject` was called for it. */
+interface ServeRequest {
   readonly storage: Storage;
   readonly key: string;
   readonly signal: AbortSignal;
   readonly options: ServeObjectOptions;
 }
 
-async function serveWhole({ storage, key, signal, options }: Served): Promise<Response> {
-  const object = await storage.get(key, { signal });
+async function serveWhole(serving: ServeRequest): Promise<Response> {
+  const object = await serving.storage.get(serving.key, { signal: serving.signal });
 
   // No `Content-Length`: an object another tool stored with a content coding may arrive
   // decoded and longer than `size`, and Node and Deno would cut such a body to `size`
   // and end the response as complete.
   return new Response(object.stream(), {
     status: 200,
-    headers: objectHeaders(storage, key, object.stat, options),
+    headers: objectHeaders(serving, object.stat),
   });
 }
 
 /**
- * The one span asked for. Only a suffix needs the size before `get` (ADR 0048); RFC 9110
+ * The one range asked for. Only a suffix needs the size before `get` (ADR 0048); RFC 9110
  * 14.1.2 makes an empty suffix unsatisfiable, and any other suffix of an empty object the
  * whole of it, which no `Content-Range` can name.
  */
-async function servePart(served: Served, requested: RequestedRange): Promise<Response> {
-  if (!("suffixLength" in requested)) return await serveSpan(served, requested);
+async function serveRequested(serving: ServeRequest, requested: RequestedRange): Promise<Response> {
+  if (!("suffixLength" in requested)) return await serveRange(serving, requested);
 
-  const { size } = await served.storage.stat(served.key, { signal: served.signal });
+  const { size } = await serving.storage.stat(serving.key, { signal: serving.signal });
 
   if (requested.suffixLength === 0) return rangeNotSatisfiable(size);
-  if (size === 0) return await serveWhole(served);
+  if (size === 0) return await serveWhole(serving);
 
-  return await serveSpan(served, suffixOf(requested.suffixLength, size));
+  return await serveRange(serving, suffixOf(requested.suffixLength, size));
 }
 
 /** A `206` whose `Content-Range` follows the `stat` of `get`, which describes the bytes sent. */
-async function serveSpan(served: Served, range: ByteRange): Promise<Response> {
-  const { storage, key, signal, options } = served;
+async function serveRange(serving: ServeRequest, range: ByteRange): Promise<Response> {
+  const { storage, key, signal } = serving;
   let object: StoredObject;
 
   try {
@@ -117,14 +116,14 @@ async function serveSpan(served: Served, range: ByteRange): Promise<Response> {
 
     // ADR 0048: the refused range of a content-coded object (ADR 0044), which only the
     // message tells apart from a provider's failure, and that fails the whole `get` alike.
-    if (thrown.code === "ProviderError" && !thrown.retryable) return await serveWhole(served);
+    if (thrown.code === "ProviderError" && !thrown.retryable) return await serveWhole(serving);
 
     throw thrown;
   }
 
   const { size } = object.stat;
   const last = lastByteOf(range, size);
-  const headers = objectHeaders(storage, key, object.stat, options);
+  const headers = objectHeaders(serving, object.stat);
 
   // A ranged `get` never hands over an object stored with a content coding (ADR 0044),
   // so the length holds here where a `200` could not carry one.
@@ -134,12 +133,7 @@ async function serveSpan(served: Served, range: ByteRange): Promise<Response> {
   return new Response(object.stream(), { status: 206, headers });
 }
 
-function objectHeaders(
-  storage: Storage,
-  key: string,
-  stat: ObjectStat,
-  options: ServeObjectOptions,
-): Headers {
+function objectHeaders({ storage, key, options }: ServeRequest, stat: ObjectStat): Headers {
   const headers = new Headers({
     "content-type": stat.contentType,
     "x-content-type-options": "nosniff",
