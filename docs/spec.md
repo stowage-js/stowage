@@ -2021,8 +2021,10 @@ a content coding to the provider and serves the bytes from the provider's origin
 - Methods: `PUT` alone. Any other is `405` with `Allow: PUT`. A cross-site HTML form cannot send
   `PUT`, and a cross-origin `fetch` with it is preflighted, so the method alone keeps form-based
   CSRF out; a `multipart/form-data` body cannot arrive from a browser form either.
-- `maxSize` is required: a non-negative integer or `Infinity`. A `Content-Length` above it is `413`
-  before the body is read. The layer counts the bytes between `request.body` and `put` and errors
+- `maxSize` is required: a non-negative integer or `Infinity`. Any other value rejects with a
+  `TypeError` whatever the method, since it is the caller's programmer error. A `Content-Length`
+  above it is `413` before the body is read, and one that is no non-negative decimal integer is
+  `400` before the body is read. The layer counts the bytes between `request.body` and `put` and errors
   the stream before `put` sees its end once the count passes `maxSize` (`413`) or the body ends
   short of its `Content-Length` or runs past it (`400`). A body that fails while it is read, a
   reset connection among the causes, is `400`. `put` then rejects, and the key is absent or holds
