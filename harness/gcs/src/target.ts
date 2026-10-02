@@ -111,7 +111,7 @@ const coveredCases: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Spec 10.7 and ADR 0034: GCS refuses the key `list/noncharacter-key` writes (spec 9.1), so
+ * Spec 14.7 and ADR 0034: GCS refuses the key `list/noncharacter-key` writes (spec 9.1), so
  * the case stays unrun on every GCS endpoint. It is no divergence, since no real endpoint
  * runs it to settle one, and it stays out once the list above goes.
  */

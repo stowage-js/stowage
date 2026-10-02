@@ -62,7 +62,7 @@ the presign cases request with an empty `500`. Against the account the token is 
 exchanges the job's OIDC token for (see below), and that is what `STOWAGE_AZURE_BLOB_CLIENT_ID`
 decides: set, the harness never mints a token. The account key reaches the endpoint through
 `src/adapter-azure-blob.test.ts`, which holds Shared Key against the same container across the
-operations of the parity core (spec 10.4): user metadata named `a1` and `a_` with a value holding
+operations of the parity core (spec 14.4): user metadata named `a1` and `a_` with a value holding
 a run of spaces, a stream staged as blocks, `presignGet` as a service SAS and `presignPut` refused
 before any request. The copy and the move report themselves skipped where the endpoint answers
 `Put Blob From URL` with `501`, as the pinned Azurite does (ADR 0025). It runs against Azurite on
@@ -133,8 +133,8 @@ az storage cors add --account-name stowageconformance --services b --auth-mode k
 
 ## Settled by the first run
 
-`src/first-run.test.ts` asks the account what spec 14 left open for Azure, beside the conformance
-cases that answer the rest, together with the tests of spec 10.4 only the account can answer: the
+`src/first-run.test.ts` asks the account what spec 18 left open for Azure, beside the conformance
+cases that answer the rest, together with the tests of spec 14.4 only the account can answer: the
 three response overrides of `presignGet`, a `Put Block List` sent twice, a `Put Blob` discarding
 the uncommitted blocks of its name, and the CORS headers on the `403` for an expired presigned URL
 after a preflight from the rule's origin. It runs only where `STOWAGE_CONFORMANCE_INCLUDE_SLOW` is

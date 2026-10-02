@@ -62,7 +62,7 @@ describe("firstRunReport", () => {
     );
   });
 
-  // Spec 14 wants the answer recorded, and a probe that disproved its point saw one.
+  // Spec 18 wants the answer recorded, and a probe that disproved its point saw one.
   test("carries what a probe observed beside the failure that disproved the point", () => {
     const report = firstRunReport([
       run(
@@ -191,7 +191,7 @@ describe("firstRunReport", () => {
     expect(cellOf(report, "holding `U+FFFE` is stored", "azure-blob-node-24")).toBe("held");
   });
 
-  // Spec 14 and ADR 0036: the round trip sends a resumable session, which a `308` the
+  // Spec 18 and ADR 0036: the round trip sends a resumable session, which a `308` the
   // runtime followed or swallowed would break.
   test("reads the `308` on `workerd` off the multipart round trip against the GCS bucket", () => {
     const point = "a `308` reaches the adapter as it is on `workerd`";

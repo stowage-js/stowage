@@ -14,13 +14,13 @@ export const presignLifetime: number = 300;
 /** The lifetime of the URL `presign/expired-url` lets run out. */
 export const expiredLifetime: number = 1;
 
-/** Past the second `presign/expired-url` signs for, which is what spec 10.5 waits out. */
+/** Past the second `presign/expired-url` signs for, which is what spec 14.5 waits out. */
 export const pastTheLifetime: number = 2000;
 
 /**
  * The control URL `presign/expired-url` signs beside the expired one, far past the wait, so
  * that only the lifetime tells the two apart. It keeps a URL broken for another reason, such
- * as `400 MalformedSecurityHeader`, from passing as expired (spec 10.5, ADR 0035).
+ * as `400 MalformedSecurityHeader`, from passing as expired (spec 14.5, ADR 0035).
  */
 export const controlLifetime: number = 60;
 

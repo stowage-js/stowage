@@ -293,7 +293,7 @@ test("rejects where the Actions runtime hands out no OIDC token", async () => {
   );
 });
 
-// Spec 14 and ADR 0034: the probe of an expired token asks for one that expires soon, and
+// Spec 18 and ADR 0034: the probe of an expired token asks for one that expires soon, and
 // asks with it once it has.
 test("issues a token of the service account for a lifetime, kept by no resolver", async () => {
   const sent = stubEndpoints();

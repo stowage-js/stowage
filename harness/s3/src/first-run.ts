@@ -12,13 +12,13 @@ declare module "vitest" {
 /** The real endpoints of the scheduled run, each of which is a column of the report. */
 export type ReportedEndpoint = RealEndpoint | AzureBlobRealEndpoint | GcsRealEndpoint;
 
-/** The block the probes of spec 14 are registered in, against S3 and Azure alike. */
+/** The block the probes of spec 18 are registered in, against S3 and Azure alike. */
 export const firstRunSuite = "settled by the first run";
 
 /** The block `describeConformance` registers the cases against the endpoint in. */
 const s3Suite = "@stowage/adapter-s3";
 
-/** The block `adapter-s3.test.ts` holds spec 10.4 against the endpoint in. */
+/** The block `adapter-s3.test.ts` holds spec 14.4 against the endpoint in. */
 const endpointSuite = "adapter-s3 against the endpoint";
 
 export const probeNames = {
@@ -35,7 +35,7 @@ export interface FirstRunTest {
 }
 
 export interface FirstRunPoint {
-  /** The point as spec 14 stated it before the first run. */
+  /** The point as spec 18 stated it before the first run. */
   readonly promise: string;
   /** The tests of the scheduled run that answer it. */
   readonly tests: readonly FirstRunTest[];
@@ -52,7 +52,7 @@ const probe = (title: string): FirstRunTest => ({ suite: firstRunSuite, title })
 const conformanceCase = (title: string): FirstRunTest => ({ suite: s3Suite, title });
 
 /**
- * Spec 14 as it stood before the first run, point by point, with what the scheduled run reads
+ * Spec 18 as it stood before the first run, point by point, with what the scheduled run reads
  * each one off. The run keeps asking once a point moved into the section it belongs to.
  */
 export const s3FirstRunPoints: readonly FirstRunPoint[] = [

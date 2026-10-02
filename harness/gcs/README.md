@@ -103,13 +103,13 @@ Two files ask the bucket what fake-gcs-server cannot answer, and run only where
 `STOWAGE_CONFORMANCE_INCLUDE_SLOW` is `true` and `STOWAGE_GCS_ENDPOINT_NAME` is `gcs`, on Node 24
 and Node 26.
 
-`src/adapter-gcs.test.ts` holds the promises of spec 10.4 the suite does not assert: the two
+`src/adapter-gcs.test.ts` holds the promises of spec 14.4 the suite does not assert: the two
 response overrides of `presignGet`, the CORS headers on the `400 ExpiredToken` for an expired
 presigned URL after a preflight from the rule's origin, and URLs signed through `signBlob` for a
 key that travels encoded. A missing bucket is the suite's case `errors/missing-bucket`, which runs
 against both endpoints.
 
-`src/first-run.test.ts` asks what spec 14 left open for GCS, and keeps asking it once the first run
+`src/first-run.test.ts` asks what spec 18 left open for GCS, and keeps asking it once the first run
 settled it. It takes a token of the service account with a `lifetime` of 60 seconds from IAM
 Credentials, waits out its expiry, and records what the bucket answers it, then shows that the
 repeat of spec 9.3 recovers. Where IAM Credentials grants no such token, the probe records the
@@ -136,7 +136,7 @@ Every column takes the case list and the divergence list of `src/divergences.ts`
 case that joins `src/target.ts` runs on Node, Bun, Deno and `workerd` alike.
 
 `list/noncharacter-key` stays out on every GCS endpoint, since GCS refuses the key the case writes
-(spec 10.7, ADR 0034).
+(spec 14.7, ADR 0034).
 
 ## The divergence list
 

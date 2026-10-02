@@ -9,7 +9,7 @@ import { answerIn } from "./reply.ts";
 const { probes, flowOne } = await describeWorkerd({ describe, test });
 
 /* oxlint-disable vitest/valid-title -- the measurement's block and name are the ones the
-   spec 14 report reads, kept once in `first-run.ts` for both */
+   spec 18 report reads, kept once in `first-run.ts` for both */
 
 /**
  * Each measurement taken, with the report's name for it and the token exchanges the measured
@@ -28,7 +28,7 @@ const measurements = [
   },
 ].flatMap(({ taken, ...named }) => (taken === undefined ? [] : [{ ...named, taken }]));
 
-// Spec 14 asks what flow 1 costs here, which a failure of the case answers as well: the
+// Spec 18 asks what flow 1 costs here, which a failure of the case answers as well: the
 // case's own result is reported beside the others, and this carries the measurement.
 describe.skipIf(measurements.length === 0)(firstRunSuite, () => {
   for (const { title, taken, tokenExchanges } of measurements) {

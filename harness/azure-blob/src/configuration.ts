@@ -40,7 +40,7 @@ export function accessTokenFrom(variables: Variables): Credentials {
 const mintedAccessToken = (): { accessToken: string } => ({ accessToken: mintAccessToken() });
 
 /**
- * Spec 10.3: a credential the provider accepts and refuses the write to. On the account it
+ * Spec 14.3: a credential the provider accepts and refuses the write to. On the account it
  * is the second identity, which holds Storage Blob Data Reader alone (ADR 0023); Azurite
  * checks no role, so where the job names no such identity none is supplied.
  */
@@ -93,7 +93,7 @@ function federatedTokenFor(
 }
 
 /**
- * Spec 10.3: a credential the provider refuses. A token that is not a JWT is refused by
+ * Spec 14.3: a credential the provider refuses. A token that is not a JWT is refused by
  * Azurite and by the service alike, and needs no identity configured for it.
  */
 export function storageWithBadCredentials(
@@ -103,7 +103,7 @@ export function storageWithBadCredentials(
 }
 
 /**
- * Spec 10.3: a container that does not exist, named at random for each storage so that no
+ * Spec 14.3: a container that does not exist, named at random for each storage so that no
  * run and no container another one left behind can make it exist (ADR 0043).
  */
 export function storageWithMissingContainer(
@@ -117,7 +117,7 @@ export function endpointNameFrom(variables: Variables): string | undefined {
   return filled(variables["STOWAGE_AZURE_BLOB_ENDPOINT_NAME"]);
 }
 
-/** Where the scheduled run asks for the slow tier against the account, which is where spec 14 is asked. */
+/** Where the scheduled run asks for the slow tier against the account, which is where spec 18 is asked. */
 export function scheduledAgainstAccount(variables: Variables): boolean {
   return (
     runOptionsFrom(variables).includeSlow === true &&

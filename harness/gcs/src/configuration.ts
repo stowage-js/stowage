@@ -69,7 +69,7 @@ export function gcsEndpointFrom(variables: Variables): GcsEndpoint | undefined {
     // ADR 0034: a local key there would be a stored secret.
     signer: { serviceAccount, credentials: impersonate(serviceAccount, "iam") },
     badCredentials,
-    // Spec 10.3: a credential the bucket accepts and refuses the write to, which is the
+    // Spec 14.3: a credential the bucket accepts and refuses the write to, which is the
     // second service account's, holding `roles/storage.objectViewer` alone. ADR 0034 has the
     // real bucket answer the case, so a job without it fails the case rather than skipping it.
     deniedCredentials:
@@ -85,7 +85,7 @@ const serviceAccountVariable = "STOWAGE_GCS_SERVICE_ACCOUNT";
 const deniedServiceAccountVariable = "STOWAGE_GCS_DENIED_SERVICE_ACCOUNT";
 
 /**
- * Spec 10.3: a credential the provider refuses. ADR 0034: a resolver that answers a token
+ * Spec 14.3: a credential the provider refuses. ADR 0034: a resolver that answers a token
  * that is none on every call, `forceRefresh` included, so the case ends after the one repeat.
  */
 const badCredentials: Credentials = async () => ({ accessToken: "not-a-google-token" });
@@ -119,7 +119,7 @@ function federationFrom(variables: Variables): WorkloadIdentityFederation {
 
 /**
  * The scheduled run's job against the real bucket, which alone runs the tests the suite does
- * not assert (spec 10.4) and the probes of spec 14.
+ * not assert (spec 14.4) and the probes of spec 18.
  */
 export function scheduledAgainstBucket(variables: Variables): boolean {
   return (

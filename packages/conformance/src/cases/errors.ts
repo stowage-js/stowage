@@ -293,7 +293,7 @@ function assertField(
   );
 }
 
-/** The storage of a factory of spec 10.3, which spec 10.2 has kept the case out of a run without. */
+/** The storage of a factory of spec 14.3, which spec 14.2 has kept the case out of a run without. */
 async function storageFrom(
   ctx: ConformanceContext,
   factory: ConformanceFactoryName,

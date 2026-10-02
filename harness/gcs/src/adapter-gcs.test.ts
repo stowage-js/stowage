@@ -5,7 +5,7 @@ import { afterAll, describe, expect, test } from "vitest";
 import type { GcsSigningStorage } from "../../../packages/adapter-gcs/src/index.ts";
 import { bucketOrFail, bucketStorage, scheduledBucket } from "./environment.ts";
 
-// Spec 10.4: promises of `adapter-gcs` that the suite does not assert and only the real
+// Spec 14.4: promises of `adapter-gcs` that the suite does not assert and only the real
 // bucket shows. fake-gcs-server honors no response override, carries no CORS rule and checks
 // no signature (ADR 0034), so these run in the scheduled job against the bucket alone.
 const scheduled = scheduledBucket();
