@@ -27,4 +27,8 @@ const denoServe: HttpServer = {
 
 const configured = endpointTiersFrom(env).has("s3") ? configuredStorage() : undefined;
 
-await describeServers([denoServe, nodeBridge], "Deno", configured, denoFramework);
+const close = await describeServers([denoServe, nodeBridge], "Deno", configured, denoFramework);
+
+// `Deno.test` has no `afterAll`, and runs tests in the order they were registered, so the
+// servers close in a test of their own after the last one, as the suite's `cleanup` does.
+denoFramework.test("close the servers", close);
