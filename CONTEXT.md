@@ -222,6 +222,25 @@ A host inherits what its runtime can do and adds limits of its own. stowage name
 hosts.
 _Avoid_: platform, provider, deployment target
 
+**HTTP layer**:
+The part of stowage that answers a web request on a storage's behalf — serving an object, accepting
+an upload body, handing out a presigned upload — for a key the caller has already named. It speaks
+web `Request` and `Response` and knows no framework, so any framework that speaks them reaches
+stowage through it. Routing, authorization and naming the key stay with the caller.
+_Avoid_: neutral layer, middleware, handler, server
+
+**Integration**:
+A package that wires a storage into one framework, so the framework's own code reaches it the
+framework's own way, and serves it through the HTTP layer. stowage has one for NestJS, Hono and
+Next.js; every other framework is reached through the HTTP layer alone.
+_Avoid_: plugin, module, binding, adapter
+
+**Node bridge**:
+The part of the HTTP layer that translates between Node's own request and response and web
+`Request` and `Response`, for servers that cannot send a web `Response` themselves. What it promises
+is that protocol, not a framework built on it.
+_Avoid_: shim, polyfill, adapter
+
 **Reference flow**:
 One of the five call sequences that stowage is designed to support, each of which names the
 adapters and runtimes it covers and the conditions under which it counts as supported.
