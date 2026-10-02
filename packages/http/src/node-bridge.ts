@@ -101,7 +101,7 @@ interface StreamedBody {
   readonly stream: ReadableStream<Uint8Array>;
   /** Errors the stream, unless it ended, failed or was canceled already. */
   fail(reason: Error): void;
-  /** Lets the rest of `req` flow and drops it, where no read ever asked for it. */
+  /** Lets the rest of `req` flow and drops it, where no reader holds the body. */
   discardUnread(): void;
 }
 
@@ -163,9 +163,10 @@ function streamedBody(req: NodeRequest): StreamedBody {
   );
 
   const discardUnread = (): void => {
-    if (listening || settled) return;
+    if (stream.locked || settled) return;
 
     settled = true;
+    opened?.close();
     req.resume();
   };
 

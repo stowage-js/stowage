@@ -361,6 +361,31 @@ describe("the body of `toWebRequest`", () => {
     expect(req.listenerCount("data")).toBe(0);
   });
 
+  test.each([null, "refused"])(
+    "drains a partially read body whose reader was released, with response body %s",
+    async (responseBody) => {
+      const req = new StreamingRequest();
+      const res = new RecordedResponse();
+      const body = toWebRequest(req, res).body;
+      const reader = body?.getReader();
+      const first = reader?.read();
+
+      await settle();
+      req.emit("data", bytes("one"));
+      await first;
+      reader?.releaseLock();
+
+      expect(req.paused).toBe(true);
+
+      await writeResponse(res, new Response(responseBody, { status: 413 }));
+      req.emit("data", bytes("two"));
+      req.emit("end");
+
+      expect(req.paused).toBe(false);
+      await expect(body?.getReader().read()).resolves.toEqual({ done: true, value: undefined });
+    },
+  );
+
   test("leaves `req` paused where the body is still being read as the response ends", async () => {
     const req = new StreamingRequest();
     const res = new RecordedResponse();
@@ -373,6 +398,15 @@ describe("the body of `toWebRequest`", () => {
     await writeResponse(res, new Response(null, { status: 202 }));
 
     expect(req.paused).toBe(true);
+
+    const second = reader?.read();
+
+    await settle();
+    req.emit("data", bytes("two"));
+    req.emit("end");
+
+    expect(new TextDecoder().decode((await second)?.value)).toBe("two");
+    await expect(reader?.read()).resolves.toEqual({ done: true, value: undefined });
   });
 
   test("resumes `req` once the body is canceled and drops what follows", async () => {

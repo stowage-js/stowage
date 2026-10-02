@@ -29,7 +29,11 @@ export function workerdServer(config: HttpConfig): HttpServer {
         ...(routes === undefined ? {} : { STOWAGE_HTTP_MAX_SIZE: String(routes.maxSize) }),
       });
       const exited = once(child, "exit").catch(() => {});
-      const { http } = await listeningPorts(child, ["http"]);
+      const { http } = await listeningPorts(child, ["http"]).catch(async (failure: unknown) => {
+        child.kill();
+        await exited;
+        throw failure;
+      });
 
       return {
         url: routeUrls(`http://127.0.0.1:${http}`),
