@@ -2,6 +2,13 @@ export { expectUnsupported } from "./assertions.ts";
 export type { ConformanceCase, ConformanceCaseMetadata } from "./case.ts";
 export { conformanceCases } from "./cases/index.ts";
 export { type ConformanceFramework, describeConformance } from "./describe.ts";
+export { describeHttpConformance } from "./describe-http.ts";
+export { httpConformanceCases } from "./http-cases/index.ts";
+export type {
+  HttpConformanceCase,
+  HttpConformanceContext,
+  HttpConformanceTarget,
+} from "./http-target.ts";
 export type { ConformanceMode, ConformanceResult, SerializedConformanceError } from "./result.ts";
 export { runAll } from "./run-all.ts";
 export type { ConformanceRunOptions } from "./run.ts";

@@ -1,0 +1,39 @@
+import { assert } from "../assertions.ts";
+
+/**
+ * The body of an answer, after its status was checked. The body is read either way, so
+ * that no case leaves a connection to the server open behind a body it did not want.
+ */
+export async function expectStatus(
+  response: Response,
+  status: number,
+  what: string,
+): Promise<Uint8Array> {
+  const body = new Uint8Array(await response.arrayBuffer());
+
+  assert(response.status === status, `${what} answers ${response.status} and not ${status}`);
+
+  return body;
+}
+
+/** An answer with no body at all, which a `HEAD`, a `404` and a `405` of spec 10 are. */
+export async function expectEmpty(response: Response, status: number, what: string): Promise<void> {
+  const body = await expectStatus(response, status, what);
+
+  assert(body.byteLength === 0, `${what} answers with a body of ${body.byteLength} bytes`);
+}
+
+/** A header of an answer, `null` for one it does not carry, named by the request in `what`. */
+export function assertHeaderOf(
+  response: Response,
+  name: string,
+  expected: string | null,
+  what: string,
+): void {
+  const held = response.headers.get(name);
+
+  assert(
+    held === expected,
+    `${what} carries \`${name}: ${JSON.stringify(held)}\` and not ${JSON.stringify(expected)}`,
+  );
+}

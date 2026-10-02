@@ -1,5 +1,3 @@
-import type { ConformanceContext } from "../target.ts";
-
 const utf8 = new TextEncoder();
 
 /** Spec 14.7 measures a key in UTF-8 bytes, and `adapter-fs` bounds one segment at 255. */
@@ -22,11 +20,15 @@ const refusedLoneSurrogates: readonly number[] = [0xd800, 0xdc00];
 const writableKeyLimit = 1024;
 
 /** The prefix one case writes below, which no other case reads or writes. */
-export function prefixFor(ctx: ConformanceContext, caseName: string): string {
+export function prefixFor(ctx: { readonly keyPrefix: string }, caseName: string): string {
   return `${ctx.keyPrefix}${caseName}/`;
 }
 
-export function keyFor(ctx: ConformanceContext, caseName: string, name = "object"): string {
+export function keyFor(
+  ctx: { readonly keyPrefix: string },
+  caseName: string,
+  name = "object",
+): string {
   return `${prefixFor(ctx, caseName)}${name}`;
 }
 
