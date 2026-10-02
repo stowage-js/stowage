@@ -2073,7 +2073,10 @@ framework. `IncomingMessage` and `ServerResponse` of `node:http` satisfy `NodeRe
   and `HEAD`, which carry none.
 - Its `signal` aborts once `res` closes before it has finished, which is a client disconnecting.
   The request's own `close` is not the signal, since Node emits it as soon as the body is read and
-  an upload may still be completing.
+  an upload may still be completing. Where the body of `req` is still streaming then, the body
+  fails before the signal aborts: Node closes the response of a reset connection before the
+  request emits its error, and `acceptUpload` answers the failed body with `400` (section 10.5)
+  rather than throwing on the abort.
 - A `req` whose body was already read, by `express.json()` or NestJS's default body parsers among
   others, makes `toWebRequest` throw a `TypeError` rather than hand the layer an empty body (ADR
   0051).
