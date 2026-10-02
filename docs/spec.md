@@ -18,12 +18,20 @@ reasoning. Where a section names an ADR, that ADR holds the alternatives that we
 | `@stowage/adapter-s3`         | A storage in one bucket of AWS S3 or Cloudflare R2              | Node, Bun, Deno, `workerd` |
 | `@stowage/adapter-azure-blob` | A storage in one container of an Azure Blob Storage account     | Node, Bun, Deno, `workerd` |
 | `@stowage/adapter-gcs`        | A storage in one bucket of Google Cloud Storage                 | Node, Bun, Deno, `workerd` |
-| `@stowage/conformance`        | The cases every adapter has to pass                             | Node, Bun, Deno, `workerd` |
+| `@stowage/http`               | The HTTP layer and the Node bridge                              | Node, Bun, Deno, `workerd` |
+| `@stowage/nestjs`             | The integration for NestJS 12                                   | Node                       |
+| `@stowage/hono`               | The integration for Hono 4                                      | Node, Bun, Deno, `workerd` |
+| `@stowage/nextjs`             | The integration for Next.js 16                                  | Node                       |
+| `@stowage/conformance`        | The cases every adapter and every server has to pass            | Node, Bun, Deno, `workerd` |
 
-- The seven packages carry one version number and are released together (ADR 0008, ADR 0019,
-  ADR 0031).
-- Every package is published as ESM only. No package has a runtime dependency outside `@stowage/*`
-  (ADR 0003, ADR 0008, ADR 0019, ADR 0031).
+- The eleven packages carry one version number and are released together (ADR 0008, ADR 0019,
+  ADR 0031, ADR 0046, ADR 0047).
+- Every package is published as ESM only. No package has a runtime dependency outside `@stowage/*`.
+  An integration declares its framework as a peer dependency and nothing else (ADR 0003, ADR 0008,
+  ADR 0019, ADR 0031, ADR 0047).
+- An integration promises its framework's current major at its release and the runtimes its
+  framework promises, within the four above: NestJS 12 on Node, Hono 4 on all four, Next.js 16 on
+  Node. Its peer range starts at the version CI ran at the release (section 2, ADR 0047, ADR 0050).
 - Node's floor is 24, declared through `engines`. Bun and Deno have no floor; each README names the
   version CI last ran green. `workerd` runs with the compatibility date `2026-09-01` and the flags
   `no_nodejs_compat` and `no_nodejs_compat_v2`, which the `workerd` harness pins as well; no package
@@ -36,8 +44,8 @@ reasoning. Where a section names an ADR, that ADR holds the alternatives that we
 
 ## 2. Runtime matrix
 
-A cell is supported where the conformance suite covers it in CI. There is no weaker level (ADR
-0002).
+A cell is supported where the conformance suite covers it in CI, and a server's cell where the HTTP
+conformance suite does (section 14.8). There is no weaker level (ADR 0002, ADR 0050).
 
 |                                                          | Node                                      | Bun                                       | Deno                                      | `workerd`                           |
 | -------------------------------------------------------- | ----------------------------------------- | ----------------------------------------- | ----------------------------------------- | ----------------------------------- |
@@ -75,11 +83,48 @@ A cell is supported where the conformance suite covers it in CI. There is no wea
   IAM Credentials included. Cloudflare's paid plans allow all three by default, and its free plan's
   10 milliseconds allow none.
 
+The servers, each against the runtimes its package promises (section 1):
+
+|                              | Node | Bun | Deno | `workerd` |
+| ---------------------------- | ---- | --- | ---- | --------- |
+| `@stowage/http`              | yes  | yes | yes  | yes       |
+| the Node bridge              | yes  | yes | yes  | no        |
+| `@stowage/nestjs` on Express | yes  | no  | no   | no        |
+| `@stowage/nestjs` on Fastify | yes  | no  | no   | no        |
+| `@stowage/hono`              | yes  | yes | yes  | yes       |
+| `@stowage/nextjs`            | yes  | no  | no   | no        |
+
+- Every cell runs a real server over a socket: `@stowage/http` alone on `Bun.serve`, `Deno.serve`
+  and `workerd`'s `fetch`, and on Node through the bridge; the bridge on `node:http`'s
+  `createServer` on Node, Bun and Deno; Hono on `@hono/node-server`, `Bun.serve`, `Deno.serve` and
+  `workerd`; NestJS through `app.listen` on each platform; Next.js through `next build` and
+  `next start`. A framework's test utilities, such as `app.request`, `supertest` or
+  `Test.createTestingModule`, cover no cell (ADR 0050).
+- On Node, Bun and Deno the server and the cases share one process under that runtime's harness.
+  For `workerd` and `next start` the Node harness starts the server as a child process.
+- Behind every server is `adapter-s3` against SeaweedFS. No other emulator and no real endpoint
+  runs behind a server, since an integration adds no provider behavior.
+- Every case of the HTTP conformance suite is `fast` and runs on every pull request. On `workerd`
+  it runs under `no_nodejs_compat` and `no_nodejs_compat_v2`, and a second time under the date's
+  default flags.
+- A cell also carries the two repository tests of section 14.8 that no client observes: a client
+  disconnecting cancels the stream `get` returned and reaches the provider, on every runtime of the
+  cell, and memory stays flat through an upload and a download, on Node. A cell failing the
+  disconnect test carries no "yes".
+- CI runs the floor and the newest release of each framework's major on Node 24 and Node 26. The
+  floors are `@nestjs/common`, `@nestjs/core`, `@nestjs/platform-express` and
+  `@nestjs/platform-fastify` 12.1.2, `hono` 4.13.12 on `@hono/node-server` 2.1.3, and `next`
+  16.3.8. A peer range starts at its floor: `^12.1.2`, `^4.13.12`, `^16.3.8`. The newest release
+  moves with the framework, and each integration's README names the one CI ran at its release.
+- Express and Fastify without NestJS reach stowage through the Node bridge and are not named as
+  frameworks (ADR 0046). Bun and Deno under NestJS or Next.js are not promised, as their frameworks
+  promise neither.
+
 ## 3. Reference flows
 
 The five call sequences stowage is designed for. Each names its adapters and runtimes, what has to
 hold for it to count as supported, and the failures it has to tell apart. The conformance suite
-carries one case per flow (section 10.6).
+carries one case per flow (section 14.6).
 
 ### Flow 1: large upload from a server
 
@@ -99,6 +144,8 @@ A server process writes a stream of unknown length under a key.
   Blob and GCS, sections 7.2, 8.3 and 9.3; on GCS a
   credential expiring after the upload started does not fail it, since its chunks carry none); the
   provider rejects the write (`AccessDenied`, `InvalidRequest`, `ProviderError`).
+- Through a route: `acceptUpload` of `@stowage/http` streams a request body into `put` with a size
+  limit (section 10.5).
 
 ### Flow 2: browser upload through a presigned `PUT`
 
@@ -125,6 +172,8 @@ A server signs a URL and the browser uploads to the provider directly.
   reads its status and not the provider's code; R2 sends none on the `403` for an expired URL, so a
   page sees a network error there. GCS answers an expired URL with `400`, the others with `403`.
 - Carries no integrity check: no provider signs a hash or a checksum of the body into the URL.
+- Through a route: `presignUpload` of `@stowage/http` answers with the URL and its headers
+  (section 10.6).
 
 ### Flow 3: file browser listing one prefix
 
@@ -151,6 +200,9 @@ A worker answers a client `GET` and passes the client's `Range` on to the provid
   partial content; the client disconnecting cancels the stream and reaches the provider.
 - Fails as: missing key (`NotFound`); range not satisfiable (`InvalidRequest`); a range on an
   object another tool stored with a content coding (`ProviderError`, section 4.3).
+- Through a route: `serveObject` of `@stowage/http` answers the `GET` from `get` and passes its
+  `Range` on (section 10.3); `redirectToObject` instead hands the range to the provider through a
+  presigned `GET` (section 10.4).
 
 ### Flow 5: move a prefix from the file system to a cloud provider
 
@@ -455,7 +507,7 @@ export type CapabilityName = (typeof capabilityNames)[number];
   on `signer`, the option that decides its `presignedUrls`, so the type it returns carries the two
   methods where the storage declares the capability (section 9.1, ADR 0035).
 - An `Unsupported` error names the capability in its `capability` field.
-- The list is closed and grows in minor releases (section 11).
+- The list is closed and grows in minor releases (section 15).
 
 ### 4.10 Errors
 
@@ -833,7 +885,7 @@ export function fsStorage(options: FsAdapterOptions): FsStorage;
   root behaves as an absent object.
 - Refuses a segment longer than 255 bytes with `InvalidKey`. A key whose whole path passes what the
   file system holds is `InvalidKey` as well, through the `ENAMETOOLONG` of the mapping below: macOS
-  bounds one path at 1024 bytes with the root counted in, so the 1024-byte key of section 10.7 is
+  bounds one path at 1024 bytes with the root counted in, so the 1024-byte key of section 14.7 is
   written on Linux and refused there.
 - A name the file system refuses to create is `InvalidKey` for `put` and for the `to` of `copy` and
   `move`, through the `EILSEQ` of the mapping below. APFS refuses every noncharacter, such as
@@ -1736,9 +1788,410 @@ A URL is a V4 signed URL on the XML API, signed as the `signer`'s service accoun
   it expires. It works against the endpoint that signed it only.
 - There is no presigned `POST` and no presigned resumable upload.
 
-## 10. `@stowage/conformance`
+## 10. `@stowage/http`
+
+`@stowage/http` is the HTTP layer: it answers a web request on a storage's behalf for a key the
+caller has already named, and resolves with a web `Response` (ADR 0046). Routing, authorization,
+naming the key, CSRF beyond what the methods of section 10.5 give, and `multipart/form-data` stay
+with the caller. Any framework that speaks web `Request` and `Response` reaches stowage through it;
+a server that cannot send a web `Response` reaches it through the Node bridge (section 10.7).
 
 ### 10.1 Exports
+
+```ts
+export interface ServeObjectOptions {
+  filename?: string;
+  disposition?: "attachment" | "inline";
+  cacheControl?: string;
+}
+
+export interface RedirectToObjectOptions {
+  expiresIn: number;
+  filename?: string;
+  disposition?: "attachment" | "inline";
+}
+
+export interface AcceptUploadOptions {
+  maxSize: number;
+  contentType?: string;
+  userMetadata?: Record<string, string>;
+}
+
+export interface PresignUploadOptions {
+  expiresIn: number;
+  maxSize: number;
+  contentType: string;
+  contentLength: number;
+}
+
+export interface PresignsGet {
+  presignGet(
+    key: string,
+    options: { expiresIn: number; responseContentDisposition?: string },
+  ): Promise<string>;
+}
+
+export interface PresignsPut {
+  presignPut(
+    key: string,
+    options: { expiresIn: number; contentType: string; contentLength: number },
+  ): Promise<PresignedPut>;
+}
+
+export function serveObject(
+  storage: Storage,
+  key: string,
+  request: Request,
+  options?: ServeObjectOptions,
+): Promise<Response>;
+export function redirectToObject(
+  storage: PresignsGet,
+  key: string,
+  request: Request,
+  options: RedirectToObjectOptions,
+): Promise<Response>;
+export function acceptUpload(
+  storage: Storage,
+  key: string,
+  request: Request,
+  options: AcceptUploadOptions,
+): Promise<Response>;
+export function presignUpload(
+  storage: PresignsPut,
+  key: string,
+  options: PresignUploadOptions,
+): Promise<Response>;
+
+export function storageErrorOf(response: Response): StorageError | undefined;
+export function objectStatOf(response: Response): ObjectStat | undefined;
+
+export interface NodeRequest {
+  readonly method?: string;
+  readonly url?: string;
+  readonly headers: Readonly<Record<string, string | readonly string[] | undefined>>;
+  readonly socket: object;
+  readonly readableDidRead: boolean;
+  on(event: "data", listener: (chunk: Uint8Array) => void): unknown;
+  on(event: "end", listener: () => void): unknown;
+  on(event: "error", listener: (error: Error) => void): unknown;
+  pause(): unknown;
+  resume(): unknown;
+}
+
+export interface NodeResponse {
+  statusCode: number;
+  readonly writableEnded: boolean;
+  readonly writableFinished: boolean;
+  setHeader(name: string, value: string | readonly string[]): unknown;
+  write(chunk: Uint8Array): boolean;
+  end(): unknown;
+  destroy(error?: Error): unknown;
+  on(event: "drain" | "close", listener: () => void): unknown;
+}
+
+export function toWebRequest(req: NodeRequest, res: NodeResponse): Request;
+export function writeResponse(res: NodeResponse, response: Response): Promise<void>;
+```
+
+- `serveObject` and `acceptUpload` take the portable `Storage`. `redirectToObject` and
+  `presignUpload` take a structural type naming the one method they call, with the options every
+  adapter that declares `presignedUrls` shares: `S3Storage`, `AzureBlobStorage` and a `GcsStorage`
+  built with a `signer` satisfy both, and a storage without `presignedUrls` fails to compile. The
+  two types are separate, so a storage needs only the one it is used for, and neither moves into
+  `@stowage/core` (ADR 0046, ADR 0048, ADR 0049).
+- The layer constructs no storage, reads no environment and holds no configuration: the storage
+  arrives with every call. It keeps no registry over several storages, offers no hook into an
+  adapter's requests and reaches nothing below a concrete type (ADR 0042). It buffers no body.
+- No function reads the request's URL. The key is the caller's argument.
+- `PresignedPut` is the type of section 4.13.
+
+### 10.2 Answers
+
+- Every function resolves with a `Response`. A `StorageError` an operation rejects with becomes a
+  status by what it says about the request, not by the provider's status (ADR 0048):
+
+  | `StorageError`                                         | Status                  |
+  | ------------------------------------------------------ | ----------------------- |
+  | `NotFound` with `key`, `InvalidKey`                    | `404`                   |
+  | `InvalidRequest` from a ranged `get` (section 10.3)    | `416`                   |
+  | `NetworkError`, `ProviderError` with `retryable: true` | `503`, no `Retry-After` |
+  | every other, `NotFound` without `key` among them       | `500`                   |
+
+  `AccessDenied`, `InvalidCredentials` and `Expired` describe the server's credential, not the
+  client's rights, and are `500`. An `InvalidRequest` from `put` over the adapter's part limit is
+  `500` too, since it is a `maxSize` beyond what the storage takes.
+
+- The body of an answer made from a `StorageError` is empty: a provider's message names buckets
+  and accounts. `storageErrorOf(response)` answers the error behind it, and `undefined` for any
+  other `Response` and for a copy of one.
+- Anything thrown that is not a `StorageError` is thrown on, an `AbortError` and a programmer error
+  among it.
+- The refusals of the layer's own, such as `405`, `412`, `413`, `415` and the `400`s of sections
+  10.5 and 10.6, carry no `StorageError`.
+- Every `Response` the layer builds has mutable headers, so the caller sets `Location`, CORS or
+  anything else on `response.headers` afterwards. A `302` is built with `new Response(null, …)`,
+  not with `Response.redirect()`.
+- `storageErrorOf` and `objectStatOf` recognise the layer's answers by the object itself, not by
+  `instanceof`, and hold where a server replaces the global `Response` with a subclass, as
+  `@hono/node-server` does.
+- `request.signal` is passed to every `get`, `stat` and `put` the layer sends. The body of a
+  served `Response` is the stream of `get`, so a runtime canceling it on disconnect cancels the
+  provider's request (section 4.5).
+
+### 10.3 Serving an object
+
+`serveObject` streams the object through the server from `get` and `stat` (ADR 0048).
+
+- Methods: `GET` and `HEAD`, read from `request.method`, since Hono and Next.js route `HEAD` to
+  the `GET` handler. Any other method is `405` with `Allow: GET, HEAD`.
+- `HEAD` is answered from `stat` with the headers a `GET` without `Range` would carry, no body and
+  no `Content-Length`. `Range` on a `HEAD` is ignored.
+- A `200` carries no `Content-Length`: an object another tool stored with a content coding may
+  arrive decoded and longer than `size` (section 4.4), and Node and Deno would cut such a body to
+  `size` and end the response as complete. A client sees no total and no progress.
+- Headers on `200`, `206` and `HEAD`:
+  - `Content-Type` as stored.
+  - `X-Content-Type-Options: nosniff`, always.
+  - `Content-Disposition`: with `disposition` `"attachment"`, the default,
+    `attachment; filename="<fallback>"; filename*=UTF-8''<encoded>`. The name is `filename` or the
+    key's last segment; a key ending in `/` gets `attachment` alone. In the fallback every
+    character outside `U+0020` to `U+007E`, and `"`, `\` and `%`, is replaced with `_`; the encoded
+    form is the name's UTF-8 bytes with everything outside RFC 8187's `attr-char`
+    percent-encoded. `résumé 100%.pdf` is
+    `attachment; filename="r_sum_ 100_.pdf"; filename*=UTF-8''r%C3%A9sum%C3%A9%20100%25.pdf`.
+    With `"inline"`, the same parameters follow `inline`.
+  - `Cache-Control: private, no-cache` unless `cacheControl` is given, which replaces it.
+  - `ETag`: the `etag` of the `stat` that describes the bytes sent, quoted as a strong tag. A
+    storage that hands over no `etag`, `adapter-fs`, gets no `ETag` and none derived for it.
+  - `Last-Modified`: `lastModified` at whole seconds, replaced by the response's `Date` where it is
+    later.
+  - `Accept-Ranges: bytes` where the storage declares `rangeReads`.
+- `inline` is the caller's explicit choice and risk: an uploaded `text/html` or `image/svg+xml`
+  served inline from the application's origin runs with its rights, which `nosniff` does not
+  prevent. The layer adds no `Content-Security-Policy`.
+- Ranges, where the storage declares `rangeReads`: one range of the unit `bytes`, a suffix range
+  included. A satisfiable range is `206` with `Content-Range` and `Content-Length`. An
+  unsatisfiable one is `416` with `Content-Range: bytes */<size>`, the size taken from a `stat`
+  after the failed `get`. Several ranges, another unit, a malformed header and any `Range` on a
+  storage without `rangeReads` are ignored, and the whole object is `200`. There is no
+  `multipart/byteranges`.
+- A ranged `get` that rejects with a `ProviderError` with `retryable: false` is followed by one
+  whole `get`, answered `200`. That is the content-coded object of section 4.3, which only the
+  error's message tells apart, and a genuine provider failure fails the second `get` alike.
+- Preconditions, per RFC 9110 13.2.2 in its order: `If-Match`, `If-Unmodified-Since`,
+  `If-None-Match`, `If-Modified-Since`, `If-Range`. `If-Unmodified-Since` is evaluated only without
+  `If-Match`, and `If-Modified-Since` only without `If-None-Match`. `If-Match` and `If-Range`
+  compare strongly, `If-None-Match` weakly. Without an `etag`, `If-Match` holds for `*` alone. A
+  failed `If-Match` or `If-Unmodified-Since` is `412`; a failed `If-None-Match` or
+  `If-Modified-Since` is `304` with the headers of the `200` and no body. `If-Range` with a date
+  never holds, since a date at second resolution is no strong validator, and the whole object is
+  sent. Dates compare at whole seconds.
+- A request that would be `404` without its preconditions is `404` with them.
+- `stat` first: only where the request carries a precondition or a suffix range does the layer call
+  `stat` before `get`. It then decides by the `stat` that `get` resolves with, since that one
+  describes the bytes sent. The object counts as changed when the `etag`s differ, or, without
+  them, `size` or `lastModified`. A changed object has its preconditions evaluated again; where the
+  outcome changes, the body is canceled and the new outcome answered, at most with one more whole
+  `get`.
+- On Deno, `adapter-s3` and `adapter-azure-blob` hand over a content-coded object as stored, so
+  the client receives coded bytes without `Content-Encoding` (section 4.4). Nothing in
+  `ObjectStat` lets the layer repair it.
+
+### 10.4 Redirecting to an object
+
+`redirectToObject` answers `302` to a URL from `presignGet`, which leaves ranges, preconditions and
+a content coding to the provider and serves the bytes from the provider's origin (ADR 0048).
+
+- `GET` and `HEAD` are answered with the same `302`: `Location` the presigned URL,
+  `Cache-Control: private, no-store` because the URL expires, and an empty body. Any other method
+  is `405` with `Allow: GET, HEAD`.
+- `expiresIn` is required and has no default, as on `presignGet`. `filename` and `disposition`
+  reach the provider as `responseContentDisposition`, built as in section 10.3.
+- A URL from `presignGet` is signed for `GET` on S3 and GCS, so a client following the `302` with
+  `HEAD` is answered `403` there. A caller who needs `HEAD` serves through `serveObject`.
+- `presignGet` sends no request, so a missing key is the provider's `404` to the client, not the
+  layer's.
+
+### 10.5 Accepting an upload
+
+`acceptUpload` streams the request body into `put` (flow 1, ADR 0049).
+
+- Methods: `PUT` alone. Any other is `405` with `Allow: PUT`. A cross-site HTML form cannot send
+  `PUT`, and a cross-origin `fetch` with it is preflighted, so the method alone keeps form-based
+  CSRF out; a `multipart/form-data` body cannot arrive from a browser form either.
+- `maxSize` is required: a non-negative integer or `Infinity`. A `Content-Length` above it is `413`
+  before the body is read. The layer counts the bytes between `request.body` and `put` and errors
+  the stream before `put` sees its end once the count passes `maxSize` (`413`) or the body ends
+  short of its `Content-Length` or runs past it (`400`). A body that fails while it is read, a
+  reset connection among the causes, is `400`. `put` then rejects, and the key is absent or holds
+  what it held before (flow 1).
+- `contentType` absent: the request's `Content-Type`, and without that header the storage's default
+  of section 4.3. User metadata comes from `userMetadata` alone, never from request headers. A
+  `Content-Encoding` other than `identity` is `415`, since no runtime decodes a request body. Any
+  check of the content type is the caller's, made on the request's headers before the call.
+- A request whose `body` is `null` stores an empty object.
+- `request.bodyUsed` being `true` rejects with a `TypeError` before `put` starts, rather than storing an
+  empty or partial body. A body read before the call is the caller's programmer error and not a
+  `StorageError` (ADR 0052).
+- A stored object is `201` with an empty body and the `etag` `put` resolved with as a quoted strong
+  `ETag`, none where the storage hands over none. `201` is sent whether or not the key held an
+  object before. `objectStatOf(response)` answers the `ObjectStat` `put` resolved with, and
+  `undefined` for any other `Response` and for a copy of one. The body carries no `ObjectStat`.
+- A `StorageError` becomes a status by section 10.2.
+
+### 10.6 Presigning an upload
+
+`presignUpload` answers with what `presignPut` returns (flow 2, ADR 0049). It takes no `Request`:
+the caller names the key first, usually from the request body, and hands over the values the client
+sent.
+
+- `expiresIn`, `maxSize`, `contentType` and `contentLength` are required. Before signing, a
+  `contentLength` that is not a non-negative integer is `400`, one above `maxSize` is `413`, and a
+  `contentType` that is empty or no valid header value is `400`, so a client's value never reaches
+  `presignPut` as an `InvalidOption` answered `500`.
+- A signed upload is `200` with `Content-Type: application/json`,
+  `Cache-Control: private, no-store` and the body `{ "url", "method": "PUT", "headers" }`, `headers`
+  being what `presignPut` returns.
+- A `StorageError` becomes a status by section 10.2.
+
+### 10.7 The Node bridge
+
+The Node bridge carries a web `Request` and `Response` over the protocol of `node:http`'s request
+and response, on Node, Bun and Deno (ADR 0046). It imports no `node:` module, so the package loads
+on `workerd`, where it has nothing to do. Express, with or without NestJS, and Fastify through
+`reply.hijack()` and `reply.raw` reach the layer through it; neither is named as a promised
+framework. `IncomingMessage` and `ServerResponse` of `node:http` satisfy `NodeRequest` and
+`NodeResponse`, and so do an Express request and response.
+
+- `toWebRequest(req, res)` builds a `Request` with the method and headers of `req`, a URL of
+  `https:` where `req.socket` is encrypted and `http:` otherwise, the `Host` header, `localhost`
+  without one, and `req.url`. Its body streams `req` with backpressure for any method but `GET`
+  and `HEAD`, which carry none.
+- Its `signal` aborts once `res` closes before it has finished, which is a client disconnecting.
+  The request's own `close` is not the signal, since Node emits it as soon as the body is read and
+  an upload may still be completing.
+- A `req` whose body was already read, by `express.json()` or NestJS's default body parsers among
+  others, makes `toWebRequest` throw a `TypeError` rather than hand the layer an empty body (ADR
+  0051).
+- `writeResponse(res, response)` writes the status and headers, then the body chunk by chunk,
+  waiting for `drain`. A `HEAD` answer and a `304` carry no body. It resolves once the response has
+  ended. A client disconnecting cancels the body and resolves; a body that errors destroys `res`,
+  so the client sees an incomplete answer rather than a complete short one, and rejects with that
+  error.
+
+## 11. `@stowage/nestjs`
+
+`@stowage/nestjs` wires a storage into a NestJS 12 application and serves it through
+`@stowage/http` on Express and on Fastify (ADR 0051).
+
+```ts
+import type {
+  DynamicModule,
+  ForwardReference,
+  InjectionToken,
+  OptionalFactoryDependency,
+  Type,
+} from "@nestjs/common";
+
+export interface StorageModuleOptions {
+  provide: InjectionToken;
+  storage: Storage;
+  global?: boolean;
+}
+
+export interface StorageModuleAsyncOptions {
+  provide: InjectionToken;
+  useFactory: (...args: any[]) => Storage | Promise<Storage>;
+  inject?: (InjectionToken | OptionalFactoryDependency)[];
+  imports?: (Type | DynamicModule | Promise<DynamicModule> | ForwardReference)[];
+  global?: boolean;
+}
+
+export class StorageModule {
+  static forRoot(options: StorageModuleOptions): DynamicModule;
+  static forRootAsync(options: StorageModuleAsyncOptions): DynamicModule;
+}
+
+export function webRequestOf(req: unknown, res: unknown): Request;
+export function sendResponse(res: unknown, response: Response): Promise<void>;
+```
+
+- One registration holds one storage under the injection token `provide`, which the caller passes.
+  There is no default token, none is derived from a name, and two storages are two registrations.
+  The application injects with `@Inject(token)` in its own code; the package exports no
+  `InjectStorage` and no token.
+- `forRootAsync`'s factory returns the storage itself, with no options object in between. There is
+  no `useClass` and no `useExisting`.
+- `global` defaults to `true`, so a feature module importing the module again does not construct a
+  second storage. `global: false` keeps the token to the importing module.
+- The module has no lifecycle hook, offers no fake and no `forTesting`. A test replaces a storage
+  with `overrideProvider(token).useValue(…)`.
+- `webRequestOf(req, res)` builds the `Request` of section 10.7 from an Express request and response,
+  or from a Fastify request and reply through their `raw`. `sendResponse(res, response)` writes a
+  `Response` into an Express response, or into a Fastify reply's `raw` after calling
+  `reply.hijack()` itself. Both tell the platforms apart by shape and import neither `express` nor
+  `fastify`, so a handler reads the same on both platforms:
+  `await sendResponse(res, await serveObject(storage, key, webRequestOf(req, res)))`.
+- A controller takes `@Req()` and `@Res()`, the latter without `passthrough`, since NestJS cannot
+  send a web `Response` itself.
+- The package registers no Fastify content type parser and exports no parameter decorator for the
+  web `Request`.
+- stowage's sources hold no decorator syntax; the package calls NestJS's decorator functions
+  directly (ADR 0047).
+
+## 12. `@stowage/hono`
+
+`@stowage/hono` wires a storage into a Hono 4 application on all four runtimes (ADR 0052).
+
+```ts
+import type { Context, Env, MiddlewareHandler } from "hono";
+
+export function withStorage<K extends string, S extends Storage, E extends Env = Env>(
+  name: K,
+  storage: S | ((c: Context<E>) => S | Promise<S>),
+): MiddlewareHandler<{ Variables: { [k in K]: S } }>;
+```
+
+- One call sets one storage on `c.var[name]`, under the name the caller passes. There is no
+  default name, and two storages are two calls.
+- `storage` is a constructed storage or a function called on every request, without caching. On
+  `workerd` the function builds the storage from `c.env`; its `Bindings` come from its annotated
+  parameter.
+- `c.var[name]` keeps the concrete type, so `redirectToObject` and `presignUpload` compile on an
+  `S3Storage` without a cast. The package does not augment `ContextVariableMap`.
+- The package exports nothing else: no route factory, no `onError` handler, no override and no
+  fake. It detects no runtime. A route serves through `@stowage/http` with `c.req.raw`, such as
+  `serveObject(c.var.avatars, key, c.req.raw)`; `c.req.raw.method` stays `"HEAD"` where Hono routes
+  a `HEAD` to the `GET` handler.
+- No integration re-exports `@stowage/http`; the application installs it beside the integration.
+
+## 13. `@stowage/nextjs`
+
+`@stowage/nextjs` wires a storage into a Next.js 16 application on Node (ADR 0053).
+
+```ts
+export function lazyStorage<S extends Storage>(factory: () => S): () => S;
+```
+
+- `lazyStorage(factory)` returns a getter that runs `factory` on its first call and keeps the
+  storage for the module instance it lives in, so `next build` constructs nothing until a request
+  asks. Not on `globalThis`: one process may hold one storage per module graph, which costs no I/O,
+  since a storage holds nothing between calls (section 4.1).
+- One call holds one storage, with no name. Two storages are two calls.
+- The factory is synchronous; a factory returning a `Promise` does not type-check. A factory that
+  throws is not cached: every call runs it again.
+- The getter keeps the concrete type, so `redirectToObject` and `presignUpload` compile on an
+  `S3Storage` without a cast.
+- The package imports nothing from `next`. It keeps the peer dependency on `next`, which carries the
+  promise of Next.js 16 on Node (section 2).
+- It exports nothing else: no `params` helper, no presign helper, no override and no fake. No adapter
+  sets `cache: 'no-store'` on its requests.
+- A Next.js Proxy matching an upload route cuts a chunked body at `proxyClientMaxBodySize`, and
+  `acceptUpload` cannot tell the cut body apart from a complete one (section 10.5).
+
+## 14. `@stowage/conformance`
+
+### 14.1 Exports
 
 ```ts
 export interface ConformanceTarget {
@@ -1827,7 +2280,7 @@ export type ConformanceResult =
     };
 ```
 
-### 10.2 Running the suite
+### 14.2 Running the suite
 
 - `describeConformance(target, { describe, test })` maps every case onto the test functions of
   Vitest, `bun:test` or `Deno.test`. `runAll(target)` runs every case and returns the results, for
@@ -1850,7 +2303,7 @@ export type ConformanceResult =
 - `expectUnsupported(call, capability)` runs `call` and asserts a `StorageError` with
   `code: "Unsupported"` and that `capability`.
 
-### 10.3 What the target promises
+### 14.3 What the target promises
 
 - `createStorage()` returns a storage the run may write to below any prefix, constructed from
   outside the adapter. What it supports the suite reads from the storage.
@@ -1861,7 +2314,7 @@ export type ConformanceResult =
 - `createStorageWithMissingBucket()` returns a storage bound to a bucket, container or root that
   does not exist and is otherwise configured as the storage of `createStorage()`.
 
-### 10.4 What the suite does not assert
+### 14.4 What the suite does not assert
 
 The suite asserts what the core API can observe. The following are promises of this repository's
 adapters, tested in this repository and not by the suite:
@@ -1879,7 +2332,7 @@ adapters, tested in this repository and not by the suite:
   readable, against the S3 adapter with the AWS SDK as the writer.
 - A `delete` in `adapter-s3` sends a key holding `U+FFFE` as a `DELETE` of its own while its
   neighbours stay in the batch, against SeaweedFS on every commit.
-- The account key of `adapter-azure-blob`, which the suite does not run under (section 10.2): Shared
+- The account key of `adapter-azure-blob`, which the suite does not run under (section 14.2): Shared
   Key signatures across the operations of the parity core, with user metadata named `a1` and `a_`
   and a value holding a run of spaces; `presignGet` as a service SAS; `presignPut` refused before any
   request; and a `copy`, once the pinned Azurite carries `Put Blob From URL`. Against Azurite on
@@ -1921,7 +2374,7 @@ adapters, tested in this repository and not by the suite:
 - The divergences of each emulator from the provider it stands in for, kept as a list in the
   private harness (ADR 0012, ADR 0023, ADR 0034).
 
-### 10.5 Cases
+### 14.5 Cases
 
 Names are stable: a renamed case is a removed case and an added one. `fast` cases run on every
 pull request. A case with `requires` carries a `runWithout` half, described in the last column.
@@ -1946,8 +2399,8 @@ A case marked with a factory is skipped where the target does not supply it.
 | `put/overwrites`               |                                         | `fast` | A second `put` under the same key replaces bytes and content type                                                                                                                                                               |
 | `put/content-type-stored`      |                                         | `fast` | `contentType: "text/plain"` on a key ending in `.txt` is reported by `stat` and `get`                                                                                                                                           |
 | `put/content-type-default`     |                                         | `fast` | Without `contentType`, a key without an extension reports `application/octet-stream`                                                                                                                                            |
-| `put/accepted-keys`            |                                         | `fast` | Each key of the accepted list (section 10.7) round-trips and is listed under its prefix                                                                                                                                         |
-| `put/refused-keys`             |                                         | `fast` | Each key of the refused writable list rejects with `InvalidKey`, `attempts: 0`, and `exists` afterwards is `false` where the key is addressable, or rejects with `InvalidKey` for a key the provider cannot hold (section 10.7) |
+| `put/accepted-keys`            |                                         | `fast` | Each key of the accepted list (section 14.7) round-trips and is listed under its prefix                                                                                                                                         |
+| `put/refused-keys`             |                                         | `fast` | Each key of the refused writable list rejects with `InvalidKey`, `attempts: 0`, and `exists` afterwards is `false` where the key is addressable, or rejects with `InvalidKey` for a key the provider cannot hold (section 14.7) |
 | `put/unknown-option`           |                                         | `fast` | An unknown option key rejects with `InvalidOption` whose message names the key; nothing was written                                                                                                                             |
 | `put/aborted-signal`           |                                         | `fast` | A signal already aborted rejects with `AbortError`; nothing was written                                                                                                                                                         |
 | `put/abort-during-upload`      |                                         | `fast` | Aborting during a 17 MiB stream rejects with `err.name === "AbortError"` and not a `StorageError`                                                                                                                               |
@@ -1967,7 +2420,7 @@ A case marked with a factory is skipped where the target does not supply it.
 | `get/body-read-once`      |              | `fast` | A second reader after `bytes()` rejects with `InvalidRequest`                                                                           |
 | `get/stat-from-response`  |              | `fast` | `stat` on the stored object equals `stat()` in `key`, `size`, `contentType`, `etag`                                                     |
 | `get/addressable-keys`    |              | `fast` | A key ending in `/` and a key holding a backslash reject with `NotFound`, not `InvalidKey`                                              |
-| `get/refused-keys`        |              | `fast` | Each key of the refused addressable list (section 10.7) rejects `get`, `stat` and `exists` with `InvalidKey`, `attempts: 0`             |
+| `get/refused-keys`        |              | `fast` | Each key of the refused addressable list (section 14.7) rejects `get`, `stat` and `exists` with `InvalidKey`, `attempts: 0`             |
 | `get/aborted-signal`      |              | `fast` | A signal already aborted rejects with `AbortError`                                                                                      |
 | `get/range`               | `rangeReads` | `fast` | `{ start, end }` returns those bytes inclusive; `{ start }` returns to the end; `stat.size` is the whole object. Without: `Unsupported` |
 | `get/range-unsatisfiable` | `rangeReads` | `fast` | `start` at the size rejects with `InvalidRequest`; `start > end` with `InvalidOption`. Without: `Unsupported`                           |
@@ -2049,7 +2502,7 @@ A case marked with a factory is skipped where the target does not supply it.
 | `presign/put-rejects-length` | `presignedUrls` | `slow` | A body of another length answers `4xx`. Without: as above                                                                                                                     |
 | `presign/expired-url`        | `presignedUrls` | `slow` | A URL signed with `expiresIn: 1`, called after two seconds, answers `400` or `403`, while a URL signed with `expiresIn: 60` in the same case answers `200`. Without: as above |
 
-### 10.6 Reference flow cases
+### 14.6 Reference flow cases
 
 | Case                        | Requires        | Cost   | Asserts                                                                                                                                                                                |
 | --------------------------- | --------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -2059,7 +2512,7 @@ A case marked with a factory is skipped where the target does not supply it.
 | `flow/4-streaming-download` | `rangeReads`    | `fast` | `get` with a range streamed into a `Response` yields the range's bytes and the content type. Without: `get` without a range streams the whole object, and a range is `Unsupported`     |
 | `flow/5-prefix-move`        |                 | `fast` | Every object below one prefix is streamed from `get` into `put` below another prefix with its content type; `deleteAll` on the source reports their count; the target lists them all   |
 
-### 10.7 Key lists
+### 14.7 Key lists
 
 Every adapter accepts each key of the accepted list for `put` and refuses each key of the refused
 lists for the rule named. A key is given as its characters; its length is measured in UTF-8 bytes.
@@ -2086,9 +2539,154 @@ system's path limit does not hold it below the root, which section 6 states, and
 name with `500`; the account runs it on Node and `workerd`. `adapter-gcs` leaves it unrun against
 both of its endpoints, since GCS refuses the key the case writes (section 9.1, ADR 0034).
 
-## 11. Versions
+### 14.8 The HTTP conformance suite
 
-- The seven packages carry one version and are released together.
+The HTTP conformance suite is a second list of cases in this package. It asserts what a client
+observes over HTTP from a server that answers through `@stowage/http`: the statuses, headers and
+bodies of section 10 (ADR 0050).
+
+```ts
+export interface HttpConformanceTarget {
+  readonly name: string;
+  createStorage(): Storage | Promise<Storage>;
+  url(answer: "serve" | "redirect" | "upload" | "presign", key: string): URL;
+  cleanup?(keyPrefix: string): Promise<void>;
+}
+
+export interface HttpConformanceContext {
+  readonly storage: Storage;
+  readonly keyPrefix: string;
+  readonly target: HttpConformanceTarget;
+  declares(name: CapabilityName): boolean;
+}
+
+export type HttpConformanceCase =
+  | {
+      readonly name: string;
+      readonly requires: readonly [];
+      readonly cost: "fast" | "slow";
+      run(ctx: HttpConformanceContext): Promise<void>;
+    }
+  | {
+      readonly name: string;
+      readonly requires: readonly [CapabilityName, ...CapabilityName[]];
+      readonly cost: "fast" | "slow";
+      run(ctx: HttpConformanceContext): Promise<void>;
+      runWithout(ctx: HttpConformanceContext): Promise<void>;
+    };
+
+export const httpConformanceCases: readonly HttpConformanceCase[];
+
+export function describeHttpConformance(
+  target: HttpConformanceTarget,
+  framework: ConformanceFramework,
+): void;
+```
+
+- The cases are client code. A case seeds and reads objects through the storage of
+  `createStorage()`, and sends its own request with `fetch` to `url(answer, key)`, its method,
+  headers, `HEAD` and abort included. The suite needs `fetch` and a `Storage` and nothing else, so
+  `@stowage/conformance` depends on neither `@stowage/http` nor a framework.
+- `createStorage()` returns a storage that addresses the objects the server serves. `url` names the
+  route that gives one answer for one key; how the key travels in the URL is the target's.
+- Every route hands each method the cases send, `GET`, `HEAD`, `POST`, `PUT` and `DELETE`, to the
+  layer, so that the layer answers `405` itself. The suite fixes what each route is configured
+  with:
+  - `serve`: `serveObject(storage, key, request)`, without options.
+  - `redirect`: `redirectToObject(storage, key, request, { expiresIn: 60 })`.
+  - `upload`: `acceptUpload(storage, key, request, { maxSize: 1048576 })`.
+  - `presign`: on `POST`, reads the JSON body `{ "contentType", "contentLength" }` and answers
+    `presignUpload(storage, key, { expiresIn: 60, maxSize: 1048576, contentType, contentLength })`
+    with both values as the body holds them. This is the target's route, not a protocol of the
+    layer (section 10.6).
+- `describeHttpConformance(target, { describe, test })` maps every case onto Vitest, `bun:test` or
+  `Deno.test` as section 14.2 does, inside a `describe` named `<name> over HTTP`. A case name is
+  unique within its list: `presign/put` of section 14.5 and of section 14.9 are two cases of two
+  lists. There is no `runAll` beside it: on `workerd` only the server runs inside the runtime, and
+  the cases run in the Node harness.
+- The run's `keyPrefix`, its `cleanup`, the declaration read once per run and the choice between
+  `run` and `runWithout` follow section 14.2. What the storage of `createStorage()` declares stands
+  for the server behind it.
+
+The suite asserts what a client observes over HTTP. The following are promises of this
+repository's servers, tested in this repository and not by the suite:
+
+- A client disconnecting cancels the stream `get` returned and reaches the provider (flow 4), on
+  every runtime of every cell of section 2's second table. A cell this fails on carries no "yes".
+- Memory stays flat through an upload and a download through each server, on Node.
+- The status table of section 10.2, the whole `get` after a ranged `ProviderError`, and an object
+  changing between `stat` and `get` (section 10.3), against a storage that answers so, since no
+  endpoint in CI produces a content-coded object or a race on demand.
+- The `400` of `acceptUpload` for a body that ends short of its `Content-Length` or runs past it,
+  and for a body that fails while it is read, over a raw socket: `fetch` cannot send a
+  `Content-Length` that contradicts its body.
+- The Node bridge on Node, Bun and Deno: the `TypeError` for a body already read, the signal of
+  `toWebRequest` aborting when the response closes early and not when the request body ends, and
+  `writeResponse` destroying the response for a body that errors.
+- `storageErrorOf` and `objectStatOf` answering `undefined` for a copy of an answer.
+- `attachment` alone for a key ending in `/`, which `put` writes on no adapter.
+
+### 14.9 HTTP cases
+
+Names are stable, as in section 14.5. Every case is `fast` and runs on every pull request. A case
+with `requires` carries a `runWithout` half, described in the last column.
+
+**Serving**
+
+| Case                        | Requires     | Cost   | Asserts                                                                                                                                                                                                          |
+| --------------------------- | ------------ | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `serve/whole`               |              | `fast` | `GET` answers `200`, the bytes and the stored `Content-Type`, without `Content-Length`                                                                                                                           |
+| `serve/headers`             |              | `fast` | `X-Content-Type-Options: nosniff`, `Cache-Control: private, no-cache`, `ETag` the quoted `etag` of `stat` and none where `stat` has none, `Last-Modified` the `lastModified` of `stat` at whole seconds          |
+| `serve/disposition`         |              | `fast` | A key ending in `résumé 100%.pdf` answers `attachment; filename="r_sum_ 100_.pdf"; filename*=UTF-8''r%C3%A9sum%C3%A9%20100%25.pdf`                                                                               |
+| `serve/head`                |              | `fast` | `HEAD` answers `200` with the headers of the `GET`, no body and no `Content-Length`; with `Range: bytes=0-1` it answers the same                                                                                 |
+| `serve/not-found`           |              | `fast` | A missing key answers `404` with an empty body to `GET`, to `HEAD` and to `GET` with `If-Match: *`; the key `a//b` answers `404`                                                                                 |
+| `serve/method-not-allowed`  |              | `fast` | `POST`, `PUT` and `DELETE` answer `405` with `Allow: GET, HEAD`; the object is unchanged                                                                                                                         |
+| `serve/range`               | `rangeReads` | `fast` | `bytes=2-5`, `bytes=4-` and `bytes=2-999` on a 16-byte object answer `206` with the bytes, `Content-Range`, `Content-Length` and `Accept-Ranges: bytes`. Without: `200` and the whole object, no `Accept-Ranges` |
+| `serve/suffix-range`        | `rangeReads` | `fast` | `bytes=-3` answers `206` with the last three bytes and `Content-Range: bytes 13-15/16`. Without: `200` and the whole object                                                                                      |
+| `serve/unsatisfiable-range` | `rangeReads` | `fast` | `bytes=16-` on a 16-byte object answers `416` with `Content-Range: bytes */16`. Without: `200` and the whole object                                                                                              |
+| `serve/ignored-range`       |              | `fast` | `bytes=0-1,3-4`, `items=0-1` and `bytes=x` each answer `200` and the whole object                                                                                                                                |
+| `serve/if-none-match`       |              | `fast` | The `ETag` of a first `GET`, also as `W/`, and `*` answer `304` without a body; another tag answers `200`. Where the first `GET` carried no `ETag`, `*` alone is sent                                            |
+| `serve/if-modified-since`   |              | `fast` | The `Last-Modified` of a first `GET` answers `304`, a second earlier answers `200`; beside an `If-None-Match` that fails to match it is ignored and the answer is `200`                                          |
+| `serve/if-match`            |              | `fast` | The strong `ETag` of a first `GET` and `*` answer `200`; another tag and the `ETag` as `W/` answer `412`. Where the first `GET` carried no `ETag`, any tag answers `412` and `*` answers `200`                   |
+| `serve/if-unmodified-since` |              | `fast` | A second before the `Last-Modified` of a first `GET` answers `412`, the `Last-Modified` itself answers `200`; beside an `If-Match: *` it is ignored and the answer is `200`                                      |
+| `serve/if-range`            | `rangeReads` | `fast` | `Range: bytes=2-5` with the strong `ETag` of a first `GET` answers `206`; with another tag or with a date it answers `200` and the whole object. Without: `200` and the whole object for each                    |
+
+**Redirecting**
+
+| Case                          | Requires        | Cost   | Asserts                                                                                                                                                                                                                       |
+| ----------------------------- | --------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `redirect/found`              | `presignedUrls` | `fast` | `GET` with `redirect: "manual"` answers `302`, an absolute `Location`, `Cache-Control: private, no-store` and an empty body; `fetch` on `Location` answers `200` and the bytes. Without: `"presignGet" in storage` is `false` |
+| `redirect/head`               | `presignedUrls` | `fast` | `HEAD` with `redirect: "manual"` answers `302` with an absolute `Location`. Without: as above                                                                                                                                 |
+| `redirect/method-not-allowed` | `presignedUrls` | `fast` | `POST` answers `405` with `Allow: GET, HEAD`. Without: as above                                                                                                                                                               |
+
+**Uploading**
+
+| Case                          | Requires | Cost   | Asserts                                                                                                                                                                                                     |
+| ----------------------------- | -------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `upload/stores`               |          | `fast` | `PUT` of 64 KiB with `Content-Type: text/plain` answers `201` with an empty body and the quoted `etag` of `stat` as `ETag`, none where `stat` has none; the object reads back byte for byte as `text/plain` |
+| `upload/streamed-body`        |          | `fast` | `PUT` of a 512 KiB stream without a length answers `201`; the object reads back byte for byte                                                                                                               |
+| `upload/content-type-default` |          | `fast` | `PUT` without `Content-Type` under a key without an extension stores `application/octet-stream`                                                                                                             |
+| `upload/empty-body`           |          | `fast` | `PUT` without a body answers `201`; `stat` reports size 0                                                                                                                                                   |
+| `upload/overwrites`           |          | `fast` | A second `PUT` under the same key answers `201` and replaces the bytes                                                                                                                                      |
+| `upload/max-size`             |          | `fast` | 1048576 bytes answer `201`. Over a stored object, 1048577 bytes as bytes and as a stream without a length each answer `413`, and the object reads back unchanged                                            |
+| `upload/content-encoding`     |          | `fast` | `PUT` with `Content-Encoding: gzip` answers `415`; the key is absent                                                                                                                                        |
+| `upload/method-not-allowed`   |          | `fast` | `POST` and `GET` answer `405` with `Allow: PUT`; the key is absent                                                                                                                                          |
+| `upload/invalid-key`          |          | `fast` | `PUT` under the key `a/` answers `404`                                                                                                                                                                      |
+| `upload/no-header-metadata`   |          | `fast` | `PUT` with `x-amz-meta-a: 1` and `x-ms-meta-a: 1` answers `201`; `stat` reports `userMetadata` `{}`                                                                                                         |
+
+**Presigning**
+
+| Case                           | Requires        | Cost   | Asserts                                                                                                                                                                                                                                                                                        |
+| ------------------------------ | --------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `presign/put`                  | `presignedUrls` | `fast` | `contentType` `text/plain` and `contentLength` 11 answer `200`, `application/json`, `Cache-Control: private, no-store` and `{ url, method: "PUT", headers }`; `fetch` with `PUT`, `headers` and 11 bytes answers `2xx`, and `stat` reports both. Without: `"presignPut" in storage` is `false` |
+| `presign/too-large`            | `presignedUrls` | `fast` | `contentLength` 1048577 answers `413`. Without: as above                                                                                                                                                                                                                                       |
+| `presign/invalid-length`       | `presignedUrls` | `fast` | `contentLength` `-1`, `1.5` and `"11"` each answer `400`. Without: as above                                                                                                                                                                                                                    |
+| `presign/invalid-content-type` | `presignedUrls` | `fast` | `contentType` `""` and `"a\nb"` each answer `400`. Without: as above                                                                                                                                                                                                                           |
+| `presign/invalid-key`          | `presignedUrls` | `fast` | The key `a/` answers `404`. Without: as above                                                                                                                                                                                                                                                  |
+
+## 15. Versions
+
+- The eleven packages carry one version and are released together.
 - Below 1.0, a patch release repairs code that disagrees with this document. Every other release
   is a minor, whether it adds a promise or withdraws one. A changeset for a change that takes
   something from a caller starts with `**Breaking:**`.
@@ -2098,12 +2696,15 @@ both of its endpoints, since GCS refuses the key the case writes (section 9.1, A
     branch.
   - A member added to a concrete type an adapter's factory returns, such as `S3Storage`. A test
     double for code that stays portable is typed as `Storage`. Removing or narrowing a member stays
-    breaking. `Storage` and `ConformanceTarget` are not concrete types in this sense (ADR 0042).
+    breaking. `Storage`, `ConformanceTarget` and `HttpConformanceTarget` are not concrete types in
+    this sense (ADR 0042).
 - The defaults this document declares movable, the backoff numbers of sections 7.5, 8.5 and 9.5
   and the upload numbers of sections 7.6, 8.6 and 9.6, move in a minor release and never in a
   patch.
 - A new conformance case is a minor release. A patch may repair a case and may not add one. A new
-  required member on `ConformanceTarget` is breaking; a new optional one is not.
+  required member on `ConformanceTarget` is breaking; a new optional one is not. The same holds for
+  the HTTP conformance suite, where a new value of the `answer` that `url` addresses counts as a
+  new required member.
 - Tightening a key rule is a minor release below 1.0 and a major above it. Loosening one is neither.
 - A provider promised later does not narrow the parity core: what it cannot hold becomes a
   capability its adapter does not declare. Where a difference refuses that shape, as a batch size
@@ -2112,23 +2713,31 @@ both of its endpoints, since GCS refuses the key the case writes (section 9.1, A
   other.
 - Dropping a runtime or a Node line that reached end of life leads the changelog entry and is not
   a breaking change, before or after 1.0.
+- An integration adds a framework major in a minor release once CI covers it, and its peer range
+  widens to hold both. A major its framework no longer supports leaves the same way a Node line at
+  end of life does: Next.js's at the end of its Maintenance LTS, NestJS's and Hono's when the next
+  major is released. Dropping a major its framework still supports, and raising a peer range's
+  floor, are withdrawals (ADR 0047, ADR 0050).
 - Nothing is deprecated before it is removed below 1.0. There is no pre-release channel.
 - 1.0 promises that a breaking change costs a major release and that a minor marks with
   `@deprecated` what a later major removes. It promises no support window and no fixes for an older
   line. `SECURITY.md` states how to report a vulnerability and that a fix lands in the current line
   alone.
-- 1.0 waits until section 14 lists no promise a real endpoint has not answered, and for the author
-  having used stowage in a project of their own. A promise leaves section 14 when a scheduled run
+- 1.0 waits until section 18 lists no promise a real endpoint has not answered, and for the author
+  having used stowage in a project of their own. A promise leaves section 18 when a scheduled run
   observes it or when it is withdrawn.
 
-## 12. Documentation
+## 16. Documentation
 
-Eight READMEs point into this document. A README states no promise of its own; a line in a README
+Twelve READMEs point into this document. A README states no promise of its own; a line in a README
 that disagrees with this document is corrected without a changeset.
 
 - The repository root README shows the package family and opens with two blocks: the same four
   calls, `put`, `get`, `list` and `delete`, against `fsStorage` and against `s3Storage`, differing
-  only in how the storage is constructed. Reference flow 1 follows as the second example.
+  only in how the storage is constructed. Reference flow 1 follows as the second example, a `put`
+  of `request.body`, and one sentence after it links `acceptUpload` of `@stowage/http` and the
+  three integrations for a route with a size limit, without a code block. The package table lists
+  all eleven packages (ADR 0055).
 - `@stowage/core`, `@stowage/adapter-memory`, `@stowage/adapter-fs`, `@stowage/adapter-s3`,
   `@stowage/adapter-azure-blob` and `@stowage/adapter-gcs` carry the sections install, example,
   runtimes, limits and notes, in that order, then the link into this document at the tag of their
@@ -2159,22 +2768,63 @@ that disagrees with this document is corrected without a changeset.
     forced refresh, and that the library loads on `workerd` only under `nodejs_compat`, where the
     token comes from a resolver of the caller's own. Then the two forms of `signer` and the scope
     `signBlob` needs, and the CORS rule flow 2 needs. No key exchange is shown.
+- `@stowage/http`, `@stowage/nestjs`, `@stowage/hono` and `@stowage/nextjs` carry the same
+  sections in the same order (ADR 0055). No order is fixed among their notes.
+  - Runtimes of an integration: the peer range, the floor and the newest version CI ran at the
+    release, the package's cells of section 2's second table with a link there, NestJS on Express
+    and on Fastify apart, the Bun and Deno versions CI last ran green where the package runs there,
+    and the bundle size measured without the framework. Runtimes of `@stowage/http`: its cells and
+    that the Node bridge covers Node, Bun and Deno and not `workerd`.
+  - `@stowage/http`: the example is a `fetch` handler answering `GET` and `HEAD` with `serveObject`
+    and `PUT` with `acceptUpload` and its `maxSize`, the key named by the caller. Limits: the `403`
+    S3 and GCS answer to a `HEAD` followed through `redirectToObject` (section 10.4). Notes: Express
+    through the Node bridge; Fastify through `reply.hijack()` and an application-wide content type
+    parser, with `maxSize` taking over from `bodyLimit`, which that parser switches off; Bun's
+    `maxRequestBodySize` of 128 MiB; and that the body reaches the layer unread.
+  - `@stowage/nestjs`: the example is `StorageModule.forRoot({ provide, storage })` and a
+    controller that injects with `@Inject(token)` and answers through `@Req()`, `@Res()`,
+    `webRequestOf` and `sendResponse`. Limits are empty. Notes: on Fastify
+    `addContentTypeParser("*", (_req, _payload, done) => done(null))`, with `maxSize` taking over
+    from `bodyLimit`; `NestFactory.create(AppModule, { bodyParser: false })` for uploads sent as
+    JSON; `forRootAsync` with `inject`; a test replacing the storage with
+    `overrideProvider(token).useValue(…)`.
+  - `@stowage/hono`: the example is `withStorage(name, storage)` typed through chaining and a route
+    serving through `serveObject`. Limits are empty. Notes: the same typing through an `Env` the
+    application states; the factory built from `c.env` on `workerd`; validators reading the body
+    on upload routes; `bodyLimit()`, `etag()` and `compress()` on stowage's routes; Bun's 128 MiB
+    body limit; a test building the app from a function that takes its storages.
+  - `@stowage/nextjs`: the example is the application's storage module, starting with
+    `import "server-only"` and exporting `lazyStorage(…)`, and a route handler under a catch-all
+    `[...key]` answering `GET` and `PUT`. Limits: a Proxy matching an upload route cuts a chunked
+    body at `proxyClientMaxBodySize` unnoticed, so the application leaves upload routes out of its
+    `matcher` or raises the limit above `maxSize`. Notes: the catch-all segments arriving decoded,
+    so `a%2Fb` cannot be told apart from two segments; presigning through a route handler rather
+    than a server action; `await connection()` before presigning in a Server Component; no
+    `force-static`, `revalidate` or `'use cache'` around a `get`; a resolver built in the factory
+    existing once per module graph; a test mocking the application's storage module.
 - `@stowage/conformance` has a shape of its own: how to write a `ConformanceTarget`, how the
   declaration on the storage is filled, how the cases reach Vitest, `bun:test` and `Deno.test`
   through `describeConformance`, what `runAll` is for on `workerd`, and `adapter-memory` as the
-  implementation to read.
+  implementation to read. A section "Test a server" follows the one on `workerd`: how to write an
+  `HttpConformanceTarget` and run the HTTP cases, with `@stowage/hono` as the implementation to
+  read.
 - Every `ts` block in a README and in this document compiles against the built declarations in
-  this repository's tests. Links are not checked.
+  this repository's tests, each document with the compiler options its reader's application uses:
+  the README of `@stowage/nestjs` with `experimentalDecorators` and without
+  `erasableSyntaxOnly`, against `@types/node` and `@types/express` (ADR 0055). Links are not
+  checked.
 - TSDoc is written where a meaning was decided: the ten error codes, the five capability names,
   `retry`, `multipart`, `expiresIn`, `contentLength` on `presignPut`, the two forms of
-  `AzureBlobCredentials`, the two forms of `GcsSigner`, `headers` on `PresignedPut`, and every
-  field whose bounds this document fixes.
+  `AzureBlobCredentials`, the two forms of `GcsSigner`, `headers` on `PresignedPut`, `maxSize`,
+  `expiresIn` on `redirectToObject` and `presignUpload`, `disposition`, `cacheControl`,
+  `storageErrorOf`, `objectStatOf`, `global` on `StorageModule`, the factories of `withStorage`
+  and `lazyStorage`, and every field whose bounds this document fixes.
 - There is no documentation site, no `examples/` workspace, no `CODE_OF_CONDUCT.md` and no issue
-  template. The reference flows exist as the prose of section 3 and the cases of section 10.6.
+  template. The reference flows exist as the prose of section 3 and the cases of section 14.6.
 
-## 13. Non-goals
+## 17. Non-goals
 
-v0.4 does not have, and does not promise a path to:
+v0.5 does not have, and does not promise a path to:
 
 - Bucket and container management: creating, listing or deleting them.
 - A connection URL, a connection string or any other configuration string, and a key file or a
@@ -2205,21 +2855,26 @@ v0.4 does not have, and does not promise a path to:
 - Clock skew correction against the provider's `Date` header.
 - A timeout per request attempt.
 - A `raw` escape hatch below the concrete adapter type.
-- Framework integrations, consumer providers such as Dropbox or WebDAV, a documentation site, a
-  registry of conforming adapters, and monetization of any kind.
+- A package of its own for any framework beyond NestJS, Hono and Next.js; Express and Fastify as
+  promised frameworks by name; and framework majors older than the one current at v0.5's release,
+  such as NestJS 11 and Next.js 15.
+- A listing endpoint in `@stowage/http`, and parsing `multipart/form-data` (ADR 0054).
+- Consumer providers such as Dropbox or WebDAV, a documentation site, a registry of conforming
+  adapters, and monetization of any kind.
 - Windows as a platform for `adapter-fs`, and hosts as promised targets.
 
-## 14. Settled by the first run
+## 18. Settled by the first run
 
 The following have not yet been observed against a real endpoint. A promise a scheduled run
 disproves is withdrawn in a minor release, and 1.0 waits until the first list below is empty
-(section 11). The first run against AWS S3 and R2, the first run against the Azure account and the
+(section 15). The first run against AWS S3 and R2, the first run against the Azure account and the
 first run against the GCS bucket, each on Node and `workerd`, disproved none of the points they
 settled; those are stated in the sections they belong to. The one promise no run could provoke,
 that R2 answers `ExpiredRequest` for an expired credential, a probe of its own disproved, and it is
 withdrawn (section 7.2, ADR 0045). Each point left here names why no run has answered it.
 
-Promises: none.
+Promises: none. The servers of v0.5 add none: their suite runs against SeaweedFS behind
+`adapter-s3`, and they add no provider behavior (section 2).
 
 Recorded only, since this document already states what follows from any answer:
 

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { afterAll, beforeAll, expect, test } from "vitest";
 
-// Spec 12: every `ts` block in a README and in the spec compiles against the built
+// Spec 16: every `ts` block in a README and in the spec compiles against the built
 // declarations, so this test reads `packages/*/dist` and needs `pnpm build` in front of it.
 const repository = fileURLToPath(new URL("../", import.meta.url));
 
@@ -30,7 +30,11 @@ const packageOfSpecSection: Readonly<Record<string, string>> = {
   "7": "adapter-s3",
   "8": "adapter-azure-blob",
   "9": "adapter-gcs",
-  "10": "conformance",
+  "10": "http",
+  "11": "nestjs",
+  "12": "hono",
+  "13": "nextjs",
+  "14": "conformance",
 };
 
 interface CodeBlock {
