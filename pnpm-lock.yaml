@@ -259,6 +259,12 @@ importers:
 
   packages/core: {}
 
+  packages/http:
+    dependencies:
+      '@stowage/core':
+        specifier: workspace:^
+        version: link:../core
+
 packages:
 
   '@andrewbranch/untar.js@1.0.4':
