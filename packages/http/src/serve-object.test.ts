@@ -922,6 +922,104 @@ describe("an object changing between `stat` and `get`", () => {
   });
 });
 
+/** A range refused after `seen` changes, with `next` returned by the following `stat`. */
+const invalidatedRangeStorage = (
+  seen: Partial<ObjectStat>,
+  next: Partial<ObjectStat>,
+  handed: Partial<ObjectStat> = next,
+): { storage: Storage; calls: string[]; refusal: StorageError } => {
+  const calls: string[] = [];
+  const refusal = storageError({ code: "InvalidRequest" });
+  let stats = 0;
+
+  const storage = stubStorage({
+    capabilities: ["rangeReads"],
+    stat: async () => {
+      calls.push("stat");
+
+      return sized(stats++ === 0 ? seen : next);
+    },
+    get: async (_key, options) => {
+      const range = options?.range;
+
+      calls.push(range === undefined ? "get" : `get ${range.start}-${range.end ?? ""}`);
+
+      if (range !== undefined) throw refusal;
+
+      const stat = sized(handed);
+
+      return storedObject(stat, streamOf(sixteenBytes.slice(0, stat.size)));
+    },
+  });
+
+  return { storage, calls, refusal };
+};
+
+describe("a ranged `get` rejecting with `InvalidRequest` after planning", () => {
+  test.each([
+    ["if-match", '"seen"', 412],
+    ["if-none-match", '"next"', 304],
+  ])("answers the %s that now fails from the second `stat`", async (header, value, status) => {
+    const { storage, calls } = invalidatedRangeStorage({ etag: "seen" }, { etag: "next", size: 4 });
+    const response = await serveConditional({ range: "bytes=13-", [header]: value }, storage);
+
+    expect(response.status).toBe(status);
+    expect(await response.text()).toBe("");
+    expect(response.headers.has("content-range")).toBe(false);
+    expect(response.headers.get("etag")).toBe(status === 304 ? '"next"' : null);
+    expect(storageErrorOf(response)).toBeUndefined();
+    expect(calls).toEqual(["stat", "get 13-", "stat"]);
+  });
+
+  test.each([
+    ["If-Range no longer holds", "bytes=13-", { "if-range": '"seen"' }, 4, "seen", "next"],
+    ["a suffix names other bytes", "bytes=-3", {}, 4, "seen", "next"],
+    ["a suffix becomes empty", "bytes=-3", {}, 0, "seen", "next"],
+    ["a suffix changes without etags", "bytes=-3", {}, 4, undefined, undefined],
+  ])("serves the whole object where %s", async (_, range, headers, size, seen, next) => {
+    const { storage, calls } = invalidatedRangeStorage({ etag: seen }, { etag: next, size });
+    const response = await serveConditional({ range, ...headers }, storage);
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(sixteenBytes.slice(0, size));
+    expect(response.headers.has("content-range")).toBe(false);
+    expect(response.headers.has("content-length")).toBe(false);
+    expect(storageErrorOf(response)).toBeUndefined();
+    expect(calls).toEqual(["stat", range === "bytes=-3" ? "get 13-15" : "get 13-", "stat", "get"]);
+  });
+
+  test("rechecks preconditions against the whole `get` after the second `stat`", async () => {
+    const { storage, calls } = invalidatedRangeStorage(
+      { etag: "seen" },
+      { etag: "next", size: 4 },
+      { etag: "third", size: 4 },
+    );
+    const response = await serveConditional(
+      { range: "bytes=13-", "if-range": '"seen"', "if-none-match": '"third"' },
+      storage,
+    );
+
+    expect(response.status).toBe(304);
+    expect(response.headers.get("etag")).toBe('"third"');
+    expect(await response.text()).toBe("");
+    expect(calls).toEqual(["stat", "get 13-", "stat", "get"]);
+  });
+
+  test.each([
+    ["unchanged", "seen", 16],
+    ["changed", "next", 4],
+  ])("is still `416` where the %s object keeps the same range", async (_, etag, size) => {
+    const { storage, calls, refusal } = invalidatedRangeStorage({ etag: "seen" }, { etag, size });
+    const response = await serveConditional({ range: "bytes=16-", "if-match": "*" }, storage);
+
+    expect(response.status).toBe(416);
+    expect(response.headers.get("content-range")).toBe(`bytes */${size}`);
+    expect(await response.text()).toBe("");
+    expect(storageErrorOf(response)).toBe(refusal);
+    expect(calls).toEqual(["stat", "get 16-", "stat"]);
+  });
+});
+
 test("a missing object is `404` whatever preconditions the request carries", async () => {
   const gone = storageError({ code: "NotFound", key: "docs/report.pdf" });
   const storage = stubStorage({

@@ -212,7 +212,16 @@ async function serveRange(
 
     // Spec 4.3 refuses a start at or beyond the size without naming the size.
     if (thrown.code === "InvalidRequest") {
-      return rangeNotSatisfiable((await storage.stat(key, { signal })).size, thrown);
+      const stat = await storage.stat(key, { signal });
+      const changed = changedPlanOf(planning, stat);
+
+      if (planning !== undefined && changed !== undefined && !sendsRange(changed, range)) {
+        return isFailedPrecondition(changed.status)
+          ? failedAnswer(serving, changed.status, stat)
+          : await serveWhole(serving, { ...planning, stat });
+      }
+
+      return rangeNotSatisfiable(stat.size, thrown);
     }
 
     // ADR 0048: the refused range of a content-coded object (ADR 0044), which only the
