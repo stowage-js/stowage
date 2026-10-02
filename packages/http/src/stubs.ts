@@ -1,6 +1,8 @@
 import {
   type CapabilityName,
   type ObjectStat,
+  type PutBody,
+  type PutOptions,
   type Storage,
   StorageError,
   type StorageErrorFields,
@@ -8,8 +10,8 @@ import {
 } from "@stowage/core";
 
 /**
- * A storage for this package's own tests, answering `get` and `stat` as a test says and
- * leaving every other operation to throw. Nothing here is part of the entry point, so the
+ * A storage for this package's own tests, answering `get`, `stat` and `put` as a test says
+ * and leaving every other operation to throw. Nothing here is part of the entry point, so the
  * build never reaches it and the tarball never holds it.
  */
 export function stubStorage(
@@ -17,6 +19,7 @@ export function stubStorage(
     readonly capabilities?: readonly CapabilityName[];
     readonly get?: Storage["get"];
     readonly stat?: Storage["stat"];
+    readonly put?: Storage["put"];
   } = {},
 ): Storage {
   return {
@@ -25,7 +28,7 @@ export function stubStorage(
     capabilities: fields.capabilities ?? [],
     get: fields.get ?? unreachable("get"),
     stat: fields.stat ?? unreachable("stat"),
-    put: unreachable("put"),
+    put: fields.put ?? unreachable("put"),
     exists: unreachable("exists"),
     list: () => {
       throw new Error("The stub storage has no `list`");
@@ -35,6 +38,79 @@ export function stubStorage(
     copy: unreachable("copy"),
     move: unreachable("move"),
   };
+}
+
+interface Put {
+  readonly key: string;
+  readonly body: PutBody;
+  readonly options: PutOptions | undefined;
+}
+
+/**
+ * A storage keeping what `put` stores, reading a stream to its end as an adapter does and
+ * stopping at the signal with its reason. A stream that fails rejects `put` with a
+ * `NetworkError`, as an adapter that wraps it would, and leaves the key as it was: the
+ * layer's own refusal has to win over that error's `503`.
+ */
+export function holdingStorage(
+  fields: {
+    /** `e1` where it is left out; `undefined` stands for a storage that hands over none. */
+    readonly etag?: string | undefined;
+    readonly held?: Record<string, string>;
+  } = {},
+): Storage & { readonly held: Map<string, Uint8Array>; readonly puts: Put[] } {
+  const held = new Map<string, Uint8Array>(
+    Object.entries(fields.held ?? {}).map(
+      ([key, value]) => [key, new TextEncoder().encode(value)] as const,
+    ),
+  );
+  const puts: Put[] = [];
+  const etag = "etag" in fields ? fields.etag : "e1";
+  const storage = stubStorage({
+    put: async (key, body, options): Promise<ObjectStat> => {
+      puts.push({ key, body, options });
+
+      // Spec 10.1: the layer buffers no body, so `put` gets the stream it counts.
+      if (!(body instanceof ReadableStream)) throw new Error("The layer handed `put` no stream");
+
+      const chunks: Uint8Array[] = [];
+
+      try {
+        await body.pipeTo(new WritableStream({ write: (chunk) => void chunks.push(chunk) }), {
+          signal: options?.signal,
+        });
+      } catch (failure) {
+        if (options?.signal?.aborted === true) throw failure;
+
+        throw storageError({
+          code: "NetworkError",
+          operation: "put",
+          retryable: true,
+          cause: failure,
+        });
+      }
+
+      const stored = new Uint8Array(chunks.reduce((size, chunk) => size + chunk.byteLength, 0));
+      let offset = 0;
+
+      for (const chunk of chunks) {
+        stored.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+
+      held.set(key, stored);
+
+      return statOf({
+        key,
+        size: stored.byteLength,
+        etag,
+        contentType: options?.contentType ?? "application/octet-stream",
+        userMetadata: options?.userMetadata ?? {},
+      });
+    },
+  });
+
+  return Object.assign(storage, { held, puts });
 }
 
 function unreachable(operation: string): () => Promise<never> {

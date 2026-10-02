@@ -1,9 +1,10 @@
-import { isStorageError, type StorageError } from "@stowage/core";
+import { isStorageError, type ObjectStat, type StorageError } from "@stowage/core";
 
 // Spec 10.2: an answer is recognised by the object itself, which a copy is not, and which
 // still holds where a server replaces the global `Response` with a subclass, as
 // `@hono/node-server` does, so that `instanceof` would compare the wrong constructor.
 const errorsBehind = new WeakMap<Response, StorageError>();
+const statsBehind = new WeakMap<Response, ObjectStat>();
 
 /**
  * The `StorageError` the layer answered with this very `Response`. A `Response` the layer
@@ -11,6 +12,28 @@ const errorsBehind = new WeakMap<Response, StorageError>();
  */
 export function storageErrorOf(response: Response): StorageError | undefined {
   return errorsBehind.get(response);
+}
+
+/**
+ * The `ObjectStat` `put` resolved with behind this very `Response` of `acceptUpload`. Any
+ * other `Response` and a copy of one answer `undefined`.
+ */
+export function objectStatOf(response: Response): ObjectStat | undefined {
+  return statsBehind.get(response);
+}
+
+/**
+ * Spec 10.5's `201` for a stored object. The body stays empty, since the `key` and the
+ * `userMetadata` of the `ObjectStat` may say more than the client should learn.
+ */
+export function storedAnswer(stat: ObjectStat): Response {
+  const response = new Response(null, { status: 201 });
+
+  if (stat.etag !== undefined) response.headers.set("etag", `"${stat.etag}"`);
+
+  statsBehind.set(response, stat);
+
+  return response;
 }
 
 /**

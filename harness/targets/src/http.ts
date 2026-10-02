@@ -10,6 +10,7 @@ import type { ConformanceFramework } from "../../../packages/conformance/src/des
 import { describeHttpConformance } from "../../../packages/conformance/src/describe-http.ts";
 import type { HttpConformanceTarget } from "../../../packages/conformance/src/http-target.ts";
 import {
+  acceptUpload,
   presignUpload,
   redirectToObject,
   serveObject,
@@ -97,10 +98,7 @@ async function handle(
   }
 }
 
-/**
- * Spec 14.8 fixes what each route is configured with. The routes of the answers the layer
- * does not give yet answer `404`, so that a case reaching one fails on its status.
- */
+/** Spec 14.8 fixes what each route is configured with. Any other path answers `404`. */
 async function answer(
   storage: S3Storage,
   req: IncomingMessage,
@@ -118,6 +116,9 @@ async function answer(
   if (route === "serve") return await serveObject(storage, key, toWebRequest(req, res));
   if (route === "redirect") {
     return await redirectToObject(storage, key, toWebRequest(req, res), { expiresIn: 60 });
+  }
+  if (route === "upload") {
+    return await acceptUpload(storage, key, toWebRequest(req, res), { maxSize: 1048576 });
   }
   if (route === "presign") return await presign(storage, key, req);
 

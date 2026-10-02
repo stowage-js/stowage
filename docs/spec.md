@@ -2021,8 +2021,10 @@ a content coding to the provider and serves the bytes from the provider's origin
 - Methods: `PUT` alone. Any other is `405` with `Allow: PUT`. A cross-site HTML form cannot send
   `PUT`, and a cross-origin `fetch` with it is preflighted, so the method alone keeps form-based
   CSRF out; a `multipart/form-data` body cannot arrive from a browser form either.
-- `maxSize` is required: a non-negative integer or `Infinity`. A `Content-Length` above it is `413`
-  before the body is read. The layer counts the bytes between `request.body` and `put` and errors
+- `maxSize` is required: a non-negative integer or `Infinity`. Any other value rejects with a
+  `TypeError` whatever the method, since it is the caller's programmer error. A `Content-Length`
+  above it is `413` before the body is read, and one that is no non-negative decimal integer is
+  `400` before the body is read. The layer counts the bytes between `request.body` and `put` and errors
   the stream before `put` sees its end once the count passes `maxSize` (`413`) or the body ends
   short of its `Content-Length` or runs past it (`400`). A body that fails while it is read, a
   reset connection among the causes, is `400`. `put` then rejects, and the key is absent or holds
@@ -2071,7 +2073,10 @@ framework. `IncomingMessage` and `ServerResponse` of `node:http` satisfy `NodeRe
   and `HEAD`, which carry none.
 - Its `signal` aborts once `res` closes before it has finished, which is a client disconnecting.
   The request's own `close` is not the signal, since Node emits it as soon as the body is read and
-  an upload may still be completing.
+  an upload may still be completing. Where the body of `req` is still streaming then, the body
+  fails before the signal aborts: Node closes the response of a reset connection before the
+  request emits its error, and `acceptUpload` answers the failed body with `400` (section 10.5)
+  rather than throwing on the abort.
 - A `req` whose body was already read, by `express.json()` or NestJS's default body parsers among
   others, makes `toWebRequest` throw a `TypeError` rather than hand the layer an empty body (ADR
   0051).
@@ -2620,9 +2625,10 @@ repository's servers, tested in this repository and not by the suite:
 - The status table of section 10.2, the whole `get` after a ranged `ProviderError`, and an object
   changing between `stat` and `get` (section 10.3), against a storage that answers so, since no
   endpoint in CI produces a content-coded object or a race on demand.
-- The `400` of `acceptUpload` for a body that ends short of its `Content-Length` or runs past it,
-  and for a body that fails while it is read, over a raw socket: `fetch` cannot send a
-  `Content-Length` that contradicts its body.
+- The `400` of `acceptUpload` for a body that ends short of its `Content-Length` and for a body
+  that fails while it is read, over a raw socket: `fetch` cannot send a `Content-Length` that
+  contradicts its body. A body that runs past its `Content-Length` is tested as a web `Request`,
+  since `node:http` reads the bytes after it as the next request and the layer never sees them.
 - The Node bridge on Node, Bun and Deno: the `TypeError` for a body already read, the signal of
   `toWebRequest` aborting when the response closes early and not when the request body ends, and
   `writeResponse` destroying the response for a body that errors.

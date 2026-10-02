@@ -29,7 +29,7 @@ test("every HTTP case becomes one test inside `<name> over HTTP`, with the clean
   expect(tests).toEqual([...httpConformanceCases.map((source) => source.name), "cleanup"]);
 });
 
-test("the HTTP list holds the serving, redirecting and presigning cases of spec 14.9", () => {
+test("the HTTP list holds the serving, redirecting, uploading and presigning cases of spec 14.9", () => {
   expect(httpConformanceCases.map((source) => [source.name, source.requires])).toEqual([
     ["serve/whole", []],
     ["serve/headers", []],
@@ -49,6 +49,16 @@ test("the HTTP list holds the serving, redirecting and presigning cases of spec 
     ["redirect/found", ["presignedUrls"]],
     ["redirect/head", ["presignedUrls"]],
     ["redirect/method-not-allowed", ["presignedUrls"]],
+    ["upload/stores", []],
+    ["upload/streamed-body", []],
+    ["upload/content-type-default", []],
+    ["upload/empty-body", []],
+    ["upload/overwrites", []],
+    ["upload/max-size", []],
+    ["upload/content-encoding", []],
+    ["upload/method-not-allowed", []],
+    ["upload/invalid-key", []],
+    ["upload/no-header-metadata", []],
     ["presign/put", ["presignedUrls"]],
     ["presign/method-not-allowed", ["presignedUrls"]],
     ["presign/too-large", ["presignedUrls"]],
