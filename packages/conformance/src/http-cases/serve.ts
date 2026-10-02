@@ -38,6 +38,12 @@ async function seed(ctx: HttpConformanceContext, key: string): Promise<Uint8Arra
   return bytes;
 }
 
+/** An answer of `200` with the whole object, which spec 10.3 gives a `Range` it ignores. */
+async function expectWhole(response: Response, bytes: Uint8Array, what: string): Promise<void> {
+  assertSameBytes(await expectStatus(response, 200, what), bytes, `The body of the ${what}`);
+  assertHeaderOf(response, "content-range", null, what);
+}
+
 /**
  * `lastModified` at whole seconds as an HTTP date, or the answer's `Date` where that is
  * earlier: spec 10.3 keeps `Last-Modified` out of the server's future, and the provider's
@@ -192,6 +198,100 @@ export const serveCases: readonly HttpConformanceCase[] = [
     },
   },
   {
+    name: "serve/range",
+    requires: ["rangeReads"],
+    cost: "fast",
+    async run(ctx) {
+      const key = keyFor(ctx, "serve/range");
+      const bytes = await seed(ctx, key);
+
+      for (const [range, start, last] of [
+        ["bytes=2-5", 2, 5],
+        ["bytes=4-", 4, 15],
+        // Spec 4.3 clips an end beyond the size, and the answer names the clipped one.
+        ["bytes=2-999", 2, 15],
+      ] as const) {
+        const what = `\`GET\` with \`Range: ${range}\``;
+        // oxlint-disable-next-line no-await-in-loop -- one request after the other
+        const response = await serve(ctx, key, { headers: { range } });
+
+        assertSameBytes(
+          // oxlint-disable-next-line no-await-in-loop -- one request after the other
+          await expectStatus(response, 206, what),
+          bytes.subarray(start, last + 1),
+          `The body of the ${what}`,
+        );
+        assertHeaderOf(response, "content-range", `bytes ${start}-${last}/${objectSize}`, what);
+        assertHeaderOf(response, "content-length", String(last - start + 1), what);
+        assertHeaderOf(response, "accept-ranges", "bytes", what);
+      }
+    },
+    async runWithout(ctx) {
+      const key = keyFor(ctx, "serve/range");
+      const bytes = await seed(ctx, key);
+
+      // Spec 10.3 ignores any `Range` on a storage without `rangeReads`.
+      for (const range of ["bytes=2-5", "bytes=4-", "bytes=2-999"]) {
+        const what = `\`GET\` with \`Range: ${range}\``;
+        // oxlint-disable-next-line no-await-in-loop -- one request after the other
+        const response = await serve(ctx, key, { headers: { range } });
+
+        // oxlint-disable-next-line no-await-in-loop -- one request after the other
+        await expectWhole(response, bytes, what);
+        assertHeaderOf(response, "accept-ranges", null, what);
+      }
+    },
+  },
+  {
+    name: "serve/suffix-range",
+    requires: ["rangeReads"],
+    cost: "fast",
+    async run(ctx) {
+      const key = keyFor(ctx, "serve/suffix-range");
+      const bytes = await seed(ctx, key);
+      const what = "`GET` with `Range: bytes=-3`";
+      const response = await serve(ctx, key, { headers: { range: "bytes=-3" } });
+
+      assertSameBytes(
+        await expectStatus(response, 206, what),
+        bytes.subarray(objectSize - 3),
+        `The body of the ${what}`,
+      );
+      assertHeaderOf(response, "content-range", `bytes 13-15/${objectSize}`, what);
+    },
+    async runWithout(ctx) {
+      const key = keyFor(ctx, "serve/suffix-range");
+      const bytes = await seed(ctx, key);
+      const what = "`GET` with `Range: bytes=-3`";
+
+      await expectWhole(await serve(ctx, key, { headers: { range: "bytes=-3" } }), bytes, what);
+    },
+  },
+  {
+    name: "serve/unsatisfiable-range",
+    requires: ["rangeReads"],
+    cost: "fast",
+    async run(ctx) {
+      const key = keyFor(ctx, "serve/unsatisfiable-range");
+
+      await seed(ctx, key);
+
+      const what = `\`GET\` with \`Range: bytes=${objectSize}-\``;
+      const response = await serve(ctx, key, { headers: { range: `bytes=${objectSize}-` } });
+
+      await expectStatus(response, 416, what);
+      assertHeaderOf(response, "content-range", `bytes */${objectSize}`, what);
+    },
+    async runWithout(ctx) {
+      const key = keyFor(ctx, "serve/unsatisfiable-range");
+      const bytes = await seed(ctx, key);
+      const what = `\`GET\` with \`Range: bytes=${objectSize}-\``;
+      const response = await serve(ctx, key, { headers: { range: `bytes=${objectSize}-` } });
+
+      await expectWhole(response, bytes, what);
+    },
+  },
+  {
     name: "serve/ignored-range",
     requires: [],
     cost: "fast",
@@ -205,13 +305,8 @@ export const serveCases: readonly HttpConformanceCase[] = [
         // oxlint-disable-next-line no-await-in-loop -- one request after the other
         const response = await serve(ctx, key, { headers: { range } });
 
-        assertSameBytes(
-          // oxlint-disable-next-line no-await-in-loop -- one request after the other
-          await expectStatus(response, 200, what),
-          bytes,
-          `The body of the ${what}`,
-        );
-        assertHeaderOf(response, "content-range", null, what);
+        // oxlint-disable-next-line no-await-in-loop -- one request after the other
+        await expectWhole(response, bytes, what);
       }
     },
   },
