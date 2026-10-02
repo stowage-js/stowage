@@ -1,4 +1,5 @@
 export { storageErrorOf } from "./answers.ts";
+export { type PresignsPut, presignUpload, type PresignUploadOptions } from "./presign-upload.ts";
 export {
   type PresignsGet,
   redirectToObject,

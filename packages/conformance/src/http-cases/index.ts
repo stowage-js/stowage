@@ -1,4 +1,5 @@
 import type { HttpConformanceCase } from "../http-target.ts";
+import { presignCases } from "./presign.ts";
 import { redirectCases } from "./redirect.ts";
 import { serveCases } from "./serve.ts";
 
@@ -6,4 +7,5 @@ import { serveCases } from "./serve.ts";
 export const httpConformanceCases: readonly HttpConformanceCase[] = [
   ...serveCases,
   ...redirectCases,
+  ...presignCases,
 ];
