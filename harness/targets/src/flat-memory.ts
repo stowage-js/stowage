@@ -10,7 +10,6 @@ import {
   drain,
   generatedStream,
   mebibyte,
-  measurementTimeout,
 } from "./buffer-meter.ts";
 import type { HttpServer } from "./http.ts";
 
@@ -32,6 +31,12 @@ const uploadBound = 6 * defaultPartSize * defaultConcurrency;
  * on to. Measured on Node 24 at 24 to 38 MiB for 256 MiB to 2 GiB alike.
  */
 const downloadBound = 64 * mebibyte;
+
+/**
+ * Twice the adapters' measurement: the download seeds its 1 GiB through the same test, and
+ * a CI runner's SeaweedFS takes it slower than a laptop's.
+ */
+const measurementTimeout = 120_000;
 
 /** `describe` and `test` of Vitest, whose default timeout no measurement fits into. */
 export interface MeasuringFramework {
