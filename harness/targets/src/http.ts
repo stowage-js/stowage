@@ -82,7 +82,7 @@ async function handle(
   res: ServerResponse,
 ): Promise<void> {
   try {
-    await writeResponse(res, await answer(storage, req, toWebRequest(req, res)));
+    await writeResponse(res, await answer(storage, req, res));
   } catch (failure) {
     // The case would otherwise wait on an answer that never comes; the rejection still
     // reaches Vitest as an unhandled one, which fails the run with its stack.
@@ -104,7 +104,7 @@ async function handle(
 async function answer(
   storage: S3Storage,
   req: IncomingMessage,
-  request: Request,
+  res: ServerResponse,
 ): Promise<Response> {
   const [, route, encodedKey = ""] = routePattern.exec(req.url ?? "") ?? [];
   let key: string;
@@ -115,8 +115,10 @@ async function answer(
     return new Response(null, { status: 404 });
   }
 
-  if (route === "serve") return await serveObject(storage, key, request);
-  if (route === "redirect") return await redirectToObject(storage, key, request, { expiresIn: 60 });
+  if (route === "serve") return await serveObject(storage, key, toWebRequest(req, res));
+  if (route === "redirect") {
+    return await redirectToObject(storage, key, toWebRequest(req, res), { expiresIn: 60 });
+  }
   if (route === "presign") return await presign(storage, key, req);
 
   return new Response(null, { status: 404 });
@@ -125,9 +127,9 @@ async function answer(
 /**
  * Spec 14.8's `presign` route, which is the target's and not a protocol of the layer: it
  * answers any method but `POST` itself, and hands both values of the JSON body on as they
- * arrived, so that the layer's own checks of spec 10.6 are what a case meets. The body is
- * read from `req`, as ADR 0049 has a caller read it before the call: `presignUpload` takes
- * no `Request`.
+ * arrived, so that the layer's own checks of spec 10.6 are what a case meets.
+ * `presignUpload` takes no `Request` (ADR 0049), so the route builds none and reads the
+ * body from `req` alone, which no other reader competes for.
  */
 async function presign(storage: S3Storage, key: string, req: IncomingMessage): Promise<Response> {
   if (req.method !== "POST") {
