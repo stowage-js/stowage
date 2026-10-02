@@ -1,4 +1,3 @@
-import type { ConformanceCaseSource } from "./case.ts";
 import {
   cleanUp,
   type ConformanceRunOptions,
@@ -7,8 +6,11 @@ import {
   selectHalf,
   skipReasonFor,
   startRun,
+  type SuiteCase,
+  type SuiteContext,
+  type SuiteTarget,
 } from "./run.ts";
-import type { ConformanceContext, ConformanceTarget } from "./target.ts";
+import type { ConformanceTarget } from "./target.ts";
 
 export interface ConformanceFramework extends ConformanceRunOptions {
   describe(name: string, body: () => void): void;
@@ -27,20 +29,24 @@ export function describeConformance(
   describeCases(selectedCases(framework), target, framework);
 }
 
-/** The mapping behind `describeConformance`, over the cases a caller picked. */
-export function describeCases(
-  sources: readonly ConformanceCaseSource[],
-  target: ConformanceTarget,
+/**
+ * The mapping behind `describeConformance` and `describeHttpConformance`, over the cases a
+ * caller picked, inside a `describe` named `suite`.
+ */
+export function describeCases<Target extends SuiteTarget>(
+  sources: readonly SuiteCase<Target>[],
+  target: Target,
   framework: ConformanceFramework,
+  suite: string = target.name,
 ): void {
   const keyPrefix = createKeyPrefix();
   // `describe` registers its tests synchronously and has nothing to await the storage
   // in, so the run opens inside the first case that needs it and the rest share it.
-  let opened: Promise<ConformanceContext> | undefined;
-  const open = async (): Promise<ConformanceContext> =>
+  let opened: Promise<SuiteContext<Target>> | undefined;
+  const open = async (): Promise<SuiteContext<Target>> =>
     await (opened ??= startRun(target, keyPrefix));
 
-  framework.describe(target.name, () => {
+  framework.describe(suite, () => {
     for (const source of sources) {
       const skipped = skipReasonFor(source, target);
 

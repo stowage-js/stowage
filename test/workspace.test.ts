@@ -10,6 +10,7 @@ import adapterMemory from "../packages/adapter-memory/package.json" with { type:
 import adapterS3 from "../packages/adapter-s3/package.json" with { type: "json" };
 import conformance from "../packages/conformance/package.json" with { type: "json" };
 import core from "../packages/core/package.json" with { type: "json" };
+import http from "../packages/http/package.json" with { type: "json" };
 
 interface PackageManifest {
   readonly name: string;
@@ -29,6 +30,7 @@ const published: readonly PackageManifest[] = [
   adapterS3,
   adapterAzureBlob,
   adapterGcs,
+  http,
   conformance,
 ];
 
@@ -40,13 +42,13 @@ test("every package under `packages` is checked here", async () => {
   expect(entries.filter((entry) => entry.isDirectory())).toHaveLength(published.length);
 });
 
-test("the seven packages carry one version", () => {
+test("the packages carry one version", () => {
   expect(new Set(published.map((manifest) => manifest.version)).size).toBe(1);
 });
 
 // ADR 0008: the release keeps the one version through a `fixed` group, so a package left out
 // of it would be versioned on its own by the next `changeset version`.
-test("the seven packages are released as one fixed group", () => {
+test("the packages are released as one fixed group", () => {
   expect(changesetConfig.fixed).toEqual([published.map((manifest) => manifest.name)]);
 });
 
@@ -75,4 +77,11 @@ test.each(published)("$name has no runtime dependency outside `@stowage`", (mani
 // entry point of its own through a condition such as `bun`, `deno` or `workerd`.
 test.each(published)("$name exports one entry point for every runtime", (manifest) => {
   expect(manifest.exports?.["."]).toBe("./dist/index.js");
+});
+
+// Spec 1, ADR 0046: the HTTP layer sits on the portable `Storage` and on nothing else, so
+// that a server reaches it without an adapter or a framework coming along.
+test("@stowage/http depends on @stowage/core alone", () => {
+  expect(http.dependencies).toEqual({ "@stowage/core": "workspace:^" });
+  expect("peerDependencies" in http).toBe(false);
 });

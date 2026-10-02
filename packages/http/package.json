@@ -1,0 +1,41 @@
+{
+  "name": "@stowage/http",
+  "version": "0.4.0",
+  "description": "The HTTP layer of stowage: answers a web request on a storage's behalf for a key the caller named, with a bridge for Node-style servers.",
+  "keywords": [
+    "http",
+    "object-storage",
+    "request",
+    "response",
+    "storage",
+    "stowage"
+  ],
+  "homepage": "https://github.com/stowage-js/stowage/tree/main/packages/http#readme",
+  "bugs": "https://github.com/stowage-js/stowage/issues",
+  "license": "MIT",
+  "author": "Alexander Kaufmann",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stowage-js/stowage.git",
+    "directory": "packages/http"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "dependencies": {
+    "@stowage/core": "workspace:^"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
