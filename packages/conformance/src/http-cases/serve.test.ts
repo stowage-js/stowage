@@ -80,8 +80,17 @@ function heldStorage(): Storage {
   });
 }
 
-/** What spec 10.3 has a server answer for the `serve` route, short of what `flaw` breaks. */
-async function answer(storage: Storage, request: Request, flaw?: Flaw): Promise<Response> {
+/**
+ * What spec 10.3 has a server answer for the `serve` route, short of what `flaw` breaks.
+ * With `dateOf`, every answer carries a `Date` and caps `Last-Modified` at it, which a
+ * server behind a provider whose clock runs ahead does.
+ */
+async function answer(
+  storage: Storage,
+  request: Request,
+  flaw?: Flaw,
+  dateOf?: () => Date,
+): Promise<Response> {
   const key = decodeURIComponent(new URL(request.url).pathname.slice("/serve/".length));
 
   if (request.method !== "GET" && request.method !== "HEAD" && flaw !== "post-served") {
@@ -114,6 +123,13 @@ async function answer(storage: Storage, request: Request, flaw?: Flaw): Promise<
     "last-modified": "Tue, 01 Sep 2026 10:20:30 GMT",
   });
 
+  if (dateOf !== undefined) {
+    const date = dateOf().toUTCString();
+
+    headers.set("date", date);
+    headers.set("last-modified", date);
+  }
+
   if (flaw === "no-nosniff") headers.delete("x-content-type-options");
   if (flaw === "content-length") headers.set("content-length", String(bytes.byteLength));
 
@@ -126,8 +142,8 @@ async function answer(storage: Storage, request: Request, flaw?: Flaw): Promise<
   return new Response(sendsBody ? bytes : null, { status: 200, headers });
 }
 
-/** Runs one case against a server that answers as `answer` does with `flaw`. */
-async function runAgainst(name: string, flaw?: Flaw): Promise<void> {
+/** Runs one case against a server that answers as `answer` does with `flaw` and `dateOf`. */
+async function runAgainst(name: string, flaw?: Flaw, dateOf?: () => Date): Promise<void> {
   const storage = heldStorage();
   const target: HttpConformanceTarget = {
     name: "reference",
@@ -140,7 +156,8 @@ async function runAgainst(name: string, flaw?: Flaw): Promise<void> {
 
   vi.stubGlobal(
     "fetch",
-    async (url: URL, init?: RequestInit) => await answer(storage, new Request(url, init), flaw),
+    async (url: URL, init?: RequestInit) =>
+      await answer(storage, new Request(url, init), flaw, dateOf),
   );
 
   await selectHalf(source, await startRun(target, createKeyPrefix())).run();
@@ -169,4 +186,12 @@ test.each<[string, Flaw, string]>([
   ["serve/ignored-range", "range-honored", "answers 206"],
 ])("`%s` fails against a server with the flaw %s", async (name, flaw, message) => {
   await expect(runAgainst(name, flaw)).rejects.toThrow(message);
+});
+
+test("`serve/head` passes where each answer caps `Last-Modified` at its own `Date`", async () => {
+  // Earlier than the stub's `lastModified`, a second further on for every answer.
+  let answered = 0;
+  const dateOf = (): Date => new Date(Date.UTC(2026, 8, 1, 10, 20, 20 + answered++));
+
+  await expect(runAgainst("serve/head", undefined, dateOf)).resolves.toBeUndefined();
 });

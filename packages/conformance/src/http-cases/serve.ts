@@ -9,14 +9,17 @@ import { assertHeaderOf, expectEmpty, expectStatus } from "./answers.ts";
 /** Spec 14.9 serves a 16-byte object, which its range cases count into. */
 const objectSize = 16;
 
-/** The headers spec 10.3 gives a `200` and a `HEAD` alike, which `serve/head` compares. */
+/**
+ * The headers spec 10.3 gives a `200` and a `HEAD` alike, which `serve/head` compares.
+ * `Last-Modified` is held against `stat` instead: where the provider's clock runs ahead,
+ * each answer caps it at its own `Date`, and two answers a second apart differ.
+ */
 const objectHeaderNames: readonly string[] = [
   "content-type",
   "x-content-type-options",
   "content-disposition",
   "cache-control",
   "etag",
-  "last-modified",
   "accept-ranges",
 ];
 
@@ -114,6 +117,7 @@ export const serveCases: readonly HttpConformanceCase[] = [
 
       await seed(ctx, key);
 
+      const stat = await ctx.storage.stat(key);
       const get = await serve(ctx, key);
 
       await expectStatus(get, 200, "`GET`");
@@ -132,6 +136,8 @@ export const serveCases: readonly HttpConformanceCase[] = [
         for (const name of objectHeaderNames) {
           assertHeaderOf(head, name, get.headers.get(name), what);
         }
+
+        assertHeaderOf(head, "last-modified", lastModifiedFor(stat, head), what);
 
         assertHeaderOf(head, "content-length", null, what);
       }
