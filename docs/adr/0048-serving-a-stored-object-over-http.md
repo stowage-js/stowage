@@ -95,3 +95,7 @@ ranged `get` never hands such an object over.
   client receives coded bytes without `Content-Encoding`. Nothing in `ObjectStat` lets the layer
   repair that; it is a divergence the spec states.
 - No promise a released package makes is narrowed, so ADR 0017 is not touched.
+- The ASCII fallback of `Content-Disposition` was fixed under "Write the v0.5 spec" (#309): every
+  character outside `U+0020` to `U+007E`, and `"`, `\`, and `%`, becomes `_`, and `filename*` is
+  always sent, so the fallback holds no `%XX` and no `\` that a recipient might decode. An
+  `inline` disposition carries the same parameters.

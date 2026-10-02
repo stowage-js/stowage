@@ -77,3 +77,8 @@ have made every controller differ between Express and Fastify, where `reply.hija
 - This adds to ADR 0046 the bridge's refusal of a body already read. Neither ADR is released, so
   no promise is narrowed and ADR 0017 is not touched.
 - `CONTEXT.md` gains no term: an injection token is NestJS's word, not stowage's.
+- Under "Write the v0.5 spec" (#309) `webRequestOf` takes the response as well, as
+  `webRequestOf(req, res)`: the Node bridge aborts the signal of the `Request` it builds when the
+  response closes early (ADR 0046), and a Fastify request leads to no reply. The controller above
+  passes `res` as well. `sendResponse` calls `reply.hijack()` itself on Fastify, so the
+  controller reads the same on both platforms.

@@ -36,3 +36,6 @@ The caller writes the few lines that turn a `page()` into the JSON its own clien
 - `CONTEXT.md` sharpens Reference flow to a call sequence against a storage, which a route carries.
 - This extends ADR 0004 and contradicts none of it. No released promise changes, so ADR 0017 is not
   touched.
+- A case name is unique within its list, so the HTTP case `presign/put` and the conformance case
+  `presign/put` of spec 14.5 are two cases of two lists. `describeHttpConformance` opens a
+  `describe` of its own, named `<name> over HTTP`, so that a run holding both keeps them apart.

@@ -99,3 +99,17 @@ object on demand.
 - `CONTEXT.md` gains HTTP conformance suite and HTTP conformance target; Runtime matrix covers
   servers beside flows.
 - No promise a released package makes is narrowed, so ADR 0017 is extended, not contradicted.
+- Under "Write the v0.5 spec" (#309) the spec names below the second table the floor of each
+  framework, which is part of the peer range, and that CI also runs the newest release of the
+  major. It does not name the newest version, which Renovate moves; each integration's README names
+  the one CI ran at its release, as ADR 0055 has it.
+- The spec fixes the routes a target serves: `serveObject` without options, `redirectToObject`
+  with `expiresIn: 60`, `acceptUpload` with `maxSize: 1048576`, and a presign route that reads
+  `{ contentType, contentLength }` from a `POST` body and hands both unchanged to `presignUpload`
+  with the same `expiresIn` and `maxSize`. That body is the target's route, not a protocol of the
+  layer. Every route hands each method the cases send to the layer, so the layer answers `405`.
+- A new value of the `answer` that `url` addresses counts as a new required member of
+  `HttpConformanceTarget`, and is breaking. `HttpConformanceTarget` is no concrete type under ADR
+  0042's member rule.
+- The `400` for a body contradicting its `Content-Length` is a repository test over a raw socket,
+  since `fetch` cannot send such a header.

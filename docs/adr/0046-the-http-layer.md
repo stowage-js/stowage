@@ -67,3 +67,14 @@ and its cells, in a release that is meant to add three.
 - ADR 0049 amends the wording that every function takes the web `Request`: `presignUpload` does
   not. ADR 0051 has the Node bridge refuse a Node request whose body was already read, and ADR 0052
   extends that refusal to `acceptUpload` on any `Request` whose `bodyUsed` is `true`.
+- The bridge's exports were decided under "Write the v0.5 spec" (#309): `toWebRequest(req, res)`
+  and `writeResponse(res, response)` over the package's own `NodeRequest` and `NodeResponse`.
+  `toWebRequest` takes the response because the signal of the `Request` it builds aborts when the
+  response closes before it has finished. The request's own `close` is no such signal: on Node
+  24.21.0 it fired as soon as the body was read, before the handler answered, and an upload still
+  completing would have been aborted. The names differ from `webRequestOf` and `sendResponse` of
+  `@stowage/nestjs`, so that one name never stands at two import paths.
+- `writeResponse` destroys the response when the body errors, so that a chunked answer cut short
+  never reaches the client as a complete one, and rejects with that error; a client disconnecting
+  cancels the body and resolves. No function of the layer reads the request's URL, so the URL the
+  bridge builds from `Host` and `req.url` carries nothing the layer depends on.
