@@ -242,8 +242,9 @@ is that protocol, not a framework built on it.
 _Avoid_: shim, polyfill, adapter
 
 **Reference flow**:
-One of the five call sequences that stowage is designed to support, each of which names the
-adapters and runtimes it covers and the conditions under which it counts as supported.
+One of the five call sequences against a storage that stowage is designed to support, each of
+which names the adapters and runtimes it covers and the conditions under which it counts as
+supported. A route of the HTTP layer carries a flow; it is not one.
 _Avoid_: use case, user story, scenario
 
 **Runtime matrix**:
