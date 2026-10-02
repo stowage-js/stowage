@@ -47,8 +47,10 @@ export interface HttpServer {
   start(storage: S3AdapterOptions, routes?: RouteOptions): Promise<StartedServer>;
 }
 
-/** Spec 14.8's `maxSize` of the `upload` route. */
-const suiteRoutes: RouteOptions = { maxSize: 1048576 };
+/** Spec 14.8's `maxSize` of the `upload` and the `presign` route. */
+const suiteMaxSize = 1048576;
+
+const suiteRoutes: RouteOptions = { maxSize: suiteMaxSize };
 
 /** The HTTP suite's target against `server`, started with the routes spec 14.8 fixes. */
 export async function servedTarget(
@@ -95,17 +97,12 @@ const routePattern = /^\/(serve|redirect|upload|presign)\/([^/?]*)$/u;
  */
 export const nodeBridge: HttpServer = {
   name: "@stowage/http through the Node bridge",
-  start: async (configured, routes = suiteRoutes) => await startNodeBridge(configured, routes),
+  start: async (configured, routes = suiteRoutes) => {
+    const storage = s3Storage(configured);
+
+    return await listening(createServer((req, res) => void handle(storage, routes, req, res)));
+  },
 };
-
-async function startNodeBridge(
-  configured: S3AdapterOptions,
-  routes: RouteOptions,
-): Promise<StartedServer> {
-  const storage = s3Storage(configured);
-
-  return await listening(createServer((req, res) => void handle(storage, routes, req, res)));
-}
 
 /**
  * `server` listening on a free port of the loopback address, with the key of every route
@@ -214,7 +211,7 @@ async function presign(storage: S3Storage, key: string, req: IncomingMessage): P
 
   return await presignUpload(storage, key, {
     expiresIn: 60,
-    maxSize: 1048576,
+    maxSize: suiteMaxSize,
     contentType,
     contentLength,
   });
