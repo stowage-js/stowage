@@ -7,17 +7,19 @@ import { noLengthOnStream } from "../../targets/src/runtime-alterations.ts";
 import { listeningPorts, spawnWorkerd } from "./workerd-process.ts";
 
 /** The configs of `http.capnp`. */
-export type HttpConfig = "spec" | "defaults";
+export type HttpConfig = "spec" | "defaults" | "honoSpec" | "honoDefaults";
 
 const names: Record<HttpConfig, string> = {
   spec: "@stowage/http on `workerd`'s `fetch`",
   defaults: "@stowage/http on `workerd`'s `fetch` at the default flags",
+  honoSpec: "@stowage/hono on `workerd`",
+  honoDefaults: "@stowage/hono on `workerd` at the default flags",
 };
 
 /**
- * Spec 2's `workerd` cell of `@stowage/http`, which runs in a `workerd` of its own for every
- * start: the storage it is started with reaches the worker as bindings, the endpoint a test
- * put a proxy in front of among them.
+ * Spec 2's `workerd` cells of `@stowage/http` and `@stowage/hono`, each in a `workerd` of
+ * its own for every start: the storage it is started with reaches the worker as bindings,
+ * the endpoint a test put a proxy in front of among them.
  */
 export function workerdServer(config: HttpConfig): HttpServer {
   return {
