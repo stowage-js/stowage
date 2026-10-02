@@ -11,7 +11,7 @@ import { casesOfTier } from "../../../packages/conformance/src/run.ts";
 import { toWebRequest, writeResponse } from "../../../packages/http/src/index.ts";
 import { describeDisconnect, type Runtime } from "./disconnect.ts";
 import { type RouteOptions, routeUrls, routesOf } from "./routes.ts";
-import { type ServerDivergence, withServerDivergences } from "./server-divergences.ts";
+import { type AlteringServer, withServerAlterations } from "./server-alterations.ts";
 
 export interface ServedTarget {
   readonly target: HttpConformanceTarget;
@@ -29,10 +29,7 @@ export interface StartedServer {
  * server. Which runtime it runs on is the harness's to say, since the bridge on
  * `createServer` is one server on Node, Bun and Deno alike.
  */
-export interface HttpServer {
-  readonly name: string;
-  /** The cases the runtime's own server changes the answer of, expected to fail on it. */
-  readonly divergences?: readonly ServerDivergence[];
+export interface HttpServer extends AlteringServer {
   start(storage: S3AdapterOptions, routes?: RouteOptions): Promise<StartedServer>;
 }
 
@@ -78,9 +75,14 @@ export async function describeServers(
     if (target === undefined) {
       framework.test(`${server.name} over HTTP (skipped: no S3 endpoint)`, async () => {});
     } else {
-      // What `describeHttpConformance` registers, with the server's divergences applied.
+      // `describeHttpConformance` takes no cases, and the server's alterations change what
+      // the cases meet; the `describe` keeps the name it gives.
       describeCases(
-        withServerDivergences(casesOfTier(httpConformanceCases, framework), server),
+        withServerAlterations(
+          casesOfTier(httpConformanceCases, framework),
+          server,
+          target.url("serve", "").origin,
+        ),
         target,
         framework,
         `${target.name} over HTTP`,

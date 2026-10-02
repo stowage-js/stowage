@@ -5,19 +5,13 @@ import { configuredStorage } from "../../s3/src/environment.ts";
 import { endpointTiersFrom } from "../../targets/src/endpoints.ts";
 import { describeServers, type HttpServer, nodeBridge } from "../../targets/src/http.ts";
 import { routeUrls, routesOf } from "../../targets/src/routes.ts";
+import { lengthZeroOnHead } from "../../targets/src/runtime-alterations.ts";
 import { denoFramework } from "./framework.ts";
 
 /** Spec 2's Deno cell of `@stowage/http`, which runs on the runtime's own server. */
 const denoServe: HttpServer = {
   name: "@stowage/http on `Deno.serve`",
-  divergences: [
-    {
-      case: "serve/head",
-      differs:
-        "`Deno.serve` answers a `HEAD` the layer left without a body and without `Content-Length` with `Content-Length: 0`",
-      failureMessagePart: '`HEAD` carries `content-length: "0"` and not null',
-    },
-  ],
+  alterations: [lengthZeroOnHead],
   start: async (configured, routes) => {
     const server = Deno.serve(
       { hostname: "127.0.0.1", port: 0, onListen: () => {} },

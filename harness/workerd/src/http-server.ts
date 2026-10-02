@@ -3,6 +3,7 @@ import { once } from "node:events";
 import type { S3AdapterOptions } from "../../../packages/adapter-s3/src/index.ts";
 import type { HttpServer } from "../../targets/src/http.ts";
 import { routeUrls } from "../../targets/src/routes.ts";
+import { noLengthOnStream } from "../../targets/src/runtime-alterations.ts";
 import { listeningPorts, spawnWorkerd } from "./workerd-process.ts";
 
 /** The configs of `http.capnp`. */
@@ -21,14 +22,7 @@ const names: Record<HttpConfig, string> = {
 export function workerdServer(config: HttpConfig): HttpServer {
   return {
     name: names[config],
-    divergences: [
-      {
-        case: "serve/range",
-        differs:
-          "`workerd` drops the `Content-Length` of every answer whose body is a `ReadableStream`, a `206` among them, and sends it chunked",
-        failureMessagePart: '`Range: bytes=2-5` carries `content-length: null` and not "4"',
-      },
-    ],
+    alterations: [noLengthOnStream],
     start: async (configured, routes) => {
       const child = spawnWorkerd(["http.capnp", config], {
         ...(await variablesOf(configured)),
