@@ -1,8 +1,8 @@
 # The `workerd` cells of spec 2's second table: `@stowage/http` in a worker's `fetch` and
 # `@stowage/hono` as the worker, each once at the flags of spec 1 and once at the defaults
-# of the pinned date (ADR 0050). Each is a
-# config of its own, which `src/http-server.ts` names on the command line and starts with
-# the endpoint in its environment, so that a test can put a proxy in front of the provider.
+# of the pinned date (ADR 0050). Each is a config of its own, which `src/http-server.ts`
+# names on the command line and starts with the endpoint in its environment, so that a test
+# can put a proxy in front of the provider.
 using Workerd = import "/workerd/workerd.capnp";
 
 const spec :Workerd.Config = (
