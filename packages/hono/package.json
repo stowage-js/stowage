@@ -1,6 +1,6 @@
 {
   "name": "@stowage/hono",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "The Hono integration of stowage: sets a storage on `c.var` under a name the caller chooses, for routes that answer through @stowage/http.",
   "keywords": [
     "hono",
