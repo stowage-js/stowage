@@ -50,8 +50,9 @@ a README.
 - `@stowage/nestjs`:
   - Example: `StorageModule.forRoot({ provide, storage })` and a controller that injects with
     `@Inject(token)` and answers through `@Req()`, `@Res()`, `webRequestOf` and `sendResponse`.
-  - Notes: on Fastify `addContentTypeParser("*", (_req, _payload, done) => done(null))`, with
-    `maxSize` taking over from `bodyLimit`; `NestFactory.create(AppModule, { bodyParser: false })`
+  - Notes: on Fastify `removeAllContentTypeParsers()` and then
+    `addContentTypeParser("*", (_req, _payload, done) => done(null))`, with `maxSize` taking over
+    from `bodyLimit`; `NestFactory.create(AppModule, { bodyParser: false })`
     for uploads sent as JSON; `forRootAsync` with `inject`; a test replacing the storage with
     `overrideProvider(token).useValue(…)` (ADR 0051).
 - `@stowage/hono`:

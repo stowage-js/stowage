@@ -2817,6 +2817,8 @@ that disagrees with this document is corrected without a changeset.
   - `@stowage/nestjs`: the example is `StorageModule.forRoot({ provide, storage })` and a
     controller that injects with `@Inject(token)` and answers through `@Req()`, `@Res()`,
     `webRequestOf` and `sendResponse`. Limits are empty. Notes: on Fastify
+    `removeAllContentTypeParsers()`, since Fastify's own parsers read `application/json` and
+    `text/plain` whatever `bodyParser` says, then
     `addContentTypeParser("*", (_req, _payload, done) => done(null))`, with `maxSize` taking over
     from `bodyLimit`; `NestFactory.create(AppModule, { bodyParser: false })` for uploads sent as
     JSON; `forRootAsync` with `inject`; a test replacing the storage with

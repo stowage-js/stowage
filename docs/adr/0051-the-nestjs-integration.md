@@ -67,7 +67,10 @@ have made every controller differ between Express and Fastify, where `reply.hija
   module import would then change how the whole application answers every unparsed content type,
   and exports no function for the one line. The README of `@stowage/nestjs` shows
   `addContentTypeParser("*", (_req, _payload, done) => done(null))` and says that `maxSize` takes
-  over from Fastify's `bodyLimit`, which that parser switches off.
+  over from Fastify's `bodyLimit`, which that parser switches off. Fastify's own parsers for
+  `application/json` and `text/plain` take precedence over `*` and stay registered under
+  `bodyParser: false`, so the README shows `removeAllContentTypeParsers()` in front of it; an
+  upload of either type is otherwise read before the handler, which `webRequestOf` refuses.
 - NestJS registers a JSON and a URL-encoded body parser by default, so an upload sent as
   `application/json` is read before the handler runs, or refused with `413` above the parser's
   limit. The Node bridge throws a `TypeError` when it builds a `Request` from a Node request whose
