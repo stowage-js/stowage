@@ -65,11 +65,7 @@ export function webRequestOf(req: unknown, res: unknown): Request {
  * own. Resolves once the response has ended or the client left.
  */
 export async function sendResponse(res: unknown, response: Response): Promise<void> {
-  if (isFastifyReply(res)) {
-    res.hijack();
-    await writeResponse(res.raw, response);
-    return;
-  }
+  if (isFastifyReply(res)) res.hijack();
 
   await writeResponse(nodeResponseOf(res), response);
 }
