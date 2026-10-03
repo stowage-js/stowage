@@ -230,17 +230,30 @@ async function asked<Answer extends MeterAnswer["stowageMeter"]>(
   request: MeterRequest["stowageMeter"],
   expected: Answer,
 ): Promise<Extract<MeterAnswer, { stowageMeter: Answer }>> {
-  const answered = new Promise<Extract<MeterAnswer, { stowageMeter: Answer }>>((resolve) => {
-    const listener = (message: Partial<MeterAnswer> | null): void => {
-      if (message?.stowageMeter !== expected) return;
+  const answered = new Promise<Extract<MeterAnswer, { stowageMeter: Answer }>>(
+    (resolve, reject) => {
+      const listener = (message: Partial<MeterAnswer> | null): void => {
+        if (message?.stowageMeter !== expected) return;
 
-      child.off("message", listener);
-      // oxlint-disable-next-line no-unsafe-type-assertion -- the meter answers in this shape
-      resolve(message as Extract<MeterAnswer, { stowageMeter: Answer }>);
-    };
+        cleanup();
+        // oxlint-disable-next-line no-unsafe-type-assertion -- the meter answers in this shape
+        resolve(message as Extract<MeterAnswer, { stowageMeter: Answer }>);
+      };
+      const stopped = (): void => {
+        cleanup();
+        reject(new Error("`next start` exited or disconnected before answering the meter"));
+      };
+      const cleanup = (): void => {
+        child.off("message", listener);
+        child.off("exit", stopped);
+        child.off("disconnect", stopped);
+      };
 
-    child.on("message", listener);
-  });
+      child.on("message", listener);
+      child.once("exit", stopped);
+      child.once("disconnect", stopped);
+    },
+  );
 
   child.send({ stowageMeter: request } satisfies MeterRequest);
 
