@@ -1,9 +1,10 @@
-import { readdir } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 
 import { expect, test } from "vitest";
 
 import changesetConfig from "../.changeset/config.json" with { type: "json" };
 import floors from "../harness/floors/package.json" with { type: "json" };
+import harnessNextjs from "../harness/nextjs/package.json" with { type: "json" };
 import harnessTargets from "../harness/targets/package.json" with { type: "json" };
 import adapterAzureBlob from "../packages/adapter-azure-blob/package.json" with { type: "json" };
 import adapterFs from "../packages/adapter-fs/package.json" with { type: "json" };
@@ -15,6 +16,7 @@ import core from "../packages/core/package.json" with { type: "json" };
 import hono from "../packages/hono/package.json" with { type: "json" };
 import http from "../packages/http/package.json" with { type: "json" };
 import nestjs from "../packages/nestjs/package.json" with { type: "json" };
+import nextjs from "../packages/nextjs/package.json" with { type: "json" };
 
 interface PackageManifest {
   readonly name: string;
@@ -37,6 +39,7 @@ const published: readonly PackageManifest[] = [
   http,
   nestjs,
   hono,
+  nextjs,
   conformance,
 ];
 
@@ -44,6 +47,7 @@ const published: readonly PackageManifest[] = [
 const frameworkOf: Readonly<Record<string, string>> = {
   [nestjs.name]: "@nestjs/common",
   [hono.name]: "hono",
+  [nextjs.name]: "next",
 };
 
 test("every package under `packages` is checked here", async () => {
@@ -108,6 +112,10 @@ test("@stowage/nestjs promises NestJS 12 from the floor CI runs", () => {
   });
 });
 
+test("@stowage/nextjs promises Next.js 16 from the floor CI runs", () => {
+  expect(nextjs.peerDependencies).toEqual({ next: `^${floors.devDependencies.next}` });
+});
+
 // Spec 2: one floor for the four NestJS packages, which CI runs together.
 test("the floor of NestJS is one version of its four packages", () => {
   const { devDependencies: floor } = floors;
@@ -137,6 +145,12 @@ test("@stowage/nestjs depends on @stowage/core and @stowage/http alone", () => {
   });
 });
 
+// Spec 13, ADR 0047: the getter needs the portable `Storage` alone, and `server-only` is the
+// application's, which Next.js aliases.
+test("@stowage/nextjs depends on @stowage/core alone", () => {
+  expect(nextjs.dependencies).toEqual({ "@stowage/core": "workspace:^" });
+});
+
 // Spec 1, ADR 0046: the HTTP layer sits on the portable `Storage` and on nothing else, so
 // that a server reaches it without an adapter or a framework coming along.
 test("@stowage/http depends on @stowage/core alone", () => {
@@ -162,4 +176,36 @@ test("the harness serves NestJS at the version @stowage/nestjs is checked agains
   ] as const) {
     expect(harnessTargets.devDependencies[name]).toBe(nestjs.devDependencies[name]);
   }
+});
+
+// The harness builds its Next.js application with the `next` @stowage/nextjs is checked
+// against, which is the newest release of Next.js 16 that CI runs beside the floor.
+test("the harness serves Next.js at the version @stowage/nextjs is checked against", () => {
+  expect(harnessNextjs.devDependencies.next).toBe(nextjs.devDependencies.next);
+});
+
+// Spec 13, ADR 0053: Next.js caches what its patched `fetch` answers, and no adapter opts out
+// for that one framework, since every runtime would carry the option.
+test("no adapter sets `cache` on its requests", async () => {
+  const packages = new URL("../packages/", import.meta.url);
+  const adapters = (await readdir(packages)).filter((name) => name.startsWith("adapter-"));
+  const sources = (
+    await Promise.all(
+      adapters.map(async (adapter) =>
+        (await readdir(new URL(`${adapter}/src/`, packages), { recursive: true }))
+          .filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts"))
+          .map((name) => `${adapter}/src/${name}`),
+      ),
+    )
+  ).flat();
+
+  expect(sources).not.toEqual([]);
+
+  const texts = await Promise.all(
+    sources.map(async (source) => await readFile(new URL(source, packages), "utf8")),
+  );
+
+  expect(sources.filter((_, index) => /\bcache\s*:|no-store/u.test(texts[index] ?? ""))).toEqual(
+    [],
+  );
 });

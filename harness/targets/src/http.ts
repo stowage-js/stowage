@@ -21,6 +21,11 @@ export interface ServedTarget {
 /** The routes of spec 14.8 on a server that runs. */
 export interface StartedServer {
   readonly url: HttpConformanceTarget["url"];
+  /**
+   * For a server in a process of its own, which the harness's meter does not see: takes the
+   * baseline of that process's buffer memory, and resolves to what answers its growth since.
+   */
+  meterApart?(): Promise<() => Promise<number>>;
   close(): Promise<void>;
 }
 

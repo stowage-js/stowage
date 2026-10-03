@@ -35,6 +35,11 @@
       "description": "Spec 1: @stowage/nestjs promises NestJS 12, whose newest release CI runs",
       "matchPackageNames": ["@nestjs/*"],
       "allowedVersions": "^12"
+    },
+    {
+      "description": "Spec 1: @stowage/nextjs promises Next.js 16, whose newest release CI runs",
+      "matchDepNames": ["next"],
+      "allowedVersions": "^16"
     }
   ],
   "customManagers": [

@@ -1,0 +1,18 @@
+{
+  "name": "@stowage/harness-nextjs",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Private harness: the Next.js application the Node harness builds with next build and serves with next start, at the newest release of Next.js 16.",
+  "type": "module",
+  "devDependencies": {
+    "@stowage/adapter-s3": "workspace:^",
+    "@stowage/http": "workspace:^",
+    "@stowage/nextjs": "workspace:^",
+    "next": "16.3.8",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

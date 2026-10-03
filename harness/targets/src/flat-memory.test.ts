@@ -138,3 +138,29 @@ test("ends the request after successfully writing the whole body", async () => {
   await measurement(server, "upload")();
   expect(Buffer.concat(chunks)).toEqual(Buffer.from([1, 2, 3]));
 });
+
+/** A server in a process of its own, `next start`, whose process grew by `mebibytes`. */
+function serverApart(mebibytes: number): HttpServer {
+  return {
+    name: "test",
+    start: async () => ({
+      url: () => new URL("http://127.0.0.1:1"),
+      meterApart: async () => async () => mebibytes * 1024 ** 2,
+      close: async () => {},
+    }),
+  };
+}
+
+test("bounds a download through a server apart once for each process", async () => {
+  vi.stubGlobal("fetch", async () => new Response("body"));
+
+  await expect(measurement(serverApart(100), "serve")()).resolves.toBeUndefined();
+});
+
+test("counts what a server apart holds against that bound", async () => {
+  vi.stubGlobal("fetch", async () => new Response("body"));
+
+  await expect(measurement(serverApart(129), "serve")()).rejects.toThrow(
+    /held 135266304 bytes, more than 134217728/u,
+  );
+});

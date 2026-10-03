@@ -11,7 +11,7 @@ import {
   generatedStream,
   mebibyte,
 } from "./buffer-meter.ts";
-import type { HttpServer } from "./http.ts";
+import type { HttpServer, StartedServer } from "./http.ts";
 
 /** Many times either bound below, so an object held whole cannot pass unnoticed. */
 const objectSize = 1024 * mebibyte;
@@ -48,7 +48,8 @@ export interface MeasuringFramework {
  * Spec 14.8's second promise that no client observes: memory stays flat through an upload
  * on the `upload` route and a download on the `serve` route of `server`, on Node, measured
  * as the adapters' flat-memory test measures. Client and server share the process, so the
- * client streams both bodies as well, and what it holds counts against the same bound.
+ * client streams both bodies as well, and what it holds counts against the same bound. A
+ * server in a process of its own, `next start`, is measured there as well.
  */
 export function describeFlatMemory(
   server: HttpServer,
@@ -77,6 +78,30 @@ export function describeFlatMemory(
 
 const largeKey = (): string => `flat-memory-${crypto.randomUUID()}/large.bin`;
 
+interface Measurement {
+  readonly sample: () => void;
+  /** The growth of every process the bytes pass through, summed. */
+  growth(): Promise<number>;
+  /** How many processes the bytes pass through, each of which holds what is in flight. */
+  readonly processes: number;
+}
+
+/**
+ * The harness's meter, and the meter of the server's process where it runs apart. A bound
+ * counts once per process: `next start` alone held 20 to 55 MiB of a download, measured on
+ * Node 24 for 256 MiB and 1 GiB alike, with the client at 14 to 17 MiB beside it.
+ */
+async function measurementThrough(started: StartedServer): Promise<Measurement> {
+  const meter = bufferMeter();
+  const serverGrowth = await started.meterApart?.();
+
+  return {
+    sample: meter.sample,
+    growth: async () => meter.growth() + ((await serverGrowth?.()) ?? 0),
+    processes: serverGrowth === undefined ? 1 : 2,
+  };
+}
+
 async function uploadInFlatMemory(server: HttpServer, configured: S3AdapterOptions): Promise<void> {
   const storage = s3Storage(configured);
   const key = largeKey();
@@ -84,20 +109,20 @@ async function uploadInFlatMemory(server: HttpServer, configured: S3AdapterOptio
   const started = await server.start(configured, { maxSize: Infinity });
 
   try {
-    const meter = bufferMeter();
+    const measurement = await measurementThrough(started);
     const status = await streamedUpload(
       started.url("upload", key),
-      generatedStream(objectSize, meter.sample),
+      generatedStream(objectSize, measurement.sample),
     );
 
-    meter.sample();
+    measurement.sample();
+
+    const growth = await measurement.growth();
+    const bound = uploadBound * measurement.processes;
 
     assert(status === 201, `The upload answered ${status}`);
     assert((await storage.stat(key)).size === objectSize, "The upload stored another size");
-
-    const growth = meter.growth();
-
-    assert(growth <= uploadBound, `The upload held ${growth} bytes, more than ${uploadBound}`);
+    assert(growth <= bound, `The upload held ${growth} bytes, more than ${bound}`);
   } finally {
     await started.close();
     await storage.delete(key);
@@ -117,22 +142,18 @@ async function downloadInFlatMemory(
     const started = await server.start(configured);
 
     try {
-      const meter = bufferMeter();
+      const measurement = await measurementThrough(started);
       const response = await fetch(started.url("serve", key));
 
       assert(response.status === 200, `The download answered ${response.status}`);
       assert(response.body !== null, "The download answered no body");
 
-      const read = await drain(response.body, meter.sample);
+      const read = await drain(response.body, measurement.sample);
+      const growth = await measurement.growth();
+      const bound = downloadBound * measurement.processes;
 
       assert(read === objectSize, `The download read ${read} of ${objectSize} bytes`);
-
-      const growth = meter.growth();
-
-      assert(
-        growth <= downloadBound,
-        `The download held ${growth} bytes, more than ${downloadBound}`,
-      );
+      assert(growth <= bound, `The download held ${growth} bytes, more than ${bound}`);
     } finally {
       await started.close();
     }

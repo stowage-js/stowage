@@ -1,6 +1,6 @@
 import { once } from "node:events";
 
-import type { S3AdapterOptions } from "../../../packages/adapter-s3/src/index.ts";
+import { variablesOf } from "../../s3/src/configuration.ts";
 import type { HttpServer } from "../../targets/src/http.ts";
 import { routeUrls } from "../../targets/src/routes.ts";
 import { noLengthOnStream } from "../../targets/src/runtime-alterations.ts";
@@ -45,21 +45,5 @@ export function workerdServer(config: HttpConfig): HttpServer {
         },
       };
     },
-  };
-}
-
-/** The variables `start.sh` prints, which the bindings of `http.capnp` read. */
-async function variablesOf(configured: S3AdapterOptions): Promise<Record<string, string>> {
-  const { credentials } = configured;
-  const { accessKeyId, secretAccessKey } =
-    typeof credentials === "function" ? await credentials() : credentials;
-
-  return {
-    STOWAGE_S3_ENDPOINT: configured.endpoint ?? "",
-    STOWAGE_S3_BUCKET: configured.bucket,
-    STOWAGE_S3_REGION: configured.region,
-    STOWAGE_S3_FORCE_PATH_STYLE: String(configured.forcePathStyle ?? false),
-    AWS_ACCESS_KEY_ID: accessKeyId,
-    AWS_SECRET_ACCESS_KEY: secretAccessKey,
   };
 }

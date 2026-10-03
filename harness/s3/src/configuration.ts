@@ -33,6 +33,26 @@ export function storageOptionsFrom(
 }
 
 /**
+ * The variables `start.sh` prints for `configured`, which a server in a process of its own
+ * reads its storage from: the bindings of `http.capnp` on `workerd`, `process.env` under
+ * `next start`.
+ */
+export async function variablesOf(configured: S3AdapterOptions): Promise<Record<string, string>> {
+  const { credentials } = configured;
+  const { accessKeyId, secretAccessKey } =
+    typeof credentials === "function" ? await credentials() : credentials;
+
+  return {
+    STOWAGE_S3_ENDPOINT: configured.endpoint ?? "",
+    STOWAGE_S3_BUCKET: configured.bucket,
+    STOWAGE_S3_REGION: configured.region,
+    STOWAGE_S3_FORCE_PATH_STYLE: String(configured.forcePathStyle ?? false),
+    AWS_ACCESS_KEY_ID: accessKeyId,
+    AWS_SECRET_ACCESS_KEY: secretAccessKey,
+  };
+}
+
+/**
  * Spec 14.3: a credential the provider refuses. No identity is configured for it — an
  * access key id no provider ever issued is refused by every one of them. It is shaped
  * like an R2 credential, because R2 answers one of another shape with `InvalidArgument`

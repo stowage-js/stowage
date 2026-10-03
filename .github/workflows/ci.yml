@@ -62,7 +62,7 @@ jobs:
       # own, in the job below.
       - run: pnpm run test
 
-      # Spec 2: `test` runs the Hono and NestJS cells at the newest release of each
+      # Spec 2: `test` runs the Hono, NestJS and Next.js cells at the newest release of each
       # framework's major, and this runs them again at the floor of each integration's peer
       # range, on each Node line alike.
       - run: pnpm run test:floors
