@@ -15,7 +15,7 @@ npm install @stowage/nestjs @stowage/core @stowage/http @stowage/adapter-memory
 ## Example
 
 This Express application stores uploads in memory and serves them under the same key. Compile
-with `experimentalDecorators: true` and `erasableSyntaxOnly: false`.
+with `experimentalDecorators: true` and `erasableSyntaxOnly: false`, as a NestJS application does.
 
 ```ts
 import "reflect-metadata";
@@ -25,6 +25,7 @@ import { memoryStorage } from "@stowage/adapter-memory";
 import type { Storage } from "@stowage/core";
 import { acceptUpload, serveObject } from "@stowage/http";
 import { sendResponse, StorageModule, webRequestOf } from "@stowage/nestjs";
+import type { Request, Response } from "express";
 
 const storageToken = Symbol("objects");
 
@@ -33,7 +34,7 @@ class ObjectsController {
   constructor(@Inject(storageToken) private readonly storage: Storage) {}
 
   @Get(":id")
-  async get(@Param("id") id: string, @Req() req: unknown, @Res() res: unknown): Promise<void> {
+  async get(@Param("id") id: string, @Req() req: Request, @Res() res: Response): Promise<void> {
     await sendResponse(
       res,
       await serveObject(this.storage, `objects/${id}`, webRequestOf(req, res)),
@@ -41,7 +42,7 @@ class ObjectsController {
   }
 
   @Put(":id")
-  async put(@Param("id") id: string, @Req() req: unknown, @Res() res: unknown): Promise<void> {
+  async put(@Param("id") id: string, @Req() req: Request, @Res() res: Response): Promise<void> {
     const response = await acceptUpload(this.storage, `objects/${id}`, webRequestOf(req, res), {
       maxSize: 10 * 1024 * 1024,
     });
@@ -60,27 +61,31 @@ await app.listen(3000);
 ```
 
 Use `@Res()` without `passthrough`: `sendResponse` sends the web `Response` and completes the
-reply. The controller also works on Fastify with the parser setup below. Each registration holds
-one storage under your token; `global` defaults to `true`. Set `global: false` to keep the token
-to the importing module.
+reply. The controller also works on Fastify with the parser setup below, its parameters typed as
+`FastifyRequest` and `FastifyReply` there; `webRequestOf` and `sendResponse` take either. Each
+registration holds one storage under your token; `global` defaults to `true`. Set `global: false`
+to keep the token to the importing module.
 
 ## Runtimes
 
-Node 24 and later, with the peer `@nestjs/common` `^12.1.2`. The NestJS floor is 12.1.2;
-the repository currently pins 12.1.2 for both its floor and newest-version CI runs.
+Node 24 and later, with the peer `@nestjs/common` `^12.1.2`. Its floor is 12.1.2, and at this
+release CI ran 12.1.2 as the newest release of NestJS 12, each on Node 24 and Node 26.
 
 | Platform          | Node | Bun | Deno | `workerd` |
 | ----------------- | ---- | --- | ---- | --------- |
 | NestJS on Express | yes  | no  | no   | no        |
 | NestJS on Fastify | yes  | no  | no   | no        |
 
-These are the package's cells in the [runtime matrix](https://github.com/stowage-js/stowage/blob/@stowage/nestjs@0.4.0/docs/spec.md#2-runtime-matrix).
-The built JavaScript measures 0.93 kB gzipped, excluding the framework and the external
-`@stowage/http` dependency. This is a measurement, not a size guarantee.
+These are the package's cells in the
+[runtime matrix](https://github.com/stowage-js/stowage/blob/@stowage/nestjs@0.5.0/docs/spec.md#2-runtime-matrix).
+Bun and Deno are not promised, as NestJS promises neither.
+
+The bundle measures 0.5 kB minified and gzipped without NestJS. With the Node bridge of
+`@stowage/http` it calls, the only part of that package it bundles, it measures 1.8 kB.
 
 ## Limits
 
-None.
+This section is empty.
 
 ## Notes
 
@@ -161,9 +166,10 @@ integration provides no separate fake or `forTesting` module.
 
 ## Specification
 
-[`docs/spec.md` at `@stowage/nestjs@0.4.0`](https://github.com/stowage-js/stowage/blob/@stowage/nestjs@0.4.0/docs/spec.md#11-stowagenestjs)
-is the contract. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/nestjs@0.4.0/CONTEXT.md)
-and the [decisions behind it](https://github.com/stowage-js/stowage/tree/@stowage/nestjs@0.4.0/docs/adr)
+[`docs/spec.md` at `@stowage/nestjs@0.5.0`](https://github.com/stowage-js/stowage/blob/@stowage/nestjs@0.5.0/docs/spec.md#11-stowagenestjs)
+is the contract: a caller may rely on what it states and on nothing else this package happens to
+export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/nestjs@0.5.0/CONTEXT.md)
+and the [decisions behind it](https://github.com/stowage-js/stowage/tree/@stowage/nestjs@0.5.0/docs/adr)
 are at the same tag.
 
 ## License

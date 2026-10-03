@@ -8,7 +8,8 @@ import type { Context, Env, MiddlewareHandler } from "hono";
  * @param storage A constructed storage, set as it is, or a function called on every request
  *   and never cached, which builds the storage from the request's context. On `workerd`,
  *   where a credential arrives in `c.env`, that is the form to use; its `Bindings` are read
- *   from its annotated parameter, `(c: Context<{ Bindings: Env }>) => …`.
+ *   from its annotated parameter, `(c: Context<{ Bindings: Env }>) => …`. It may return a
+ *   `Promise`, for a binding that hands over its value only asynchronously.
  */
 export function withStorage<K extends string, S extends Storage, E extends Env = Env>(
   name: K,

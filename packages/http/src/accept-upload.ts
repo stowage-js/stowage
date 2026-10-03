@@ -6,7 +6,10 @@ export interface AcceptUploadOptions {
   /**
    * The most bytes the body may hold: a non-negative integer, or `Infinity` for a route
    * that takes any size. It has no default, since an upload route without a limit is an
-   * open bill, and only the layer can enforce one while the body streams (ADR 0049).
+   * open bill, and only the layer can enforce one while the body streams (ADR 0049). A
+   * `Content-Length` above it is `413` before the body is read, and a body passing it is
+   * `413` before `put` sees its end. Any other value rejects with a `TypeError` whatever the
+   * method, since it is the caller's mistake and not the client's.
    */
   maxSize: number;
   /** Replaces the request's `Content-Type`, which replaces the storage's default. */

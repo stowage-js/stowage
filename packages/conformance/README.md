@@ -1,7 +1,8 @@
 # @stowage/conformance
 
-The cases every stowage adapter has to pass, as plain cases a test framework maps onto its own
-runner. An adapter written outside this repository passes the same cases as the ones inside it.
+The cases every stowage adapter and every server has to pass, as plain cases a test framework maps
+onto its own runner. An adapter written outside this repository passes the same cases as the ones
+inside it, and so does a server that answers through `@stowage/http`.
 
 ## Install
 
@@ -14,7 +15,7 @@ npm install --save-dev @stowage/conformance
 A `ConformanceTarget` tells the suite how to construct the storage under test. `createStorage`
 returns a storage the run may write to below any prefix, constructed from outside the adapter the
 way a caller would construct it
-([spec 10.3](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.4.0/docs/spec.md#103-what-the-target-promises)).
+([spec 14.3](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.5.0/docs/spec.md#143-what-the-target-promises)).
 
 ```ts
 import { memoryStorage } from "@stowage/adapter-memory";
@@ -45,7 +46,7 @@ A case that needs a factory the target leaves out is reported `skipped`.
 The suite reads what the storage supports from its `capabilities`, once per run, before the first
 case. The storage lists every name out of `capabilityNames` it implements, each once, and the list
 is fixed when it is constructed
-([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.4.0/docs/spec.md#49-capabilities)).
+([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.5.0/docs/spec.md#49-capabilities)).
 Every storage the target creates in one run declares the same; two configurations are two targets.
 
 A case whose `requires` the storage declares runs its `run` half. A case missing a name of its
@@ -53,7 +54,7 @@ A case whose `requires` the storage declares runs its `run` half. A case missing
 most refuse the call with `Unsupported` naming it, `presignedUrls` has `presignGet` and
 `presignPut` absent from the storage, and a few check the weaker behavior, such as a copy whose
 destination reads `{}`
-([spec 10.5](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.4.0/docs/spec.md#105-cases)).
+([spec 14.5](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.5.0/docs/spec.md#145-cases)).
 An adapter refuses such a call like this:
 
 ```ts
@@ -78,7 +79,7 @@ export function refuseUserMetadata(bucket: string): StorageError {
 
 `describeConformance(target, framework)` maps every case onto the `describe` and `test` of the
 framework it is handed
-([spec 10.2](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.4.0/docs/spec.md#102-running-the-suite)).
+([spec 14.2](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.5.0/docs/spec.md#142-running-the-suite)).
 It runs the `fast` cases, and both tiers with `includeSlow: true`.
 
 Vitest:
@@ -159,9 +160,55 @@ export default {
 
 A failed result carries the error as `name`, `message`, `stack` and, for a `StorageError`, `code`.
 
+## Test a server
+
+The HTTP conformance suite checks a server that answers through `@stowage/http` from the client's
+side. A case seeds and reads objects through a storage and sends its own request with `fetch` to
+the server, which serves the same objects
+([spec 14.8](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.5.0/docs/spec.md#148-the-http-conformance-suite)).
+An `HttpConformanceTarget` constructs that storage and names the URL of each of four routes for a
+key, which travels in the URL however the server routes it:
+
+```ts
+import { fromEnv, s3Storage } from "@stowage/adapter-s3";
+import { describeHttpConformance, type HttpConformanceTarget } from "@stowage/conformance";
+import { describe, test } from "vitest";
+
+const origin = "http://localhost:3000";
+
+export const target: HttpConformanceTarget = {
+  name: "my-app",
+  createStorage: () =>
+    s3Storage({ bucket: "my-app-conformance", region: "eu-north-1", credentials: fromEnv }),
+  url: (answer, key) => new URL(`/${answer}/${encodeURIComponent(key)}`, origin),
+};
+
+describeHttpConformance(target, { describe, test });
+```
+
+The suite fixes what each route answers with:
+
+- `serve`: `serveObject(storage, key, request)`, without options.
+- `redirect`: `redirectToObject(storage, key, request, { expiresIn: 60 })`.
+- `upload`: `acceptUpload(storage, key, request, { maxSize: 1048576 })`.
+- `presign`: on `POST`, the JSON body `{ "contentType", "contentLength" }` read and handed on as
+  `presignUpload(storage, key, { expiresIn: 60, maxSize: 1048576, contentType, contentLength })`.
+  Any other method is answered `405` with `Allow: POST` by the route itself.
+
+The `serve`, `redirect` and `upload` routes hand every method the cases send, `GET`, `HEAD`,
+`POST`, `PUT` and `DELETE`, to the layer, which answers `405` itself. `describeHttpConformance` runs
+the cases inside a `describe` named `<name> over HTTP`, on Vitest, `bun:test` or `Deno.test` as
+above, with the same `keyPrefix`, `cleanup` and reading of the declaration. There is no `runAll`
+beside it: a server on `workerd` is tested from Node. A client disconnecting and flat memory are no
+cases, since no client observes them.
+
+[`@stowage/hono`](https://github.com/stowage-js/stowage/blob/@stowage/hono@0.5.0/harness/targets/src/hono.ts)
+is the implementation to read: one application of four routes, which `@hono/node-server`,
+`Bun.serve`, `Deno.serve` and `workerd` serve in this repository's CI.
+
 ## Read an adapter
 
-[`@stowage/adapter-memory`](https://github.com/stowage-js/stowage/tree/@stowage/adapter-memory@0.4.0/packages/adapter-memory/src)
+[`@stowage/adapter-memory`](https://github.com/stowage-js/stowage/tree/@stowage/adapter-memory@0.5.0/packages/adapter-memory/src)
 is the implementation a third-party adapter is read against, out of the five adapters of this
 repository that pass these cases: `@stowage/adapter-memory`, `@stowage/adapter-fs`,
 `@stowage/adapter-s3`, `@stowage/adapter-azure-blob` and `@stowage/adapter-gcs`. It enforces the
@@ -170,7 +217,7 @@ themselves are written against the behavior of S3, not against it.
 
 What the suite leaves to an adapter's own tests, such as flat memory during a large upload or the
 retry curve, is listed in
-[spec 10.4](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.4.0/docs/spec.md#104-what-the-suite-does-not-assert).
+[spec 14.4](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.5.0/docs/spec.md#144-what-the-suite-does-not-assert).
 
 ## Runtimes
 
@@ -180,10 +227,10 @@ The bundle measures 11.9 kB minified and gzipped, `@stowage/core` included.
 
 ## Specification
 
-[`docs/spec.md` at `@stowage/conformance@0.4.0`](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.4.0/docs/spec.md#10-stowageconformance)
+[`docs/spec.md` at `@stowage/conformance@0.5.0`](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.5.0/docs/spec.md#14-stowageconformance)
 is the contract: a caller may rely on what it states and on nothing else this package happens to
-export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.4.0/CONTEXT.md)
-and the [decisions behind it](https://github.com/stowage-js/stowage/tree/@stowage/conformance@0.4.0/docs/adr)
+export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.5.0/CONTEXT.md)
+and the [decisions behind it](https://github.com/stowage-js/stowage/tree/@stowage/conformance@0.5.0/docs/adr)
 are at the same tag.
 
 ## License
