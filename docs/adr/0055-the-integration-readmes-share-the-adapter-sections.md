@@ -43,7 +43,7 @@ a README.
   - Limits: `redirectToObject` answers `HEAD` with `302`, and S3 and GCS refuse the followed `HEAD`
     with `403`; a caller who needs `HEAD` serves through `serveObject` (ADR 0048).
   - Notes: Express through the Node bridge; Fastify through `reply.hijack()` and the
-    application-wide content type parser, with `maxSize` taking over from `bodyLimit`, which that
+    application-wide content type parser behind `removeAllContentTypeParsers()`, with `maxSize` taking over from `bodyLimit`, which that
     parser switches off (ADR 0049); Bun's `maxRequestBodySize` of 128 MiB; and that the body
     reaches the layer unread, since a validator or body parser in front of it ends in a `TypeError`
     (ADR 0051, ADR 0052).
