@@ -76,6 +76,8 @@ web_modules/
 
 # Next.js build output
 .next
+# The harness's copies of its Next.js application, one per run
+.next-runs
 out
 
 # Nuxt.js build / generate output

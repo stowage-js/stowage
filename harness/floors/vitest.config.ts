@@ -39,10 +39,10 @@ const floors: readonly { pattern: RegExp; inStore: (id: string) => boolean }[] =
 const importer = fileURLToPath(new URL("package.json", import.meta.url));
 
 /**
- * Spec 2: CI runs the Hono cell and both NestJS cells on Node at the floor of each peer
- * range beside the newest release. The cells' files import the frameworks where the newest
- * is installed, so this run resolves every import of a framework's packages as though this
- * package made it, which reaches the floor it installs.
+ * Spec 2: CI runs the Hono cell, both NestJS cells and the Next.js cell on Node at the floor
+ * of each peer range beside the newest release. The cells' files import the frameworks where
+ * the newest is installed, so this run resolves every import of a framework's packages as
+ * though this package made it, which reaches the floor it installs.
  */
 function atTheFloor(): Plugin {
   return {
@@ -73,7 +73,12 @@ const config: ViteUserConfig = defineConfig({
       "harness/node/src/hono*.test.ts",
       "harness/targets/src/hono*.test.ts",
       "harness/node/src/nestjs*.test.ts",
+      "harness/node/src/nextjs*.test.ts",
     ],
+    // Nothing in this process imports Next.js, which `next build` and `next start` run in
+    // processes of their own: the harness builds the application with the `next` this
+    // package installs, and refuses a build that resolved another.
+    env: { STOWAGE_NEXTJS_PACKAGE: "harness/floors" },
   },
 });
 
