@@ -4,7 +4,7 @@
   "private": true,
   "description": "Private harness: the Next.js application the Node harness builds with next build and serves with next start, at the newest release of Next.js 16.",
   "type": "module",
-  "dependencies": {
+  "devDependencies": {
     "@stowage/adapter-s3": "workspace:^",
     "@stowage/http": "workspace:^",
     "@stowage/nextjs": "workspace:^",

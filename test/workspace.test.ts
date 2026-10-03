@@ -181,7 +181,7 @@ test("the harness serves NestJS at the version @stowage/nestjs is checked agains
 // The harness builds its Next.js application with the `next` @stowage/nextjs is checked
 // against, which is the newest release of Next.js 16 that CI runs beside the floor.
 test("the harness serves Next.js at the version @stowage/nextjs is checked against", () => {
-  expect(harnessNextjs.dependencies.next).toBe(nextjs.devDependencies.next);
+  expect(harnessNextjs.devDependencies.next).toBe(nextjs.devDependencies.next);
 });
 
 // Spec 13, ADR 0053: Next.js caches what its patched `fetch` answers, and no adapter opts out

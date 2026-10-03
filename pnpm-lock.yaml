@@ -253,7 +253,7 @@ importers:
   harness/gcs: {}
 
   harness/nextjs:
-    dependencies:
+    devDependencies:
       '@stowage/adapter-s3':
         specifier: workspace:^
         version: link:../../packages/adapter-s3
