@@ -9,6 +9,10 @@ import adapterMemory from "../packages/adapter-memory/package.json" with { type:
 import adapterS3 from "../packages/adapter-s3/package.json" with { type: "json" };
 import conformance from "../packages/conformance/package.json" with { type: "json" };
 import core from "../packages/core/package.json" with { type: "json" };
+import hono from "../packages/hono/package.json" with { type: "json" };
+import http from "../packages/http/package.json" with { type: "json" };
+import nestjs from "../packages/nestjs/package.json" with { type: "json" };
+import nextjs from "../packages/nextjs/package.json" with { type: "json" };
 
 const read = async (path: string): Promise<string> =>
   await readFile(new URL(`../${path}`, import.meta.url), "utf8");
@@ -29,11 +33,26 @@ const published = [
   adapterS3,
   adapterAzureBlob,
   adapterGcs,
+  http,
+  nestjs,
+  hono,
+  nextjs,
   conformance,
 ];
 
-/** Spec 16 gives `@stowage/conformance` a shape of its own and these six the same sections. */
-const sectioned = [core, adapterMemory, adapterFs, adapterS3, adapterAzureBlob, adapterGcs];
+/** Spec 16 gives `@stowage/conformance` a shape of its own and these ten the same sections. */
+const sectioned = [
+  core,
+  adapterMemory,
+  adapterFs,
+  adapterS3,
+  adapterAzureBlob,
+  adapterGcs,
+  http,
+  nestjs,
+  hono,
+  nextjs,
+];
 
 /** Spec 16: the sections a README carries, in this order, before anything else it holds. */
 const packageSections = ["Install", "Example", "Runtimes", "Limits", "Notes", "Specification"];
@@ -191,6 +210,172 @@ test("the README of @stowage/adapter-gcs shows no key exchange", async () => {
   expect(text).not.toContain("urn:ietf:params:oauth:grant-type:jwt-bearer");
 });
 
+// Spec 16 has an empty section say so, and leaves limits empty for these two.
+test.each([nestjs, hono])(
+  "the README of $name says that its limits are empty",
+  async (manifest) => {
+    expect(sectionOf(await readmeOf(manifest), "Limits").trim()).toBe("## Limits\n\nNone.");
+  },
+);
+
+test("the README of @stowage/http names the limit of spec 16", async () => {
+  const limits = sectionOf(await readmeOf(http), "Limits");
+
+  expect(limits).toContain("`redirectToObject`");
+  expect(limits).toContain("`HEAD`");
+  expect(limits).toContain("`403`");
+  expect(limits).toContain("`serveObject`");
+  expect(limits).toContain("#104-redirecting-to-an-object");
+});
+
+test("the README of @stowage/nextjs names the limit of spec 16", async () => {
+  const limits = sectionOf(await readmeOf(nextjs), "Limits");
+
+  expect(limits).toContain("`proxyClientMaxBodySize`");
+  expect(limits).toContain("`matcher`");
+  expect(limits).toContain("`maxSize`");
+  expect(limits).toContain("#13-stowagenextjs");
+});
+
+/** What spec 16 has the example and the notes of each integration README show. */
+const integrationContents = [
+  {
+    manifest: http,
+    example: ["serveObject", "acceptUpload", "maxSize", '"GET"', '"HEAD"', '"PUT"'],
+    notes: [
+      "toWebRequest",
+      "express",
+      "reply.hijack()",
+      "removeAllContentTypeParsers()",
+      "bodyLimit",
+      "maxRequestBodySize",
+      "128 MiB",
+      "TypeError",
+    ],
+  },
+  {
+    manifest: nestjs,
+    example: [
+      "StorageModule.forRoot({ provide",
+      "@Inject(",
+      "@Req()",
+      "@Res()",
+      "webRequestOf",
+      "sendResponse",
+    ],
+    notes: [
+      "removeAllContentTypeParsers()",
+      'addContentTypeParser("*", (_req, _payload, done) => done(null))',
+      "bodyLimit",
+      "bodyParser: false",
+      "forRootAsync",
+      "inject:",
+      "overrideProvider(",
+    ],
+  },
+  {
+    manifest: hono,
+    example: ["withStorage(", "serveObject"],
+    notes: [
+      "Env",
+      "c.env",
+      "validator",
+      "bodyLimit()",
+      "etag()",
+      "compress()",
+      "128 MiB",
+      "createApp",
+    ],
+  },
+  {
+    manifest: nextjs,
+    example: ['import "server-only"', "lazyStorage(", "[...key]", "GET", "PUT"],
+    notes: [
+      "a%2Fb",
+      "server action",
+      "await connection()",
+      "force-static",
+      "revalidate",
+      "'use cache'",
+      "module graph",
+      "vi.mock(",
+    ],
+  },
+];
+
+test.each(integrationContents)(
+  "the README of $manifest.name shows the example and the notes of spec 16",
+  async ({ manifest, example, notes }) => {
+    const text = await readmeOf(manifest);
+
+    for (const marker of example) expect(sectionOf(text, "Example")).toContain(marker);
+    for (const marker of notes) expect(sectionOf(text, "Notes")).toContain(marker);
+  },
+);
+
+type Dependencies = Readonly<Record<string, string | undefined>>;
+
+const dependenciesOf = async (
+  path: string,
+  field: "devDependencies" | "peerDependencies",
+): Promise<Dependencies> =>
+  // oxlint-disable-next-line no-unsafe-type-assertion -- a manifest of this repository
+  (JSON.parse(await read(path)) as Record<typeof field, Dependencies | undefined>)[field] ?? {};
+
+/**
+ * The framework whose peer range each integration declares, and the manifest that pins the
+ * newest release CI runs it with, which Renovate moves.
+ */
+const integrations = [
+  { manifest: nestjs, framework: "@nestjs/common", newest: "packages/nestjs/package.json" },
+  { manifest: hono, framework: "hono", newest: "packages/hono/package.json" },
+  { manifest: nextjs, framework: "next", newest: "harness/nextjs/package.json" },
+];
+
+// Spec 16: runtimes of an integration name the peer range, the floor and the newest version
+// CI ran, which the floors harness and the package's own development install pin.
+test.each(integrations)(
+  "the README of $manifest.name names its peer range, its floor and the newest version CI ran",
+  async ({ manifest, framework, newest }) => {
+    const runtimes = sectionOf(await readmeOf(manifest), "Runtimes");
+    const name = manifest.name.replace("@stowage/", "");
+    const peerRange = (await dependenciesOf(`packages/${name}/package.json`, "peerDependencies"))[
+      framework
+    ];
+    const floor = (await dependenciesOf("harness/floors/package.json", "devDependencies"))[
+      framework
+    ];
+    const ran = (await dependenciesOf(newest, "devDependencies"))[framework];
+
+    expect(runtimes).toContain(`\`${peerRange}\``);
+    expect(runtimes).toContain(`floor is ${floor}`);
+    expect(runtimes).toContain(`CI ran ${ran}`);
+  },
+);
+
+test.each([http, nestjs, hono, nextjs])(
+  "the README of $name links its cells of the second table of spec 2",
+  async (manifest) => {
+    const runtimes = sectionOf(await readmeOf(manifest), "Runtimes");
+
+    expect(runtimes).toContain("#2-runtime-matrix");
+    expect(runtimes).toContain("measures");
+  },
+);
+
+test("the README of @stowage/nestjs names its cells on Express and on Fastify apart", async () => {
+  const runtimes = sectionOf(await readmeOf(nestjs), "Runtimes");
+
+  expect(runtimes).toContain("NestJS on Express");
+  expect(runtimes).toContain("NestJS on Fastify");
+});
+
+test("the README of @stowage/http names the runtimes the Node bridge covers", async () => {
+  expect(sectionOf(await readmeOf(http), "Runtimes")).toContain(
+    "The Node bridge covers Node, Bun and Deno, and not `workerd`",
+  );
+});
+
 const semverAt = (version: string): number[] => version.split(".").map(Number);
 
 function compareVersions(left: string, right: string): number {
@@ -278,6 +463,22 @@ test("the root README shows the package family", async () => {
   const text = await read("README.md");
 
   for (const manifest of published) {
-    expect(text).toContain(manifest.name);
+    expect(text).toContain(`[\`${manifest.name}\`](packages/`);
+  }
+
+  expect(text).toContain("The eleven packages carry one version number");
+});
+
+// Spec 16: flow 1 stays a call sequence against a storage, and one sentence after it leads to
+// the HTTP layer and the integrations, without a code block of its own.
+test("the root README links the HTTP layer and the integrations after flow 1", async () => {
+  const flow = sectionOf(await read("README.md"), "A large upload from a server");
+  const afterExample = flow.slice(flow.lastIndexOf("```") + "```".length);
+
+  expect(tsSourcesOf(flow)).toHaveLength(1);
+  expect(afterExample).toContain("`acceptUpload`");
+
+  for (const manifest of [http, nestjs, hono, nextjs]) {
+    expect(afterExample).toContain(`(packages/${manifest.name.replace("@stowage/", "")})`);
   }
 });

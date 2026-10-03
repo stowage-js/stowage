@@ -48,9 +48,13 @@ await storage.delete("notes/hello.txt");
 | [`@stowage/adapter-s3`](packages/adapter-s3)                 | A storage in one bucket of AWS S3 or Cloudflare R2              |
 | [`@stowage/adapter-azure-blob`](packages/adapter-azure-blob) | A storage in one container of an Azure Blob Storage account     |
 | [`@stowage/adapter-gcs`](packages/adapter-gcs)               | A storage in one bucket of Google Cloud Storage                 |
-| [`@stowage/conformance`](packages/conformance)               | The cases every adapter has to pass                             |
+| [`@stowage/http`](packages/http)                             | The HTTP layer and the Node bridge                              |
+| [`@stowage/nestjs`](packages/nestjs)                         | The integration for NestJS 12                                   |
+| [`@stowage/hono`](packages/hono)                             | The integration for Hono 4                                      |
+| [`@stowage/nextjs`](packages/nextjs)                         | The integration for Next.js 16                                  |
+| [`@stowage/conformance`](packages/conformance)               | The cases every adapter and every server has to pass            |
 
-The seven packages carry one version number and are released together. Which package runs where is
+The eleven packages carry one version number and are released together. Which package runs where is
 the [runtime matrix](docs/spec.md#2-runtime-matrix).
 
 ## A large upload from a server
@@ -76,6 +80,11 @@ export async function upload(request: Request, key: string): Promise<Response> {
   return Response.json({ key: stat.key, size: stat.size });
 }
 ```
+
+A route that takes uploads from clients needs a size limit in front of `put`, which
+[`acceptUpload`](packages/http) of `@stowage/http` enforces while the body streams, and
+[`@stowage/nestjs`](packages/nestjs), [`@stowage/hono`](packages/hono) and
+[`@stowage/nextjs`](packages/nextjs) hand it a storage in those frameworks.
 
 ## Documentation
 
