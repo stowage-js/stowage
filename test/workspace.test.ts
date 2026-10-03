@@ -128,8 +128,6 @@ test.each(published)("$name exports one entry point for every runtime", (manifes
   expect(manifest.exports?.["."]).toBe("./dist/index.js");
 });
 
-// Spec 1, ADR 0046: the HTTP layer sits on the portable `Storage` and on nothing else, so
-// that a server reaches it without an adapter or a framework coming along.
 // Spec 11: the module and the bridge are all the package holds, and the bridge is the
 // layer's.
 test("@stowage/nestjs depends on @stowage/core and @stowage/http alone", () => {
@@ -139,6 +137,8 @@ test("@stowage/nestjs depends on @stowage/core and @stowage/http alone", () => {
   });
 });
 
+// Spec 1, ADR 0046: the HTTP layer sits on the portable `Storage` and on nothing else, so
+// that a server reaches it without an adapter or a framework coming along.
 test("@stowage/http depends on @stowage/core alone", () => {
   expect(http.dependencies).toEqual({ "@stowage/core": "workspace:^" });
   expect("peerDependencies" in http).toBe(false);
