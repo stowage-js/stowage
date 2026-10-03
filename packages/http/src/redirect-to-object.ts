@@ -14,11 +14,17 @@ export interface PresignsGet {
 }
 
 export interface RedirectToObjectOptions {
-  /** Seconds the presigned URL holds, passed to `presignGet` as it is. */
+  /**
+   * Seconds the presigned URL holds, passed to `presignGet` as it is, with no default. A
+   * value outside the adapter's bounds is its `InvalidOption`, answered `500`.
+   */
   expiresIn: number;
   /** The name a download is saved under; the key's last segment where it is absent. */
   filename?: string;
-  /** `"attachment"`, the default, has a browser save the object, `"inline"` show it. */
+  /**
+   * `"attachment"`, the default, has a browser save the object, `"inline"` show it. It
+   * reaches the provider with `filename` as `responseContentDisposition`.
+   */
   disposition?: "attachment" | "inline";
 }
 

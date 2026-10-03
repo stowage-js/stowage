@@ -15,13 +15,22 @@ export interface PresignsPut {
 }
 
 export interface PresignUploadOptions {
-  /** Seconds the presigned URL holds, passed to `presignPut` as it is. */
+  /**
+   * Seconds the presigned URL holds, passed to `presignPut` as it is, with no default. A
+   * value outside the adapter's bounds is its `InvalidOption`, answered `500`.
+   */
   expiresIn: number;
-  /** The most bytes the upload may announce. */
+  /** The most bytes the upload may announce: a `contentLength` above it is `413`. */
   maxSize: number;
-  /** The content type the client sent, which the signature binds. */
+  /**
+   * The content type the client sent, which the signature binds. An empty value or one that
+   * is no valid header value is `400` before signing.
+   */
   contentType: string;
-  /** The length the client sent, which the signature binds. */
+  /**
+   * The length the client sent, which the signature binds. A value that is no non-negative
+   * integer is `400` before signing.
+   */
   contentLength: number;
 }
 

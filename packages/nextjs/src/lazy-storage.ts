@@ -6,8 +6,9 @@ import type { Storage } from "@stowage/core";
  * nothing until a request asks. One call holds one storage; two storages are two calls.
  *
  * @param factory Builds the storage, synchronously: whatever is asynchronous, a token or a
- *   secret, belongs in the adapter's credential resolver. A factory that throws is not
- *   cached, so every call runs it again until it returns.
+ *   secret, belongs in the adapter's credential resolver, and a factory returning a
+ *   `Promise` does not type-check. A factory that throws is not cached, so every call runs
+ *   it again until it returns.
  */
 export function lazyStorage<S extends Storage>(factory: () => S): () => S {
   let storage: S | undefined;
