@@ -1,7 +1,7 @@
-// Spec 16: the first line of the module that holds the storage. Next.js aliases it and
-// refuses a Client Component that imports this module.
-// oxlint-disable-next-line import/no-unassigned-import -- imported for that refusal alone
-import "server-only";
+import "server-only"; // oxlint-disable-line import/no-unassigned-import -- spec 16, see below
+
+// The first line of the module that holds the storage (spec 16): Next.js aliases
+// `server-only` and refuses a Client Component that imports this module.
 
 import { fromEnv, s3Storage } from "@stowage/adapter-s3";
 import { lazyStorage } from "@stowage/nextjs";
@@ -28,7 +28,7 @@ export const storage = lazyStorage(() =>
   }),
 );
 
-/** Spec 14.8's `maxSize` of the `upload` and the `presign` route, or what the harness set. */
+/** Spec 14.8's `maxSize` of the `upload` route, or what the harness started it with. */
 export const maxSize = Number(process.env.STOWAGE_HTTP_MAX_SIZE ?? 1048576);
 
 /** The key the catch-all segment holds, its segments decoded by Next.js and joined again. */
