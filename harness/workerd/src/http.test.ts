@@ -1,16 +1,13 @@
-import { env } from "node:process";
-
 import { afterAll, describe, expect, test } from "vitest";
 
 import * as http from "../../../packages/http/src/index.ts";
-import { configuredStorage } from "../../s3/src/environment.ts";
-import { endpointTiersFrom } from "../../targets/src/endpoints.ts";
+import { serverStorage } from "../../s3/src/environment.ts";
 import { describeServers } from "../../targets/src/http.ts";
 import { type HttpConfig, workerdServer } from "./http-server.ts";
 
 // Spec 2: on `workerd` only the server runs inside the runtime, and the cases run here, in
 // the Node harness, once against each set of flags.
-const configured = endpointTiersFrom(env).has("s3") ? configuredStorage() : undefined;
+const configured = serverStorage();
 const close = await describeServers(
   [
     workerdServer("spec"),

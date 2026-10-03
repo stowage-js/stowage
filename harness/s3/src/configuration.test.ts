@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import type { S3AdapterOptions } from "../../../packages/adapter-s3/src/index.ts";
 import {
   endpointNameFrom,
+  servesBehindAServer,
   storageWithBadCredentials,
   storageWithDeniedCredentials,
   storageWithExpiredCredentials,
@@ -68,6 +69,20 @@ describe("endpointNameFrom", () => {
 
   test("leaves an endpoint without a name unnamed", () => {
     expect(endpointNameFrom({ STOWAGE_S3_ENDPOINT_NAME: "" })).toBe(undefined);
+  });
+});
+
+describe("servesBehindAServer", () => {
+  test("lets the emulator serve behind a server", () => {
+    expect(servesBehindAServer({ STOWAGE_S3_ENDPOINT_NAME: "seaweedfs" })).toBe(true);
+  });
+
+  test("lets an endpoint without a name serve behind a server", () => {
+    expect(servesBehindAServer({})).toBe(true);
+  });
+
+  test.each(["aws-s3", "r2"])("keeps the real endpoint %s from behind a server", (name) => {
+    expect(servesBehindAServer({ STOWAGE_S3_ENDPOINT_NAME: name })).toBe(false);
   });
 });
 

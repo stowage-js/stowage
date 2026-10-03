@@ -1,13 +1,10 @@
-import { env } from "node:process";
-
 import { afterAll, describe, expect, test } from "vitest";
 
-import { configuredStorage } from "../../s3/src/environment.ts";
-import { endpointTiersFrom } from "../../targets/src/endpoints.ts";
+import { serverStorage } from "../../s3/src/environment.ts";
 import { describeServers } from "../../targets/src/http.ts";
 import { eagerBuildFailure, nextjsServer } from "../../targets/src/nextjs.ts";
 
-const configured = endpointTiersFrom(env).has("s3") ? configuredStorage() : undefined;
+const configured = serverStorage();
 const nextjs = nextjsServer();
 
 // Spec 13: the build runs without the variables the application's factory reads, which
