@@ -2,7 +2,7 @@
   "name": "@stowage/harness-floors",
   "version": "0.0.0",
   "private": true,
-  "description": "Private harness: the Hono and NestJS cells on Node at the floor of each peer range, which Renovate leaves where it is.",
+  "description": "Private harness: the Hono, NestJS and Next.js cells on Node at the floor of each peer range, which Renovate leaves where it is.",
   "type": "module",
   "devDependencies": {
     "@hono/node-server": "2.1.3",
@@ -10,7 +10,13 @@
     "@nestjs/core": "12.1.2",
     "@nestjs/platform-express": "12.1.2",
     "@nestjs/platform-fastify": "12.1.2",
+    "@stowage/adapter-s3": "workspace:^",
+    "@stowage/http": "workspace:^",
+    "@stowage/nextjs": "workspace:^",
     "hono": "4.13.12",
+    "next": "16.3.8",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2"
   },

@@ -17,6 +17,7 @@
       "@stowage/http",
       "@stowage/nestjs",
       "@stowage/hono",
+      "@stowage/nextjs",
       "@stowage/conformance"
     ]
   ],

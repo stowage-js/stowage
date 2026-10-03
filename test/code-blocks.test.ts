@@ -34,8 +34,7 @@ const packageOfSpecSection: Readonly<Record<string, string | null>> = {
   "10": "http",
   "11": "nestjs",
   "12": "hono",
-  // Defer this section until its integration package exists.
-  "13": null,
+  "13": "nextjs",
   "14": "conformance",
 };
 
