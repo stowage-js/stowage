@@ -1,6 +1,6 @@
 {
   "name": "@stowage/nestjs",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "The NestJS integration of stowage: registers a storage under the caller's injection token, and carries a web request and response over Express and Fastify for @stowage/http.",
   "keywords": [
     "express",
