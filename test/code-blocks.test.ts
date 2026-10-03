@@ -37,9 +37,10 @@ interface Reader {
   readonly declarations?: readonly string[];
   /**
    * The application's own modules that another block of the document imports, by the
-   * alias its `tsconfig` maps them under, each the block of the document at that index.
+   * alias its `tsconfig` maps them under, each the block that opens with a comment naming
+   * that file.
    */
-  readonly modules?: Readonly<Record<string, number>>;
+  readonly modules?: Readonly<Record<string, string>>;
 }
 
 const nextPackage = join(repository, "packages/nextjs/node_modules/next");
@@ -68,7 +69,10 @@ const readers: Readonly<Record<string, Reader>> = {
     },
     paths: { next: [join(nextPackage, "index.d.ts")], "next/*": [join(nextPackage, "*")] },
     declarations: [join(nextPackage, "index.d.ts")],
-    modules: { "@/lib/storage": 0, "@/app/files/[...key]/route": 1 },
+    modules: {
+      "@/lib/storage": "lib/storage.ts",
+      "@/app/files/[...key]/route": "app/files/[...key]/route.ts",
+    },
   },
 };
 
@@ -304,6 +308,16 @@ beforeAll(async () => {
   const filesOf = (document: string): string[] =>
     files.filter((_, index) => compiledBlocks[index]?.document === document);
 
+  function moduleFileOf(document: string, path: string): string {
+    const index = compiledBlocks.findIndex(
+      (block) => block.document === document && block.source.startsWith(`// ${path}\n`),
+    );
+
+    if (index === -1) throw new Error(`${document} holds no block that opens with // ${path}`);
+
+    return files[index] ?? "";
+  }
+
   await writeFile(
     join(directory, "tsconfig.json"),
     JSON.stringify({
@@ -334,9 +348,9 @@ beforeAll(async () => {
       const documentFiles = filesOf(document);
       // Relative to the project, as its `files` are: an absolute path through the temporary
       // directory may name it through a symbolic link, which loads the module twice.
-      const modules = Object.entries(reader.modules ?? {}).map(([alias, block]) => [
+      const modules = Object.entries(reader.modules ?? {}).map(([alias, path]) => [
         alias,
-        [`./${documentFiles[block] ?? ""}`],
+        [`./${moduleFileOf(document, path)}`],
       ]);
 
       await writeFile(

@@ -2,6 +2,8 @@ import { readFile } from "node:fs/promises";
 
 import { expect, test } from "vitest";
 
+import floors from "../harness/floors/package.json" with { type: "json" };
+import nextjsHarness from "../harness/nextjs/package.json" with { type: "json" };
 import adapterAzureBlob from "../packages/adapter-azure-blob/package.json" with { type: "json" };
 import adapterFs from "../packages/adapter-fs/package.json" with { type: "json" };
 import adapterGcs from "../packages/adapter-gcs/package.json" with { type: "json" };
@@ -23,36 +25,21 @@ const headingsOf = (text: string): string[] =>
 const tsSourcesOf = (text: string): string[] =>
   [...text.matchAll(/^```ts\n([\s\S]*?)^```$/gmu)].map((match) => match[1] ?? "");
 
-const readmeOf = async (manifest: { readonly name: string }): Promise<string> =>
-  await read(`packages/${manifest.name.replace("@stowage/", "")}/README.md`);
+const directoryOf = (manifest: { readonly name: string }): string =>
+  `packages/${manifest.name.replace("@stowage/", "")}`;
 
-const published = [
-  core,
-  adapterMemory,
-  adapterFs,
-  adapterS3,
-  adapterAzureBlob,
-  adapterGcs,
-  http,
-  nestjs,
-  hono,
-  nextjs,
-  conformance,
-];
+const readmeOf = async (manifest: { readonly name: string }): Promise<string> =>
+  await read(`${directoryOf(manifest)}/README.md`);
+
+/** The HTTP layer and the integrations v0.5 adds, which spec 16 gives the adapters' sections. */
+const servers = [http, nestjs, hono, nextjs];
+
+const adapters = [adapterMemory, adapterFs, adapterS3, adapterAzureBlob, adapterGcs];
+
+const published = [core, ...adapters, ...servers, conformance];
 
 /** Spec 16 gives `@stowage/conformance` a shape of its own and these ten the same sections. */
-const sectioned = [
-  core,
-  adapterMemory,
-  adapterFs,
-  adapterS3,
-  adapterAzureBlob,
-  adapterGcs,
-  http,
-  nestjs,
-  hono,
-  nextjs,
-];
+const sectioned = [core, ...adapters, ...servers];
 
 /** Spec 16: the sections a README carries, in this order, before anything else it holds. */
 const packageSections = ["Install", "Example", "Runtimes", "Limits", "Notes", "Specification"];
@@ -91,7 +78,7 @@ function sectionOf(text: string, heading: string): string {
 test("the README of @stowage/conformance names the five adapters of this repository", async () => {
   const text = await readmeOf(conformance);
 
-  for (const adapter of [adapterMemory, adapterFs, adapterS3, adapterAzureBlob, adapterGcs]) {
+  for (const adapter of adapters) {
     expect(text).toContain(adapter.name);
   }
 });
@@ -227,7 +214,9 @@ test("the README of @stowage/conformance shows how to test a server after `worke
 test.each([nestjs, hono])(
   "the README of $name says that its limits are empty",
   async (manifest) => {
-    expect(sectionOf(await readmeOf(manifest), "Limits").trim()).toBe("## Limits\n\nThis section is empty.");
+    expect(sectionOf(await readmeOf(manifest), "Limits").trim()).toBe(
+      "## Limits\n\nThis section is empty.",
+    );
   },
 );
 
@@ -326,47 +315,46 @@ test.each(integrationContents)(
   },
 );
 
-type Dependencies = Readonly<Record<string, string | undefined>>;
-
-const dependenciesOf = async (
-  path: string,
-  field: "devDependencies" | "peerDependencies",
-): Promise<Dependencies> =>
-  // oxlint-disable-next-line no-unsafe-type-assertion -- a manifest of this repository
-  (JSON.parse(await read(path)) as Record<typeof field, Dependencies | undefined>)[field] ?? {};
-
 /**
- * The framework whose peer range each integration declares, and the manifest that pins the
- * newest release CI runs it with, which Renovate moves.
+ * The peer range, the floor and the newest release CI ran of each integration's framework.
+ * The package's own development install pins the newest, and the Next.js harness for `next`,
+ * which Renovate moves together.
  */
 const integrations = [
-  { manifest: nestjs, framework: "@nestjs/common", newest: "packages/nestjs/package.json" },
-  { manifest: hono, framework: "hono", newest: "packages/hono/package.json" },
-  { manifest: nextjs, framework: "next", newest: "harness/nextjs/package.json" },
+  {
+    manifest: nestjs,
+    peerRange: nestjs.peerDependencies["@nestjs/common"],
+    floor: floors.devDependencies["@nestjs/common"],
+    newest: nestjs.devDependencies["@nestjs/common"],
+  },
+  {
+    manifest: hono,
+    peerRange: hono.peerDependencies.hono,
+    floor: floors.devDependencies.hono,
+    newest: hono.devDependencies.hono,
+  },
+  {
+    manifest: nextjs,
+    peerRange: nextjs.peerDependencies.next,
+    floor: floors.devDependencies.next,
+    newest: nextjsHarness.devDependencies.next,
+  },
 ];
 
 // Spec 16: runtimes of an integration name the peer range, the floor and the newest version
-// CI ran, which the floors harness and the package's own development install pin.
+// CI ran.
 test.each(integrations)(
   "the README of $manifest.name names its peer range, its floor and the newest version CI ran",
-  async ({ manifest, framework, newest }) => {
+  async ({ manifest, peerRange, floor, newest }) => {
     const runtimes = sectionOf(await readmeOf(manifest), "Runtimes");
-    const name = manifest.name.replace("@stowage/", "");
-    const peerRange = (await dependenciesOf(`packages/${name}/package.json`, "peerDependencies"))[
-      framework
-    ];
-    const floor = (await dependenciesOf("harness/floors/package.json", "devDependencies"))[
-      framework
-    ];
-    const ran = (await dependenciesOf(newest, "devDependencies"))[framework];
 
     expect(runtimes).toContain(`\`${peerRange}\``);
     expect(runtimes).toContain(`floor is ${floor}`);
-    expect(runtimes).toContain(`CI ran ${ran}`);
+    expect(runtimes).toContain(`CI ran ${newest}`);
   },
 );
 
-test.each([http, nestjs, hono, nextjs])(
+test.each(servers)(
   "the README of $name links its cells of the second table of spec 2",
   async (manifest) => {
     const runtimes = sectionOf(await readmeOf(manifest), "Runtimes");
@@ -491,7 +479,7 @@ test("the root README links the HTTP layer and the integrations after flow 1", a
   expect(tsSourcesOf(flow)).toHaveLength(1);
   expect(afterExample).toContain("`acceptUpload`");
 
-  for (const manifest of [http, nestjs, hono, nextjs]) {
-    expect(afterExample).toContain(`(packages/${manifest.name.replace("@stowage/", "")})`);
+  for (const manifest of servers) {
+    expect(afterExample).toContain(`(${directoryOf(manifest)})`);
   }
 });
