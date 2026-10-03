@@ -4,7 +4,6 @@ import {
   Controller,
   Delete,
   Get,
-  type INestApplication,
   Inject,
   Module,
   Param,
@@ -18,7 +17,11 @@ import { NestFactory } from "@nestjs/core";
 import { ExpressAdapter } from "@nestjs/platform-express";
 import { FastifyAdapter } from "@nestjs/platform-fastify";
 
-import { type S3Storage, s3Storage } from "../../../packages/adapter-s3/src/index.ts";
+import {
+  type S3AdapterOptions,
+  type S3Storage,
+  s3Storage,
+} from "../../../packages/adapter-s3/src/index.ts";
 import { acceptUpload, redirectToObject, serveObject } from "../../../packages/http/src/index.ts";
 import { sendResponse, StorageModule, webRequestOf } from "../../../packages/nestjs/src/index.ts";
 import type { HttpServer, StartedServer } from "./http.ts";
@@ -32,7 +35,7 @@ type Answer = (storage: S3Storage, key: string, request: Request) => Promise<Res
 /** Spec 14.8's routes, each configured as the suite fixes, `routes` aside. */
 function answersOf(routes: RouteOptions): Readonly<Record<string, Answer>> {
   return {
-    serve: async (storage, key, request) => await serveObject(storage, key, request),
+    serve: serveObject,
     redirect: async (storage, key, request) =>
       await redirectToObject(storage, key, request, { expiresIn: 60 }),
     upload: async (storage, key, request) =>
@@ -46,7 +49,7 @@ function answersOf(routes: RouteOptions): Readonly<Record<string, Answer>> {
  * the handler each is mapped to. `HEAD` is not among them: Express and Fastify route it to
  * the `GET` handler, and the request `webRequestOf` builds keeps the method `HEAD`.
  */
-const handlers = [
+const sentMethods = [
   ["get", Get],
   ["post", Post],
   ["put", Put],
@@ -61,6 +64,7 @@ const handlers = [
  * directly, where an application writes them as decorators (ADR 0047).
  */
 function controllerOf(route: string, answer: Answer): Type {
+  // One handler per method, since NestJS maps each handler to one method alone.
   class RouteController {
     readonly #storage: S3Storage;
 
@@ -92,7 +96,7 @@ function controllerOf(route: string, answer: Answer): Type {
   Controller(route)(RouteController);
   Inject(storageToken)(RouteController, undefined, 0);
 
-  for (const [name, mapping] of handlers) {
+  for (const [name, mapping] of sentMethods) {
     const descriptor = Object.getOwnPropertyDescriptor(RouteController.prototype, name);
 
     if (descriptor === undefined) throw new Error(`No handler \`${name}\``);
@@ -122,11 +126,26 @@ function applicationModuleOf(storage: S3Storage, routes: RouteOptions): Type {
 }
 
 /**
- * `app` listening through `app.listen` on a free port of the loopback address. Its
- * connections close with it, since `fetch` keeps them alive and would hold `close` open
- * until they idle out.
+ * The application on `adapter` listening through `app.listen` on a free port of the loopback
+ * address. Spec 16's `bodyParser: false` leaves an upload's body unread, whatever its content
+ * type. Its connections close with it, since `fetch` keeps them alive and would hold `close`
+ * open until they idle out.
  */
-async function listeningApp(app: INestApplication): Promise<StartedServer> {
+async function startedApp(
+  adapter: ExpressAdapter | FastifyAdapter,
+  configured: S3AdapterOptions,
+  routes: RouteOptions,
+): Promise<StartedServer> {
+  const app = await NestFactory.create(
+    applicationModuleOf(s3Storage(configured), routes),
+    adapter,
+    {
+      bodyParser: false,
+      forceCloseConnections: true,
+      logger: false,
+    },
+  );
+
   await app.listen(0, "127.0.0.1");
 
   // oxlint-disable-next-line no-unsafe-type-assertion -- both platforms listen on `node:http`'s server
@@ -140,20 +159,11 @@ async function listeningApp(app: INestApplication): Promise<StartedServer> {
   };
 }
 
-/**
- * Spec 2's cell of `@stowage/nestjs` on Express. Spec 16's `bodyParser: false` leaves an
- * upload's body unread, whatever its content type.
- */
+/** Spec 2's cell of `@stowage/nestjs` on Express. */
 export const nestjsOnExpress: HttpServer = {
   name: "@stowage/nestjs on Express",
   start: async (configured, routes = suiteRoutes) =>
-    await listeningApp(
-      await NestFactory.create(
-        applicationModuleOf(s3Storage(configured), routes),
-        new ExpressAdapter(),
-        { bodyParser: false, forceCloseConnections: true, logger: false },
-      ),
-    ),
+    await startedApp(new ExpressAdapter(), configured, routes),
 };
 
 /**
@@ -169,12 +179,6 @@ export const nestjsOnFastify: HttpServer = {
     adapter.getInstance().removeAllContentTypeParsers();
     adapter.getInstance().addContentTypeParser("*", (_req, _payload, done) => done(null));
 
-    return await listeningApp(
-      await NestFactory.create(applicationModuleOf(s3Storage(configured), routes), adapter, {
-        bodyParser: false,
-        forceCloseConnections: true,
-        logger: false,
-      }),
-    );
+    return await startedApp(adapter, configured, routes);
   },
 };
