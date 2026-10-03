@@ -13,15 +13,64 @@ const repository = fileURLToPath(new URL("../", import.meta.url));
 const documents = [
   "README.md",
   "packages/core/README.md",
-  "packages/nestjs/README.md",
   "packages/adapter-memory/README.md",
   "packages/adapter-fs/README.md",
   "packages/adapter-s3/README.md",
   "packages/adapter-azure-blob/README.md",
   "packages/adapter-gcs/README.md",
+  "packages/http/README.md",
+  "packages/nestjs/README.md",
+  "packages/hono/README.md",
+  "packages/nextjs/README.md",
   "packages/conformance/README.md",
   "docs/spec.md",
 ];
+
+/**
+ * The compiler options of the application that reads a document, where they differ from
+ * the shared ones every other document compiles with (spec 16, ADR 0055).
+ */
+interface Reader {
+  readonly compilerOptions: Readonly<Record<string, unknown>>;
+  readonly paths?: Readonly<Record<string, readonly string[]>>;
+  /** Declarations the reader's application loads beside its own modules. */
+  readonly declarations?: readonly string[];
+  /**
+   * The application's own modules that another block of the document imports, by the
+   * alias its `tsconfig` maps them under, each the block of the document at that index.
+   */
+  readonly modules?: Readonly<Record<string, number>>;
+}
+
+const nextPackage = join(repository, "packages/nextjs/node_modules/next");
+
+const readers: Readonly<Record<string, Reader>> = {
+  // Its notes write an Express and a Fastify server, which run on Node.
+  "packages/http/README.md": { compilerOptions: { types: ["node"] } },
+  // A NestJS application uses legacy decorators, parameter decorators among them, on
+  // Express's and Node's types.
+  "packages/nestjs/README.md": {
+    compilerOptions: {
+      experimentalDecorators: true,
+      erasableSyntaxOnly: false,
+      strictPropertyInitialization: true,
+      types: ["node", "express"],
+    },
+  },
+  // What `create-next-app` writes: a bundler's resolution, the DOM, the `@/` alias for the
+  // application's modules, and `next-env.d.ts`, whose types of `next` declare `server-only`.
+  "packages/nextjs/README.md": {
+    compilerOptions: {
+      module: "esnext",
+      moduleResolution: "bundler",
+      lib: ["ES2024", "DOM", "DOM.Iterable", "DOM.AsyncIterable"],
+      types: ["node"],
+    },
+    paths: { next: [join(nextPackage, "index.d.ts")], "next/*": [join(nextPackage, "*")] },
+    declarations: [join(nextPackage, "index.d.ts")],
+    modules: { "@/lib/storage": 0, "@/app/files/[...key]/route": 1 },
+  },
+};
 
 /** The package whose declarations the blocks of a spec section are written against. */
 const packageOfSpecSection: Readonly<Record<string, string | null>> = {
@@ -241,28 +290,35 @@ beforeAll(async () => {
     }),
   );
 
+  const paths = {
+    "@stowage/*": [join(repository, "packages/*/dist/index.d.ts")],
+    // The copy the declarations of `@stowage/hono` resolve, since Hono's `Context` is a class
+    // with private members and two copies are two types to the compiler.
+    hono: [join(repository, "packages/hono/node_modules/hono/dist/types/index.d.ts")],
+    // The copy the declarations of `@stowage/nestjs` resolve, which the root does not install.
+    "@nestjs/*": [join(repository, "packages/nestjs/node_modules/@nestjs/*/index.d.ts")],
+    "reflect-metadata": [
+      join(repository, "packages/nestjs/node_modules/reflect-metadata/index.d.ts"),
+    ],
+  };
+  const filesOf = (document: string): string[] =>
+    files.filter((_, index) => compiledBlocks[index]?.document === document);
+
   await writeFile(
     join(directory, "tsconfig.json"),
     JSON.stringify({
       extends: join(repository, "tsconfig.base.json"),
+      // A block is an application's code, which emits no declarations; ADR 0008's
+      // `isolatedDeclarations` governs the packages' sources.
       compilerOptions: {
         strictPropertyInitialization: false,
-        paths: {
-          "@stowage/*": [join(repository, "packages/*/dist/index.d.ts")],
-          // The copy the declarations of `@stowage/hono` resolve, since Hono's `Context` is
-          // a class with private members and two copies are two types to the compiler.
-          hono: [join(repository, "packages/hono/node_modules/hono/dist/types/index.d.ts")],
-          // The copy the declarations of `@stowage/nestjs` resolve, which the root does not
-          // install.
-          "@nestjs/*": [join(repository, "packages/nestjs/node_modules/@nestjs/*/index.d.ts")],
-          "reflect-metadata": [
-            join(repository, "packages/nestjs/node_modules/reflect-metadata/index.d.ts"),
-          ],
-        },
+        declaration: false,
+        isolatedDeclarations: false,
+        paths,
       },
       files: [
         ...files.filter(
-          (_, index) => compiledBlocks[index]?.document !== "packages/nestjs/README.md",
+          (_, index) => !Object.hasOwn(readers, compiledBlocks[index]?.document ?? ""),
         ),
         // The conformance README hands its cases to `bun:test` and `Deno.test`, which the
         // harnesses declare for a type check on Node, and so does this one.
@@ -272,28 +328,35 @@ beforeAll(async () => {
     }),
   );
 
-  // A NestJS application uses legacy decorators, including parameter decorators, and
-  // Node types. Keep these options local to its README (spec 16, ADR 0055).
-  await writeFile(
-    join(directory, "tsconfig.nestjs.json"),
-    JSON.stringify({
-      extends: "./tsconfig.json",
-      compilerOptions: {
-        experimentalDecorators: true,
-        erasableSyntaxOnly: false,
-        strictPropertyInitialization: true,
-        types: ["node"],
-      },
-      files: files.filter(
-        (_, index) => compiledBlocks[index]?.document === "packages/nestjs/README.md",
-      ),
+  const projects = await Promise.all(
+    Object.entries(readers).map(async ([document, reader], index) => {
+      const project = `tsconfig.reader-${index}.json`;
+      const documentFiles = filesOf(document);
+      // Relative to the project, as its `files` are: an absolute path through the temporary
+      // directory may name it through a symbolic link, which loads the module twice.
+      const modules = Object.entries(reader.modules ?? {}).map(([alias, block]) => [
+        alias,
+        [`./${documentFiles[block] ?? ""}`],
+      ]);
+
+      await writeFile(
+        join(directory, project),
+        JSON.stringify({
+          extends: "./tsconfig.json",
+          compilerOptions: {
+            ...reader.compilerOptions,
+            paths: { ...paths, ...reader.paths, ...Object.fromEntries(modules) },
+          },
+          files: [...documentFiles, ...(reader.declarations ?? [])],
+        }),
+      );
+
+      return project;
     }),
   );
 
   const results = await Promise.all(
-    ["tsconfig.json", "tsconfig.nestjs.json"].map(
-      async (project) => await compile(directory, project),
-    ),
+    ["tsconfig.json", ...projects].map(async (project) => await compile(directory, project)),
   );
 
   for (const result of results) {
