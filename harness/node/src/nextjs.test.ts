@@ -5,9 +5,8 @@ import { afterAll, describe, expect, test } from "vitest";
 import { configuredStorage } from "../../s3/src/environment.ts";
 import { endpointTiersFrom } from "../../targets/src/endpoints.ts";
 import { describeServers } from "../../targets/src/http.ts";
-import { nextjsServer } from "../../targets/src/nextjs.ts";
+import { eagerBuildFailure, nextjsServer } from "../../targets/src/nextjs.ts";
 
-// Spec 2: `next build` and `next start`, the server a child process of this harness.
 const configured = endpointTiersFrom(env).has("s3") ? configuredStorage() : undefined;
 const nextjs = nextjsServer();
 
@@ -17,6 +16,11 @@ test("`next build` constructs no storage", async () => {
   const { output } = await nextjs.build();
 
   expect(output).toMatch(/ƒ \/serve\/\[\.\.\.key\]/u);
+}, 120_000);
+
+// Without this, the test above would pass as well for a build that evaluated no route module.
+test("`next build` fails where the storage is constructed as the module is evaluated", async () => {
+  expect(await eagerBuildFailure()).toMatch(/STOWAGE_S3_\w+ is not set/u);
 }, 120_000);
 
 const close = await describeServers([nextjs], "Node", configured, { describe, test });

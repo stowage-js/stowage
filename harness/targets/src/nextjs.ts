@@ -1,6 +1,6 @@
 import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { once } from "node:events";
-import { cp, mkdir, readFile, rm } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import { env } from "node:process";
@@ -27,13 +27,10 @@ const meterOverIpc = fileURLToPath(new URL("meter-over-ipc.ts", import.meta.url)
  * `harness/floors` for the floor, as `STOWAGE_NEXTJS_PACKAGE` names it relative to the
  * repository (spec 2).
  */
-export function nextjsPackage(): string {
-  return join(repository, env["STOWAGE_NEXTJS_PACKAGE"] ?? "harness/nextjs");
-}
+const nextjsPackage = join(repository, env["STOWAGE_NEXTJS_PACKAGE"] ?? "harness/nextjs");
 
-/** The application, built once for a run, with what `next build` printed. */
+/** The application, built once for a run: the `next` CLI it was built with and its output. */
 export interface NextjsBuild {
-  readonly directory: string;
   readonly next: string;
   readonly output: string;
 }
@@ -47,15 +44,12 @@ export interface NextjsServer extends HttpServer {
 
 /**
  * Spec 2's cell of `@stowage/nextjs`: the application served by `next start`, which the
- * Node harness starts as a child process (spec 2). Each run copies the application into a
- * directory of its own below `packageDirectory`, whose `next` it resolves, so that runs of
- * several files build side by side and the floor builds with its own `next`.
+ * Node harness starts as a child process (spec 2).
  */
-export function nextjsServer(packageDirectory: string = nextjsPackage()): NextjsServer {
-  const directory = join(packageDirectory, ".next-runs", crypto.randomUUID());
+export function nextjsServer(): NextjsServer {
+  const directory = runDirectory();
   let built: Promise<NextjsBuild> | undefined;
-  const build = async (): Promise<NextjsBuild> =>
-    await (built ??= builtApplication(packageDirectory, directory));
+  const build = async (): Promise<NextjsBuild> => await (built ??= builtApplication(directory));
 
   return {
     name: "@stowage/nextjs",
@@ -86,13 +80,9 @@ export function nextjsServer(packageDirectory: string = nextjsPackage()): Nextjs
       return {
         url: routeUrls(origin),
         meterApart: async () => {
-          await asked(child, "start");
+          await asked(child, "start", "started");
 
-          return async () => {
-            const answer = await asked(child, "growth");
-
-            return answer.stowageMeter === "growth" ? answer.bytes : 0;
-          };
+          return async () => (await asked(child, "growth", "growth")).bytes;
         },
         close: async () => {
           child.kill();
@@ -104,12 +94,54 @@ export function nextjsServer(packageDirectory: string = nextjsPackage()): Nextjs
 }
 
 /**
- * Copies the application into `directory` and builds it there with `next build`. The build
- * runs without the variables the storage is configured from, so that a storage constructed
- * while Next.js evaluates the application's modules fails it (spec 13): that it passes is
- * what shows `lazyStorage` constructing nothing at build time.
+ * A directory of its own below the package whose `next` builds the application, so that the
+ * runs of several files build side by side and the floor builds with its own `next`.
  */
-async function builtApplication(packageDirectory: string, directory: string): Promise<NextjsBuild> {
+function runDirectory(): string {
+  return join(nextjsPackage, ".next-runs", crypto.randomUUID());
+}
+
+/**
+ * The application copied into `directory` and built there with `next build`. The build runs
+ * without the variables the storage is configured from, so that a storage constructed while
+ * Next.js evaluates the application's modules fails it (spec 13).
+ */
+async function builtApplication(directory: string): Promise<NextjsBuild> {
+  await copyApplication(directory);
+
+  const next = await nextOf(directory);
+
+  return { next, output: await nextBuild(next, directory) };
+}
+
+/**
+ * What `next build` reports for the application changed to construct its storage while its
+ * module is evaluated, as it would without `lazyStorage`: the failure that a build of the
+ * application as it is would meet if anything constructed the storage at build time.
+ */
+export async function eagerBuildFailure(): Promise<string> {
+  const directory = runDirectory();
+
+  try {
+    await copyApplication(directory);
+
+    const storageModule = join(directory, "lib/storage.js");
+
+    await writeFile(storageModule, `${await readFile(storageModule, "utf8")}\nstorage();\n`);
+
+    const output = await nextBuild(await nextOf(directory), directory).catch((failure: unknown) =>
+      failure instanceof Error ? failure : undefined,
+    );
+
+    if (!(output instanceof Error)) throw new Error("`next build` passed a storage built eagerly");
+
+    return output.message;
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+async function copyApplication(directory: string): Promise<void> {
   await mkdir(directory, { recursive: true });
   await Promise.all(
     applicationSources.map(
@@ -117,9 +149,11 @@ async function builtApplication(packageDirectory: string, directory: string): Pr
         await cp(join(application, source), join(directory, source), { recursive: true }),
     ),
   );
+}
 
-  const next = await nextOf(packageDirectory, directory);
-  const output = await new Promise<string>((resolve, reject) => {
+/** Runs `next build` in `directory` and resolves to its output, or rejects with it. */
+async function nextBuild(next: string, directory: string): Promise<string> {
+  return await new Promise<string>((resolve, reject) => {
     execFile(
       process.execPath,
       [next, "build"],
@@ -130,8 +164,6 @@ async function builtApplication(packageDirectory: string, directory: string): Pr
       },
     );
   });
-
-  return { directory, next, output };
 }
 
 /**
@@ -139,7 +171,7 @@ async function builtApplication(packageDirectory: string, directory: string): Pr
  * pins: a build that reached another copy would pass as that release's and prove nothing
  * about it.
  */
-async function nextOf(packageDirectory: string, directory: string): Promise<string> {
+async function nextOf(directory: string): Promise<string> {
   const resolve = createRequire(join(directory, "package.json")).resolve;
   const { version }: { readonly version: string } = JSON.parse(
     await readFile(resolve("next/package.json"), "utf8"),
@@ -147,11 +179,11 @@ async function nextOf(packageDirectory: string, directory: string): Promise<stri
   const manifest: {
     readonly dependencies?: Readonly<Record<string, string>>;
     readonly devDependencies?: Readonly<Record<string, string>>;
-  } = JSON.parse(await readFile(join(packageDirectory, "package.json"), "utf8"));
+  } = JSON.parse(await readFile(join(nextjsPackage, "package.json"), "utf8"));
   const pinned = manifest.dependencies?.["next"] ?? manifest.devDependencies?.["next"];
 
   if (version !== pinned) {
-    throw new Error(`\`next\` resolved to ${version} below ${packageDirectory}, not ${pinned}`);
+    throw new Error(`\`next\` resolved to ${version} below ${nextjsPackage}, not ${pinned}`);
   }
 
   return resolve("next/dist/bin/next");
@@ -193,19 +225,18 @@ async function listeningOrigin(child: ChildProcess): Promise<string> {
   return origin;
 }
 
-/** Sends `request` to the meter of `meter-over-ipc.ts` and resolves to its answer. */
-async function asked(
+async function asked<Answer extends MeterAnswer["stowageMeter"]>(
   child: ChildProcess,
   request: MeterRequest["stowageMeter"],
-): Promise<MeterAnswer> {
-  const expected = request === "start" ? "started" : "growth";
-  const answered = new Promise<MeterAnswer>((resolve) => {
+  expected: Answer,
+): Promise<Extract<MeterAnswer, { stowageMeter: Answer }>> {
+  const answered = new Promise<Extract<MeterAnswer, { stowageMeter: Answer }>>((resolve) => {
     const listener = (message: Partial<MeterAnswer> | null): void => {
       if (message?.stowageMeter !== expected) return;
 
       child.off("message", listener);
       // oxlint-disable-next-line no-unsafe-type-assertion -- the meter answers in this shape
-      resolve(message as MeterAnswer);
+      resolve(message as Extract<MeterAnswer, { stowageMeter: Answer }>);
     };
 
     child.on("message", listener);
