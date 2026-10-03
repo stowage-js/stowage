@@ -55,6 +55,7 @@ export async function serveObject(
   const serving: ServeRequest = {
     storage,
     key,
+    method,
     signal: request.signal,
     options,
     answeredAt: Date.now(),
@@ -64,7 +65,7 @@ export async function serveObject(
   try {
     if (method === "HEAD") {
       const stat = await storage.stat(key, { signal: serving.signal });
-      const failed = failedPreconditionOf(preconditions, stat, serving.answeredAt);
+      const failed = failedPreconditionOf(preconditions, stat);
 
       return failed === undefined
         ? new Response(null, { status: 200, headers: objectHeaders(serving, stat) })
@@ -88,7 +89,7 @@ export async function serveObject(
 
     return await servePlanned(serving, {
       stat,
-      decide: (each) => planOf(asked, each, serving.answeredAt),
+      decide: (each) => planOf(asked, each),
     });
   } catch (thrown) {
     return answerFor(thrown);
@@ -99,6 +100,7 @@ export async function serveObject(
 interface ServeRequest {
   readonly storage: Storage;
   readonly key: string;
+  readonly method: "GET" | "HEAD";
   readonly signal: AbortSignal;
   readonly options: ServeObjectOptions;
   /**
@@ -126,12 +128,8 @@ type Plan =
  * empty suffix unsatisfiable, and any other suffix of an empty object the whole of it,
  * which no `Content-Range` can name.
  */
-function planOf(
-  { preconditions, requested, ifRange }: Asked,
-  stat: ObjectStat,
-  answeredAt: number,
-): Plan {
-  const failed = failedPreconditionOf(preconditions, stat, answeredAt);
+function planOf({ preconditions, requested, ifRange }: Asked, stat: ObjectStat): Plan {
+  const failed = failedPreconditionOf(preconditions, stat);
 
   if (failed !== undefined) return { status: failed };
   if (requested === undefined || !rangeHolds(ifRange, stat)) return { status: 200 };
@@ -191,7 +189,13 @@ function failedAnswer(
 ): Response {
   return status === 304
     ? new Response(null, { status, headers: objectHeaders(serving, stat) })
-    : new Response(null, { status });
+    : new Response(null, {
+        status,
+        headers:
+          serving.method === "HEAD"
+            ? { date: new Date(serving.answeredAt).toUTCString() }
+            : undefined,
+      });
 }
 
 async function serveWhole(serving: ServeRequest, planning?: Planning): Promise<Response> {
