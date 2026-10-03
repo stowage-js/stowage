@@ -1,7 +1,8 @@
 # @stowage/conformance
 
-The cases every stowage adapter has to pass, as plain cases a test framework maps onto its own
-runner. An adapter written outside this repository passes the same cases as the ones inside it.
+The cases every stowage adapter and every server has to pass, as plain cases a test framework maps
+onto its own runner. An adapter written outside this repository passes the same cases as the ones
+inside it, and so does a server that answers through `@stowage/http`.
 
 ## Install
 
@@ -158,6 +159,52 @@ export default {
 ```
 
 A failed result carries the error as `name`, `message`, `stack` and, for a `StorageError`, `code`.
+
+## Test a server
+
+The HTTP conformance suite checks a server that answers through `@stowage/http` from the client's
+side. A case seeds and reads objects through a storage and sends its own request with `fetch` to
+the server, which serves the same objects
+([spec 14.8](https://github.com/stowage-js/stowage/blob/@stowage/conformance@0.5.0/docs/spec.md#148-the-http-conformance-suite)).
+An `HttpConformanceTarget` constructs that storage and names the URL of each of four routes for a
+key, which travels in the URL however the server routes it:
+
+```ts
+import { fromEnv, s3Storage } from "@stowage/adapter-s3";
+import { describeHttpConformance, type HttpConformanceTarget } from "@stowage/conformance";
+import { describe, test } from "vitest";
+
+const origin = "http://localhost:3000";
+
+export const target: HttpConformanceTarget = {
+  name: "my-app",
+  createStorage: () =>
+    s3Storage({ bucket: "my-app-conformance", region: "eu-north-1", credentials: fromEnv }),
+  url: (answer, key) => new URL(`/${answer}/${encodeURIComponent(key)}`, origin),
+};
+
+describeHttpConformance(target, { describe, test });
+```
+
+The suite fixes what each route answers with:
+
+- `serve`: `serveObject(storage, key, request)`, without options.
+- `redirect`: `redirectToObject(storage, key, request, { expiresIn: 60 })`.
+- `upload`: `acceptUpload(storage, key, request, { maxSize: 1048576 })`.
+- `presign`: on `POST`, the JSON body `{ "contentType", "contentLength" }` read and handed on as
+  `presignUpload(storage, key, { expiresIn: 60, maxSize: 1048576, contentType, contentLength })`.
+  Any other method is answered `405` with `Allow: POST` by the route itself.
+
+The `serve`, `redirect` and `upload` routes hand every method the cases send, `GET`, `HEAD`,
+`POST`, `PUT` and `DELETE`, to the layer, which answers `405` itself. `describeHttpConformance` runs
+the cases inside a `describe` named `<name> over HTTP`, on Vitest, `bun:test` or `Deno.test` as
+above, with the same `keyPrefix`, `cleanup` and reading of the declaration. There is no `runAll`
+beside it: a server on `workerd` is tested from Node. A client disconnecting and flat memory are no
+cases, since no client observes them.
+
+[`@stowage/hono`](https://github.com/stowage-js/stowage/blob/@stowage/hono@0.5.0/harness/targets/src/hono.ts)
+is the implementation to read: one application of four routes, which `@hono/node-server`,
+`Bun.serve`, `Deno.serve` and `workerd` serve in this repository's CI.
 
 ## Read an adapter
 

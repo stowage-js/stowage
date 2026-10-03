@@ -210,6 +210,19 @@ test("the README of @stowage/adapter-gcs shows no key exchange", async () => {
   expect(text).not.toContain("urn:ietf:params:oauth:grant-type:jwt-bearer");
 });
 
+test("the README of @stowage/conformance shows how to test a server after `workerd`", async () => {
+  const text = await readmeOf(conformance);
+  const headings = headingsOf(text);
+  const testAServer = sectionOf(text, "Test a server");
+
+  expect(headings.indexOf("Test a server")).toBe(
+    headings.indexOf("Run the cases on `workerd`") + 1,
+  );
+  expect(testAServer).toContain("HttpConformanceTarget");
+  expect(testAServer).toContain("describeHttpConformance");
+  expect(testAServer).toContain("[`@stowage/hono`]");
+});
+
 // Spec 16 has an empty section say so, and leaves limits empty for these two.
 test.each([nestjs, hono])(
   "the README of $name says that its limits are empty",
