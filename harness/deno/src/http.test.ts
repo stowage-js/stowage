@@ -1,8 +1,5 @@
-import { env } from "node:process";
-
 import { s3Storage } from "../../../packages/adapter-s3/src/index.ts";
-import { configuredStorage } from "../../s3/src/environment.ts";
-import { endpointTiersFrom } from "../../targets/src/endpoints.ts";
+import { serverStorage } from "../../s3/src/environment.ts";
 import { honoApp } from "../../targets/src/hono.ts";
 import { describeServers, type HttpServer, nodeBridge } from "../../targets/src/http.ts";
 import { type RoutesHandler, routeUrls, routesOf } from "../../targets/src/routes.ts";
@@ -37,7 +34,7 @@ const honoOnDenoServe = onDenoServe(
   (storage, routes) => honoApp(storage, routes).fetch,
 );
 
-const configured = endpointTiersFrom(env).has("s3") ? configuredStorage() : undefined;
+const configured = serverStorage();
 
 const close = await describeServers(
   [denoServe, honoOnDenoServe, nodeBridge],

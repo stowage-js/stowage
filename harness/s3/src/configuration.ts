@@ -105,6 +105,17 @@ export function endpointNameFrom(variables: Variables): string | undefined {
   return filled(variables["STOWAGE_S3_ENDPOINT_NAME"]);
 }
 
+/**
+ * Spec 2: behind every server is `adapter-s3` against SeaweedFS and never a real endpoint,
+ * since a server adds no provider behavior. The scheduled run names its real endpoint, and
+ * a run whose endpoint has no name still runs the servers rather than skipping them silently.
+ */
+export function servesBehindAServer(variables: Variables): boolean {
+  const name = endpointNameFrom(variables);
+
+  return !realEndpoints.some((real) => real === name);
+}
+
 export interface ExpiredCredentials {
   readonly options: S3AdapterOptions;
   /** The expiration STS returned with the token, after which the provider refuses it. */

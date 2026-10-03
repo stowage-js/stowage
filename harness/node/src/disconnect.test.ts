@@ -1,15 +1,13 @@
 import { createServer } from "node:http";
-import { env } from "node:process";
 
 import { describe, expect, test } from "vitest";
 
 import { s3Storage } from "../../../packages/adapter-s3/src/index.ts";
-import { configuredStorage, endpointOrFail } from "../../s3/src/environment.ts";
+import { endpointOrFail, serverStorage } from "../../s3/src/environment.ts";
 import { disconnectDuringGet } from "../../targets/src/disconnect.ts";
-import { endpointTiersFrom } from "../../targets/src/endpoints.ts";
 import { type HttpServer, listening } from "../../targets/src/http.ts";
 
-const configured = endpointTiersFrom(env).has("s3") ? configuredStorage() : undefined;
+const configured = serverStorage();
 
 /** Short, since a server that keeps the provider's request open fails only at the timeout. */
 const closeTimeout = 2_000;

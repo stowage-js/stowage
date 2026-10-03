@@ -1,10 +1,7 @@
-import { env } from "node:process";
-
 import { afterAll, describe, test } from "bun:test";
 
 import { s3Storage } from "../../../packages/adapter-s3/src/index.ts";
-import { configuredStorage } from "../../s3/src/environment.ts";
-import { endpointTiersFrom } from "../../targets/src/endpoints.ts";
+import { serverStorage } from "../../s3/src/environment.ts";
 import { honoApp } from "../../targets/src/hono.ts";
 import { describeServers, type HttpServer, nodeBridge } from "../../targets/src/http.ts";
 import { lengthOfCompleteBody, lengthZeroOnHead } from "../../targets/src/runtime-alterations.ts";
@@ -39,7 +36,7 @@ const honoOnBunServe = onBunServe(
   (storage, routes) => honoApp(storage, routes).fetch,
 );
 
-const configured = endpointTiersFrom(env).has("s3") ? configuredStorage() : undefined;
+const configured = serverStorage();
 const close = await describeServers([bunServe, honoOnBunServe, nodeBridge], "Bun", configured, {
   describe,
   test,
