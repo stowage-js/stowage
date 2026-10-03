@@ -43,7 +43,7 @@ await fetch(url, { method: "PUT", headers, body: file });
 `presignPut` signs a user delegation SAS, which only an access token can request. The principal
 behind the token needs the account's `generateUserDelegationKey` action and the data role for the
 upload
-([spec 8.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.4.0/docs/spec.md#89-presigned-urls)).
+([spec 8.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.5.0/docs/spec.md#89-presigned-urls)).
 
 ## Runtimes
 
@@ -56,17 +56,17 @@ The bundle measures 14.9 kB minified and gzipped, `@stowage/core` included.
 
 - `userMetadataTokenKeys` is not declared: a user metadata key beyond ASCII identifiers, such as
   `content-hash`, is `Unsupported` naming it
-  ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.4.0/docs/spec.md#49-capabilities)).
+  ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.5.0/docs/spec.md#49-capabilities)).
 - Three kinds of writable key are `InvalidKey` before any request: one of more than 254 segments,
   one with a segment ending in `.`, and one holding a character from `U+0080` to `U+009F`. An
   addressable key and a prefix are refused by nothing beyond the key rule
-  ([spec 8.1](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.4.0/docs/spec.md#81-construction)).
+  ([spec 8.1](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.5.0/docs/spec.md#81-construction)).
 - `delete` sends at most one Blob Batch request per 256 keys
-  ([spec 8.1](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.4.0/docs/spec.md#81-construction)).
+  ([spec 8.1](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.5.0/docs/spec.md#81-construction)).
 - The promised provider is a general-purpose v2 account in the public cloud, without hierarchical
   namespace, holding block blobs. An account with hierarchical namespace, a sovereign cloud and
   another endpoint speaking the Blob wire protocol can be configured and are not promised
-  ([spec 8.2](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.4.0/docs/spec.md#82-promised-provider)):
+  ([spec 8.2](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.5.0/docs/spec.md#82-promised-provider)):
 
 | Point                              | What holds                                                                                                                                                                             |
 | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -85,7 +85,7 @@ The bundle measures 14.9 kB minified and gzipped, `@stowage/core` included.
 ## Notes
 
 stowage acquires no token
-([spec 8.3](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.4.0/docs/spec.md#83-credentials)).
+([spec 8.3](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.5.0/docs/spec.md#83-credentials)).
 A caller holding an `@azure/identity` credential, such as `DefaultAzureCredential`, wraps its
 `getToken` in a resolver. The adapter calls the resolver before every request it signs and keeps
 nothing between calls, so the caching is the credential's:
@@ -118,9 +118,9 @@ An account key signs with Shared Key instead. `credentials: fromEnv` reads it fr
 and recommends Entra ID for every account that can do without it: a key grants everything on the
 account and lives until it is regenerated. An account that disallows Shared Key answers
 `InvalidCredentials`
-([spec 8.3](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.4.0/docs/spec.md#83-credentials)),
+([spec 8.3](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.5.0/docs/spec.md#83-credentials)),
 and `presignPut` refuses an account key before any request
-([spec 8.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.4.0/docs/spec.md#89-presigned-urls)).
+([spec 8.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.5.0/docs/spec.md#89-presigned-urls)).
 
 ```ts
 import { azureBlobStorage, fromEnv } from "@stowage/adapter-azure-blob";
@@ -174,7 +174,7 @@ export function azureBlobStorageFromConnectionString(
 A browser upload through `presignPut` is preflighted, so the account needs a CORS rule for the
 Blob service that allows the uploading origin, `PUT`, and the headers `content-type` and
 `x-ms-blob-type`. stowage configures none
-([flow 2](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.4.0/docs/spec.md#flow-2-browser-upload-through-a-presigned-put)).
+([flow 2](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.5.0/docs/spec.md#flow-2-browser-upload-through-a-presigned-put)).
 With the Azure CLI:
 
 ```sh
@@ -186,11 +186,11 @@ az storage cors add --account-name myappuploads --services b \
 A `put` of a stream that fills more than one part stages blocks and commits them. When it rejects
 with `ProviderError` whose `providerCode` is `InvalidBlockList`, another writer usually committed
 to the same key in between: the key holds that writer's object, and the error is not retryable
-([spec 8.6](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.4.0/docs/spec.md#86-uploads)).
+([spec 8.6](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.5.0/docs/spec.md#86-uploads)).
 A caller whose object has to win puts it again from its source, since the stream is spent.
 
 `put` takes no `Blob`. A caller holding one passes its stream
-([spec 4.2](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.4.0/docs/spec.md#42-bodies)):
+([spec 4.2](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.5.0/docs/spec.md#42-bodies)):
 
 ```ts
 import { azureBlobStorage, fromEnv } from "@stowage/adapter-azure-blob";
@@ -206,7 +206,7 @@ await storage.put("2026/q3.csv", blob.stream(), { contentType: blob.type });
 ```
 
 stowage reports no progress, no block list and no resume
-([spec 8.6](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.4.0/docs/spec.md#86-uploads)).
+([spec 8.6](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.5.0/docs/spec.md#86-uploads)).
 A caller who wants progress counts the bytes on their way into `put`:
 
 ```ts
@@ -241,10 +241,10 @@ await storage.put("intro.mp4", response.body.pipeThrough(countBytes(console.log)
 
 ## Specification
 
-[`docs/spec.md` at `@stowage/adapter-azure-blob@0.4.0`](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.4.0/docs/spec.md#8-stowageadapter-azure-blob)
+[`docs/spec.md` at `@stowage/adapter-azure-blob@0.5.0`](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.5.0/docs/spec.md#8-stowageadapter-azure-blob)
 is the contract: a caller may rely on what it states and on nothing else this package happens to
-export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.4.0/CONTEXT.md)
-and the [decisions behind it](https://github.com/stowage-js/stowage/tree/@stowage/adapter-azure-blob@0.4.0/docs/adr)
+export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.5.0/CONTEXT.md)
+and the [decisions behind it](https://github.com/stowage-js/stowage/tree/@stowage/adapter-azure-blob@0.5.0/docs/adr)
 are at the same tag.
 
 ## License

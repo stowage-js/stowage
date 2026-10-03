@@ -240,6 +240,24 @@ test.each(published)(
   },
 );
 
+const releaseLinkedBy = async (manifest: { readonly name: string }): Promise<string[]> => [
+  ...new Set(
+    [
+      ...(await readmeOf(manifest)).matchAll(
+        /https:\/\/github\.com\/stowage-js\/stowage\/blob\/[^/]+\/[^/@]+@([^/]+)\/docs\/spec\.md/gu,
+      ),
+    ].map(([, version = ""]) => version),
+  ),
+];
+
+// Spec 1: the eleven packages carry one version number and are released together, so the
+// READMEs link one release, a package joining the family among them.
+test("every README links the spec at the same release", async () => {
+  const releases = new Set((await Promise.all(published.map(releaseLinkedBy))).flat());
+
+  expect([...releases]).toHaveLength(1);
+});
+
 const callsAfterConstruction = (block: string): string =>
   block.slice(block.indexOf("await storage.put"));
 
