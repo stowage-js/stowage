@@ -1,8 +1,8 @@
 {
-  "name": "@stowage/harness-targets",
+  "name": "@stowage/harness-hono-floor",
   "version": "0.0.0",
   "private": true,
-  "description": "Private: the conformance targets the Node, Bun and Deno harnesses share.",
+  "description": "Private harness: the Hono cell on Node at the floor of the peer range, which Renovate leaves where it is.",
   "type": "module",
   "devDependencies": {
     "@hono/node-server": "2.1.3",

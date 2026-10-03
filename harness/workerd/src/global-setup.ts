@@ -16,13 +16,14 @@ export default async function setup(): Promise<void> {
 }
 
 /**
- * `src/worker.ts` and `src/http-worker.ts`, each bundled alone into the one module its
- * config embeds: built together, they would share a chunk that neither config embeds. The
- * first build empties `dist`, and the second keeps what the first wrote.
+ * `src/worker.ts`, `src/http-worker.ts` and `src/hono-worker.ts`, each bundled alone into
+ * the one module its config embeds: built together, they would share a chunk that no config
+ * embeds. The first build empties `dist`, and the later ones keep what it wrote.
  */
 async function bundleWorkers(): Promise<void> {
   await bundle("worker", true);
   await bundle("http-worker", false);
+  await bundle("hono-worker", false);
 }
 
 async function bundle(name: string, clean: boolean): Promise<void> {

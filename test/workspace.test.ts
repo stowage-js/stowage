@@ -3,6 +3,8 @@ import { readdir } from "node:fs/promises";
 import { expect, test } from "vitest";
 
 import changesetConfig from "../.changeset/config.json" with { type: "json" };
+import honoFloor from "../harness/hono-floor/package.json" with { type: "json" };
+import harnessTargets from "../harness/targets/package.json" with { type: "json" };
 import adapterAzureBlob from "../packages/adapter-azure-blob/package.json" with { type: "json" };
 import adapterFs from "../packages/adapter-fs/package.json" with { type: "json" };
 import adapterGcs from "../packages/adapter-gcs/package.json" with { type: "json" };
@@ -10,6 +12,7 @@ import adapterMemory from "../packages/adapter-memory/package.json" with { type:
 import adapterS3 from "../packages/adapter-s3/package.json" with { type: "json" };
 import conformance from "../packages/conformance/package.json" with { type: "json" };
 import core from "../packages/core/package.json" with { type: "json" };
+import hono from "../packages/hono/package.json" with { type: "json" };
 import http from "../packages/http/package.json" with { type: "json" };
 
 interface PackageManifest {
@@ -31,8 +34,12 @@ const published: readonly PackageManifest[] = [
   adapterAzureBlob,
   adapterGcs,
   http,
+  hono,
   conformance,
 ];
+
+/** Spec 1: each integration and the framework it declares as its one peer. */
+const frameworkOf: Readonly<Record<string, string>> = { [hono.name]: "hono" };
 
 test("every package under `packages` is checked here", async () => {
   const entries = await readdir(new URL("../packages/", import.meta.url), {
@@ -65,12 +72,29 @@ test.each(published)("$name keeps everything but `dist` out of the tarball", (ma
 });
 
 test.each(published)("$name has no runtime dependency outside `@stowage`", (manifest) => {
+  const framework = frameworkOf[manifest.name];
   const runtimeDependencies = [
     ...Object.keys(manifest.dependencies ?? {}),
     ...Object.keys(manifest.peerDependencies ?? {}),
   ];
 
-  expect(runtimeDependencies.filter((name) => !name.startsWith("@stowage/"))).toEqual([]);
+  expect(
+    runtimeDependencies.filter((name) => !name.startsWith("@stowage/") && name !== framework),
+  ).toEqual([]);
+});
+
+// Spec 1, ADR 0047: an integration declares its framework as a peer and nothing else as one.
+test.each(published)("$name declares a peer only where it integrates a framework", (manifest) => {
+  const framework = frameworkOf[manifest.name];
+
+  expect(Object.keys(manifest.peerDependencies ?? {})).toEqual(
+    framework === undefined ? [] : [framework],
+  );
+});
+
+// Spec 2, ADR 0050: the peer range starts at the floor CI runs.
+test("@stowage/hono promises Hono 4 from the floor CI runs", () => {
+  expect(hono.peerDependencies).toEqual({ hono: `^${honoFloor.devDependencies.hono}` });
 });
 
 // Spec 1: nothing detects the runtime at import time, so no package hands one runtime an
@@ -84,4 +108,11 @@ test.each(published)("$name exports one entry point for every runtime", (manifes
 test("@stowage/http depends on @stowage/core alone", () => {
   expect(http.dependencies).toEqual({ "@stowage/core": "workspace:^" });
   expect("peerDependencies" in http).toBe(false);
+});
+
+// The harness builds its Hono applications with `withStorage` from the sources, whose types
+// resolve the copy `@stowage/hono` installs, and Hono's `Context` has private members: two
+// copies at two versions are two types to the compiler.
+test("the harness serves Hono at the version @stowage/hono is checked against", () => {
+  expect(harnessTargets.devDependencies.hono).toBe(hono.devDependencies.hono);
 });

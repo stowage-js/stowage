@@ -1,0 +1,49 @@
+{
+  "name": "@stowage/hono",
+  "version": "0.4.0",
+  "description": "The Hono integration of stowage: sets a storage on `c.var` under a name the caller chooses, for routes that answer through @stowage/http.",
+  "keywords": [
+    "hono",
+    "middleware",
+    "object-storage",
+    "storage",
+    "stowage"
+  ],
+  "homepage": "https://github.com/stowage-js/stowage/tree/main/packages/hono#readme",
+  "bugs": "https://github.com/stowage-js/stowage/issues",
+  "license": "MIT",
+  "author": "Alexander Kaufmann",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stowage-js/stowage.git",
+    "directory": "packages/hono"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "dependencies": {
+    "@stowage/core": "workspace:^"
+  },
+  "devDependencies": {
+    "@stowage/adapter-memory": "workspace:^",
+    "@stowage/adapter-s3": "workspace:^",
+    "@stowage/http": "workspace:^",
+    "hono": "4.13.12"
+  },
+  "peerDependencies": {
+    "hono": "^4.13.12"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

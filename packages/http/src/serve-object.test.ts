@@ -158,6 +158,21 @@ describe("the headers of spec 10.3", () => {
     expect((await serve("GET")).headers.get("last-modified")).toBe("Tue, 01 Sep 2026 10:20:29 GMT");
   });
 
+  // Bun and Deno cache the `Date` they write by up to a second, so one the server added could
+  // lie before the `Last-Modified` the layer capped at its own clock.
+  test.each(["GET", "HEAD"])(
+    "`Date` on `%s` is the moment `Last-Modified` was capped at",
+    async (method) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date("2026-09-01T10:20:29.900Z"));
+
+      const { headers } = await serve(method);
+
+      expect(headers.get("date")).toBe("Tue, 01 Sep 2026 10:20:29 GMT");
+      expect(headers.get("last-modified")).toBe(headers.get("date"));
+    },
+  );
+
   test("`Accept-Ranges: bytes` is sent where the storage declares `rangeReads`", async () => {
     const declaring = holding({ capabilities: ["rangeReads"] });
 
@@ -545,6 +560,7 @@ describe("`If-Match`", () => {
 
     expect(response.status).toBe(412);
     expect(await response.text()).toBe("");
+    expect([...response.headers]).toEqual([]);
     expect(storageErrorOf(response)).toBeUndefined();
     expect(calls).toEqual(["stat"]);
   });
@@ -588,12 +604,23 @@ describe("`If-Modified-Since`", () => {
     expect((await serveConditional({ "if-modified-since": secondBefore })).status).toBe(200);
   });
 
-  test("compares with the `Last-Modified` the answer carries where `lastModified` is later", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-09-01T10:20:29.900Z"));
+  test.each(["GET", "HEAD"])(
+    "on `%s` compares with `lastModified` where it is later than the response's date",
+    async (method) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date("2026-09-01T10:20:29.900Z"));
 
-    expect((await serveConditional({ "if-modified-since": secondBefore })).status).toBe(304);
-  });
+      const response = await serveConditional(
+        { "if-modified-since": secondBefore },
+        undefined,
+        method,
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("last-modified")).toBe(secondBefore);
+      expect(response.headers.get("date")).toBe(secondBefore);
+    },
+  );
 
   test.each([
     ["no date", "yesterday"],
@@ -631,6 +658,24 @@ describe("`If-Unmodified-Since`", () => {
     expect(calls).toEqual(["stat"]);
   });
 
+  test.each(["GET", "HEAD"])(
+    "on `%s` compares with `lastModified` where it is later than the response's date",
+    async (method) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date("2026-09-01T10:20:29.900Z"));
+
+      const { storage, calls } = rangingStorage();
+      const response = await serveConditional(
+        { "if-unmodified-since": secondBefore },
+        storage,
+        method,
+      );
+
+      expect(response.status).toBe(412);
+      expect(calls).toEqual(["stat"]);
+    },
+  );
+
   test("beside `If-Match` is ignored", async () => {
     const response = await serveConditional({
       "if-match": "*",
@@ -651,6 +696,27 @@ describe("`If-Unmodified-Since`", () => {
 });
 
 describe("preconditions on a `HEAD`", () => {
+  test.each([
+    ["If-Match", { "if-match": '"other"' }],
+    ["If-Unmodified-Since", { "if-unmodified-since": secondBefore }],
+  ])("a failed `%s` carries the call-time `Date`", async (_, headers) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-01T10:20:31.900Z"));
+
+    const storage = stubStorage({
+      stat: async () => {
+        vi.setSystemTime(new Date("2026-09-01T10:20:35Z"));
+
+        return statOf();
+      },
+    });
+    const response = await serveConditional(headers, storage, "HEAD");
+
+    expect(response.status).toBe(412);
+    expect(response.body).toBeNull();
+    expect([...response.headers]).toEqual([["date", "Tue, 01 Sep 2026 10:20:31 GMT"]]);
+  });
+
   test.each([
     ["a failed `If-None-Match`", 304, { "if-none-match": '"0123abcd"' }],
     ["a failed `If-Modified-Since`", 304, { "if-modified-since": lastModified }],
@@ -895,6 +961,22 @@ describe("an object changing between `stat` and `get`", () => {
     const response = await serveConditional({ "if-unmodified-since": lastModified }, storage);
 
     expect(response.status).toBe(412);
+    expect(canceled).toEqual([undefined]);
+  });
+
+  test("rechecks a future `lastModified` against date preconditions and cancels the body", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-01T10:20:30.900Z"));
+
+    const { storage, calls, canceled } = changingStorage(
+      { etag: undefined },
+      { etag: undefined, lastModified: new Date("2026-09-01T10:20:31.456Z") },
+    );
+    const response = await serveConditional({ "if-unmodified-since": lastModified }, storage);
+
+    expect(response.status).toBe(412);
+    expect([...response.headers]).toEqual([]);
+    expect(calls).toEqual(["stat", "get"]);
     expect(canceled).toEqual([undefined]);
   });
 

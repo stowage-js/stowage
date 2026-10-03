@@ -12,7 +12,12 @@ import { type HttpConfig, workerdServer } from "./http-server.ts";
 // the Node harness, once against each set of flags.
 const configured = endpointTiersFrom(env).has("s3") ? configuredStorage() : undefined;
 const close = await describeServers(
-  [workerdServer("spec"), workerdServer("defaults")],
+  [
+    workerdServer("spec"),
+    workerdServer("defaults"),
+    workerdServer("honoSpec"),
+    workerdServer("honoDefaults"),
+  ],
   "workerd",
   configured,
   { describe, test },

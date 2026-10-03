@@ -1,6 +1,6 @@
 import type { ObjectStat } from "@stowage/core";
 
-import { httpDateOf, lastModifiedOf } from "./http-date.ts";
+import { httpDateOf } from "./http-date.ts";
 
 /** The preconditions of one request, `undefined` where a field is absent or ignored. */
 export interface Preconditions {
@@ -49,8 +49,8 @@ export function failedPreconditionOf(
   if (preconditions === undefined) return undefined;
 
   const { ifMatch, ifUnmodifiedSince, ifNoneMatch, ifModifiedSince } = preconditions;
-  // Spec 10.3: dates compare with the `Last-Modified` the answer carries.
-  const modified = lastModifiedOf(stat).getTime();
+  // Spec 10.3: dates compare with `lastModified` at whole seconds.
+  const modified = Math.floor(stat.lastModified.getTime() / 1000) * 1000;
 
   if (ifMatch === undefined) {
     if (ifUnmodifiedSince !== undefined && modified > ifUnmodifiedSince) return 412;
