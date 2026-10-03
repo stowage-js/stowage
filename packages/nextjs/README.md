@@ -110,6 +110,9 @@ itself and skip the checks of `contentLength` and `contentType`. Next.js also ru
 action at a time per client, so ten files would be ten round trips in sequence. A route handler
 presigns instead:
 
+Before calling `presignUpload`, the application must authenticate the caller and authorize
+upload access to the requested key.
+
 ```ts
 // app/uploads/[...key]/route.ts
 import { presignUpload } from "@stowage/http";
