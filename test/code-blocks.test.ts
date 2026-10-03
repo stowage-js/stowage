@@ -31,9 +31,9 @@ const packageOfSpecSection: Readonly<Record<string, string | null>> = {
   "8": "adapter-azure-blob",
   "9": "adapter-gcs",
   "10": "http",
-  // Defer these sections until the integration packages exist.
-  "11": null,
+  "11": "nestjs",
   "12": "hono",
+  // Defer this section until its integration package exists.
   "13": null,
   "14": "conformance",
 };
@@ -252,6 +252,11 @@ beforeAll(async () => {
           // The copy the declarations of `@stowage/hono` resolve, since Hono's `Context` is
           // a class with private members and two copies are two types to the compiler.
           hono: [join(repository, "packages/hono/node_modules/hono/dist/types/index.d.ts")],
+          // The copy the declarations of `@stowage/nestjs` resolve, which the root does not
+          // install.
+          "@nestjs/common": [
+            join(repository, "packages/nestjs/node_modules/@nestjs/common/index.d.ts"),
+          ],
         },
       },
       files: [

@@ -15,6 +15,7 @@
       "@stowage/adapter-azure-blob",
       "@stowage/adapter-gcs",
       "@stowage/http",
+      "@stowage/nestjs",
       "@stowage/hono",
       "@stowage/conformance"
     ]
