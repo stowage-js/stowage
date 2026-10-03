@@ -62,9 +62,10 @@ jobs:
       # own, in the job below.
       - run: pnpm run test
 
-      # Spec 2: `test` runs the Hono cell at the newest release of Hono 4, and this runs it
-      # again at the floor of `@stowage/hono`'s peer range, on each Node line alike.
-      - run: pnpm run test:hono-floor
+      # Spec 2: `test` runs the Hono and NestJS cells at the newest release of each
+      # framework's major, and this runs them again at the floor of each integration's peer
+      # range, on each Node line alike.
+      - run: pnpm run test:floors
 
       - name: Stop the S3 endpoint
         if: always()

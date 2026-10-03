@@ -13,6 +13,7 @@ const repository = fileURLToPath(new URL("../", import.meta.url));
 const documents = [
   "README.md",
   "packages/core/README.md",
+  "packages/nestjs/README.md",
   "packages/adapter-memory/README.md",
   "packages/adapter-fs/README.md",
   "packages/adapter-s3/README.md",
@@ -31,9 +32,9 @@ const packageOfSpecSection: Readonly<Record<string, string | null>> = {
   "8": "adapter-azure-blob",
   "9": "adapter-gcs",
   "10": "http",
-  // Defer these sections until the integration packages exist.
-  "11": null,
+  "11": "nestjs",
   "12": "hono",
+  // Defer this section until its integration package exists.
   "13": null,
   "14": "conformance",
 };
@@ -252,10 +253,18 @@ beforeAll(async () => {
           // The copy the declarations of `@stowage/hono` resolve, since Hono's `Context` is
           // a class with private members and two copies are two types to the compiler.
           hono: [join(repository, "packages/hono/node_modules/hono/dist/types/index.d.ts")],
+          // The copy the declarations of `@stowage/nestjs` resolve, which the root does not
+          // install.
+          "@nestjs/*": [join(repository, "packages/nestjs/node_modules/@nestjs/*/index.d.ts")],
+          "reflect-metadata": [
+            join(repository, "packages/nestjs/node_modules/reflect-metadata/index.d.ts"),
+          ],
         },
       },
       files: [
-        ...files,
+        ...files.filter(
+          (_, index) => compiledBlocks[index]?.document !== "packages/nestjs/README.md",
+        ),
         // The conformance README hands its cases to `bun:test` and `Deno.test`, which the
         // harnesses declare for a type check on Node, and so does this one.
         join(repository, "harness/bun/src/bun-test.d.ts"),
@@ -264,9 +273,37 @@ beforeAll(async () => {
     }),
   );
 
-  const found = diagnosticsOf(await compile(directory), compiledBlocks);
+  // A NestJS application uses legacy decorators, including parameter decorators, and
+  // Node types. Keep these options local to its README (spec 16, ADR 0055).
+  await writeFile(
+    join(directory, "tsconfig.nestjs.json"),
+    JSON.stringify({
+      extends: "./tsconfig.json",
+      compilerOptions: {
+        experimentalDecorators: true,
+        erasableSyntaxOnly: false,
+        strictPropertyInitialization: true,
+        types: ["node"],
+      },
+      files: files.filter(
+        (_, index) => compiledBlocks[index]?.document === "packages/nestjs/README.md",
+      ),
+    }),
+  );
 
-  for (const [name, messages] of found) diagnostics.set(name, messages);
+  const results = await Promise.all(
+    ["tsconfig.json", "tsconfig.nestjs.json"].map(
+      async (project) => await compile(directory, project),
+    ),
+  );
+
+  for (const result of results) {
+    const found = diagnosticsOf(result, compiledBlocks);
+
+    for (const [name, messages] of found) {
+      diagnostics.set(name, [...(diagnostics.get(name) ?? []), ...messages]);
+    }
+  }
 });
 
 function diagnosticsOf(
@@ -345,14 +382,14 @@ afterAll(async () => {
   if (directory !== "") await rm(directory, { recursive: true, force: true });
 });
 
-async function compile(project: string): Promise<Compilation> {
+async function compile(workingDirectory: string, project: string): Promise<Compilation> {
   const tsc = join(repository, "node_modules/typescript/bin/tsc");
 
   return await new Promise((resolve) => {
     execFile(
       process.execPath,
-      [tsc, "--pretty", "false"],
-      { cwd: project },
+      [tsc, "--pretty", "false", "--project", project],
+      { cwd: workingDirectory },
       (error, stdout, stderr) => {
         resolve({ error, stdout, stderr });
       },

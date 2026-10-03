@@ -8,6 +8,13 @@ packages:
 hoist: false
 strictPeerDependencies: true
 
+# `@nestjs/platform-fastify` 12 imports `rxjs` from the multipart interceptor its index loads,
+# without declaring it. Under the nested tree above it finds none.
+packageExtensions:
+  "@nestjs/platform-fastify@12":
+    peerDependencies:
+      rxjs: "^7.1.0"
+
 # Minutes: a day, which `renovate.json` repeats so that Renovate does not propose
 # what an install then refuses.
 minimumReleaseAge: 1440

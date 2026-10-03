@@ -1,0 +1,54 @@
+{
+  "name": "@stowage/nestjs",
+  "version": "0.4.0",
+  "description": "The NestJS integration of stowage: registers a storage under the caller's injection token, and carries a web request and response over Express and Fastify for @stowage/http.",
+  "keywords": [
+    "express",
+    "fastify",
+    "nestjs",
+    "object-storage",
+    "storage",
+    "stowage"
+  ],
+  "homepage": "https://github.com/stowage-js/stowage/tree/main/packages/nestjs#readme",
+  "bugs": "https://github.com/stowage-js/stowage/issues",
+  "license": "MIT",
+  "author": "Alexander Kaufmann",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stowage-js/stowage.git",
+    "directory": "packages/nestjs"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "dependencies": {
+    "@stowage/core": "workspace:^",
+    "@stowage/http": "workspace:^"
+  },
+  "devDependencies": {
+    "@nestjs/common": "12.1.2",
+    "@nestjs/core": "12.1.2",
+    "@nestjs/platform-express": "12.1.2",
+    "@nestjs/platform-fastify": "12.1.2",
+    "@stowage/adapter-memory": "workspace:^",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2"
+  },
+  "peerDependencies": {
+    "@nestjs/common": "^12.1.2"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

@@ -3,7 +3,7 @@ import { readdir } from "node:fs/promises";
 import { expect, test } from "vitest";
 
 import changesetConfig from "../.changeset/config.json" with { type: "json" };
-import honoFloor from "../harness/hono-floor/package.json" with { type: "json" };
+import floors from "../harness/floors/package.json" with { type: "json" };
 import harnessTargets from "../harness/targets/package.json" with { type: "json" };
 import adapterAzureBlob from "../packages/adapter-azure-blob/package.json" with { type: "json" };
 import adapterFs from "../packages/adapter-fs/package.json" with { type: "json" };
@@ -14,6 +14,7 @@ import conformance from "../packages/conformance/package.json" with { type: "jso
 import core from "../packages/core/package.json" with { type: "json" };
 import hono from "../packages/hono/package.json" with { type: "json" };
 import http from "../packages/http/package.json" with { type: "json" };
+import nestjs from "../packages/nestjs/package.json" with { type: "json" };
 
 interface PackageManifest {
   readonly name: string;
@@ -34,12 +35,16 @@ const published: readonly PackageManifest[] = [
   adapterAzureBlob,
   adapterGcs,
   http,
+  nestjs,
   hono,
   conformance,
 ];
 
 /** Spec 1: each integration and the framework it declares as its one peer. */
-const frameworkOf: Readonly<Record<string, string>> = { [hono.name]: "hono" };
+const frameworkOf: Readonly<Record<string, string>> = {
+  [nestjs.name]: "@nestjs/common",
+  [hono.name]: "hono",
+};
 
 test("every package under `packages` is checked here", async () => {
   const entries = await readdir(new URL("../packages/", import.meta.url), {
@@ -94,13 +99,42 @@ test.each(published)("$name declares a peer only where it integrates a framework
 
 // Spec 2, ADR 0050: the peer range starts at the floor CI runs.
 test("@stowage/hono promises Hono 4 from the floor CI runs", () => {
-  expect(hono.peerDependencies).toEqual({ hono: `^${honoFloor.devDependencies.hono}` });
+  expect(hono.peerDependencies).toEqual({ hono: `^${floors.devDependencies.hono}` });
+});
+
+test("@stowage/nestjs promises NestJS 12 from the floor CI runs", () => {
+  expect(nestjs.peerDependencies).toEqual({
+    "@nestjs/common": `^${floors.devDependencies["@nestjs/common"]}`,
+  });
+});
+
+// Spec 2: one floor for the four NestJS packages, which CI runs together.
+test("the floor of NestJS is one version of its four packages", () => {
+  const { devDependencies: floor } = floors;
+
+  expect(
+    new Set([
+      floor["@nestjs/common"],
+      floor["@nestjs/core"],
+      floor["@nestjs/platform-express"],
+      floor["@nestjs/platform-fastify"],
+    ]).size,
+  ).toBe(1);
 });
 
 // Spec 1: nothing detects the runtime at import time, so no package hands one runtime an
 // entry point of its own through a condition such as `bun`, `deno` or `workerd`.
 test.each(published)("$name exports one entry point for every runtime", (manifest) => {
   expect(manifest.exports?.["."]).toBe("./dist/index.js");
+});
+
+// Spec 11: the module and the bridge are all the package holds, and the bridge is the
+// layer's.
+test("@stowage/nestjs depends on @stowage/core and @stowage/http alone", () => {
+  expect(nestjs.dependencies).toEqual({
+    "@stowage/core": "workspace:^",
+    "@stowage/http": "workspace:^",
+  });
 });
 
 // Spec 1, ADR 0046: the HTTP layer sits on the portable `Storage` and on nothing else, so
@@ -115,4 +149,17 @@ test("@stowage/http depends on @stowage/core alone", () => {
 // copies at two versions are two types to the compiler.
 test("the harness serves Hono at the version @stowage/hono is checked against", () => {
   expect(harnessTargets.devDependencies.hono).toBe(hono.devDependencies.hono);
+});
+
+// The harness builds its NestJS applications with `@stowage/nestjs` from the sources, which
+// resolve the copy the package installs, so that one NestJS answers both.
+test("the harness serves NestJS at the version @stowage/nestjs is checked against", () => {
+  for (const name of [
+    "@nestjs/common",
+    "@nestjs/core",
+    "@nestjs/platform-express",
+    "@nestjs/platform-fastify",
+  ] as const) {
+    expect(harnessTargets.devDependencies[name]).toBe(nestjs.devDependencies[name]);
+  }
 });
