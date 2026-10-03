@@ -16,8 +16,8 @@ export interface PresignsPut {
 
 export interface PresignUploadOptions {
   /**
-   * Seconds the presigned URL holds, passed to `presignPut` as it is, with no default. A
-   * value outside the adapter's bounds is its `InvalidOption`, answered `500`.
+   * Seconds the presigned URL holds, passed to `presignPut` as it is. A value outside the
+   * adapter's bounds is its `InvalidOption`, answered `500`.
    */
   expiresIn: number;
   /** The most bytes the upload may announce: a `contentLength` above it is `413`. */

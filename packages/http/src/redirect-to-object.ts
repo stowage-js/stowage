@@ -15,8 +15,8 @@ export interface PresignsGet {
 
 export interface RedirectToObjectOptions {
   /**
-   * Seconds the presigned URL holds, passed to `presignGet` as it is, with no default. A
-   * value outside the adapter's bounds is its `InvalidOption`, answered `500`.
+   * Seconds the presigned URL holds, passed to `presignGet` as it is. A value outside the
+   * adapter's bounds is its `InvalidOption`, answered `500`.
    */
   expiresIn: number;
   /** The name a download is saved under; the key's last segment where it is absent. */
