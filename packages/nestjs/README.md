@@ -62,9 +62,9 @@ await app.listen(3000);
 
 Use `@Res()` without `passthrough`: `sendResponse` sends the web `Response` and completes the
 reply. The controller also works on Fastify with the parser setup below, its parameters typed as
-`FastifyRequest` and `FastifyReply` there; `webRequestOf` and `sendResponse` take either. Each registration holds
-one storage under your token; `global` defaults to `true`. Set `global: false` to keep the token
-to the importing module.
+`FastifyRequest` and `FastifyReply` there; `webRequestOf` and `sendResponse` take either. Each
+registration holds one storage under your token; `global` defaults to `true`. Set `global: false`
+to keep the token to the importing module.
 
 ## Runtimes
 
@@ -80,12 +80,12 @@ These are the package's cells in the
 [runtime matrix](https://github.com/stowage-js/stowage/blob/@stowage/nestjs@0.5.0/docs/spec.md#2-runtime-matrix).
 Bun and Deno are not promised, as NestJS promises neither.
 
-The bundle measures 0.5 kB minified and gzipped without NestJS, and 1.8 kB with `@stowage/http`,
-which it calls.
+The bundle measures 0.5 kB minified and gzipped without NestJS. With the Node bridge of
+`@stowage/http` it calls, the only part of that package it bundles, it measures 1.8 kB.
 
 ## Limits
 
-None.
+This section is empty.
 
 ## Notes
 

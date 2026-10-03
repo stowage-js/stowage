@@ -88,7 +88,7 @@ The bundle measures 0.1 kB minified and gzipped, without Next.js.
 ## Limits
 
 - A Proxy whose `matcher` matches an upload route buffers the body and cuts it at
-  `proxyClientMaxBodySize`, 10 MB by default. A chunked body arrives cut and unmarked, and
+  `proxyClientMaxBodySize`, 10 MiB by default. A chunked body arrives cut and unmarked, and
   `acceptUpload` stores it as complete. A body with a `Content-Length` keeps that header while it
   arrives cut, and `acceptUpload` answers it `400`; Next.js 16.3.8 did so when measured for this
   release. An application leaves its upload routes out of the `matcher`, or raises

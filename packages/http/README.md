@@ -27,7 +27,13 @@ export default {
 
     if (!pathname.startsWith("/files/")) return new Response(null, { status: 404 });
 
-    const key = `files/${decodeURIComponent(pathname.slice("/files/".length))}`;
+    let key: string;
+
+    try {
+      key = `files/${decodeURIComponent(pathname.slice("/files/".length))}`;
+    } catch {
+      return new Response(null, { status: 400 });
+    }
 
     switch (request.method) {
       case "GET":

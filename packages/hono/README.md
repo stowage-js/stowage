@@ -65,7 +65,7 @@ The bundle measures 0.1 kB minified and gzipped, without Hono.
 
 ## Limits
 
-None.
+This section is empty.
 
 ## Notes
 

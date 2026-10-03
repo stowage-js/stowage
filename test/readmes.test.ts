@@ -227,7 +227,7 @@ test("the README of @stowage/conformance shows how to test a server after `worke
 test.each([nestjs, hono])(
   "the README of $name says that its limits are empty",
   async (manifest) => {
-    expect(sectionOf(await readmeOf(manifest), "Limits").trim()).toBe("## Limits\n\nNone.");
+    expect(sectionOf(await readmeOf(manifest), "Limits").trim()).toBe("## Limits\n\nThis section is empty.");
   },
 );
 
