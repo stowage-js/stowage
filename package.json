@@ -19,15 +19,15 @@
     "@arethetypeswrong/core": "0.18.5",
     "@changesets/cli": "3.0.3",
     "@types/express": "5.0.6",
-    "@types/node": "26.6.3",
+    "@types/node": "26.6.4",
     "fastify": "5.12.5",
-    "oxfmt": "0.70.0",
-    "oxlint": "1.85.0",
+    "oxfmt": "0.71.0",
+    "oxlint": "1.86.0",
     "oxlint-tsgolint": "7.0.2003",
-    "publint": "0.3.24",
+    "publint": "0.3.25",
     "tsdown": "0.23.0",
     "typescript": "7.0.2",
-    "vitest": "5.0.2"
+    "vitest": "5.0.3"
   },
   "engines": {
     "node": ">=24"

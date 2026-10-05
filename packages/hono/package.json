@@ -38,7 +38,7 @@
     "@stowage/adapter-memory": "workspace:^",
     "@stowage/adapter-s3": "workspace:^",
     "@stowage/http": "workspace:^",
-    "hono": "4.13.12"
+    "hono": "4.13.13"
   },
   "peerDependencies": {
     "hono": "^4.13.12"
