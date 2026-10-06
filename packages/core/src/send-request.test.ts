@@ -370,6 +370,46 @@ test("the attempts count every request that went out, refreshes included", async
   expect(failure.attempts).toBe(4);
 });
 
+// ADR 0013: the repeat is how a caching resolver is told to refresh rather than a repeat of
+// the transport, and without it an expired credential has no way back.
+test("a single attempt still refreshes a refused credential", async () => {
+  const sent = stubFetch(() => refused(400, "Expired"));
+
+  const failure = await rejection(async () => await sendRequest(request({ maxAttempts: 1 })));
+
+  expect(sent).toHaveLength(2);
+  expect(failure.attempts).toBe(2);
+});
+
+test("one request costs at most six: three attempts, each doubled by the refresh", async () => {
+  withoutDelays();
+  const sent = stubFetch((_, index) => (index % 2 === 0 ? refused(400, "Expired") : refused(503)));
+
+  const failure = await rejection(async () => await sendRequest(request()));
+
+  expect(sent).toHaveLength(6);
+  expect(failure.attempts).toBe(6);
+});
+
+// Spec 7.5: no promised provider is documented to send `Retry-After`, and a header no
+// endpoint of ADR 0012 produces is one no test could cover.
+test("the wait follows the curve and never a `Retry-After`", async () => {
+  vi.spyOn(Math, "random").mockReturnValue(1);
+  const delays: number[] = [];
+  const fire = globalThis.setTimeout;
+
+  vi.stubGlobal("setTimeout", (handler: () => void, milliseconds?: number): unknown => {
+    delays.push(milliseconds ?? 0);
+
+    return fire(handler, 0);
+  });
+  stubFetch(() => refused(503, "SlowDown", { "retry-after": "120" }));
+
+  await rejection(async () => await sendRequest(request()));
+
+  expect(delays).toEqual([200, 400]);
+});
+
 test("a `StorageError` from `prepare` is told against the request, before any request", async () => {
   const sent = stubFetch(() => new Response("stored"));
   const refusal = new StorageError({

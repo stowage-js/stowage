@@ -629,21 +629,6 @@ test.each(["stat", "exists"] as const)(
   },
 );
 
-test("a request that repeatedly receives no response preserves the final attempt count", async () => {
-  vi.spyOn(Math, "random").mockReturnValue(0);
-  const sent = stubFetch(() => {
-    throw new TypeError("fetch failed");
-  });
-
-  const failure = await rejection(async () => await s3Storage(options()).get("object.txt"));
-
-  expect(failure.code).toBe("NetworkError");
-  expect(failure.retryable).toBe(true);
-  expect(failure.attempts).toBe(3);
-  expect(failure.cause).toBeInstanceOf(TypeError);
-  expect(sent).toHaveLength(3);
-});
-
 test("`retry: false` limits a transport failure to one attempt", async () => {
   const sent = stubFetch(() => {
     throw new TypeError("fetch failed");
@@ -693,49 +678,6 @@ test("a final transient response preserves its attempt count", async () => {
   expect(sent).toHaveLength(2);
 });
 
-// Spec 7.5: neither promised provider sends `Retry-After` on its S3 API, and the adapter
-// honors no header it could not test against the endpoint of ADR 0012.
-test("the wait is the backoff curve and never a `Retry-After`", async () => {
-  vi.spyOn(Math, "random").mockReturnValue(1);
-  const delays = recordedDelays();
-
-  stubFetch(() => refused(503, "SlowDown", "Slow down", { "retry-after": "120" }));
-
-  await rejection(async () => await s3Storage(options()).get("object.txt"));
-
-  expect(delays).toEqual([200, 400]);
-});
-
-test.each([
-  [0, [0, 0]],
-  [0.25, [50, 100]],
-  [0.999, [199.8, 399.6]],
-])("a random draw of %d waits a share of the curve", async (draw, expected) => {
-  vi.spyOn(Math, "random").mockReturnValue(draw);
-  const delays = recordedDelays();
-
-  stubFetch(() => refused(500, "InternalError", "We encountered an internal error."));
-
-  await rejection(async () => await s3Storage(options()).get("object.txt"));
-
-  expect(delays).toEqual(expected.map((delay) => expect.closeTo(delay)));
-});
-
-test("an abort interrupts the wait before another attempt", async () => {
-  vi.spyOn(Math, "random").mockReturnValue(0.5);
-  const controller = new AbortController();
-  const sent = stubFetch(() => {
-    setTimeout(() => controller.abort(), 0);
-
-    return refused(503, "SlowDown", "Please reduce your request rate");
-  });
-
-  await expect(
-    s3Storage(options()).get("object.txt", { signal: controller.signal }),
-  ).rejects.toThrow(expect.objectContaining({ name: "AbortError" }));
-  expect(sent).toHaveLength(1);
-});
-
 test("the provider's code decides the error and its message travels word for word", async () => {
   stubFetch(() => refused(404, "NoSuchKey", "The specified key does not exist."));
 
@@ -769,16 +711,6 @@ function refusedWithBrokenBody(status: number, failure: unknown): Response {
     { status, headers: { "x-amz-request-id": "abc" } },
   );
 }
-
-// Spec 4.10: an abort produces the runtime's `AbortError` and never a `StorageError`,
-// also where it lands while the error document of a refusal is read.
-test("an AbortError while reading a failed response travels on", async () => {
-  const aborted = new DOMException("Aborted", "AbortError");
-  const sent = stubFetch(() => refusedWithBrokenBody(409, aborted));
-
-  await expect(s3Storage(options()).get("object.txt")).rejects.toBe(aborted);
-  expect(sent).toHaveLength(1);
-});
 
 test("an error document that breaks otherwise leaves the status to decide", async () => {
   stubFetch(() => refusedWithBrokenBody(403, new TypeError("terminated")));
@@ -881,38 +813,6 @@ test("an `Expired` answer costs one repeat under `forceRefresh` and no wait", as
   expect(resolve).toHaveBeenNthCalledWith(1, { forceRefresh: false });
   expect(resolve).toHaveBeenNthCalledWith(2, { forceRefresh: true });
   expect(delays).toEqual([]);
-});
-
-// ADR 0013: the repeat is how a caching resolver is told to refresh rather than a repeat
-// of the transport, and without it an expired credential has no way back.
-test("`retry: false` does not switch the `Expired` repeat off", async () => {
-  const sent = stubFetch(() => refused(403, "ExpiredToken", "The provided token has expired."));
-
-  const failure = await rejection(
-    async () => await s3Storage(options({ retry: false })).get("object.txt"),
-  );
-
-  expect(failure.code).toBe("Expired");
-  expect(failure.attempts).toBe(2);
-  expect(sent).toHaveLength(2);
-});
-
-test("one request costs at most six: three attempts, each doubled by the repeat", async () => {
-  vi.spyOn(Math, "random").mockReturnValue(0);
-  let answered = 0;
-  const sent = stubFetch(() => {
-    answered += 1;
-
-    return answered % 2 === 1
-      ? refused(403, "ExpiredToken", "The provided token has expired.")
-      : refused(503, "SlowDown", "Please reduce your request rate");
-  });
-
-  const failure = await rejection(async () => await s3Storage(options()).get("object.txt"));
-
-  expect(failure.code).toBe("ProviderError");
-  expect(failure.attempts).toBe(6);
-  expect(sent).toHaveLength(6);
 });
 
 test.each([
@@ -1301,54 +1201,6 @@ test("`copy` of a key onto itself is `InvalidRequest` before any request", async
   expect(failure.operation).toBe("copy");
   expect(failure.attempts).toBe(0);
   expect(sent).toHaveLength(0);
-});
-
-// Spec 7.5: the group is a transport failure that received no response plus `408`, `429`
-// and every `5xx`. No provider code adds to it and none removes from it (ADR 0013).
-test.each([408, 429, 500, 502, 503])("a %i is repeated on the budget", async (status) => {
-  vi.spyOn(Math, "random").mockReturnValue(0);
-  const sent = stubFetch(() => refused(status, "NothingThisTableHolds", "Try again"));
-
-  const failure = await rejection(async () => await s3Storage(options()).get("object.txt"));
-
-  expect(failure.retryable).toBe(true);
-  expect(failure.attempts).toBe(3);
-  expect(sent).toHaveLength(3);
-});
-
-test.each([400, 403, 404, 409])("a %i is not repeated", async (status) => {
-  const sent = stubFetch(() => refused(status, "NothingThisTableHolds", "No."));
-
-  const failure = await rejection(async () => await s3Storage(options()).get("object.txt"));
-
-  expect(failure.retryable).toBe(false);
-  expect(failure.attempts).toBe(1);
-  expect(sent).toHaveLength(1);
-});
-
-test.each([
-  [500, "AccessDenied"],
-  [503, "NoSuchKey"],
-])("a %i is repeated on the budget though it carries `%s`", async (status, code) => {
-  vi.spyOn(Math, "random").mockReturnValue(0);
-  const sent = stubFetch(() => refused(status, code, "Try again"));
-
-  const failure = await rejection(async () => await s3Storage(options()).get("object.txt"));
-
-  expect(failure.providerCode).toBe(code);
-  expect(failure.attempts).toBe(3);
-  expect(sent).toHaveLength(3);
-});
-
-// AWS answers `RequestTimeout` with `400` where a client sent its body too slowly.
-test.each(["RequestTimeout", "SlowDown"])("a 400 carrying `%s` is not repeated", async (code) => {
-  const sent = stubFetch(() => refused(400, code, "No."));
-
-  const failure = await rejection(async () => await s3Storage(options()).get("object.txt"));
-
-  expect(failure.providerCode).toBe(code);
-  expect(failure.attempts).toBe(1);
-  expect(sent).toHaveLength(1);
 });
 
 test("`page()` sends one `ListObjectsV2` for the prefix, the delimiter and the page size", async () => {
