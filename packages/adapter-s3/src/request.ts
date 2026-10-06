@@ -135,9 +135,9 @@ export function urlOf(
 
 /**
  * Spec 7.9: the provider's own code decides where the table recognizes one, the status of
- * spec 4.10 decides where it does not. `HEAD` carries no body, so `stat` and `exists`
- * report the status alone. `status`, `providerCode`, `requestId` and the provider's
- * message travel along, which is what makes a failure traceable at the provider.
+ * spec 4.10 decides where it does not, and alone where no error document arrived, as for a
+ * `HEAD`. `providerCode`, `requestId` and the provider's message travel along, which is
+ * what makes a failure traceable at the provider.
  */
 function readFailure(request: S3Request, answer: RefusedAnswer): FailureReading {
   const document = answer.body === undefined ? {} : readErrorDocument(answer.body);

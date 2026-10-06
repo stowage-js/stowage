@@ -37,7 +37,7 @@ export async function repeatOnBudget<T>(
   settle: Settle,
 ): Promise<T> {
   // One attempt is one request for most callers, and an attempt sends a second where the
-  // provider refused a credential that a refresh may pass (spec 7.3). The error an attempt
+  // provider refused a credential that a refresh may pass (spec 7.3, 8.3 and 9.3). The error an attempt
   // rejects with says which of the two it was, so what the caller finally reads counts the
   // requests that went out rather than the times this loop ran.
   let requestsSent = 0;

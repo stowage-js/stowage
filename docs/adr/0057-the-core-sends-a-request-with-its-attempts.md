@@ -64,8 +64,8 @@ request's.
   written once.
 - `sendRequest` is tested in the core against a stubbed `fetch`. The adapters' tests drop what they
   repeated of it and keep what their callbacks decide.
-- `adapter-azure-blob` and `adapter-gcs` read the body of a refused access token before the repeat
-  rather than canceling it, as every other refusal is read. That costs the bytes of one error
+- `adapter-azure-blob` and `adapter-gcs` read the body of the refusal of an access token before the
+  repeat rather than canceling it, as every other refusal is read. That costs the bytes of one error
   document and changes nothing a caller observes, except that a refusal whose body stalls holds
   the request until the caller's signal fires, which was already so for every other refusal.
 - `withRetry` stays in spec 4.13 for adapters written outside this repository.
