@@ -758,6 +758,38 @@ test("a provider code the table does not hold falls to the status", async () => 
   expect(failure.providerCode).toBe("SomethingNewEntirely");
 });
 
+/** A refusal whose error document breaks with `failure` while it is read. */
+function refusedWithBrokenBody(status: number, failure: unknown): Response {
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.error(failure);
+      },
+    }),
+    { status, headers: { "x-amz-request-id": "abc" } },
+  );
+}
+
+// Spec 4.10: an abort produces the runtime's `AbortError` and never a `StorageError`,
+// also where it lands while the error document of a refusal is read.
+test("an AbortError while reading a failed response travels on", async () => {
+  const aborted = new DOMException("Aborted", "AbortError");
+  const sent = stubFetch(() => refusedWithBrokenBody(409, aborted));
+
+  await expect(s3Storage(options()).get("object.txt")).rejects.toBe(aborted);
+  expect(sent).toHaveLength(1);
+});
+
+test("an error document that breaks otherwise leaves the status to decide", async () => {
+  stubFetch(() => refusedWithBrokenBody(403, new TypeError("terminated")));
+
+  const failure = await rejection(async () => await s3Storage(options()).get("object.txt"));
+
+  expect(failure.code).toBe("AccessDenied");
+  expect(failure.providerCode).toBeUndefined();
+  expect(failure.status).toBe(403);
+});
+
 // Spec 7.9: `HEAD` carries no body, so `stat` and `exists` report the status alone.
 test("`stat` reports the status of a `HEAD` without a provider code", async () => {
   stubFetch(() => refused(403, "AccessDenied", "Access Denied"));

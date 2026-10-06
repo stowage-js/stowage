@@ -243,7 +243,10 @@ async function readFailure(request: S3Request, response: Response): Promise<S3Er
 
   try {
     return readErrorDocument(await response.text());
-  } catch {
+  } catch (failure) {
+    // Spec 4.10: the caller's abort travels on as the runtime's `AbortError`.
+    if (failure instanceof Error && failure.name === "AbortError") throw failure;
+
     // A body that broke on the way says nothing the status has not said already.
     return {};
   }
