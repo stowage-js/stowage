@@ -32,11 +32,6 @@ export function inStorage(
   return gcsError(bucket, { ...fieldsOf(failure), operation, key: key ?? failure.key });
 }
 
-/** The same failure counting `attempts`, for a loop that reports an attempt before the last. */
-export function countingAttempts(failure: StorageError, attempts: number): StorageError {
-  return gcsError(failure.bucket, { ...fieldsOf(failure), attempts });
-}
-
 /**
  * The same failure with every one of `secrets` cut out of its message and without its cause,
  * which the runtime wrote and which may carry a secret in a form no search here would find.

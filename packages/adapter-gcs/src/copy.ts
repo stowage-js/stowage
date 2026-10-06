@@ -1,18 +1,10 @@
-import { isStorageError, type ObjectStat, type StorageError, withRetry } from "@stowage/core";
+import type { ObjectStat } from "@stowage/core";
 
 import { type AnsweredRequest, malformedAnswer, readAnswerJson } from "./answer.ts";
 import type { GcsConfiguration } from "./configuration.ts";
 import { describeResource, readResource } from "./description.ts";
 import { fieldOf, stringOf } from "./json.ts";
-import {
-  encodeSegment,
-  type GcsRequest,
-  objectPath,
-  type QueryParameter,
-  send,
-  sendOnce,
-} from "./request.ts";
-import { countingAttempts, isMissingObject } from "./storage-error.ts";
+import { encodeSegment, objectPath, type QueryParameter, send } from "./request.ts";
 
 /**
  * Spec 9.7 and ADR 0037: `rewriteTo` sent again with each answer's token until one says the
@@ -83,67 +75,15 @@ export async function moveObject(
   to: string,
   signal: AbortSignal | undefined,
 ): Promise<ObjectStat> {
-  const request: GcsRequest = {
+  const response = await send(configuration, {
     method: "POST",
     operation: "move",
     key: from,
     path: `${objectPath(configuration, from)}/moveTo/o/${encodeSegment(to)}`,
+    unanswered: "reportOverNotFound",
     signal,
-  };
-  let attempts = 0;
-  let unsettled: StorageError | undefined;
-  let response: Response;
-
-  try {
-    response = await withRetry(
-      async () => {
-        try {
-          return await sendOnce(configuration, request);
-        } catch (failure) {
-          if (!isStorageError(failure)) throw failure;
-
-          attempts += failure.attempts;
-
-          if (unsettled !== undefined && isMissingObject(failure)) {
-            throw new AmbiguousMove(unsettled);
-          }
-
-          if (mayHaveMoved(failure)) unsettled = failure;
-
-          throw failure;
-        }
-      },
-      { maxAttempts: configuration.maxAttempts, signal },
-    );
-  } catch (failure) {
-    if (failure instanceof AmbiguousMove) throw countingAttempts(failure.unsettled, attempts);
-
-    throw failure;
-  }
-
+  });
   const resource = await readResource(configuration.bucket, to, "move", response);
 
   return describeResource(configuration.bucket, to, "move", response, resource);
-}
-
-/**
- * What ends the loop of `withRetry` without being repeated, since it is no `StorageError`,
- * and carries the failure `move` rejects with instead of the `404`.
- */
-class AmbiguousMove extends Error {
-  readonly unsettled: StorageError;
-
-  constructor(unsettled: StorageError) {
-    super("The move may have happened in an earlier attempt");
-    this.unsettled = unsettled;
-  }
-}
-
-/**
- * An attempt that received no response or a `5xx`. A resolver's `NetworkError` counts as
- * well although no request went out, which reports the doubt where there was none rather
- * than `NotFound` for an object that may have moved (ADR 0037).
- */
-function mayHaveMoved(failure: StorageError): boolean {
-  return failure.code === "NetworkError" || (failure.status ?? 0) >= 500;
 }

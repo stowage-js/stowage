@@ -1,9 +1,14 @@
-import { type Resolvable, type StorageError, withRetry } from "@stowage/core";
+import {
+  type FailureReading,
+  type RefusedAnswer,
+  type Resolvable,
+  sendRequest,
+  type UnansweredRule,
+} from "@stowage/core";
 
 import type { GcsConfiguration } from "./configuration.ts";
 import { type GcsCredentials, resolveCredentials } from "./credentials.ts";
-import { type ErrorBody, isRefusedToken, providerError, readErrorBody } from "./provider-code.ts";
-import { gcsError, inStorage } from "./storage-error.ts";
+import { readErrorBody, readFailedAnswer } from "./provider-code.ts";
 
 export type HeaderField = readonly [name: string, value: string];
 export type QueryParameter = readonly [name: string, value: string];
@@ -30,6 +35,8 @@ export interface GcsRequest {
   readonly session?: boolean;
   /** Set on a request to the session URI itself, the start's aside, whose `404` says the session is gone. */
   readonly sessionUri?: boolean;
+  /** What follows an attempt the request's effect may have happened in (ADR 0057). */
+  readonly unanswered?: UnansweredRule;
   readonly signal?: AbortSignal;
 }
 
@@ -57,34 +64,49 @@ const reservedByEncodeUriComponent = /[!'()*]/gu;
 
 /**
  * One request to the JSON API, answered by the response the provider sent or rejected with
- * its failure. The loop of spec 9.5 lives in `@stowage/core`, as the one definition of the
- * budget and the curve.
+ * its failure. The attempts of spec 9.5 and the repeat under a refreshed token of spec 9.3
+ * live in `@stowage/core` (ADR 0057). A token resolved for the attempt alone authorizes it,
+ * and every attempt resolves one again.
  */
 export async function send(
   configuration: GcsConfiguration,
   request: GcsRequest,
 ): Promise<Response> {
-  return await withRetry(async () => await attempt(configuration, request, false), {
+  const response = await sendRequest({
+    provider: "gcs",
+    bucket: configuration.bucket,
+    operation: request.operation,
+    key: request.key,
+    method: request.method,
     maxAttempts: configuration.maxAttempts,
     signal: request.signal,
+    unanswered: request.unanswered,
+    prepare: async ({ forceRefresh }) => {
+      const credentials = await resolveCredentials(
+        request.credentials ?? configuration.credentials,
+        { forceRefresh },
+      );
+
+      return {
+        url: urlOf(configuration, request),
+        headers: [
+          ...(request.headers ?? []),
+          ["authorization", `Bearer ${credentials.accessToken}`],
+        ],
+        body: request.body,
+        refreshable: true,
+      };
+    },
+    readFailure: (answer) => readFailure(request, answer),
   });
+
+  return request.session === true ? withoutRequestId(response) : response;
 }
 
 /**
- * One attempt of the request, for the caller that reads each failure before the loop of
- * spec 9.5 decides on the next: `move`, whose `404` after an unanswered attempt tells
- * nothing of the source (ADR 0037).
- */
-export async function sendOnce(
-  configuration: GcsConfiguration,
-  request: GcsRequest,
-): Promise<Response> {
-  return await attempt(configuration, request, false);
-}
-
-/**
- * One attempt of a request to a resumable session. A `308` is an answer here, as success is,
- * and whoever sent the chunk reads its `Range` (spec 9.6).
+ * One request to a resumable session, sent once: what a session repeats is a chunk from
+ * the first byte it has not acknowledged, which may take several requests (ADR 0036). A
+ * `308` is an answer here, as success is, and whoever sent the chunk reads its `Range`.
  */
 export async function sendToSession(
   configuration: GcsConfiguration,
@@ -98,79 +120,27 @@ export async function sendToSession(
     session: true,
     sessionUri: true,
   };
-  let response: Response;
 
-  try {
-    response = withoutRequestId(
-      await fetch(request.uri, {
-        method: request.method,
-        headers: (request.headers ?? []).map(([name, value]) => [name, value]),
-        body: request.body,
-        signal: request.signal,
-      }),
-    );
-  } catch (failure) {
-    throw transportFailure(configuration, described, failure, 1);
-  }
-
-  if (response.ok || response.status === resumeIncomplete) return response;
-
-  throw await failureOf(configuration, described, response, {
-    attempts: 1,
-    underRefreshedToken: false,
-  });
-}
-
-/**
- * One request under a token resolved for it alone, which is the attempt CONTEXT.md names
- * and what a repeat repeats.
- *
- * Spec 9.3 has an attempt cost a second request where GCS refused the token as
- * `invalid_token`: the credential is resolved again under `forceRefresh` and the request
- * goes out without a delay, because no wait makes a token fresher. `retry: false` does not
- * switch that repeat off, so an attempt costs one request or two (spec 9.5).
- */
-async function attempt(
-  configuration: GcsConfiguration,
-  request: GcsRequest,
-  forceRefresh: boolean,
-): Promise<Response> {
-  const attempts = forceRefresh ? 2 : 1;
-  const credentials = await resolveCredentials(request.credentials ?? configuration.credentials, {
-    forceRefresh,
-  }).catch((failure: unknown) => {
-    throw inStorage(failure, configuration.bucket, request.operation, request.key);
-  });
-  let response: Response;
-
-  try {
-    response = await fetch(urlOf(configuration, request), {
+  return withoutRequestId(
+    await sendRequest({
+      provider: "gcs",
+      bucket: configuration.bucket,
+      operation: described.operation,
+      key: request.key,
       method: request.method,
-      headers: [
-        ...(request.headers ?? []),
-        ["authorization", `Bearer ${credentials.accessToken}`],
-      ].map(([name, value]) => [name, value]),
-      body: request.body,
+      maxAttempts: 1,
       signal: request.signal,
-    });
-  } catch (failure) {
-    throw transportFailure(configuration, request, failure, attempts);
-  }
-
-  if (request.session === true) response = withoutRequestId(response);
-
-  if (response.ok) return response;
-
-  if (!forceRefresh && isRefusedToken(response)) {
-    await response.body?.cancel().catch(() => {});
-
-    return await attempt(configuration, request, true);
-  }
-
-  throw await failureOf(configuration, request, response, {
-    attempts,
-    underRefreshedToken: forceRefresh,
-  });
+      answeredBy: [resumeIncomplete],
+      prepare: async () =>
+        await Promise.resolve({
+          url: request.uri,
+          headers: request.headers ?? [],
+          body: request.body,
+          refreshable: false,
+        }),
+      readFailure: (answer) => readFailure(described, answer),
+    }),
+  );
 }
 
 /** The query that pins a request to one generation of the object, where it names one. */
@@ -227,35 +197,27 @@ function urlOf(configuration: GcsConfiguration, request: GcsRequest): string {
   return `${request.origin ?? configuration.origin}${request.path}${search}`;
 }
 
-/** The provider code and the message are read out of the body, where it carries them (spec 9.8). */
-async function failureOf(
-  configuration: GcsConfiguration,
-  request: GcsRequest,
-  response: Response,
-  made: { readonly attempts: number; readonly underRefreshedToken: boolean },
-): Promise<StorageError> {
-  const body = await readBody(response);
+/**
+ * The provider code and the message are read out of the body, where it carries them
+ * (spec 9.8). A session's answers are read without their request id, which holds the
+ * value that authorizes the session.
+ */
+function readFailure(request: GcsRequest, answer: RefusedAnswer): FailureReading {
+  const body = answer.body === undefined ? {} : readErrorBody(answer.body);
+  const requestId =
+    request.session === true ? undefined : (answer.headers.get(requestIdHeader) ?? undefined);
 
-  return providerError(
-    configuration.bucket,
-    {
-      operation: request.operation,
-      key: request.key,
-      attempts: made.attempts,
-      requestId: response.headers.get(requestIdHeader) ?? undefined,
-    },
-    {
-      status: response.status,
-      method: request.method,
-      providerCode: body.providerCode,
-      providerMessage: body.message,
-      media: request.media === true,
-      carriesCursor: request.carriesCursor === true,
-      sessionUri: request.sessionUri === true,
-      underRefreshedToken: made.underRefreshedToken,
-      headers: response.headers,
-    },
-  );
+  return readFailedAnswer(request.key, requestId, {
+    status: answer.status,
+    method: request.method,
+    providerCode: body.providerCode,
+    providerMessage: body.message,
+    media: request.media === true,
+    carriesCursor: request.carriesCursor === true,
+    sessionUri: request.sessionUri === true,
+    underRefreshedToken: answer.refreshed,
+    headers: answer.headers,
+  });
 }
 
 /**
@@ -272,42 +234,5 @@ function withoutRequestId(response: Response): Response {
     status: response.status,
     statusText: response.statusText,
     headers,
-  });
-}
-
-/**
- * The body read to the end, which is also what releases the connection the next attempt
- * needs. A body that breaks on the way leaves provider code and message unset rather than
- * failing on its way to reporting a failure.
- */
-async function readBody(response: Response): Promise<ErrorBody> {
-  try {
-    return readErrorBody(await response.text());
-  } catch (failure) {
-    if (failure instanceof Error && failure.name === "AbortError") throw failure;
-
-    return {};
-  }
-}
-
-// Spec 4.10: an aborted signal produces the runtime's `AbortError` and never a
-// `StorageError`, so the one failure `fetch` throws that is not a transport failure
-// travels on untouched.
-function transportFailure(
-  configuration: GcsConfiguration,
-  request: GcsRequest,
-  failure: unknown,
-  attempts: number,
-): unknown {
-  if (failure instanceof Error && failure.name === "AbortError") return failure;
-
-  return gcsError(configuration.bucket, {
-    code: "NetworkError",
-    message: `The request received no response: ${String(failure)}`,
-    operation: request.operation,
-    key: request.key,
-    attempts,
-    retryable: true,
-    cause: failure,
   });
 }

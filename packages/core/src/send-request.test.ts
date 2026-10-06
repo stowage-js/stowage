@@ -503,6 +503,39 @@ test("`reportOverNotFound` rejects with the doubtful attempt rather than a later
   expect(afterServerError.attempts).toBe(2);
 });
 
+test("`reportOverNotFound` reports the last doubtful attempt, through an answer below `500`", async () => {
+  withoutDelays();
+  let calls = 0;
+
+  vi.stubGlobal("fetch", async (): Promise<Response> => {
+    calls += 1;
+
+    if (calls === 1) return await Promise.reject(new TypeError("fetch failed"));
+
+    return refused(calls === 2 ? 429 : 404, calls === 2 ? "SlowDown" : "NoSuchKey");
+  });
+
+  const throughSlowDown = await rejection(
+    async () => await sendRequest(request({ unanswered: "reportOverNotFound" })),
+  );
+
+  expect(throughSlowDown.code).toBe("NetworkError");
+  expect(throughSlowDown.attempts).toBe(3);
+
+  stubFetch((_, index) => {
+    if (index === 0) return refused(500, "InternalError");
+
+    return index === 1 ? refused(503, "SlowDown") : refused(404, "NoSuchKey");
+  });
+
+  const lastDoubt = await rejection(
+    async () => await sendRequest(request({ unanswered: "reportOverNotFound" })),
+  );
+
+  expect(lastDoubt.status).toBe(503);
+  expect(lastDoubt.attempts).toBe(3);
+});
+
 test("`reportOverNotFound` leaves a `NotFound` without doubt, or of the bucket, as it is", async () => {
   withoutDelays();
   stubFetch(() => refused(404, "NoSuchKey"));

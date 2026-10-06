@@ -1477,17 +1477,6 @@ test.each([[408], [429], [500], [502], [503], [504]])(
   },
 );
 
-test("three attempts are the default, and the error counts them", async () => {
-  vi.spyOn(Math, "random").mockReturnValue(0);
-
-  const sent = stubFetch(() => errorDocument(503, "backendError", "Backend Error"));
-
-  const failure = await failureOf(() => storage().stat("object"));
-
-  expect(sent).toHaveLength(3);
-  expect(failure).toMatchObject({ code: "ProviderError", retryable: true, attempts: 3 });
-});
-
 test("`maxAttempts` bounds the attempts, and `retry: false` sends one", async () => {
   vi.spyOn(Math, "random").mockReturnValue(0);
 
@@ -1500,49 +1489,6 @@ test("`maxAttempts` bounds the attempts, and `retry: false` sends one", async ()
     attempts: 1,
   });
   expect(sent).toHaveLength(3);
-});
-
-test("a transport failure is repeated and ends in `NetworkError`", async () => {
-  vi.spyOn(Math, "random").mockReturnValue(0);
-
-  const sent = stubFetch(() => {
-    throw new TypeError("fetch failed");
-  });
-
-  const failure = await failureOf(() => storage().stat("object"));
-
-  expect(sent).toHaveLength(3);
-  expect(failure).toMatchObject({ code: "NetworkError", retryable: true, attempts: 3 });
-  expect(failure.cause).toBeInstanceOf(TypeError);
-});
-
-test("a failure outside the transient group is not repeated", async () => {
-  const sent = stubFetch(() => errorDocument(403, "forbidden", "denied"));
-
-  await failureOf(() => storage().stat("object"));
-
-  expect(sent).toHaveLength(1);
-});
-
-test("`Retry-After` is not read", async () => {
-  vi.useFakeTimers();
-
-  try {
-    vi.spyOn(Math, "random").mockReturnValue(0);
-
-    const answers = [
-      errorDocument(429, "rateLimitExceeded", "Slow down.", { "retry-after": "3600" }),
-    ];
-    const sent = stubFetch(() => answers.shift() ?? resource());
-    const described = storage().stat("object");
-
-    await vi.advanceTimersByTimeAsync(0);
-
-    await expect(described).resolves.toMatchObject({ size: 5 });
-    expect(sent).toHaveLength(2);
-  } finally {
-    vi.useRealTimers();
-  }
 });
 
 // The refused token (spec 9.3)
@@ -1572,31 +1518,6 @@ test("a token refused as `invalid_token` is resolved again under `forceRefresh` 
   ]);
 });
 
-test("a failed cancellation of a refused token response still refreshes and repeats", async () => {
-  const cancel = vi.fn<() => Promise<void>>(() =>
-    Promise.reject(new Error("response cancellation failed")),
-  );
-  const tokens = ["expired", "fresh"];
-  const resolve = vi.fn<() => GcsCredentials>(() => ({ accessToken: tokens.shift() ?? "later" }));
-  const sent = stubFetch((request) =>
-    request.headers.get("authorization") === "Bearer expired"
-      ? new Response(new ReadableStream({ cancel }), { status: 401, headers: refusedToken })
-      : resource(),
-  );
-
-  await expect(
-    storage({ credentials: resolve, retry: false }).stat("object"),
-  ).resolves.toMatchObject({
-    size: 5,
-  });
-  expect(cancel).toHaveBeenCalledOnce();
-  expect(resolve.mock.calls).toEqual([[{ forceRefresh: false }], [{ forceRefresh: true }]]);
-  expect(sent.map((request) => request.headers.get("authorization"))).toEqual([
-    "Bearer expired",
-    "Bearer fresh",
-  ]);
-});
-
 test("a second refusal is `InvalidCredentials` after two attempts, saying the token expired or is not accepted", async () => {
   const resolve = vi.fn<() => GcsCredentials>(() => ({ accessToken }));
   const sent = stubFetch(invalidToken);
@@ -1614,32 +1535,6 @@ test("a second refusal is `InvalidCredentials` after two attempts, saying the to
   });
   expect(failure.message).toContain("expired or is not accepted");
   expect(failure.message).toContain("Invalid Credentials");
-});
-
-test("the repeat after `invalid_token` is not switched off by `retry: false`", async () => {
-  const sent = stubFetch(invalidToken);
-
-  const failure = await failureOf(() => storage({ retry: false }).stat("object"));
-
-  expect(sent).toHaveLength(2);
-  expect(failure.attempts).toBe(2);
-});
-
-test("the repeat after `invalid_token` waits for nothing", async () => {
-  vi.useFakeTimers();
-
-  try {
-    const answers = [invalidToken()];
-    const sent = stubFetch(() => answers.shift() ?? resource());
-    const described = storage().stat("object");
-
-    await vi.advanceTimersByTimeAsync(0);
-
-    await expect(described).resolves.toMatchObject({ size: 5 });
-    expect(sent).toHaveLength(2);
-  } finally {
-    vi.useRealTimers();
-  }
 });
 
 test("a quoted `invalid_token` is the same refusal", async () => {
@@ -2652,64 +2547,6 @@ test("a `404` after an attempt answered with a `5xx` rejects with that `Provider
     retryable: true,
     attempts: 2,
   });
-});
-
-test("the ambiguous `404` reports the last attempt the move may have happened in, counting every attempt", async () => {
-  vi.spyOn(Math, "random").mockReturnValue(0);
-
-  const answers = [transportFailure, backendError, notFound];
-
-  stubFetch(() => (answers.shift() ?? notFound)());
-
-  const failure = await failureOf(() => storage().move("from/a.txt", "to/b.txt"));
-
-  expect(failure).toMatchObject({
-    code: "ProviderError",
-    status: 503,
-    retryable: true,
-    attempts: 3,
-  });
-});
-
-test("an answer below `500` between an unanswered attempt and the `404` leaves the move in doubt", async () => {
-  vi.spyOn(Math, "random").mockReturnValue(0);
-
-  const answers = [
-    transportFailure,
-    () => errorDocument(429, "rateLimitExceeded", "Rate limit exceeded"),
-    notFound,
-  ];
-
-  stubFetch(() => (answers.shift() ?? notFound)());
-
-  const failure = await failureOf(() => storage().move("from/a.txt", "to/b.txt"));
-
-  expect(failure).toMatchObject({ code: "NetworkError", retryable: true, attempts: 3 });
-});
-
-test("a `404` after attempts that were all answered below `500` is `NotFound`", async () => {
-  vi.spyOn(Math, "random").mockReturnValue(0);
-
-  const answers = [errorDocument(429, "rateLimitExceeded", "Rate limit exceeded"), notFound()];
-
-  stubFetch(() => answers.shift() ?? notFound());
-
-  const failure = await failureOf(() => storage().move("from/a.txt", "to/b.txt"));
-
-  expect(failure).toMatchObject({ code: "NotFound", key: "from/a.txt", attempts: 2 });
-});
-
-test("a missing bucket after an unanswered attempt stays `NotFound` without a key", async () => {
-  vi.spyOn(Math, "random").mockReturnValue(0);
-
-  const answers = [transportFailure, () => errorDocument(404, "notFound", missingBucket)];
-
-  stubFetch(() => (answers.shift() ?? notFound)());
-
-  const failure = await failureOf(() => storage().move("from/a.txt", "to/b.txt"));
-
-  expect(failure).toMatchObject({ code: "NotFound", operation: "move", attempts: 2 });
-  expect(failure.key).toBeUndefined();
 });
 
 test("a signal that already fired rejects `move` before any request", async () => {
