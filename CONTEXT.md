@@ -227,6 +227,8 @@ The part of stowage that answers a web request on a storage's behalf — serving
 redirecting to a presigned download, accepting an upload body, handing out a presigned upload — for
 a key the caller has already named. It speaks web `Request` and `Response` and knows no framework,
 so any framework that speaks them reaches stowage through it. Routing, authorization and naming the key stay with the caller.
+What it promises is the answer it hands back, not its delivery: a client still sending a body the
+layer refused may meet a reset connection instead, as the runtime decides.
 _Avoid_: neutral layer, middleware, handler, server
 
 **Integration**:
