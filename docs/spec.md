@@ -1937,6 +1937,9 @@ export function writeResponse(res: NodeResponse, response: Response): Promise<vo
   among it.
 - The refusals of the layer's own, such as `405`, `412`, `413`, `415` and the `400`s of sections
   10.5 and 10.6, carry no `StorageError`.
+- The layer promises the answer it hands back, not its delivery. A client still sending a body
+  the layer answered without reading, or refused while it streamed, may meet a reset connection
+  instead of the answer, as the runtime decides (ADR 0056).
 - Every `Response` the layer builds has mutable headers, so the caller sets `Location`, CORS or
   anything else on `response.headers` afterwards. A `302` is built with `new Response(null, …)`,
   not with `Response.redirect()`.
@@ -2045,6 +2048,8 @@ a content coding to the provider and serves the bytes from the provider's origin
   of section 4.3. User metadata comes from `userMetadata` alone, never from request headers. A
   `Content-Encoding` other than `identity` is `415`, since no runtime decodes a request body. Any
   check of the content type is the caller's, made on the request's headers before the call.
+- A client still sending a body the layer refused, by `405`, `413`, `415` or `400`, may meet a reset
+  connection instead of the refusal (section 10.2).
 - A request whose `body` is `null` stores an empty object.
 - `request.bodyUsed` being `true` rejects with a `TypeError` before `put` starts, rather than storing an
   empty or partial body. A body read before the call is the caller's programmer error and not a
