@@ -2,7 +2,13 @@ import { assert, assertSameBytes } from "../assertions.ts";
 import { kibibyte, patternOf, streamOf } from "../cases/bytes.ts";
 import { keyFor, prefixFor } from "../cases/keys.ts";
 import type { HttpConformanceCase, HttpConformanceContext } from "../http-target.ts";
-import { assertHeaderOf, expectEmpty, expectStatus } from "./answers.ts";
+import {
+  answerOrNetworkError,
+  assertHeaderOf,
+  expectEmpty,
+  expectStatus,
+  UnansweredRequest,
+} from "./answers.ts";
 
 /** The `maxSize` spec 14.8 configures the `upload` route with. */
 const maxSize = 1048576;
@@ -153,11 +159,16 @@ export const uploadCases: readonly HttpConformanceCase[] = [
 
       await ctx.storage.put(key, stored, { contentType: "text/plain" });
 
-      await expectEmpty(
-        await upload(ctx, key, { body: tooLarge }),
-        413,
-        `\`PUT\` of ${maxSize + 1} bytes`,
+      const whatWithLength = `\`PUT\` of ${maxSize + 1} bytes`;
+      const response = await answerOrNetworkError(
+        upload(ctx, key, { body: tooLarge }),
+        whatWithLength,
       );
+
+      // ADR 0056: a client still writing past the refusal may meet a reset instead of the `413`.
+      if (!(response instanceof UnansweredRequest))
+        await expectEmpty(response, 413, whatWithLength);
+
       await expectEmpty(
         await uploadStream(ctx, key, streamOf(tooLarge, chunkSize)),
         413,

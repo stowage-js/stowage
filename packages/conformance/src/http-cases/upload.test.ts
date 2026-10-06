@@ -19,6 +19,7 @@ type Flaw =
   | "no-limit"
   | "unbounded-stream"
   | "partial-on-limit"
+  | "stored-on-reset"
   | "coded-stored"
   | "coded-refused-and-stored"
   | "post-stored"
@@ -83,6 +84,19 @@ interface Server {
   readonly flaw?: Flaw;
   /** Whether the storage hands over an `etag`, which `adapter-fs` does not. */
   readonly etags?: boolean;
+  /**
+   * Where the connection is reset instead of answered: under a body sent with its length past
+   * `maxSize`, as `workerd` does to a client still writing a body it refused unread (ADR
+   * 0056).
+   */
+  readonly resets?: "refused-with-length";
+}
+
+/** What `fetch` rejects with where the server reset the connection under the body. */
+function connectionReset(): TypeError {
+  return new TypeError("fetch failed", {
+    cause: Object.assign(new Error("write ECONNRESET"), { code: "ECONNRESET" }),
+  });
 }
 
 /**
@@ -94,7 +108,7 @@ async function answer(
   held: Map<string, Held>,
   request: Request,
   streamed: boolean,
-  { flaw, etags = true }: Server,
+  { flaw, etags = true, resets }: Server,
 ): Promise<Response> {
   const key = decodeURIComponent(new URL(request.url).pathname.slice("/upload/".length));
   const accepted =
@@ -133,6 +147,12 @@ async function answer(
 
   if (bounded && bytes.byteLength > maxSize) {
     if (flaw === "partial-on-limit") held.set(key, { ...stored, bytes: bytes.slice(0, maxSize) });
+
+    const resetUnderLength =
+      !streamed && (resets === "refused-with-length" || flaw === "stored-on-reset");
+
+    if (resetUnderLength && flaw === "stored-on-reset") held.set(key, stored);
+    if (resetUnderLength) throw connectionReset();
 
     return new Response(null, { status: 413 });
   }
@@ -189,6 +209,12 @@ test.each(uploadCases.map((source) => source.name))(
   },
 );
 
+test("`upload/max-size` passes against a server resetting the connection under a body it refused unread", async () => {
+  await expect(
+    runAgainst("upload/max-size", { resets: "refused-with-length" }),
+  ).resolves.toBeUndefined();
+});
+
 test.each<[string, Server, string]>([
   ["upload/stores", { flaw: "unquoted-etag" }, '`etag: "e1"`'],
   ["upload/stores", { flaw: "invented-etag", etags: false }, "and not null"],
@@ -201,6 +227,7 @@ test.each<[string, Server, string]>([
   ["upload/max-size", { flaw: "no-limit" }, "answers 201 and not 413"],
   ["upload/max-size", { flaw: "unbounded-stream" }, "without a length answers 201 and not 413"],
   ["upload/max-size", { flaw: "partial-on-limit" }, "The object after the refused `PUT`s"],
+  ["upload/max-size", { flaw: "stored-on-reset" }, "The object after the refused `PUT`s"],
   ["upload/content-encoding", { flaw: "coded-stored" }, "answers 201 and not 415"],
   ["upload/content-encoding", { flaw: "coded-refused-and-stored" }, "holds an object"],
   ["upload/method-not-allowed", { flaw: "post-stored" }, "`POST` answers 201 and not 405"],
