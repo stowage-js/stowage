@@ -60,3 +60,12 @@ export async function answerOrNetworkError(
     throw failure;
   }
 }
+
+/** The answer `fetch` resolves with, its network error thrown as one naming the request. */
+export async function answerTo(sending: Promise<Response>, what: string): Promise<Response> {
+  const answer = await answerOrNetworkError(sending, what);
+
+  if (answer instanceof UnansweredRequest) throw answer;
+
+  return answer;
+}

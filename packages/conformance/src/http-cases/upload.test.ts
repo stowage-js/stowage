@@ -19,6 +19,7 @@ type Flaw =
   | "no-limit"
   | "unbounded-stream"
   | "partial-on-limit"
+  | "reset-stream"
   | "stored-on-reset"
   | "coded-stored"
   | "coded-refused-and-stored"
@@ -87,9 +88,9 @@ interface Server {
   /**
    * Where the connection is reset instead of answered: under a body sent with its length past
    * `maxSize`, as `workerd` does to a client still writing a body it refused unread (ADR
-   * 0056).
+   * 0056), or under every request.
    */
-  readonly resets?: "refused-with-length";
+  readonly resets?: "refused-with-length" | "always";
 }
 
 /** What `fetch` rejects with where the server reset the connection under the body. */
@@ -110,6 +111,8 @@ async function answer(
   streamed: boolean,
   { flaw, etags = true, resets }: Server,
 ): Promise<Response> {
+  if (resets === "always") throw connectionReset();
+
   const key = decodeURIComponent(new URL(request.url).pathname.slice("/upload/".length));
   const accepted =
     request.method === "PUT" || (request.method === "POST" && flaw === "post-stored");
@@ -149,10 +152,12 @@ async function answer(
     if (flaw === "partial-on-limit") held.set(key, { ...stored, bytes: bytes.slice(0, maxSize) });
 
     const resetUnderLength =
-      !streamed && (resets === "refused-with-length" || flaw === "stored-on-reset");
+      !streamed &&
+      (resets === "refused-with-length" || flaw === "stored-on-reset" || flaw === "reset-stream");
+    const resetUnderStream = streamed && flaw === "reset-stream";
 
     if (resetUnderLength && flaw === "stored-on-reset") held.set(key, stored);
-    if (resetUnderLength) throw connectionReset();
+    if (resetUnderLength || resetUnderStream) throw connectionReset();
 
     return new Response(null, { status: 413 });
   }
@@ -215,6 +220,13 @@ test("`upload/max-size` passes against a server resetting the connection under a
   ).resolves.toBeUndefined();
 });
 
+test("a `fetch` rejecting as a network error is thrown on as the cause of an error naming the request", async () => {
+  await expect(runAgainst("upload/stores", { resets: "always" })).rejects.toMatchObject({
+    message: "`PUT` of 64 KiB as `text/plain` fails as a network error",
+    cause: expect.any(TypeError),
+  });
+});
+
 test.each<[string, Server, string]>([
   ["upload/stores", { flaw: "unquoted-etag" }, '`etag: "e1"`'],
   ["upload/stores", { flaw: "invented-etag", etags: false }, "and not null"],
@@ -227,6 +239,11 @@ test.each<[string, Server, string]>([
   ["upload/max-size", { flaw: "no-limit" }, "answers 201 and not 413"],
   ["upload/max-size", { flaw: "unbounded-stream" }, "without a length answers 201 and not 413"],
   ["upload/max-size", { flaw: "partial-on-limit" }, "The object after the refused `PUT`s"],
+  [
+    "upload/max-size",
+    { flaw: "reset-stream" },
+    "`PUT` of a stream of 1048577 bytes without a length fails as a network error",
+  ],
   ["upload/max-size", { flaw: "stored-on-reset" }, "The object after the refused `PUT`s"],
   ["upload/content-encoding", { flaw: "coded-stored" }, "answers 201 and not 415"],
   ["upload/content-encoding", { flaw: "coded-refused-and-stored" }, "holds an object"],
