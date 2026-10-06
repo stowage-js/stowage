@@ -2,7 +2,14 @@ import { assert, assertSameBytes } from "../assertions.ts";
 import { kibibyte, patternOf, streamOf } from "../cases/bytes.ts";
 import { keyFor, prefixFor } from "../cases/keys.ts";
 import type { HttpConformanceCase, HttpConformanceContext } from "../http-target.ts";
-import { assertHeaderOf, expectEmpty, expectStatus } from "./answers.ts";
+import {
+  answerOrNetworkError,
+  answerTo,
+  assertHeaderOf,
+  expectEmpty,
+  expectStatus,
+  UnansweredRequest,
+} from "./answers.ts";
 
 /** The `maxSize` spec 14.8 configures the `upload` route with. */
 const maxSize = 1048576;
@@ -11,11 +18,19 @@ const maxSize = 1048576;
 const chunkSize = 64 * kibibyte;
 
 /** A request to the `upload` route, `PUT` unless `init` names another method. */
-const upload = async (
+const sendUpload = async (
   ctx: HttpConformanceContext,
   key: string,
   init: RequestInit = {},
 ): Promise<Response> => await fetch(ctx.target.url("upload", key), { method: "PUT", ...init });
+
+/** The answer to `sendUpload`, a network error thrown as one naming the request in `what`. */
+const upload = async (
+  ctx: HttpConformanceContext,
+  key: string,
+  what: string,
+  init: RequestInit = {},
+): Promise<Response> => await answerTo(sendUpload(ctx, key, init), what);
 
 /**
  * A `PUT` of a stream, which `fetch` sends without a length. Node and Deno take a stream
@@ -26,10 +41,11 @@ const uploadStream = async (
   ctx: HttpConformanceContext,
   key: string,
   body: ReadableStream<Uint8Array>,
+  what: string,
 ): Promise<Response> => {
   const init = { method: "PUT", body, duplex: "half" };
 
-  return await fetch(ctx.target.url("upload", key), init);
+  return await answerTo(fetch(ctx.target.url("upload", key), init), what);
 };
 
 /** The bytes the key holds, compared with `expected`. */
@@ -57,7 +73,7 @@ export const uploadCases: readonly HttpConformanceCase[] = [
       const key = keyFor(ctx, "upload/stores");
       const bytes = patternOf(64 * kibibyte);
       const what = "`PUT` of 64 KiB as `text/plain`";
-      const response = await upload(ctx, key, {
+      const response = await upload(ctx, key, what, {
         headers: { "content-type": "text/plain" },
         body: bytes,
       });
@@ -82,9 +98,10 @@ export const uploadCases: readonly HttpConformanceCase[] = [
     async run(ctx) {
       const key = keyFor(ctx, "upload/streamed-body");
       const bytes = patternOf(512 * kibibyte);
-      const response = await uploadStream(ctx, key, streamOf(bytes, chunkSize));
+      const what = "`PUT` of a 512 KiB stream without a length";
+      const response = await uploadStream(ctx, key, streamOf(bytes, chunkSize), what);
 
-      await expectStatus(response, 201, "`PUT` of a 512 KiB stream without a length");
+      await expectStatus(response, 201, what);
       await assertHolds(ctx, key, bytes, "The object the streamed `PUT` stored");
     },
   },
@@ -95,9 +112,10 @@ export const uploadCases: readonly HttpConformanceCase[] = [
     async run(ctx) {
       const key = keyFor(ctx, "upload/content-type-default");
       // A `Uint8Array` is sent without the `Content-Type` that `fetch` gives a string.
-      const response = await upload(ctx, key, { body: patternOf(16) });
+      const what = "`PUT` without `Content-Type`";
+      const response = await upload(ctx, key, what, { body: patternOf(16) });
 
-      await expectStatus(response, 201, "`PUT` without `Content-Type`");
+      await expectStatus(response, 201, what);
 
       const stat = await ctx.storage.stat(key);
 
@@ -114,7 +132,9 @@ export const uploadCases: readonly HttpConformanceCase[] = [
     async run(ctx) {
       const key = keyFor(ctx, "upload/empty-body");
 
-      await expectStatus(await upload(ctx, key), 201, "`PUT` without a body");
+      const what = "`PUT` without a body";
+
+      await expectStatus(await upload(ctx, key, what), 201, what);
 
       const stat = await ctx.storage.stat(key);
 
@@ -129,8 +149,15 @@ export const uploadCases: readonly HttpConformanceCase[] = [
       const key = keyFor(ctx, "upload/overwrites");
       const second = patternOf(16, 1);
 
-      await expectStatus(await upload(ctx, key, { body: patternOf(16) }), 201, "The first `PUT`");
-      await expectStatus(await upload(ctx, key, { body: second }), 201, "The second `PUT`");
+      const whatFirst = "The first `PUT`";
+      const whatSecond = "The second `PUT`";
+
+      await expectStatus(
+        await upload(ctx, key, whatFirst, { body: patternOf(16) }),
+        201,
+        whatFirst,
+      );
+      await expectStatus(await upload(ctx, key, whatSecond, { body: second }), 201, whatSecond);
       await assertHolds(ctx, key, second, "The object after the second `PUT`");
     },
   },
@@ -140,11 +167,14 @@ export const uploadCases: readonly HttpConformanceCase[] = [
     cost: "fast",
     async run(ctx) {
       const largest = patternOf(maxSize);
+      const whatLargest = `\`PUT\` of ${maxSize} bytes`;
 
       await expectStatus(
-        await upload(ctx, keyFor(ctx, "upload/max-size", "largest"), { body: largest }),
+        await upload(ctx, keyFor(ctx, "upload/max-size", "largest"), whatLargest, {
+          body: largest,
+        }),
         201,
-        `\`PUT\` of ${maxSize} bytes`,
+        whatLargest,
       );
 
       const key = keyFor(ctx, "upload/max-size", "stored");
@@ -153,15 +183,22 @@ export const uploadCases: readonly HttpConformanceCase[] = [
 
       await ctx.storage.put(key, stored, { contentType: "text/plain" });
 
-      await expectEmpty(
-        await upload(ctx, key, { body: tooLarge }),
-        413,
-        `\`PUT\` of ${maxSize + 1} bytes`,
+      const whatWithLength = `\`PUT\` of ${maxSize + 1} bytes`;
+      const response = await answerOrNetworkError(
+        sendUpload(ctx, key, { body: tooLarge }),
+        whatWithLength,
       );
+
+      // ADR 0056: a client still writing past the refusal may meet a reset instead of the `413`.
+      if (!(response instanceof UnansweredRequest))
+        await expectEmpty(response, 413, whatWithLength);
+
+      const whatStreamed = `\`PUT\` of a stream of ${maxSize + 1} bytes without a length`;
+
       await expectEmpty(
-        await uploadStream(ctx, key, streamOf(tooLarge, chunkSize)),
+        await uploadStream(ctx, key, streamOf(tooLarge, chunkSize), whatStreamed),
         413,
-        `\`PUT\` of a stream of ${maxSize + 1} bytes without a length`,
+        whatStreamed,
       );
       await assertHolds(ctx, key, stored, "The object after the refused `PUT`s");
     },
@@ -172,12 +209,13 @@ export const uploadCases: readonly HttpConformanceCase[] = [
     cost: "fast",
     async run(ctx) {
       const key = keyFor(ctx, "upload/content-encoding");
-      const response = await upload(ctx, key, {
+      const what = "`PUT` with `Content-Encoding: gzip`";
+      const response = await upload(ctx, key, what, {
         headers: { "content-encoding": "gzip" },
         body: patternOf(16),
       });
 
-      await expectEmpty(response, 415, "`PUT` with `Content-Encoding: gzip`");
+      await expectEmpty(response, 415, what);
       await assertAbsent(ctx, key, "the `415`");
     },
   },
@@ -194,7 +232,7 @@ export const uploadCases: readonly HttpConformanceCase[] = [
       ] as const) {
         const what = `\`${method}\``;
         // oxlint-disable-next-line no-await-in-loop -- one request after the other
-        const response = await upload(ctx, key, { method, body });
+        const response = await upload(ctx, key, what, { method, body });
 
         // oxlint-disable-next-line no-await-in-loop -- one request after the other
         await expectStatus(response, 405, what);
@@ -211,9 +249,11 @@ export const uploadCases: readonly HttpConformanceCase[] = [
     async run(ctx) {
       const key = `${prefixFor(ctx, "upload/invalid-key")}a/`;
 
+      const what = "`PUT` under `a/`";
+
       // Spec 10.2: no object can live under an invalid key, and a `400` would tell the
       // client the key rules.
-      await expectEmpty(await upload(ctx, key, { body: patternOf(16) }), 404, "`PUT` under `a/`");
+      await expectEmpty(await upload(ctx, key, what, { body: patternOf(16) }), 404, what);
     },
   },
   {
@@ -222,12 +262,13 @@ export const uploadCases: readonly HttpConformanceCase[] = [
     cost: "fast",
     async run(ctx) {
       const key = keyFor(ctx, "upload/no-header-metadata");
-      const response = await upload(ctx, key, {
+      const what = "`PUT` with `x-amz-meta-a` and `x-ms-meta-a`";
+      const response = await upload(ctx, key, what, {
         headers: { "x-amz-meta-a": "1", "x-ms-meta-a": "1" },
         body: patternOf(16),
       });
 
-      await expectStatus(response, 201, "`PUT` with `x-amz-meta-a` and `x-ms-meta-a`");
+      await expectStatus(response, 201, what);
 
       const stat = await ctx.storage.stat(key);
 
