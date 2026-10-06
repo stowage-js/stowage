@@ -1,4 +1,4 @@
-import { isStorageError, StorageError, type StorageErrorCode } from "./errors.ts";
+import { isStorageError, StorageError, type StorageErrorCode, withFields } from "./errors.ts";
 import { repeatOnBudget, type Settle } from "./retry.ts";
 import { isTransientStatus } from "./status.ts";
 
@@ -174,25 +174,12 @@ function transportFailure(request: RequestToSend, failure: unknown, attempts: nu
 function toldAgainst(request: RequestToSend, failure: unknown): unknown {
   if (!isStorageError(failure)) return failure;
 
-  const told = new StorageError({
-    code: failure.code,
-    message: failure.message,
+  return withFields(failure, {
     operation: request.operation,
     bucket: request.bucket,
     provider: request.provider,
-    attempts: failure.attempts,
     key: request.key ?? failure.key,
-    status: failure.status,
-    providerCode: failure.providerCode,
-    requestId: failure.requestId,
-    retryable: failure.retryable,
-    capability: failure.capability,
-    cause: failure.cause,
   });
-
-  told.stack = failure.stack;
-
-  return told;
 }
 
 function settlingBy(rule: UnansweredRule): Settle {
