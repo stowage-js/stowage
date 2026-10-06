@@ -29,6 +29,16 @@ export {
   wholeSizeOf,
 } from "./range.ts";
 export { type RetryOptions, withRetry } from "./retry.ts";
+export {
+  type ConstructedStorage,
+  type FailureReading,
+  type PreparedAttempt,
+  readMaxAttempts,
+  type RefusedAnswer,
+  type RequestToSend,
+  sendRequest,
+  type UnansweredRule,
+} from "./send-request.ts";
 export { errorCodeForStatus, isTransientStatus } from "./status.ts";
 export type {
   ByteRange,
