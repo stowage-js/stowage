@@ -1,4 +1,4 @@
-import type { Resolvable, StorageError } from "@stowage/core";
+import { readMaxAttempts, type Resolvable, type StorageError } from "@stowage/core";
 
 import type { AzureBlobCredentials } from "./credentials.ts";
 import { optionError as refuseOption, requireKnownOptions } from "./options.ts";
@@ -71,16 +71,13 @@ const adapterOptionKeys: readonly string[] = [
   "retry",
   "multipart",
 ];
-const retryOptionKeys: readonly string[] = ["maxAttempts"];
 const multipartOptionKeys: readonly string[] = ["partSize", "concurrency"];
 
 const mebibyte = 1024 * 1024;
 
-const defaultMaxAttempts = 3;
 const defaultPartSize = 8 * mebibyte;
 const defaultConcurrency = 4;
 
-const maxAttemptsRange = { least: 1, most: 3 };
 const partSizeRange = { least: 5 * mebibyte, most: 4000 * mebibyte };
 const concurrencyRange = { least: 1, most: 16 };
 
@@ -123,7 +120,11 @@ export function readConfiguration(options: AzureBlobAdapterOptions): AzureBlobCo
     container: options.container,
     ...readEndpoint(container, options),
     credentials: options.credentials,
-    maxAttempts: readMaxAttempts(container, options.retry),
+    maxAttempts: readMaxAttempts(options.retry, {
+      provider: "azure-blob",
+      bucket: container,
+      constructedBy: "azureBlobStorage",
+    }),
     ...readMultipart(container, options.multipart),
   };
 }
@@ -189,22 +190,6 @@ function readBasePath(container: string, pathname: string): string {
 
 function isLoopbackHttp(endpoint: URL): boolean {
   return endpoint.protocol === "http:" && loopbackHosts.test(endpoint.hostname);
-}
-
-function readMaxAttempts(container: string, retry: AzureBlobAdapterOptions["retry"]): number {
-  if (retry === false) return 1;
-  if (retry === undefined) return defaultMaxAttempts;
-
-  requireGroup(container, retry, "retry");
-  requireKnownOptions(container, retry, retryOptionKeys, "azureBlobStorage");
-
-  return readInRange(
-    container,
-    retry.maxAttempts,
-    "maxAttempts",
-    maxAttemptsRange,
-    defaultMaxAttempts,
-  );
 }
 
 function readMultipart(

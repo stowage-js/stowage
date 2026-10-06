@@ -1,5 +1,6 @@
 import {
   errorCodeForStatus,
+  type FailureReading,
   isTransientStatus,
   type StorageError,
   type StorageErrorCode,
@@ -163,6 +164,19 @@ export interface FailedResponse {
  * a subresponse of a Blob Batch included.
  */
 export function providerError(container: string, response: FailedResponse): StorageError {
+  return azureBlobError(container, {
+    ...readFailedResponse(response),
+    operation: response.operation,
+    attempts: response.attempts,
+    status: response.status,
+    retryable: isTransientStatus(response.status),
+  });
+}
+
+/** What spec 8.8 reads out of a failed response, before the request's context joins it. */
+export function readFailedResponse(
+  response: Omit<FailedResponse, "operation" | "attempts">,
+): FailureReading {
   const providerCode = response.headers.get("x-ms-error-code") ?? undefined;
   const failure = readProviderFailure({
     status: response.status,
@@ -175,20 +189,17 @@ export function providerError(container: string, response: FailedResponse): Stor
     copySourceStatus: statusOf(response.headers.get("x-ms-copy-source-status-code")),
   });
 
-  return azureBlobError(container, {
+  return {
     code: failure.code,
     message: failure.message,
-    operation: response.operation,
     key:
       failure.onSource === true
         ? (response.copySource ?? response.key)
         : keyUnlessMissingContainer(response.key, providerCode),
-    attempts: response.attempts,
-    status: response.status,
     providerCode,
     requestId: response.headers.get("x-ms-request-id") ?? undefined,
-    retryable: isTransientStatus(response.status),
-  });
+    refusedCredential: isRefusedToken({ status: response.status, providerCode }),
+  };
 }
 
 /**

@@ -1,15 +1,14 @@
-import { parseXml, type StorageError, withRetry } from "@stowage/core";
+import { parseXml, type PreparedAttempt, sendRequest } from "@stowage/core";
 
 import type { AzureBlobConfiguration } from "./configuration.ts";
 import { type AzureBlobCredentials, resolveCredentials } from "./credentials.ts";
-import { isRefusedToken, providerError } from "./provider-code.ts";
+import { readFailedResponse } from "./provider-code.ts";
 import {
   type HeaderField,
   type QueryParameter,
   type SignableRequest,
   signSharedKey,
 } from "./sign.ts";
-import { azureBlobError, inStorage } from "./storage-error.ts";
 
 export interface AzureBlobRequest {
   readonly method: string;
@@ -58,45 +57,51 @@ const reservedByEncodeUriComponent = /[!'()*]/gu;
 
 /**
  * One Azure request, answered by the response the provider sent or rejected with its
- * failure. The loop of spec 8.5 lives in `@stowage/core`, as the one definition of the
- * budget and the curve that a third-party adapter reads too.
+ * failure. The attempts of spec 8.5 and the repeat under a refreshed access token of spec
+ * 8.3 live in `@stowage/core` (ADR 0057).
  */
 export async function send(
   configuration: AzureBlobConfiguration,
   request: AzureBlobRequest,
 ): Promise<Response> {
-  return await withRetry(async () => await attempt(configuration, request, false), {
+  return await sendRequest({
+    provider: "azure-blob",
+    bucket: configuration.container,
+    operation: request.operation,
+    key: request.key,
+    method: request.method,
     maxAttempts: configuration.maxAttempts,
     signal: request.signal,
+    prepare: async ({ forceRefresh }) => await prepare(configuration, request, forceRefresh),
+    readFailure: (answer) =>
+      readFailedResponse({
+        method: request.method,
+        key: request.key,
+        copySource: request.copySource,
+        status: answer.status,
+        headers: answer.headers,
+        providerMessage: answer.body === undefined ? undefined : errorMessageOf(answer.body),
+        underRefreshedToken: answer.refreshed,
+      }),
   });
 }
 
 /**
  * One authorized request, which is the attempt CONTEXT.md names and what a repeat
- * repeats: the credential is resolved and the request dated and signed anew.
- *
- * Spec 8.3 has an attempt cost a second request where the provider refused an access
- * token: the credential is resolved again under `forceRefresh` and the request goes out
- * without a delay, because no wait makes a token fresher. `retry: false` does not switch
- * that repeat off, so an attempt costs one request or two and an operation at most six
- * (spec 8.5).
+ * repeats: the credential is resolved and the request dated and signed anew. Spec 8.3
+ * refreshes an access token the provider refused, and never an account key, which a
+ * refresh does not make valid.
  */
-async function attempt(
+async function prepare(
   configuration: AzureBlobConfiguration,
   request: AzureBlobRequest,
   forceRefresh: boolean,
-): Promise<Response> {
-  const attempts = forceRefresh ? 2 : 1;
+): Promise<PreparedAttempt> {
   const path = request.toService
     ? encodePath(`${configuration.basePath}/`)
     : requestPath(configuration, request.key);
   const query = request.query ?? [];
-  const credentials = await resolveCredentials(configuration.credentials, {
-    forceRefresh,
-  }).catch((failure: unknown) => {
-    throw inStorage(failure, configuration.container, request.operation, request.key);
-  });
-  const underAccessToken = "accessToken" in credentials;
+  const credentials = await resolveCredentials(configuration.credentials, { forceRefresh });
   const body = typeof request.body === "function" ? await request.body(credentials) : request.body;
   const requested =
     typeof request.headers === "function" ? await request.headers(credentials) : request.headers;
@@ -106,36 +111,13 @@ async function attempt(
     body,
     credentials,
   );
-  let response: Response;
 
-  try {
-    response = await fetch(urlOf(configuration, path, query), {
-      method: request.method,
-      headers: [...headers, identityEncoding].map(([name, value]) => [name, value]),
-      body,
-      signal: request.signal,
-    });
-  } catch (failure) {
-    throw transportFailure(configuration, request, failure, attempts);
-  }
-
-  if (response.ok) return response;
-
-  const answer = {
-    status: response.status,
-    providerCode: response.headers.get("x-ms-error-code") ?? undefined,
+  return {
+    url: urlOf(configuration, path, query),
+    headers: [...headers, identityEncoding],
+    body,
+    refreshable: "accessToken" in credentials,
   };
-
-  if (underAccessToken && !forceRefresh && isRefusedToken(answer)) {
-    await response.body?.cancel();
-
-    return await attempt(configuration, request, true);
-  }
-
-  throw await failureOf(configuration, request, response, {
-    attempts,
-    underRefreshedToken: underAccessToken && forceRefresh,
-  });
 }
 
 async function authorize(
@@ -235,50 +217,6 @@ function urlOf(
   return `${configuration.protocol}//${configuration.host}${path}${search}`;
 }
 
-/** The message is read out of the document beside the code, where the body carries one. */
-async function failureOf(
-  configuration: AzureBlobConfiguration,
-  request: AzureBlobRequest,
-  response: Response,
-  made: { readonly attempts: number; readonly underRefreshedToken: boolean },
-): Promise<StorageError> {
-  return providerError(configuration.container, {
-    operation: request.operation,
-    method: request.method,
-    key: request.key,
-    copySource: request.copySource,
-    status: response.status,
-    headers: response.headers,
-    providerMessage: await readMessage(request, response),
-    ...made,
-  });
-}
-
-/**
- * The `Message` of the error document, read to the end, which is also what releases the
- * connection the next attempt needs. A body that is no error document — an HTML page from
- * a proxy in between, one that broke on the way — leaves the message unset rather than
- * failing on its way to reporting a failure.
- */
-async function readMessage(
-  request: AzureBlobRequest,
-  response: Response,
-): Promise<string | undefined> {
-  if (request.method === "HEAD") {
-    await response.body?.cancel();
-
-    return undefined;
-  }
-
-  try {
-    return errorMessageOf(await response.text());
-  } catch (failure) {
-    if (failure instanceof Error && failure.name === "AbortError") throw failure;
-
-    return undefined;
-  }
-}
-
 /** The `Message` of an error document, or nothing for a body that is none. */
 export function errorMessageOf(body: string): string | undefined {
   try {
@@ -291,26 +229,4 @@ export function errorMessageOf(body: string): string | undefined {
 
     return undefined;
   }
-}
-
-// Spec 4.10: an aborted signal produces the runtime's `AbortError` and never a
-// `StorageError`, so the one failure `fetch` throws that is not a transport failure
-// travels on untouched.
-function transportFailure(
-  configuration: AzureBlobConfiguration,
-  request: AzureBlobRequest,
-  failure: unknown,
-  attempts: number,
-): unknown {
-  if (failure instanceof Error && failure.name === "AbortError") return failure;
-
-  return azureBlobError(configuration.container, {
-    code: "NetworkError",
-    message: `The request received no response: ${String(failure)}`,
-    operation: request.operation,
-    key: request.key,
-    attempts,
-    retryable: true,
-    cause: failure,
-  });
 }

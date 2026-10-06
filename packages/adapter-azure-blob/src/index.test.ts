@@ -365,21 +365,6 @@ test.each([
   expect(failure.message).toBe("The specified container does not exist.");
 });
 
-test("a request that keeps receiving no response is a `NetworkError` after three attempts", async () => {
-  vi.spyOn(Math, "random").mockReturnValue(0);
-  const sent = stubFetch(() => {
-    throw new TypeError("fetch failed");
-  });
-
-  const failure = await failureOf(() => storage().get("object"));
-
-  expect(failure.code).toBe("NetworkError");
-  expect(failure.retryable).toBe(true);
-  expect(failure.attempts).toBe(3);
-  expect(failure.cause).toBeInstanceOf(TypeError);
-  expect(sent).toHaveLength(3);
-});
-
 test.each([408, 429, 500, 503])(
   "a transient %s resolves and authorizes the next attempt again",
   async (status) => {
@@ -421,29 +406,6 @@ test.each([false, { maxAttempts: 2 }] as const)(
     });
   },
 );
-
-test("an abort after a transient response prevents the next attempt", async () => {
-  const controller = new AbortController();
-  const aborted = new DOMException("Aborted", "AbortError");
-  const sent = stubFetch(() => {
-    controller.abort(aborted);
-
-    return refused(503, "ServerBusy");
-  });
-
-  await expect(storage().get("object", { signal: controller.signal })).rejects.toBe(aborted);
-  expect(sent).toHaveLength(1);
-});
-
-test("an AbortError from fetch travels on without retrying", async () => {
-  const aborted = new DOMException("Aborted", "AbortError");
-  const sent = stubFetch(() => {
-    throw aborted;
-  });
-
-  await expect(storage().get("object")).rejects.toBe(aborted);
-  expect(sent).toHaveLength(1);
-});
 
 test("a signal that already fired rejects with `AbortError` before any request", async () => {
   const sent = stubFetch(() => blob("body"));
@@ -877,24 +839,6 @@ test("a failure whose body is no error document is told by its status", async ()
   expect(failure.requestId).toBe("request-1");
 });
 
-test("an AbortError while reading a failed response travels on", async () => {
-  const aborted = new DOMException("Aborted", "AbortError");
-  const sent = stubFetch(
-    () =>
-      new Response(
-        new ReadableStream({
-          start(controller) {
-            controller.error(aborted);
-          },
-        }),
-        { status: 409 },
-      ),
-  );
-
-  await expect(storage().get("object")).rejects.toBe(aborted);
-  expect(sent).toHaveLength(1);
-});
-
 test("a non-abort body read failure leaves the provider message unset", async () => {
   stubFetch(
     () =>
@@ -914,54 +858,6 @@ test("a non-abort body read failure leaves the provider message unset", async ()
   expect(failure.message).toContain("409");
 });
 
-test("`retry: false` sends one attempt", async () => {
-  const sent = stubFetch(() => {
-    throw new TypeError("fetch failed");
-  });
-
-  const failure = await failureOf(() => storage({ retry: false }).get("object"));
-
-  expect(failure.attempts).toBe(1);
-  expect(sent).toHaveLength(1);
-});
-
-test("`maxAttempts` bounds the attempts", async () => {
-  vi.spyOn(Math, "random").mockReturnValue(0);
-  const sent = stubFetch(() => refused(503, "ServerBusy", "The server is busy."));
-
-  const failure = await failureOf(() => storage({ retry: { maxAttempts: 2 } }).get("object"));
-
-  expect(failure.code).toBe("ProviderError");
-  expect(failure.providerCode).toBe("ServerBusy");
-  expect(failure.message).toBe("The server is busy.");
-  expect(failure.retryable).toBe(true);
-  expect(failure.attempts).toBe(2);
-  expect(sent).toHaveLength(2);
-});
-
-// Spec 8.5: the group is a transport failure that received no response plus `408`, `429`
-// and every `5xx`. No provider code adds to it and none removes from it (ADR 0013).
-test.each([408, 429, 500, 502, 503, 504])("a %i is repeated on the budget", async (status) => {
-  vi.spyOn(Math, "random").mockReturnValue(0);
-  const sent = stubFetch(() => refused(status, "NothingThisTableHolds", "Try again."));
-
-  const failure = await failureOf(() => storage().get("object"));
-
-  expect(failure.retryable).toBe(true);
-  expect(failure.attempts).toBe(3);
-  expect(sent).toHaveLength(3);
-});
-
-test.each([400, 403, 404, 409, 412])("a %i is not repeated", async (status) => {
-  const sent = stubFetch(() => refused(status, "NothingThisTableHolds", "No."));
-
-  const failure = await failureOf(() => storage().get("object"));
-
-  expect(failure.retryable).toBe(false);
-  expect(failure.attempts).toBe(1);
-  expect(sent).toHaveLength(1);
-});
-
 test("a repeat resolves the credential again and sends the held body again", async () => {
   vi.spyOn(Math, "random").mockReturnValue(0);
   const responses = [refused(500, "OperationTimedOut", "Operation could not be completed.")];
@@ -975,33 +871,6 @@ test("a repeat resolves the credential again and sends the held body again", asy
   expect(resolve).toHaveBeenCalledWith({ forceRefresh: false });
   expect(sent).toHaveLength(2);
   expect(sent[1]?.body).toEqual(body);
-});
-
-// Spec 8.5 reads no `Retry-After`, which Azure's Blob service does not promise to send.
-test("the wait is the backoff curve and never a `Retry-After`", async () => {
-  vi.spyOn(Math, "random").mockReturnValue(1);
-  const delays = recordedDelays();
-
-  stubFetch(() => refused(503, "ServerBusy", "The server is busy.", { "retry-after": "120" }));
-
-  await failureOf(() => storage().get("object"));
-
-  expect(delays).toEqual([200, 400]);
-});
-
-test("an abort interrupts the wait before another attempt", async () => {
-  vi.spyOn(Math, "random").mockReturnValue(0.5);
-  const controller = new AbortController();
-  const sent = stubFetch(() => {
-    setTimeout(() => controller.abort(), 0);
-
-    return refused(503, "ServerBusy", "The server is busy.");
-  });
-
-  await expect(storage().get("object", { signal: controller.signal })).rejects.toMatchObject({
-    name: "AbortError",
-  });
-  expect(sent).toHaveLength(1);
 });
 
 /** What Azure answers a token that expired, and one it does not accept at all. */
@@ -1057,22 +926,6 @@ test("under an account key the same refusal is not repeated", async () => {
   expect(failure.attempts).toBe(1);
   expect(resolve).toHaveBeenCalledTimes(1);
   expect(sent).toHaveLength(1);
-});
-
-test("one request costs at most six: three attempts, each doubled by the repeat", async () => {
-  vi.spyOn(Math, "random").mockReturnValue(0);
-  let answered = 0;
-  const sent = stubFetch(() => {
-    answered += 1;
-
-    return answered % 2 === 1 ? tokenRefused() : refused(503, "ServerBusy", "The server is busy.");
-  });
-
-  const failure = await failureOf(() => storage().get("object"));
-
-  expect(failure.code).toBe("ProviderError");
-  expect(failure.attempts).toBe(6);
-  expect(sent).toHaveLength(6);
 });
 
 test("an account that takes no account key is `InvalidCredentials` naming the access token", async () => {
