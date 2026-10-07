@@ -10,7 +10,7 @@ import { azureBlobError } from "./storage-error.ts";
 
 const headerPrefix = "x-ms-meta-";
 
-/** Spec 8.4: a run Shared Key would fold to one space in the canonical header. */
+/** Spec 8.4: encoded words even where Shared Key would sign the run as written (ADR 0059). */
 const whitespaceRun = /\s{2,}/u;
 
 export interface UserMetadataHeaders {

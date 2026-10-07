@@ -25,8 +25,7 @@ const encodedKey = `${encodedPrefix}grüße/日本.txt`;
 
 /**
  * Spec 8.4: `x-ms-meta-a_` sorts before `x-ms-meta-a1` in the canonical headers, where code
- * point order has it after, and Shared Key folds a run of whitespace in a value to one
- * space, which the adapter keeps out of the header by encoding such a value.
+ * point order has it after, and a run of whitespace in a value travels as encoded words.
  */
 const userMetadata = { a1: "digit", a_: "a run   of spaces" };
 
@@ -145,6 +144,25 @@ describe.skipIf(underAccountKey === undefined || underAccessToken === undefined)
         expect(await acrossBlocks.bytes()).toEqual(
           new Uint8Array([partSize / mebibyte - 1, partSize / mebibyte]),
         );
+      },
+      uploadTimeout,
+    );
+
+    // ADR 0059: Azure hashes an `x-ms-` value as sent, and `Put Block List` carries the
+    // content type as `x-ms-blob-content-type`, where `Put Blob` sends `Content-Type`.
+    test(
+      "Shared Key signs a `Put Block List` whose content type holds a run of spaces",
+      async () => {
+        const storage = azureBlobStorage({
+          ...endpointOrFail(underAccountKey),
+          multipart: { partSize },
+        });
+        const key = `${prefix}spaced-content-type.bin`;
+        const contentType = "text/plain;  charset=utf-8";
+
+        await storage.put(key, sourceStream(partSize + 1), { contentType });
+
+        expect((await storage.stat(key)).contentType).toBe(contentType);
       },
       uploadTimeout,
     );

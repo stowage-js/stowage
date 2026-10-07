@@ -131,17 +131,24 @@ test("canonical headers are ordered by code point with `_` before the digits", (
   ]);
 });
 
-test("a canonical header value is trimmed and its runs of whitespace folded", () => {
+// Measured against the account (ADR 0059).
+test("a canonical header value is trimmed and otherwise signed as sent", () => {
   const signed = stringToSign({
     method: "PUT",
     account: "stowage",
     path: "/conformance/object",
     query: [],
-    headers: [["x-ms-meta-note", "  one   two\tthree "]],
+    headers: [
+      ["x-ms-blob-content-type", " text/plain;  charset=utf-8\t"],
+      ["x-ms-blob-cache-control", "\tpublic,\tmax-age=60  "],
+    ],
     contentLength: 1,
   });
 
-  expect(signed.split("\n")[12]).toBe("x-ms-meta-note:one two three");
+  expect(signed.split("\n").slice(12, 14)).toEqual([
+    "x-ms-blob-cache-control:public,\tmax-age=60",
+    "x-ms-blob-content-type:text/plain;  charset=utf-8",
+  ]);
 });
 
 test("headers outside `x-ms-` and the standard twelve are not signed", () => {

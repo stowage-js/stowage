@@ -440,8 +440,7 @@ test("`put` sends each user metadata key as an `x-ms-meta-` field, folded to low
   expect(written.userMetadata).toEqual({ writtenby: "stowage", run_1: "grüße" });
 });
 
-// Shared Key folds a run of whitespace in a canonical header to one space, and whether the
-// service stores the run or the folded value is left for no signature to settle.
+// Spec 8.4 keeps a run as encoded words, although Shared Key signs it as sent (ADR 0059).
 test("a value holding a run of whitespace travels as encoded words, a single space as written", async () => {
   const sent = stubFetch(() => created());
 
