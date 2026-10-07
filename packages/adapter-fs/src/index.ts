@@ -4,6 +4,7 @@ import { dirname, isAbsolute } from "node:path";
 
 import {
   type CapabilityName,
+  contentHeadersRefusal,
   type DeleteReport,
   type GetOptions,
   isStorageError,
@@ -119,6 +120,7 @@ class FileSystemStorage implements FsStorage {
     requireKnownOptions(this.#root, options, putOptionKeys, "put");
     this.#requireContentType(options?.contentType);
     this.#requireNoUserMetadata(options?.userMetadata, key);
+    this.#requireNoContentHeaders(options, key);
 
     // Spec 4.3: a signal that already fired rejects in front of the write, before a
     // directory has been created for a body that is not going to be stored.
@@ -500,6 +502,15 @@ class FileSystemStorage implements FsStorage {
     if (contentType === undefined || typeof contentType === "string") return;
 
     throw optionError(this.#root, "contentType", "takes a string", "put");
+  }
+
+  /** Spec 6: the adapter has nowhere to keep them, and declares no `contentHeaders` (ADR 0060). */
+  #requireNoContentHeaders(options: PutOptions | undefined, key: string): void {
+    const refusal = contentHeadersRefusal(options ?? {}, options?.contentType, this.capabilities);
+
+    if (refusal === undefined) return;
+
+    throw fsError(this.#root, { ...refusal, operation: "put", key, attempts: 0 });
   }
 
   #requireNoUserMetadata(userMetadata: Record<string, string> | undefined, key: string): void {
