@@ -73,6 +73,11 @@ export const gcsDivergences: readonly Divergence<GcsEmulator, GcsRealEndpoint>[]
     failureMessagePart: 'carries `code: "ProviderError"` rather than "NotFound"',
     ...moveUnserved,
   },
+  {
+    case: "move/content-headers",
+    failureMessagePart: "Metadata in the request couldn't decode",
+    ...moveUnserved,
+  },
   // ADR 0043: GCS names a missing bucket in the message of its `404` (spec 9.8), and without
   // it the adapter reads a missing object. `exists` then answers `false`, and `delete` reports
   // the key as deleted.

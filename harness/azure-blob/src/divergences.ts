@@ -49,8 +49,10 @@ export const azureBlobDivergences: readonly Divergence<AzureBlobEmulator, AzureB
     { case: "copy/overwrites", failureMessagePart: notImplemented, ...copyUnimplemented },
     { case: "copy/missing-source", failureMessagePart: missingSourceUnread, ...copyUnimplemented },
     { case: "copy/user-metadata", failureMessagePart: notImplemented, ...copyUnimplemented },
+    { case: "copy/content-headers", failureMessagePart: notImplemented, ...copyUnimplemented },
     { case: "move/round-trip", failureMessagePart: notImplemented, ...copyUnimplemented },
     { case: "move/missing-source", failureMessagePart: missingSourceUnread, ...copyUnimplemented },
+    { case: "move/content-headers", failureMessagePart: notImplemented, ...copyUnimplemented },
     {
       case: "presign/put",
       failureMessagePart: "answered 403 and not a success",
