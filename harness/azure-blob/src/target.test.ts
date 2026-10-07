@@ -52,6 +52,8 @@ function copyRoundTrip(
   return sources.find((source) => source.name === "copy/round-trip");
 }
 
+// `divergences.ts` leaves `list/noncharacter-key` unrun against Azurite, whose `500` on its
+// listing would fail the run's `cleanup` (#171).
 test("Azurite runs the whole suite but its unrun case, its divergences as expected failures", () => {
   const options = { includeSlow: true };
   const asRun = azureBlobRunCases(options, printed);
