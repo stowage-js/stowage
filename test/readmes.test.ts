@@ -2,8 +2,6 @@ import { readFile } from "node:fs/promises";
 
 import { expect, test } from "vitest";
 
-import floors from "../harness/floors/package.json" with { type: "json" };
-import nextjsHarness from "../harness/nextjs/package.json" with { type: "json" };
 import adapterAzureBlob from "../packages/adapter-azure-blob/package.json" with { type: "json" };
 import adapterFs from "../packages/adapter-fs/package.json" with { type: "json" };
 import adapterGcs from "../packages/adapter-gcs/package.json" with { type: "json" };
@@ -15,6 +13,7 @@ import hono from "../packages/hono/package.json" with { type: "json" };
 import http from "../packages/http/package.json" with { type: "json" };
 import nestjs from "../packages/nestjs/package.json" with { type: "json" };
 import nextjs from "../packages/nextjs/package.json" with { type: "json" };
+import { integrations, ranVersionOf } from "../scripts/newest-versions.ts";
 
 const read = async (path: string): Promise<string> =>
   await readFile(new URL(`../${path}`, import.meta.url), "utf8");
@@ -315,42 +314,23 @@ test.each(integrationContents)(
   },
 );
 
-/**
- * The peer range, the floor and the newest release CI ran of each integration's framework.
- * The package's own development install pins the newest, and the Next.js harness for `next`,
- * which Renovate moves together.
- */
-const integrations = [
-  {
-    manifest: nestjs,
-    peerRange: nestjs.peerDependencies["@nestjs/common"],
-    floor: floors.devDependencies["@nestjs/common"],
-    newest: nestjs.devDependencies["@nestjs/common"],
-  },
-  {
-    manifest: hono,
-    peerRange: hono.peerDependencies.hono,
-    floor: floors.devDependencies.hono,
-    newest: hono.devDependencies.hono,
-  },
-  {
-    manifest: nextjs,
-    peerRange: nextjs.peerDependencies.next,
-    floor: floors.devDependencies.next,
-    newest: nextjsHarness.devDependencies.next,
-  },
-];
+/** Orders versions such as `4.13.9` and `4.13.12` by their numbers, not their characters. */
+const byVersion = new Intl.Collator("en", { numeric: true }).compare;
 
-// Spec 16: runtimes of an integration name the peer range, the floor and the newest version
-// CI ran.
+// Spec 16: runtimes of an integration name the peer range, the floor and the newest version CI
+// ran at the release. The version pull request writes that one, so between releases a README
+// may name an older version than Renovate has moved to, never one CI does not run.
 test.each(integrations)(
   "the README of $manifest.name names its peer range, its floor and the newest version CI ran",
   async ({ manifest, peerRange, floor, newest }) => {
     const runtimes = sectionOf(await readmeOf(manifest), "Runtimes");
+    const ran = ranVersionOf(runtimes);
 
     expect(runtimes).toContain(`\`${peerRange}\``);
     expect(runtimes).toContain(`floor is ${floor}`);
-    expect(runtimes).toContain(`CI ran ${newest}`);
+    expect(ran, "names no version CI ran").toBeDefined();
+    expect(byVersion(floor, ran ?? ""), `names ${ran}, below the floor`).toBeLessThanOrEqual(0);
+    expect(byVersion(ran ?? "", newest), `names ${ran}, above ${newest}`).toBeLessThanOrEqual(0);
   },
 );
 
