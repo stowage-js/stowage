@@ -499,6 +499,31 @@ test.each(["content-hash", "x.y", "1st"])(
   },
 );
 
+// Until the adapter declares `contentHeaders`, spec 4.3 refuses the three before any check
+// of their form, `""` included.
+test.each([
+  ["cacheControl", "public, max-age=60"],
+  ["contentDisposition", "attachment"],
+  ["contentLanguage", "de-AT"],
+  ["cacheControl", ""],
+])(
+  "`%s` as %j is `Unsupported` naming `contentHeaders` before any request",
+  async (option, value) => {
+    const sent = stubFetch(() => created());
+
+    const failure = await failureOf(() => storage().put("object", "body", { [option]: value }));
+
+    expect(failure).toMatchObject({
+      code: "Unsupported",
+      capability: "contentHeaders",
+      operation: "put",
+      key: "object",
+      attempts: 0,
+    });
+    expect(sent).toHaveLength(0);
+  },
+);
+
 test("an empty user metadata set sends no `x-ms-meta-` field", async () => {
   const sent = stubFetch(() => created());
 

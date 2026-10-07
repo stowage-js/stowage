@@ -1,5 +1,6 @@
 import {
   type CapabilityName,
+  contentHeadersRefusal,
   type DeleteReport,
   type GetOptions,
   isStorageError,
@@ -121,6 +122,8 @@ class SimpleStorageServiceStorage implements S3Storage {
       contentType: this.#readContentType(options?.contentType),
       signal: options?.signal,
     };
+
+    this.#requireContentHeaders(options, write.contentType, key);
 
     // Spec 4.3: a signal that already fired rejects before the request goes out.
     options?.signal?.throwIfAborted();
@@ -279,6 +282,18 @@ class SimpleStorageServiceStorage implements S3Storage {
       key: from,
       attempts: 0,
     });
+  }
+
+  /**
+   * Spec 4.3, before anything is sent. The adapter declares no `contentHeaders` yet, so any of
+   * the three is refused as `Unsupported` rather than as an option it does not know.
+   */
+  #requireContentHeaders(options: PutOptions | undefined, contentType: string, key: string): void {
+    const refusal = contentHeadersRefusal(options ?? {}, contentType, this.capabilities);
+
+    if (refusal === undefined) return;
+
+    throw s3Error(this.bucket, { ...refusal, operation: "put", key, attempts: 0 });
   }
 
   #readContentType(contentType: string | undefined): string {
