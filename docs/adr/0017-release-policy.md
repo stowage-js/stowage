@@ -100,3 +100,9 @@ the first time a month fills up is worse than no promise.
   release once CI covers it, a major its framework no longer supports leaves outside the contract
   as a Node line at end of life does, and dropping one its framework still supports is a
   withdrawal. ADR 0050 makes raising an integration's peer floor a withdrawal as well.
+- ADR 0059 and ADR 0060 add that a promise stated for the first time takes nothing from a caller,
+  and that refusing an input as `Unsupported` that a storage refused as an unknown option is no
+  withdrawal. ADR 0062 withdraws two promises of `@stowage/http`, ADR 0063 two of the cloud
+  adapters, and ADR 0064 one of `@stowage/conformance`, a case that asserts more of a target than
+  it did; each names its conflict with the rule that a withdrawal takes something from the
+  caller.

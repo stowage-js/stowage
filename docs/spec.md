@@ -64,8 +64,9 @@ conformance suite does (section 14.8). There is no weaker level (ADR 0002, ADR 0
   bucket, a real Azure Blob Storage account and a real GCS bucket, on Bun and Deno against the
   emulators (ADR 0012, ADR 0023, ADR 0026, ADR 0034, ADR 0039).
 - fake-gcs-server checks no credential and no signature and serves no `moveTo`. Against it the
-  credential cases are skipped, and the three rejections of a presigned URL and both `move` cases
-  fail as its divergence list expects; the real bucket answers all of them on Node and `workerd`.
+  credential cases are skipped, and the four rejections of a presigned URL and the three `move`
+  cases fail as its divergence list expects; the real bucket answers all of them on Node and
+  `workerd`.
   On Bun and Deno the emulator answers the rest of the suite, as SeaweedFS and Azurite do (ADR
   0034, ADR 0039).
 - `adapter-fs` is covered on the file systems of Linux and of macOS (section 6). On macOS the
@@ -111,14 +112,15 @@ The servers, each against the runtimes its package promises (section 1):
   disconnecting cancels the stream `get` returned and reaches the provider, on every runtime of the
   cell, and memory stays flat through an upload and a download, on Node. A cell failing the
   disconnect test carries no "yes".
-- Three runtimes' own servers change an answer of the layer on its way to the socket, which a
-  client of the cell sees: `Bun.serve` and `Deno.serve` answer a `HEAD` with `Content-Length: 0`,
-  `Bun.serve` sends `Content-Length` with a body that is complete before the headers are written,
-  a small object's among them, and `workerd` sends every body that is a stream chunked and without
-  `Content-Length`, a `206` among them. A list beside each server in the private harness names
-  each change: in `serve/head` on `Bun.serve` and `Deno.serve`, `serve/whole` on `Bun.serve` and
-  `serve/range` on `workerd` the harness undoes it on that server's answers, so that the rest of
-  the case runs, and fails the run where the case meets no changed answer.
+- Runtimes' own servers change an answer of the layer on its way to the socket, which a client of
+  the cell sees: `workerd` sends every body that is a stream chunked and without `Content-Length`,
+  a `200` and a `206` among them, and `Bun.serve` does the same to a body still streaming when the
+  headers are written, while it keeps the length of one that is complete by then, a small object's
+  among them. A list beside each server in the private harness names each change a case meets: in
+  `serve/whole`, `serve/head` and `serve/range` on `workerd` the harness undoes it on that server's
+  answers, so that the rest of the case runs, and fails the run where the case meets no changed
+  answer (ADR 0064). `Bun.serve` and `Deno.serve` add `Content-Length: 0` to a `HEAD` answered
+  without a length, which the layer does for a content-coded object alone (section 10.3).
 - CI runs the floor and the newest release of each framework's major on Node 24 and Node 26. The
   floors are `@nestjs/common`, `@nestjs/core`, `@nestjs/platform-express` and
   `@nestjs/platform-fastify` 12.1.2, `hono` 4.13.12 on `@hono/node-server` 2.1.3, and `next`
@@ -138,7 +140,8 @@ carries one case per flow (section 14.6).
 
 A server process writes a stream of unknown length under a key.
 
-- In: key, `ReadableStream<Uint8Array>`, optional content type and user metadata.
+- In: key, `ReadableStream<Uint8Array>`, optional content type, content headers and user
+  metadata.
 - Out: the stored object's description.
 - Adapters: `memory`, `fs`, `s3`, `azure-blob`, `gcs`. Runtimes: Node, Bun, Deno, `workerd`.
 - Holds when: memory does not grow with the size of the object (`adapter-memory` excepted); the
@@ -159,22 +162,30 @@ A server process writes a stream of unknown length under a key.
 
 A server signs a URL and the browser uploads to the provider directly.
 
-- In: key, lifetime, content type, and the content length the client reported.
+- In: key, lifetime, content type, the content length the client reported, and optionally the
+  content headers the object is stored with.
 - Out: a URL and the headers a plain `fetch` sends with `PUT` beside the body.
 - Adapters: `s3`, `azure-blob`, `gcs`. Runtimes: the signing side on Node, Bun, Deno and
   `workerd`.
-- Holds when: content type and content length are bound through signed headers, so the provider
-  rejects an upload that deviates from either; the binding is exact, and a body of unknown length
-  cannot be uploaded through the URL; an expired URL is rejected; the rejections reach the client as
-  an HTTP status.
+- Holds when: content type, content length and each content header given are bound through signed
+  headers, so the provider rejects an upload that deviates from any of them; the binding is exact
+  up to runs of spaces, which the provider stores as sent, and a body of unknown length cannot be
+  uploaded through the URL; an expired URL is rejected; the rejections reach the client as an HTTP
+  status. A content header the URL does not bind can be set by whoever holds the URL, and the
+  provider stores it (ADR 0063).
 - Fails as: signature mismatch, expired URL, a body that contradicts the signed headers. The
   provider answers the browser, so none of them reaches the adapter or becomes a `StorageError`.
 - Requires, on `s3`: the bucket policy allows `UNSIGNED-PAYLOAD`, and CORS is configured for the
-  origin that uploads. On `azure-blob`: the account's CORS rule allows the origin, `PUT`, and the
-  headers `content-type` and `x-ms-blob-type`, and the signing storage is built with an access
-  token (section 8.9). On `gcs`: the storage is built with a `signer`, and the bucket's CORS rule
-  allows the origin, `PUT` and the header `content-type` (section 9.9). stowage states these and
-  configures none of them.
+  origin that uploads, allowing `cache-control`, `content-disposition` and `content-language` where
+  the URL binds them. On `azure-blob`: the account's CORS rule allows the origin, `PUT`, and the
+  headers `content-type`, `x-ms-blob-type` and `x-ms-blob-content-type`, and
+  `x-ms-blob-cache-control`, `x-ms-blob-content-disposition` and `x-ms-blob-content-language` where
+  the URL binds them, and the signing storage is built with an access token (section 8.9). On
+  `gcs`: the storage is built with a `signer`, and the bucket's CORS rule allows the origin, `PUT`
+  and the header `content-type`, and `cache-control`, `content-disposition` and `content-language`
+  where the URL binds them (section 9.9). The rule names `content-language` although CORS
+  safelists it, since it does so only for a short value of a restricted alphabet. stowage states
+  these and configures none of them.
 - Every cross-origin upload through the URL is preflighted, because `PUT` is not a CORS-safelisted
   method. Azure Blob and GCS answer a rejected upload with the CORS headers of the rule, so a page
   reads its status and not the provider's code; R2 sends none on the `403` for an expired URL, so a
@@ -201,8 +212,8 @@ An HTTP handler serves one page of a directory view.
 A worker answers a client `GET` and passes the client's `Range` on to the provider.
 
 - In: key, optional byte range.
-- Out: a `ReadableStream<Uint8Array>`, the content type for the response header, and for a range
-  the partial content.
+- Out: a `ReadableStream<Uint8Array>`, the content type and the content headers for the response
+  headers, and for a range the partial content.
 - Adapters: `s3`, `azure-blob`, `gcs`. Runtimes: all four.
 - Holds when: nothing is buffered, so memory stays flat for an object of any size; a range returns
   partial content; the client disconnecting cancels the stream and reaches the provider.
@@ -222,6 +233,9 @@ A one-off script moves everything below a prefix to another provider.
 - Holds when: the stream out of `get` goes into `put` without the object being held whole anywhere;
   the content type survives the move where the target stores one (section 6 for where `adapter-fs`
   does not); `deleteAll(prefix)` pages and batches on its own and reports what it could not delete.
+  An object read from `adapter-fs` carries no content headers, so none reach the target; a caller
+  moving the other way who hands `put` the content headers `stat` reported is refused by
+  `adapter-fs`, as with user metadata (ADR 0060).
 - Fails as: the run fails partway; a source object disappears during the run (`NotFound`); the target
   rejects a write.
 
@@ -298,6 +312,9 @@ export interface OperationOptions {
 
 export interface PutOptions extends OperationOptions {
   contentType?: string;
+  cacheControl?: string;
+  contentDisposition?: string;
+  contentLanguage?: string;
   userMetadata?: Record<string, string>;
 }
 
@@ -324,6 +341,26 @@ export interface ListOptions extends OperationOptions {
   names the key and never its value.
 - `contentType` absent: `adapter-memory`, `adapter-s3`, `adapter-azure-blob` and `adapter-gcs`
   store `application/octet-stream`; `adapter-fs` derives the type from the key (section 6).
+- `cacheControl`, `contentDisposition` and `contentLanguage`, the content headers, are stored as
+  `Cache-Control`, `Content-Disposition` and `Content-Language` where the storage declares
+  `contentHeaders`, and read back as written (section 4.4). Nothing parses them: `max-age=abc` and
+  `attachment; filename=` are stored as sent. A file name outside ASCII travels as RFC 8187's
+  `filename*=UTF-8''…`, which the caller encodes. A `put` that carries at least one of them, as a
+  value other than `undefined`, is checked in this order, each before signing and with
+  `attempts: 0` (ADR 0058, ADR 0060):
+  1. Where the storage does not declare `contentHeaders`, it is `Unsupported` naming
+     `contentHeaders`, whatever the value.
+  2. A value that is no string, is empty, or holds anything but visible ASCII with spaces and tabs
+     inside it, is `InvalidOption` naming the option and never its value. A space or a tab at
+     either end is refused, since `fetch` trims it.
+  3. The header names and values of `Content-Type` and of the content headers the `put` carries
+     hold at most 2,048 bytes together, `Content-Type` counted with the type as given or as
+     `application/octet-stream` where absent; more is `InvalidRequest`.
+  4. A `contentLanguage` of more than 100 characters is `InvalidRequest`.
+
+  A `put` that carries none of the three is not measured, whatever its `contentType`. Across
+  `contentType`, `userMetadata` and the content headers no order is promised.
+
 - `userMetadata` is stored where the storage declares `userMetadata`. Keys are compared
   case-insensitively. Values may hold any Unicode character; a value that would not travel in a
   header as written is RFC 2047-encoded where an adapter sends it in a header, and `adapter-gcs`
@@ -367,18 +404,35 @@ export interface ObjectEntry {
 
 export interface ObjectStat extends ObjectEntry {
   readonly contentType: string;
+  readonly cacheControl?: string;
+  readonly contentDisposition?: string;
+  readonly contentLanguage?: string;
+  readonly contentEncoding?: string;
   readonly userMetadata: Readonly<Record<string, string>>;
 }
 ```
 
 - `put`, `stat`, `copy`, `move` and `get` produce an `ObjectStat`. A listing yields `ObjectEntry`,
-  because a listing response carries neither content type nor metadata.
+  because a listing response carries neither content type, content headers nor metadata.
 - `size` counts the bytes the storage holds. After `put` it is the number of bytes written; after
-  a ranged `get` it is the size of the whole object, not of the range. An object another tool
-  stored with a content coding may arrive decoded and longer than `size`, or as stored, depending
+  a ranged `get` it is the size of the whole object, not of the range. An object whose
+  `contentEncoding` is set may arrive decoded and longer than `size`, or as stored, depending
   on the runtime and the adapter: Node, Bun and `workerd` decode the codings they know, and Deno
   decodes none on `adapter-s3` and `adapter-azure-blob`, whose requests carry
   `accept-encoding: identity`. stowage never writes such an object (ADR 0040, ADR 0044).
+- `cacheControl`, `contentDisposition` and `contentLanguage` are the content headers as stored,
+  byte for byte and decoded in no way. A member is missing where the object holds no value or an
+  empty one, never present as `undefined`, and all three are missing where the storage does not
+  declare `contentHeaders`. Reading never refuses: a value another tool stored outside the rule of
+  section 4.3, UTF-8 or longer than its bounds, is reported as read. The `ObjectStat` that `put`,
+  `copy` and `move` resolve with carries the values a later `stat` reports (ADR 0058).
+- `contentEncoding` names the content coding the object is stored with, as stored, such as `GZIP`
+  or `gzip, br`; RFC 9110 makes its tokens case-insensitive, so a caller lower-cases before
+  comparing. It is missing where the object holds no coding, an empty value or `identity` in any
+  case, so it is set exactly where section 4.3 refuses a range. It names how the object is stored,
+  not which bytes arrive. `put` never reports one, since stowage writes none; `copy` and `move`
+  report the source's. `adapter-memory` and `adapter-fs` never report one, and no capability is
+  involved (ADR 0061).
 - `lastModified` after `put`, `copy` and `move` is the time the provider reported when it accepted
   the object; a later `stat` may differ from it by the provider's rounding, one second on S3.
 - `etag` is set where the provider sends one. `adapter-fs` sends none. Its value is opaque and is
@@ -487,6 +541,7 @@ stowage creates the key or only names one (ADR 0010).
 
 ```ts
 export const capabilityNames = [
+  "contentHeaders",
   "keyBytesPreserved",
   "presignedUrls",
   "rangeReads",
@@ -499,18 +554,20 @@ export type CapabilityName = (typeof capabilityNames)[number];
 
 | Capability              | Where declared                                                                                      | Where not declared                                                                                                      |
 | ----------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `contentHeaders`        | `put` stores the content headers; `stat` and `get` return them; `copy` and `move` keep them         | `put` with any of the three is `Unsupported`; reads report none                                                         |
 | `keyBytesPreserved`     | A key comes back byte for byte as written                                                           | A key comes back Unicode-equivalent                                                                                     |
 | `presignedUrls`         | The concrete type carries `presignGet` and `presignPut`                                             | Neither method exists on the type                                                                                       |
 | `rangeReads`            | `get` honors `range`                                                                                | `get` with `range` is `Unsupported`                                                                                     |
 | `userMetadata`          | `put` stores `userMetadata` with ASCII identifier keys; `stat` and `get` return it; `copy` keeps it | `put` with a non-empty `userMetadata` is `Unsupported`; reads return `{}`                                               |
 | `userMetadataTokenKeys` | Beside `userMetadata`: a key may be any ASCII HTTP token, such as `content-hash`                    | A key outside identifiers is `Unsupported` naming it; without `userMetadata` too, the call is `Unsupported` naming that |
 
-- The declarations: `adapter-s3` `presignedUrls`, `rangeReads`, `userMetadata`,
-  `userMetadataTokenKeys`; `adapter-azure-blob` `keyBytesPreserved`, `presignedUrls`, `rangeReads`,
-  `userMetadata`; `adapter-gcs` `keyBytesPreserved`, `rangeReads`, `userMetadata`,
-  `userMetadataTokenKeys`, and `presignedUrls` where the storage is built with a `signer` (section
-  9.1); `adapter-fs` `rangeReads`; `adapter-memory` `keyBytesPreserved`, `rangeReads`,
-  `userMetadata`, `userMetadataTokenKeys`.
+- The declarations: `adapter-s3` `contentHeaders`, `presignedUrls`, `rangeReads`, `userMetadata`,
+  `userMetadataTokenKeys`; `adapter-azure-blob` `contentHeaders`, `keyBytesPreserved`,
+  `presignedUrls`, `rangeReads`, `userMetadata`; `adapter-gcs` `contentHeaders`,
+  `keyBytesPreserved`, `rangeReads`, `userMetadata`, `userMetadataTokenKeys`, and `presignedUrls`
+  where the storage is built with a `signer` (section 9.1); `adapter-fs` `rangeReads`;
+  `adapter-memory` `contentHeaders`, `keyBytesPreserved`, `rangeReads`, `userMetadata`,
+  `userMetadataTokenKeys`.
 - The declaration is runtime only. There is no type parameter over it. `gcsStorage` is overloaded
   on `signer`, the option that decides its `presignedUrls`, so the type it returns carries the two
   methods where the storage declares the capability (section 9.1, ADR 0035).
@@ -555,18 +612,18 @@ Every failure stowage reports is a `StorageError`. There are no subclasses; call
 `code`. `isStorageError` tests a brand under `Symbol.for("stowage.error")` and holds across two
 copies of `@stowage/core` in one dependency tree, where `instanceof` does not (ADR 0005).
 
-| Code                 | Meaning                                                                                                                                                                                                                                       |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NotFound`           | No object under the key, or, without `key`, no bucket (**A missing bucket** below)                                                                                                                                                            |
-| `AccessDenied`       | The credential is valid and may not do this                                                                                                                                                                                                   |
-| `InvalidCredentials` | The provider does not accept the credential, or a required credential field is empty or unknown                                                                                                                                               |
-| `Expired`            | The credential or session token has expired                                                                                                                                                                                                   |
-| `InvalidRequest`     | The provider or stowage refused the request for what it asked: metadata over the limit, an unsatisfiable range, a copy onto itself, a second read of a body, a request timestamp the provider refused where it names that apart (section 8.8) |
-| `NetworkError`       | The request received no response: DNS, connection, TLS, a broken connection                                                                                                                                                                   |
-| `ProviderError`      | The provider answered with a failure stowage has no other name for; `providerCode` carries its string                                                                                                                                         |
-| `InvalidKey`         | The key violates the rule of section 4.8, or a rule the adapter adds to it                                                                                                                                                                    |
-| `InvalidOption`      | An option or configuration value stowage refused: an unknown key, a value out of range, a cursor it did not produce                                                                                                                           |
-| `Unsupported`        | The call needs a capability the storage does not declare; `capability` names it                                                                                                                                                               |
+| Code                 | Meaning                                                                                                                                                                                                                                                          |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NotFound`           | No object under the key, or, without `key`, no bucket (**A missing bucket** below)                                                                                                                                                                               |
+| `AccessDenied`       | The credential is valid and may not do this                                                                                                                                                                                                                      |
+| `InvalidCredentials` | The provider does not accept the credential, or a required credential field is empty or unknown                                                                                                                                                                  |
+| `Expired`            | The credential or session token has expired                                                                                                                                                                                                                      |
+| `InvalidRequest`     | The provider or stowage refused the request for what it asked: metadata or content headers over the limit, an unsatisfiable range, a copy onto itself, a second read of a body, a request timestamp the provider refused where it names that apart (section 8.8) |
+| `NetworkError`       | The request received no response: DNS, connection, TLS, a broken connection                                                                                                                                                                                      |
+| `ProviderError`      | The provider answered with a failure stowage has no other name for; `providerCode` carries its string                                                                                                                                                            |
+| `InvalidKey`         | The key violates the rule of section 4.8, or a rule the adapter adds to it                                                                                                                                                                                       |
+| `InvalidOption`      | An option or configuration value stowage refused: an unknown key, a value out of range, a cursor it did not produce                                                                                                                                              |
+| `Unsupported`        | The call needs a capability the storage does not declare; `capability` names it                                                                                                                                                                                  |
 
 - `operation` names the operation the caller invoked, also for a failure inside a compound
   operation such as `move`. `key` is set where the failure concerns one key. `bucket` and
@@ -614,19 +671,23 @@ the destination stays in place and repeating the `move` is safe.
 
 ### 4.11 Operations
 
-| Operation   | Key rule                              | Does                                                                                                                                                 | Rejects with                                                                                                                |
-| ----------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `put`       | `writable`                            | Stores the body under the key, replacing any object there. Resolves once the object is readable under the key                                        | `InvalidKey`, `InvalidOption`, `InvalidRequest`, `Unsupported`, provider failures                                           |
-| `get`       | `addressable`                         | Returns the object's description and a body readable once                                                                                            | `NotFound`, `Unsupported` (range), `InvalidRequest` (range), `ProviderError` (range on a content-coded object, section 4.3) |
-| `stat`      | `addressable`                         | Returns the object's description without its body                                                                                                    | `NotFound`                                                                                                                  |
-| `exists`    | `addressable`                         | `true` where `stat` would succeed, `false` where it would reject with `NotFound` for the key                                                         | Every other failure `stat` would reject with, a missing bucket among them (section 4.10)                                    |
-| `list`      | `prefix`                              | Section 4.6                                                                                                                                          | `InvalidOption` (`pageSize`, `cursor`, `delimiter`)                                                                         |
-| `delete`    | `addressable` per key                 | Deletes the keys, batching as the provider requires, in no promised order. Zero keys resolves with `requested: 0`                                    | A failure of the request as a whole, a missing bucket among them (section 4.10)                                             |
-| `deleteAll` | `prefix`                              | Lists every object below the prefix and deletes it, paging and batching on its own. Objects written during the call may or may not be deleted        | A failure of the request as a whole, a missing bucket among them (section 4.10)                                             |
-| `copy`      | `from` `addressable`, `to` `writable` | Creates `to` with the bytes, content type and user metadata of `from`, replacing any object at `to`. `from` stays. `from === to` is `InvalidRequest` | `NotFound`, `InvalidKey`, `InvalidRequest`                                                                                  |
-| `move`      | `from` `addressable`, `to` `writable` | The outcome of `copy` then `delete` of `from`, in one request on `adapter-gcs` (section 9.7). Resolves with the description of `to`                  | The failure of the step that failed                                                                                         |
+| Operation   | Key rule                              | Does                                                                                                                                                                                  | Rejects with                                                                                                                |
+| ----------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `put`       | `writable`                            | Stores the body under the key, replacing any object there. Resolves once the object is readable under the key                                                                         | `InvalidKey`, `InvalidOption`, `InvalidRequest`, `Unsupported`, provider failures                                           |
+| `get`       | `addressable`                         | Returns the object's description and a body readable once                                                                                                                             | `NotFound`, `Unsupported` (range), `InvalidRequest` (range), `ProviderError` (range on a content-coded object, section 4.3) |
+| `stat`      | `addressable`                         | Returns the object's description without its body                                                                                                                                     | `NotFound`                                                                                                                  |
+| `exists`    | `addressable`                         | `true` where `stat` would succeed, `false` where it would reject with `NotFound` for the key                                                                                          | Every other failure `stat` would reject with, a missing bucket among them (section 4.10)                                    |
+| `list`      | `prefix`                              | Section 4.6                                                                                                                                                                           | `InvalidOption` (`pageSize`, `cursor`, `delimiter`)                                                                         |
+| `delete`    | `addressable` per key                 | Deletes the keys, batching as the provider requires, in no promised order. Zero keys resolves with `requested: 0`                                                                     | A failure of the request as a whole, a missing bucket among them (section 4.10)                                             |
+| `deleteAll` | `prefix`                              | Lists every object below the prefix and deletes it, paging and batching on its own. Objects written during the call may or may not be deleted                                         | A failure of the request as a whole, a missing bucket among them (section 4.10)                                             |
+| `copy`      | `from` `addressable`, `to` `writable` | Creates `to` with the bytes, content type, content headers, content coding and user metadata of `from`, replacing any object at `to`. `from` stays. `from === to` is `InvalidRequest` | `NotFound`, `InvalidKey`, `InvalidRequest`                                                                                  |
+| `move`      | `from` `addressable`, `to` `writable` | The outcome of `copy` then `delete` of `from`, in one request on `adapter-gcs` (section 9.7). Resolves with the description of `to`                                                   | The failure of the step that failed                                                                                         |
 
 - `delimiter` is one or more characters; an empty string is `InvalidOption`.
+- `copy` and `move` keep `cacheControl` and `contentDisposition` byte for byte, and
+  `contentLanguage` as the same list, with whitespace around its commas possibly removed: Azure
+  turns `de-AT, en` into `de-AT,en` (section 8.7). Neither takes an option that replaces them
+  (ADR 0058, ADR 0059).
 - Nothing in the API is atomic across keys, and no operation is conditional. Of two writers to one
   key, each may resolve or reject, and the key ends with one whole object written by one of them
   (ADR 0024). `adapter-memory`, `adapter-fs`, `adapter-s3` and `adapter-gcs` resolve both.
@@ -701,6 +762,22 @@ export function contentCodingRefusal(
   contentEncoding: string | null | undefined,
   key: string,
 ): { readonly code: "ProviderError"; readonly message: string } | undefined;
+/** What `contentEncoding` of `ObjectStat` reports for a stored value, `undefined` for none. */
+export function contentEncodingOf(contentEncoding: string | null | undefined): string | undefined;
+
+/** Visible ASCII, with spaces and tabs inside alone: the rule of section 4.3 for a header value. */
+export function isHeaderValue(value: string): boolean;
+export interface ContentHeaders {
+  readonly cacheControl?: string;
+  readonly contentDisposition?: string;
+  readonly contentLanguage?: string;
+}
+/** The first check of section 4.3 the content headers fail, in its order, else `undefined`. */
+export function contentHeadersRefusal(
+  headers: ContentHeaders,
+  contentType: string | undefined,
+  capabilities: readonly CapabilityName[],
+): Refusal | undefined;
 
 export type UserMetadataKeyRule = "token" | "identifier";
 export function isUserMetadataKey(name: string, rule: UserMetadataKeyRule): boolean;
@@ -802,13 +879,22 @@ export function readSubresponses(
   `adapter-memory` read up to `lastByteOf`. `rangeHeader`, `wholeSizeOf` and `rangeCoversWhole`
   are the one definition of a range on the wire: a `200` answering a ranged request is the body
   asked for exactly where `rangeCoversWhole` holds.
-- `contentCodingRefusal` is the one definition of the rule of section 4.3 for an object stored with
-  a content coding. `adapter-s3`, `adapter-azure-blob` and `adapter-gcs` call it on the answer to
+- `contentCodingRefusal` and `contentEncodingOf` share the one definition of a coding: an absent or
+  empty value and `identity` in any case name none, and every other value names one, kept as
+  stored (ADR 0061). `contentCodingRefusal` is the rule of section 4.3 for an object stored with a
+  content coding. `adapter-s3`, `adapter-azure-blob` and `adapter-gcs` call it on the answer to
   every ranged `get`, before `rangeCoversWhole`, with the coding their provider names, and cancel
-  the body where it refuses. An absent or empty value and `identity` in any case name no coding.
-  `adapter-fs` and `adapter-memory` hold no content coding and do not call it.
+  the body where it refuses, and they set `contentEncoding` of every `ObjectStat` through
+  `contentEncodingOf`. `adapter-fs` and `adapter-memory` hold no content coding and call neither.
 - `adapter-memory`, `adapter-s3`, `adapter-azure-blob` and `adapter-gcs` run `checkUserMetadata`
   before a `put` writes or sends anything, raise its refusal with `attempts: 0`, and store `held`.
+- `contentHeadersRefusal` is the one definition of the checks of section 4.3 for the content
+  headers. Every adapter, `adapter-fs` included, runs it before a `put` writes or sends anything,
+  and every adapter that declares `presignedUrls` before `presignPut` signs, with the content type
+  the request carries, and raises its refusal with `attempts: 0`. `isHeaderValue` is the form that
+  check applies. `@stowage/http` checks the content type of `presignUpload` with `isHeaderValue`
+  and its content headers with `contentHeadersRefusal` under `capabilityNames`, so that the form
+  and the bounds alone decide there (section 10.6, ADR 0058, ADR 0063).
 - What two adapters need on the wire is defined here once; what one adapter alone needs stays in
   that adapter, the signers among it (ADR 0019).
 - `parseXml` reads elements, attributes, text, comments, the five named entities and a numeric
@@ -860,7 +946,11 @@ export function memoryStorage(): MemoryStorage;
 ```
 
 - `bucket` is `"memory"`. Two calls to `memoryStorage()` are two storages that share nothing.
-- Declares `keyBytesPreserved`, `rangeReads`, `userMetadata` and `userMetadataTokenKeys`.
+- Declares `contentHeaders`, `keyBytesPreserved`, `rangeReads`, `userMetadata` and
+  `userMetadataTokenKeys`.
+- Keeps the content headers byte for byte through `put`, `stat`, `get`, `copy` and `move`,
+  `contentLanguage` on a copy included, which is more than section 4.11 promises. It never reports
+  a `contentEncoding` and offers no way to seed one (ADR 0060, ADR 0061).
 - Holds every object whole in memory and copies bytes on `put` and `get`, so a caller cannot change
   a stored object through the array it passed or received. It has no size limit of its own.
 - Enforces the key rule of section 4.8 exactly, neither more nor less.
@@ -887,7 +977,9 @@ export function fsStorage(options: FsAdapterOptions): FsStorage;
   performs no I/O, and an operation against a root that does not exist rejects with `NotFound`
   without `key` (section 4.10).
 - Declares `rangeReads` only. `put` with a non-empty `userMetadata` is `Unsupported`; reads return
-  `{}`.
+  `{}`. `put` with any content header other than `undefined` is `Unsupported` naming
+  `contentHeaders`, `""` included; reads report none and no `contentEncoding`. The adapter keeps no
+  sidecar file and no extended attribute for either (ADR 0015, ADR 0060).
 - A key maps to the path below the root with `/` as the separator. Every access resolves the real
   path and answers `NotFound` where it lies outside the root, so a symbolic link pointing out of the
   root behaves as an absent object.
@@ -974,7 +1066,8 @@ export function fromEnv(options?: ResolverOptions): S3Credentials;
   ranges the value is `InvalidOption` and is not clamped.
 - `put` on `S3Storage` accepts the `PutOptions` of section 4.3 and nothing more. Storage class, ACL,
   tagging, object lock, versioning, server-managed encryption and checksum headers are not offered.
-- Declares `presignedUrls`, `rangeReads`, `userMetadata` and `userMetadataTokenKeys`.
+- Declares `contentHeaders`, `presignedUrls`, `rangeReads`, `userMetadata` and
+  `userMetadataTokenKeys`.
 - `delete` sends at most one `DeleteObjects` request per 1000 keys, plus at most one `DELETE` per
   key holding `U+FFFE` or `U+FFFF` (section 7.4).
 
@@ -1052,6 +1145,15 @@ Google Cloud Storage's XML API among them (ADR 0031).
   entry in `failed` (ADR 0027).
 - A key is percent-encoded segment by segment on the request path, so `#`, `%`, `?`, `+`, a space
   and characters above ASCII reach the provider as written.
+- `put` sends the content headers as `Cache-Control`, `Content-Disposition` and
+  `Content-Language` on `PutObject` and on `CreateMultipartUpload`, which stores them for the
+  object the commit creates. SigV4 signs them with runs of whitespace folded to one space, as AWS
+  and R2 compare them, and the provider stores them as sent.
+- `stat`, `get`, `copy` and `move` read the content headers and `Content-Encoding` from the answer
+  they already read: the `HEAD` or `GET` of the key, and for `copy` and `move` the `HEAD` of the
+  destination that describes it. An empty value is read as none. No request whose answer feeds an
+  `ObjectStat` carries `response-content-encoding` or another response override, since AWS then
+  reports the override in place of the stored value (ADR 0061).
 
 ### 7.5 Retries
 
@@ -1156,6 +1258,9 @@ export interface S3PresignPutOptions {
   expiresIn: number;
   contentType: string;
   contentLength: number;
+  cacheControl?: string;
+  contentDisposition?: string;
+  contentLanguage?: string;
 }
 ```
 
@@ -1166,14 +1271,24 @@ export interface S3PresignPutOptions {
 - `presignGet` signs `GetObject` on an addressable key. The four response overrides are sent as
   query parameters and are answered as the corresponding response headers.
 - `presignPut` signs `PutObject` on a writable key with `Content-Type` and `Content-Length` bound
-  exactly through signed headers, and returns the URL with `headers` holding `content-type`. A body
-  of another type or another length is rejected by the provider. No user metadata, no checksum and
-  no upper bound on the length can be signed in.
+  through signed headers, and returns the URL with `headers` holding `content-type`. A body of
+  another type or another length is rejected by the provider. No user metadata, no checksum and no
+  upper bound on the length can be signed in.
+- `cacheControl`, `contentDisposition` and `contentLanguage` are checked as `put` checks them
+  (section 4.3), the content type always counted in the 2,048 bytes, and each one given is signed
+  as `Cache-Control`, `Content-Disposition` or `Content-Language` and returned in `headers` under
+  that name in lower case. AWS and R2 answer a value that differs from the signed one, or is
+  missing, with `403`, and store the signed one as sent. A content header left out is not bound:
+  whoever holds the URL may send it, and the provider stores it (ADR 0063).
+- Every binding is exact up to runs of spaces: SigV4 collapses them before comparing, so a URL
+  signed for `public, max-age=60` admits `public,  max-age=60`, which the provider stores with both
+  spaces. It admits no other type, length, disposition, cache directive or language than the one
+  signed.
 - The URL is a bearer token: whoever holds it may perform that one operation on that one key until
   it expires. It works against the endpoint that signed it only.
-- Neither method sends a request. Both reject with `InvalidKey`, `InvalidOption` or
-  `InvalidCredentials` before signing; a provider's rejection of the URL reaches whoever calls it and
-  never the adapter. `@stowage/core` offers no function that turns such a response into a
+- Neither method sends a request. Both reject with `InvalidKey`, `InvalidOption`, `InvalidRequest`
+  or `InvalidCredentials` before signing; a provider's rejection of the URL reaches whoever calls it
+  and never the adapter. `@stowage/core` offers no function that turns such a response into a
   `StorageError`.
 - There is no presigned `POST` and no presigned multipart upload.
 
@@ -1220,8 +1335,8 @@ export function fromEnv(options?: ResolverOptions): { accountKey: string };
 - `put` on `AzureBlobStorage` accepts the `PutOptions` of section 4.3 and nothing more. Append and
   page blobs, access tiers, snapshots, soft delete, versioning, leases, immutability policies and
   blob index tags are not offered.
-- Declares `keyBytesPreserved`, `presignedUrls`, `rangeReads` and `userMetadata`. It does not
-  declare `userMetadataTokenKeys`.
+- Declares `contentHeaders`, `keyBytesPreserved`, `presignedUrls`, `rangeReads` and
+  `userMetadata`. It does not declare `userMetadataTokenKeys`.
 - Refuses three kinds of writable key with `InvalidKey` and `attempts: 0`: more than 254
   segments, a segment ending in `.`, and a key holding a character from `U+0080` to `U+009F`.
   A noncharacter such as `U+FFFE` is not refused: the account stores and lists such a key as
@@ -1290,7 +1405,9 @@ another endpoint that speaks the Blob wire protocol can be configured and are no
   A subrequest inside a Blob Batch carries none, since the batch request names it for all of them.
 - Under an account key a request is signed with Shared Key, which signs the length and no hash of
   the body. Canonical headers are ordered by code point with `_` placed before the digits, never
-  by a runtime's collation. Under an access token a request carries it as `Authorization: Bearer`.
+  by a runtime's collation. Every `x-ms-` value is signed trimmed and otherwise as sent, a tab and
+  a run of spaces included, since Azure hashes it so (ADR 0059). Under an access token a request
+  carries it as `Authorization: Bearer`.
 - Every request carries a body the adapter holds; Azure refuses a chunked `Put Blob`, so a stream
   travels as held parts (section 8.6).
 - Every request asks for the bytes as the provider stores them, `Accept-Encoding: identity`, as in
@@ -1303,8 +1420,12 @@ another endpoint that speaks the Blob wire protocol can be configured and are no
   hands every header name back in lower case on every runtime, so no read could return another
   (ADR 0029).
 - A `userMetadata` value holding a run of whitespace is sent as encoded words even where it would
-  travel as written, and read back decoded, so no header value holds a run the signature would have
-  to settle.
+  travel as written, and read back decoded.
+- `stat`, `get`, `copy` and `move` read the content headers from `Cache-Control`,
+  `Content-Disposition` and `Content-Language`, and the coding from `Content-Encoding`, of the
+  answer they already read: the `HEAD` or `GET` of the key, and for `copy` and `move` the `HEAD` of
+  the destination that describes it. An empty value is read as none. No request whose answer feeds
+  an `ObjectStat` carries `rscc`, `rscd` or another response override (ADR 0061).
 - `stat` and `exists` read the provider code from `x-ms-error-code`, which Azure sends on a `HEAD`
   as well, so a missing blob and a missing container carry their own codes.
 - `delete` sends Blob Batch requests of at most 256 `Delete Blob` subrequests. A subrequest
@@ -1334,8 +1455,12 @@ another endpoint that speaks the Blob wire protocol can be configured and are no
   `413 RequestBodyTooLarge`, which is `InvalidRequest`; the adapter does not split held bytes.
 - A `ReadableStream` is read into parts of `partSize`. A stream that ends within one part goes as
   one `Put Blob`. A stream that fills more than one part is staged as blocks with `concurrency`
-  parts in flight and committed with one `Put Block List`, which carries the content type and the
-  user metadata.
+  parts in flight and committed with one `Put Block List`, which carries the content type, the
+  content headers and the user metadata.
+- The content headers travel as `x-ms-blob-cache-control`, `x-ms-blob-content-disposition` and
+  `x-ms-blob-content-language`, on `Put Blob` as on `Put Block List`, beside the standard
+  `Content-Type` of `Put Blob` and the `x-ms-blob-content-type` of `Put Block List`. A commit clears
+  what it does not name, so `Put Block List` restates every one the `put` carries (ADR 0059).
 - Defaults: `partSize` 8 MiB, `concurrency` 4, as on S3. Both move in a minor release and never in
   a patch.
 - A stream that needs more than 50,000 parts, about 390 GiB at the default, fails with
@@ -1362,9 +1487,10 @@ another endpoint that speaks the Blob wire protocol can be configured and are no
 ### 8.7 Copies
 
 - `copy` sends one `Put Blob From URL`, which is synchronous, and succeeds up to a source of
-  5,000 MiB. Nothing is sent in front of it. The service copies the content type and the user
-  metadata of the source; the destination is replaced once the copy succeeded, and a failure leaves
-  it as it was.
+  5,000 MiB. Nothing is sent in front of it. The service copies the content type, the content
+  headers, the content coding and the user metadata of the source, and removes the whitespace
+  around the commas of a `Content-Language` list, `de-AT, en` becoming `de-AT,en` (section 4.11);
+  the destination is replaced once the copy succeeded, and a failure leaves it as it was.
 - The request authorizes its source. Under an account key it carries a service SAS for the source,
   signed for each attempt with `sp=r`, `sr=b`, `st` 15 minutes in the past and `se` 60 minutes from
   now. Under an access token it carries `x-ms-copy-source-authorization: Bearer` with the token of
@@ -1416,27 +1542,41 @@ export interface AzureBlobPresignPutOptions {
   expiresIn: number;
   contentType: string;
   contentLength: number;
+  cacheControl?: string;
+  contentDisposition?: string;
+  contentLanguage?: string;
 }
 ```
 
 A URL is a SAS, and the credential of the call decides which kind (ADR 0022):
 
-| Credential    | `presignGet`          | `presignPut`                                |
-| ------------- | --------------------- | ------------------------------------------- |
-| `accountKey`  | A service SAS         | `InvalidCredentials` naming `accountKey`    |
-| `accessToken` | A user delegation SAS | A user delegation SAS binding three headers |
+| Credential    | `presignGet`          | `presignPut`                                                             |
+| ------------- | --------------------- | ------------------------------------------------------------------------ |
+| `accountKey`  | A service SAS         | `InvalidCredentials` naming `accountKey`                                 |
+| `accessToken` | A user delegation SAS | A user delegation SAS binding four headers and the content headers given |
 
 - `expiresIn` and `contentLength` take what section 7.10 has them take, and are checked before
   anything is sent. `contentLength` is not checked against the 5,000 MiB of a single `Put Blob`.
+  The binding is exact up to runs of spaces, as section 7.10 states it.
 - `presignGet` signs `sp=r` on an addressable key. The three response overrides are sent as `rsct`,
   `rscd` and `rscc` and are answered as the corresponding response headers. Azure has no override
   for `Expires`.
 - `presignPut` signs `sp=w` on a writable key with
-  `srh=content-type,content-length,x-ms-blob-type` and returns `headers` holding `content-type`
-  and `x-ms-blob-type: BlockBlob`. A body of another content type, one differing in case or
-  parameters included, a body of another length, and another blob type are rejected with
-  `403 AuthenticationFailed`; a request without `x-ms-blob-type` with `400 MissingRequiredHeader`.
-  An existing blob is overwritten, as a presigned `PUT` does on S3.
+  `srh=content-type,content-length,x-ms-blob-type,x-ms-blob-content-type` and returns `headers`
+  holding `content-type`, `x-ms-blob-type: BlockBlob` and `x-ms-blob-content-type`, the content
+  type again. A body of another content type, one differing in case or parameters included, a
+  body of another length, and another blob type are rejected with `403 AuthenticationFailed`; a
+  request without `x-ms-blob-type` with `400 MissingRequiredHeader`. `x-ms-blob-content-type` is
+  bound because `Put Blob` stores it in place of `Content-Type`, so an unsigned one could store
+  another type than the one signed (ADR 0063). An existing blob is overwritten, as a presigned
+  `PUT` does on S3.
+- `cacheControl`, `contentDisposition` and `contentLanguage` are checked as `put` checks them
+  (section 4.3), the content type always counted in the 2,048 bytes, before the user delegation key
+  is requested. Each one given is signed as `x-ms-blob-cache-control`,
+  `x-ms-blob-content-disposition` or `x-ms-blob-content-language`, appended to `srh` in that order,
+  and returned in `headers` under that name; `Put Blob` stores no standard `Content-Disposition`. A
+  content header left out is not bound: whoever holds the URL may send it, and Azure stores it. That
+  Azure refuses a value that differs from the signed one or is missing is a promise of section 18.
 - Under an account key `presignPut` rejects before any request, because a service SAS binds no
   request header. Its message says that `presignPut` needs an access token.
 - Every SAS carries `sr=b`, `st` 15 minutes in the past and `se` `expiresIn` seconds from now, and
@@ -1507,8 +1647,8 @@ export function gcsStorage(options: GcsAdapterOptions): GcsStorage;
 - `put` on `GcsStorage` accepts the `PutOptions` of section 4.3 and nothing more. Storage classes,
   ACLs, preconditions, object versioning, holds, retention policies, customer-managed and
   customer-supplied encryption keys and Autoclass are not offered.
-- Declares `keyBytesPreserved`, `rangeReads`, `userMetadata` and `userMetadataTokenKeys`, and
-  `presignedUrls` where `signer` is given (ADR 0032).
+- Declares `contentHeaders`, `keyBytesPreserved`, `rangeReads`, `userMetadata` and
+  `userMetadataTokenKeys`, and `presignedUrls` where `signer` is given (ADR 0032).
 - Refuses two kinds of writable key with `InvalidKey` and `attempts: 0`: a key starting with
   `.well-known/acme-challenge/`, and a key holding `U+FFFE` or `U+FFFF`, both of which GCS refuses
   to store. `.well-known/acme-challenge-x`, other noncharacters such as `U+FDD0`, and the C1
@@ -1597,6 +1737,10 @@ reached through `adapter-s3` over the XML API is an S3-compatible endpoint like 
   way back, so an object `adapter-s3` wrote through the XML API reads the same. A reader of the
   XML API sees a raw value outside ASCII garbled: the `ü` of `grüße` reaches `fetch` on an XML
   `HEAD` as `Ã¼` (ADR 0032).
+- The content headers travel as the members `cacheControl`, `contentDisposition` and
+  `contentLanguage` of the object resource, as written, and are read from the resource, never from
+  the media download; so is the coding, from its `contentEncoding`. An empty value is read as none
+  (ADR 0061).
 - An object stored with a content coding is read as `fetch` hands it over: GCS decodes gzip, and
   the runtime decodes a coding GCS serves as stored where it knows it, which Deno does for `gzip`
   and `br` alone. `size` stays the stored size, so the body may be longer. Every `range` on such an
@@ -1637,12 +1781,12 @@ reached through `adapter-s3` over the XML API is an S3-compatible endpoint like 
 ### 9.6 Uploads
 
 - A `Uint8Array` or string goes as one `uploadType=multipart` request, whose body holds the
-  object's name, content type and user metadata and then the bytes, up to 5 TiB. The adapter does
-  not split held bytes.
+  object's name, content type, content headers and user metadata and then the bytes, up to 5 TiB.
+  The adapter does not split held bytes.
 - A `ReadableStream` is read into parts of `partSize`. A stream that ends within one part goes as
   the same single request. A stream that fills more than one part becomes one resumable session:
-  a start that carries the content type and the user metadata, then the parts as chunks one after
-  another, each at its offset, with no part in flight beside another.
+  a start that carries the content type, the content headers and the user metadata, then the parts
+  as chunks one after another, each at its offset, with no part in flight beside another.
 - `partSize` defaults to 8 MiB, so a streamed `put` holds 8 MiB of part buffers for an object of
   any size, a quarter of what S3 and Azure hold, and takes longer than they do for the same bytes.
   The default moves in a minor release and never in a patch.
@@ -1682,17 +1826,19 @@ reached through `adapter-s3` over the XML API is an S3-compatible endpoint like 
 - A copy within one storage class answers in one call. A source in another class than the
   bucket's default changes class on the way: its bytes are copied, which may take several calls
   and is billed as a retrieval of the source.
-- The destination takes the bucket's default storage class, and the content type and user metadata
-  of the source. It does not change before the call that finishes the rewrite, so a failed or
+- The destination takes the bucket's default storage class, and the content type, the content
+  headers, the content coding and the user metadata of the source; `rewriteTo` is sent without a
+  body. It does not change before the call that finishes the rewrite, so a failed or
   aborted `copy` leaves it as it was and sends nothing to clean up.
 - The rewrite token pins the source's generation. A source replaced or deleted between two calls
   rejects with `NotFound`, `key` set to `from`, although the key may hold a newer object; `copy`
   called again copies that one.
 - There is no budget over the copy as a whole: each call has its own, and the caller's
   `AbortSignal` bounds the rest.
-- `move` sends one `objects.move`, which keeps the bytes, the content type, the user metadata and
-  the storage class, replaces an object at `to`, and removes `from`. A `move` that fails leaves both
-  keys as they were, except in the one ambiguous outcome of section 9.5.
+- `move` sends one `objects.move`, which keeps the bytes, the content type, the content headers, the
+  content coding, the user metadata and the storage class, replaces an object at `to`, and removes
+  `from`. A `move` that fails leaves both keys as they were, except in the one ambiguous outcome of
+  section 9.5.
 - Copying a key onto itself is `InvalidRequest` before any request.
 
 ### 9.8 Provider codes
@@ -1753,6 +1899,9 @@ export interface GcsPresignPutOptions {
   expiresIn: number;
   contentType: string;
   contentLength: number;
+  cacheControl?: string;
+  contentDisposition?: string;
+  contentLanguage?: string;
 }
 ```
 
@@ -1788,6 +1937,15 @@ A URL is a V4 signed URL on the XML API, signed as the `signer`'s service accoun
   its signed headers, and returns `headers` holding `content-type`. A body of another length or
   another content type, one differing in case or parameters included, is rejected with
   `403 SignatureDoesNotMatch`. An existing object is overwritten. No length range is signed in.
+- `cacheControl`, `contentDisposition` and `contentLanguage` are checked as `put` checks them
+  (section 4.3), the content type always counted in the 2,048 bytes, before anything is sent. Each
+  one given joins the signed headers as `cache-control`, `content-disposition` or
+  `content-language` and is returned in `headers` under that name. GCS answers a value that differs
+  from the signed one with `403 SignatureDoesNotMatch` and a missing one with
+  `400 MalformedSecurityHeader`, and stores the signed one as sent. A content header left out is
+  not bound: whoever holds the URL may send it, and GCS stores it (ADR 0063).
+- Every binding is exact up to runs of spaces, which GOOG4 collapses as SigV4 does (section
+  7.10).
 - An expired URL is answered with `400 ExpiredToken`.
 - A URL signed with a local key works until it expires or the key is deleted. One signed through
   `signBlob` may stop working 12 hours after it was signed, whatever `expiresIn` asked for, because
@@ -1811,6 +1969,7 @@ export interface ServeObjectOptions {
   filename?: string;
   disposition?: "attachment" | "inline";
   cacheControl?: string;
+  storedCacheControl?: boolean;
 }
 
 export interface RedirectToObjectOptions {
@@ -1822,6 +1981,9 @@ export interface RedirectToObjectOptions {
 export interface AcceptUploadOptions {
   maxSize: number;
   contentType?: string;
+  cacheControl?: string;
+  contentDisposition?: string;
+  contentLanguage?: string;
   userMetadata?: Record<string, string>;
 }
 
@@ -1830,6 +1992,9 @@ export interface PresignUploadOptions {
   maxSize: number;
   contentType: string;
   contentLength: number;
+  cacheControl?: string;
+  contentDisposition?: string;
+  contentLanguage?: string;
 }
 
 export interface PresignsGet {
@@ -1842,7 +2007,14 @@ export interface PresignsGet {
 export interface PresignsPut {
   presignPut(
     key: string,
-    options: { expiresIn: number; contentType: string; contentLength: number },
+    options: {
+      expiresIn: number;
+      contentType: string;
+      contentLength: number;
+      cacheControl?: string;
+      contentDisposition?: string;
+      contentLanguage?: string;
+    },
   ): Promise<PresignedPut>;
 }
 
@@ -1956,23 +2128,34 @@ export function writeResponse(res: NodeResponse, response: Response): Promise<vo
 
 - Methods: `GET` and `HEAD`, read from `request.method`, since Hono and Next.js route `HEAD` to
   the `GET` handler. Any other method is `405` with `Allow: GET, HEAD`.
-- `HEAD` is answered from `stat` with the headers a `GET` without `Range` would carry, no body and
-  no `Content-Length`. `Range` on a `HEAD` is ignored.
-- A `200` carries no `Content-Length`: an object another tool stored with a content coding may
-  arrive decoded and longer than `size` (section 4.4), and Node and Deno would cut such a body to
-  `size` and end the response as complete. A client sees no total and no progress.
-- Headers on `200`, `206` and `HEAD`:
+- `HEAD` is answered from `stat` with the headers a `GET` without `Range` would carry and no body.
+  `Range` on a `HEAD` is ignored.
+- `200` and `HEAD` carry `Content-Length: size` where `contentEncoding` is missing: the bytes `get`
+  hands over are then the bytes stored, and `size` comes from the `stat` of that same `get`. Where
+  `contentEncoding` is set, the bytes arrive decoded on Node, Bun and `workerd` and as stored on
+  Deno through `adapter-s3` and `adapter-azure-blob` (section 4.4), so the answer carries neither
+  `Content-Length` nor `Content-Encoding`, and a client sees no total and no progress (ADR 0062).
+  Bun and `workerd` may drop the length of a streamed `200` on their way to the socket (section
+  2). `Bun.serve` and `Deno.serve` add `Content-Length: 0` to the `HEAD` of a content-coded object,
+  which RFC 9110 8.6 forbids and no conformance case reaches, since stowage writes no such object.
+- Headers on `200`, `206` and `HEAD`, taken from the `stat` that describes the bytes sent:
   - `Content-Type` as stored.
   - `X-Content-Type-Options: nosniff`, always.
-  - `Content-Disposition`: with `disposition` `"attachment"`, the default,
-    `attachment; filename="<fallback>"; filename*=UTF-8''<encoded>`. The name is `filename` or the
-    key's last segment; a key ending in `/` gets `attachment` alone. In the fallback every
-    character outside `U+0020` to `U+007E`, and `"`, `\` and `%`, is replaced with `_`; the encoded
-    form is the name's UTF-8 bytes with everything outside RFC 8187's `attr-char`
-    percent-encoded. `résumé 100%.pdf` is
+  - `Content-Disposition`: where the caller passes neither `filename` nor `disposition` and the
+    object stores a `contentDisposition` whose type, the token before the first `;` compared
+    without case, is `attachment`, the stored value as stored. Otherwise, with `disposition`
+    `"attachment"`, the default, `attachment; filename="<fallback>"; filename*=UTF-8''<encoded>`.
+    The name is `filename` or the key's last segment; a key ending in `/` gets `attachment` alone.
+    In the fallback every character outside `U+0020` to `U+007E`, and `"`, `\` and `%`, is replaced
+    with `_`; the encoded form is the name's UTF-8 bytes with everything outside RFC 8187's
+    `attr-char` percent-encoded. `résumé 100%.pdf` is
     `attachment; filename="r_sum_ 100_.pdf"; filename*=UTF-8''r%C3%A9sum%C3%A9%20100%25.pdf`.
-    With `"inline"`, the same parameters follow `inline`.
-  - `Cache-Control: private, no-cache` unless `cacheControl` is given, which replaces it.
+    With `"inline"`, the same parameters follow `inline`. A stored `inline`, or a stored value of
+    any other type, is not sent, and the default stands in its place.
+  - `Cache-Control`: the stored `cacheControl` where `storedCacheControl` is `true` and the object
+    stores one, else `cacheControl` where given, else `private, no-cache`. A stored value is not
+    sent without `storedCacheControl`.
+  - `Content-Language` as stored, absent where none is stored.
   - `ETag`: the `etag` of the `stat` that describes the bytes sent, quoted as a strong tag. A
     storage that hands over no `etag`, `adapter-fs`, gets no `ETag` and none derived for it.
   - `Date`: the time `serveObject` was called, which the layer sets itself. Bun and Deno write a
@@ -1980,7 +2163,13 @@ export function writeResponse(res: NodeResponse, response: Response): Promise<vo
     answer carries.
   - `Last-Modified`: `lastModified` at whole seconds, replaced by the response's `Date` where it is
     later.
-  - `Accept-Ranges: bytes` where the storage declares `rangeReads`.
+  - `Accept-Ranges: bytes` where the storage declares `rangeReads` and `contentEncoding` is
+    missing.
+- A stored header may be the word of a client that uploaded through a presigned URL, or of another
+  tool: the layer sends a stored `Content-Disposition` only where it is an `attachment`, which
+  hands the uploader no more than the name a download is saved under, and a stored
+  `Cache-Control` only where the caller opts in, since a stored `public` would let a shared cache
+  hand one user's object to everyone (ADR 0062).
 - `inline` is the caller's explicit choice and risk: an uploaded `text/html` or `image/svg+xml`
   served inline from the application's origin runs with its rights, which `nosniff` does not
   prevent. The layer adds no `Content-Security-Policy`.
@@ -1992,17 +2181,21 @@ export function writeResponse(res: NodeResponse, response: Response): Promise<vo
   `200` with the whole object, since no `Content-Range` names zero bytes. Several ranges, another
   unit, a malformed header and any `Range` on a storage without `rangeReads` are ignored, and the
   whole object is `200`. There is no `multipart/byteranges`.
-- A ranged `get` that rejects with a `ProviderError` with `retryable: false` is followed by one
-  whole `get`, answered `200`. That is the content-coded object of section 4.3, which only the
-  error's message tells apart, and a genuine provider failure fails the second `get` alike.
+- An object whose `contentEncoding` is set takes no range (section 4.3). Where the layer calls
+  `stat` before `get`, it ignores the `Range` of such an object, a suffix of length zero included,
+  and answers `200` without sending a ranged `get` (ADR 0062). Without that
+  `stat`, a ranged `get` that rejects with a `ProviderError` with `retryable: false` is followed by
+  one whole `get`, answered `200`. That is the content-coded object of section 4.3, which only the
+  error's message tells apart before its description is known, and a genuine provider failure
+  fails the second `get` alike.
 - Preconditions, per RFC 9110 13.2.2 in its order: `If-Match`, `If-Unmodified-Since`,
   `If-None-Match`, `If-Modified-Since`, `If-Range`. `If-Unmodified-Since` is evaluated only without
   `If-Match`, and `If-Modified-Since` only without `If-None-Match`. `If-Match` and `If-Range`
   compare strongly, `If-None-Match` weakly. Without an `etag`, `If-Match` holds for `*` alone. A
   failed `If-Match` or `If-Unmodified-Since` is `412`; a failed `If-None-Match` or
-  `If-Modified-Since` is `304` with the headers of the `200` and no body. `If-Range` with a date
-  never holds, since a date at second resolution is no strong validator, and the whole object is
-  sent. Dates compare at whole seconds.
+  `If-Modified-Since` is `304` with the headers of the `200` but `Content-Length`, the content
+  headers among them, and no body. `If-Range` with a date never holds, since a date at second
+  resolution is no strong validator, and the whole object is sent. Dates compare at whole seconds.
 - A request that would be `404` without its preconditions is `404` with them.
 - `stat` first: only where the request carries a precondition or a suffix range does the layer call
   `stat` before `get`. It then decides by the `stat` that `get` resolves with, since that one
@@ -2011,8 +2204,9 @@ export function writeResponse(res: NodeResponse, response: Response): Promise<vo
   outcome changes, the body is canceled and the new outcome answered, at most with one more whole
   `get`.
 - On Deno, `adapter-s3` and `adapter-azure-blob` hand over a content-coded object as stored, so
-  the client receives coded bytes without `Content-Encoding` (section 4.4). Nothing in
-  `ObjectStat` lets the layer repair it.
+  the client receives coded bytes without `Content-Encoding` (section 4.4). `contentEncoding` tells
+  the layer that the object is coded, not whether the runtime decoded it, so the layer cannot
+  repair it (ADR 0061).
 
 ### 10.4 Redirecting to an object
 
@@ -2023,7 +2217,10 @@ a content coding to the provider and serves the bytes from the provider's origin
   `Cache-Control: private, no-store` because the URL expires, and an empty body. Any other method
   is `405` with `Allow: GET, HEAD`.
 - `expiresIn` is required and has no default, as on `presignGet`. `filename` and `disposition`
-  reach the provider as `responseContentDisposition`, built as in section 10.3.
+  reach the provider as `responseContentDisposition`, built as in section 10.3 without the stored
+  `contentDisposition`, which `redirectToObject` does not consult: it sends no `stat` (ADR 0062).
+- The provider answers the client from its own origin with the stored `Cache-Control` and
+  `Content-Language`; GCS sends `private, max-age=0` for an object stored without `Cache-Control`.
 - A URL from `presignGet` is signed for `GET` on S3 and GCS, so a client following the `302` with
   `HEAD` is answered `403` there. A caller who needs `HEAD` serves through `serveObject`.
 - `presignGet` sends no request, so a missing key is the provider's `404` to the client, not the
@@ -2045,7 +2242,10 @@ a content coding to the provider and serves the bytes from the provider's origin
   reset connection among the causes, is `400`. `put` then rejects, and the key is absent or holds
   what it held before (flow 1).
 - `contentType` absent: the request's `Content-Type`, and without that header the storage's default
-  of section 4.3. User metadata comes from `userMetadata` alone, never from request headers. A
+  of section 4.3. User metadata comes from `userMetadata` alone, and the content headers from
+  `cacheControl`, `contentDisposition` and `contentLanguage` alone, handed to `put` as given; none
+  is read from the request's headers (ADR 0063). A value `put` refuses is the caller's
+  `InvalidOption` or `InvalidRequest`, answered `500`, as for `contentType`. A
   `Content-Encoding` other than `identity` is `415`, since no runtime decodes a request body. Any
   check of the content type is the caller's, made on the request's headers before the call.
 - A client still sending a body the layer refused, by `405`, `413`, `415` or `400`, may meet a reset
@@ -2066,10 +2266,14 @@ a content coding to the provider and serves the bytes from the provider's origin
 the caller names the key first, usually from the request body, and hands over the values the client
 sent.
 
-- `expiresIn`, `maxSize`, `contentType` and `contentLength` are required. Before signing, a
-  `contentLength` that is not a non-negative integer is `400`, one above `maxSize` is `413`, and a
-  `contentType` that is empty or no valid header value is `400`, so a client's value never reaches
-  `presignPut` as an `InvalidOption` answered `500`.
+- `expiresIn`, `maxSize`, `contentType` and `contentLength` are required; `cacheControl`,
+  `contentDisposition` and `contentLanguage` are optional, handed to `presignPut` where given, and
+  never read from a request. Before signing, a `contentLength` that is not a non-negative integer
+  is `400`, one above `maxSize` is `413`, a `contentType` that `isHeaderValue` of section 4.13
+  refuses is `400`, and content headers that break the form or a bound of section 4.3 are `400`,
+  the bounds included, which concern no body. So a client's value never reaches `presignPut` as an
+  `InvalidOption` or `InvalidRequest` answered `500` (ADR 0063). A storage that does not declare
+  `contentHeaders` refuses the three in `presignPut`, answered `500`.
 - A signed upload is `200` with `Content-Type: application/json`,
   `Cache-Control: private, no-store` and the body `{ "url", "method": "PUT", "headers" }`, `headers`
   being what `presignPut` returns.
@@ -2366,9 +2570,10 @@ adapters, tested in this repository and not by the suite:
   neighbours stay in the batch, against SeaweedFS on every commit.
 - The account key of `adapter-azure-blob`, which the suite does not run under (section 14.2): Shared
   Key signatures across the operations of the parity core, with user metadata named `a1` and `a_`
-  and a value holding a run of spaces; `presignGet` as a service SAS; `presignPut` refused before any
-  request; and a `copy`, once the pinned Azurite carries `Put Blob From URL`. Against Azurite on
-  every commit and the account in the `slow` tier.
+  and a value holding a run of spaces, and the content headers of `put/content-headers`, a tab and a
+  run of spaces among them, on `Put Blob` and on `Put Block List`; `presignGet` as a service SAS;
+  `presignPut` refused before any request; and a `copy`, once the pinned Azurite carries `Put Blob
+From URL`. Against Azurite on every commit and the account in the `slow` tier.
 - The repeat after `401 InvalidAuthenticationInfo` under an access token (section 8.3), against a
   stubbed `fetch`: one resolver call with `forceRefresh: true`, then success, or
   `InvalidCredentials` after a second `401`.
@@ -2403,6 +2608,11 @@ adapters, tested in this repository and not by the suite:
   harness, an object written with `Content-Encoding: gzip` through a signed `PUT` of the harness's
   own, whose `size` is the stored size, whose whole `get` resolves and whose range is
   `ProviderError`.
+- `contentEncoding` of such an object (section 4.4) on `adapter-s3`, `adapter-azure-blob` and
+  `adapter-gcs`: in the same harness tests, `stat`, `get` and `copy` report the coding as written;
+  against a stubbed `fetch`, `identity`, an empty value and `GZIP` (ADR 0061, ADR 0064).
+- The refusal of an upload whose `x-ms-blob-content-type` differs from the one a URL of
+  `presignPut` binds, on `adapter-azure-blob` against the account in the `slow` tier (ADR 0063).
 - The divergences of each emulator from the provider it stands in for, kept as a list in the
   private harness (ADR 0012, ADR 0023, ADR 0034).
 
@@ -2421,26 +2631,29 @@ A case marked with a factory is skipped where the target does not supply it.
 
 **`put`**
 
-| Case                           | Requires                                | Cost   | Asserts                                                                                                                                                                                                                         |
-| ------------------------------ | --------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `put/bytes-round-trip`         |                                         | `fast` | A `Uint8Array` reads back byte for byte through `bytes()`; the returned `ObjectStat` and a later `stat` agree on `key`, `size` and `contentType`                                                                                |
-| `put/string-round-trip`        |                                         | `fast` | A string with characters above ASCII reads back equal through `text()`; `size` is its UTF-8 length                                                                                                                              |
-| `put/stream-round-trip`        |                                         | `fast` | A 1 MiB stream reads back byte for byte                                                                                                                                                                                         |
-| `put/multipart-round-trip`     |                                         | `fast` | A 17 MiB stream of a generated pattern reads back byte for byte; `stat` reports the size                                                                                                                                        |
-| `put/empty-body`               |                                         | `fast` | An empty `Uint8Array` and a stream that yields nothing both produce an object of size 0 that reads back empty                                                                                                                   |
-| `put/overwrites`               |                                         | `fast` | A second `put` under the same key replaces bytes and content type                                                                                                                                                               |
-| `put/content-type-stored`      |                                         | `fast` | `contentType: "text/plain"` on a key ending in `.txt` is reported by `stat` and `get`                                                                                                                                           |
-| `put/content-type-default`     |                                         | `fast` | Without `contentType`, a key without an extension reports `application/octet-stream`                                                                                                                                            |
-| `put/accepted-keys`            |                                         | `fast` | Each key of the accepted list (section 14.7) round-trips and is listed under its prefix                                                                                                                                         |
-| `put/refused-keys`             |                                         | `fast` | Each key of the refused writable list rejects with `InvalidKey`, `attempts: 0`, and `exists` afterwards is `false` where the key is addressable, or rejects with `InvalidKey` for a key the provider cannot hold (section 14.7) |
-| `put/unknown-option`           |                                         | `fast` | An unknown option key rejects with `InvalidOption` whose message names the key; nothing was written                                                                                                                             |
-| `put/aborted-signal`           |                                         | `fast` | A signal already aborted rejects with `AbortError`; nothing was written                                                                                                                                                         |
-| `put/abort-during-upload`      |                                         | `fast` | Aborting during a 17 MiB stream rejects with `err.name === "AbortError"` and not a `StorageError`                                                                                                                               |
-| `put/stream-consumed`          |                                         | `fast` | After `put`, the source stream is closed or canceled; reading it yields `done`                                                                                                                                                  |
-| `put/user-metadata`            | `userMetadata`                          | `fast` | Two entries with identifier keys round-trip through `stat` and `get`, keys compared case-insensitively. Without: a non-empty object is `Unsupported` naming `userMetadata`; `{}` passes and reads back `{}`                     |
-| `put/user-metadata-limits`     | `userMetadata`                          | `fast` | A key with a character above ASCII, a value holding a lone surrogate and a set of identifier keys over 2 KB each reject with `InvalidRequest`, `attempts: 0`. Without: all three are `Unsupported`                              |
-| `put/user-metadata-token-keys` | `userMetadata`, `userMetadataTokenKeys` | `fast` | A key `content-hash` round-trips through `stat` and `get`. Without: it is `Unsupported`, `attempts: 0`, naming `userMetadataTokenKeys` where `userMetadata` is declared and `userMetadata` where it is not                      |
-| `put/concurrent-writers`       |                                         | `fast` | Two streamed `put`s of 17 MiB, one of a pattern A and one of a pattern B, paced so that each has sent a part before either completes: each resolves or rejects, at least one resolves, and `get` returns A or B byte for byte   |
+| Case                            | Requires                                | Cost   | Asserts                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------- | --------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `put/bytes-round-trip`          |                                         | `fast` | A `Uint8Array` reads back byte for byte through `bytes()`; the returned `ObjectStat` and a later `stat` agree on `key`, `size` and `contentType`                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `put/string-round-trip`         |                                         | `fast` | A string with characters above ASCII reads back equal through `text()`; `size` is its UTF-8 length                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `put/stream-round-trip`         |                                         | `fast` | A 1 MiB stream reads back byte for byte                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `put/multipart-round-trip`      |                                         | `fast` | A 17 MiB stream of a generated pattern reads back byte for byte; `stat` reports the size                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `put/empty-body`                |                                         | `fast` | An empty `Uint8Array` and a stream that yields nothing both produce an object of size 0 that reads back empty                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `put/overwrites`                |                                         | `fast` | A second `put` under the same key replaces bytes and content type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `put/content-type-stored`       |                                         | `fast` | `contentType: "text/plain"` on a key ending in `.txt` is reported by `stat` and `get`                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `put/content-type-default`      |                                         | `fast` | Without `contentType`, a key without an extension reports `application/octet-stream`                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `put/accepted-keys`             |                                         | `fast` | Each key of the accepted list (section 14.7) round-trips and is listed under its prefix                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `put/refused-keys`              |                                         | `fast` | Each key of the refused writable list rejects with `InvalidKey`, `attempts: 0`, and `exists` afterwards is `false` where the key is addressable, or rejects with `InvalidKey` for a key the provider cannot hold (section 14.7)                                                                                                                                                                                                                                                                                                                              |
+| `put/unknown-option`            |                                         | `fast` | An unknown option key rejects with `InvalidOption` whose message names the key; nothing was written                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `put/aborted-signal`            |                                         | `fast` | A signal already aborted rejects with `AbortError`; nothing was written                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `put/abort-during-upload`       |                                         | `fast` | Aborting during a 17 MiB stream rejects with `err.name === "AbortError"` and not a `StorageError`                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `put/stream-consumed`           |                                         | `fast` | After `put`, the source stream is closed or canceled; reading it yields `done`                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `put/user-metadata`             | `userMetadata`                          | `fast` | Two entries with identifier keys round-trip through `stat` and `get`, keys compared case-insensitively. Without: a non-empty object is `Unsupported` naming `userMetadata`; `{}` passes and reads back `{}`                                                                                                                                                                                                                                                                                                                                                  |
+| `put/user-metadata-limits`      | `userMetadata`                          | `fast` | A key with a character above ASCII, a value holding a lone surrogate and a set of identifier keys over 2 KB each reject with `InvalidRequest`, `attempts: 0`. Without: all three are `Unsupported`                                                                                                                                                                                                                                                                                                                                                           |
+| `put/user-metadata-token-keys`  | `userMetadata`, `userMetadataTokenKeys` | `fast` | A key `content-hash` round-trips through `stat` and `get`. Without: it is `Unsupported`, `attempts: 0`, naming `userMetadataTokenKeys` where `userMetadata` is declared and `userMetadata` where it is not                                                                                                                                                                                                                                                                                                                                                   |
+| `put/content-headers`           | `contentHeaders`                        | `fast` | `cacheControl` `public, max-age=60, immutable`, a `contentDisposition` holding a tab and a run of spaces, and `contentLanguage` `de-AT, en` read back byte for byte through the `ObjectStat` of `put`, through `stat` and through `get`; a second `put` without them reports none; no `ObjectStat` carries `contentEncoding`. Without: each of the three alone, `""` included, is `Unsupported` naming `contentHeaders`, `attempts: 0`, and leaves no object; an object written without them reports all three absent, not present as `undefined`            |
+| `put/content-headers-multipart` | `contentHeaders`                        | `fast` | The three on a 17 MiB stream read back byte for byte through the `ObjectStat` of `put` and through `stat`, without `contentEncoding`. Without: the `put` is `Unsupported` naming `contentHeaders` and leaves no object                                                                                                                                                                                                                                                                                                                                       |
+| `put/content-headers-refused`   | `contentHeaders`                        | `fast` | A value that is no string, `""`, one with a space at either end, one holding a line feed and one holding `ü` each reject with `InvalidOption` naming the option, `attempts: 0`; 2,049 bytes with `Content-Type` and a `contentLanguage` of 101 characters each reject with `InvalidRequest`, `attempts: 0`; nothing was written. Exactly 2,048 bytes with `Content-Type`, the padding in `contentDisposition`, and exactly 100 characters of `contentLanguage` are stored and read back. Without: every one of them is `Unsupported` naming `contentHeaders` |
+| `put/concurrent-writers`        |                                         | `fast` | Two streamed `put`s of 17 MiB, one of a pattern A and one of a pattern B, paced so that each has sent a part before either completes: each resolves or rejects, at least one resolves, and `get` returns A or B byte for byte                                                                                                                                                                                                                                                                                                                                |
 
 **`get`**
 
@@ -2501,16 +2714,18 @@ A case marked with a factory is skipped where the target does not supply it.
 
 **`copy` and `move`**
 
-| Case                  | Requires       | Cost   | Asserts                                                                                                                        |
-| --------------------- | -------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| `copy/round-trip`     |                | `fast` | Destination has the bytes and content type; source is unchanged; the returned `ObjectStat` names the destination               |
-| `copy/overwrites`     |                | `fast` | A destination that exists is replaced                                                                                          |
-| `copy/missing-source` |                | `fast` | Rejects with `NotFound`; no destination is created                                                                             |
-| `copy/onto-itself`    |                | `fast` | `from === to` rejects with `InvalidRequest`, `attempts: 0`; the object is unchanged                                            |
-| `copy/invalid-keys`   |                | `fast` | A destination ending in `/` and a source with a `..` segment each reject with `InvalidKey` before anything changes             |
-| `copy/user-metadata`  | `userMetadata` | `fast` | The destination carries the source's metadata under identifier keys. Without: the copy succeeds and the destination reads `{}` |
-| `move/round-trip`     |                | `fast` | Destination has the bytes and content type; source is gone; the result names the destination                                   |
-| `move/missing-source` |                | `fast` | Rejects with `NotFound`, `operation: "move"`; no destination is created                                                        |
+| Case                   | Requires         | Cost   | Asserts                                                                                                                                                                                                                                                                                                                             |
+| ---------------------- | ---------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `copy/round-trip`      |                  | `fast` | Destination has the bytes and content type; source is unchanged; the returned `ObjectStat` names the destination                                                                                                                                                                                                                    |
+| `copy/overwrites`      |                  | `fast` | A destination that exists is replaced                                                                                                                                                                                                                                                                                               |
+| `copy/missing-source`  |                  | `fast` | Rejects with `NotFound`; no destination is created                                                                                                                                                                                                                                                                                  |
+| `copy/onto-itself`     |                  | `fast` | `from === to` rejects with `InvalidRequest`, `attempts: 0`; the object is unchanged                                                                                                                                                                                                                                                 |
+| `copy/invalid-keys`    |                  | `fast` | A destination ending in `/` and a source with a `..` segment each reject with `InvalidKey` before anything changes                                                                                                                                                                                                                  |
+| `copy/user-metadata`   | `userMetadata`   | `fast` | The destination carries the source's metadata under identifier keys. Without: the copy succeeds and the destination reads `{}`                                                                                                                                                                                                      |
+| `copy/content-headers` | `contentHeaders` | `fast` | The destination reports the source's `cacheControl` and `contentDisposition` byte for byte and its `contentLanguage` as the same list, whitespace around its commas possibly removed, through the `ObjectStat` of `copy` and through `stat`, without `contentEncoding`. Without: the copy succeeds and the destination reports none |
+| `move/round-trip`      |                  | `fast` | Destination has the bytes and content type; source is gone; the result names the destination                                                                                                                                                                                                                                        |
+| `move/missing-source`  |                  | `fast` | Rejects with `NotFound`, `operation: "move"`; no destination is created                                                                                                                                                                                                                                                             |
+| `move/content-headers` | `contentHeaders` | `fast` | As `copy/content-headers`, through the `ObjectStat` of `move` and through `stat`; the source is gone. Without: the move succeeds and the destination reports none                                                                                                                                                                   |
 
 **Errors**
 
@@ -2525,14 +2740,16 @@ A case marked with a factory is skipped where the target does not supply it.
 
 **Presigned URLs**
 
-| Case                         | Requires        | Cost   | Asserts                                                                                                                                                                       |
-| ---------------------------- | --------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `presign/get`                | `presignedUrls` | `fast` | `fetch` on the URL answers `200`, the bytes and the content type. Without: `"presignGet" in storage` and `"presignPut" in storage` are both `false`                           |
-| `presign/put`                | `presignedUrls` | `fast` | `fetch` with `PUT`, the returned `headers` and a body of the signed length answers `2xx`; `stat` reports the type and size. Without: as above                                 |
-| `presign/expires-in-bounds`  | `presignedUrls` | `fast` | `expiresIn` of 0 and of 604801 reject with `InvalidOption`; no request is made. Without: as above                                                                             |
-| `presign/put-rejects-type`   | `presignedUrls` | `slow` | A body with another content type answers `403`. Without: as above                                                                                                             |
-| `presign/put-rejects-length` | `presignedUrls` | `slow` | A body of another length answers `4xx`. Without: as above                                                                                                                     |
-| `presign/expired-url`        | `presignedUrls` | `slow` | A URL signed with `expiresIn: 1`, called after two seconds, answers `400` or `403`, while a URL signed with `expiresIn: 60` in the same case answers `200`. Without: as above |
+| Case                                  | Requires                          | Cost   | Asserts                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------------------------- | --------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `presign/get`                         | `presignedUrls`                   | `fast` | `fetch` on the URL answers `200`, the bytes and the content type. Without: `"presignGet" in storage` and `"presignPut" in storage` are both `false`                                                                                                                                                                                                                                   |
+| `presign/put`                         | `presignedUrls`                   | `fast` | `fetch` with `PUT`, the returned `headers` and a body of the signed length answers `2xx`; `stat` reports the type and size. Without: as above                                                                                                                                                                                                                                         |
+| `presign/expires-in-bounds`           | `presignedUrls`                   | `fast` | `expiresIn` of 0 and of 604801 reject with `InvalidOption`; no request is made. Without: as above                                                                                                                                                                                                                                                                                     |
+| `presign/put-rejects-type`            | `presignedUrls`                   | `slow` | A body with another content type answers `403`. Without: as above                                                                                                                                                                                                                                                                                                                     |
+| `presign/put-rejects-length`          | `presignedUrls`                   | `slow` | A body of another length answers `4xx`. Without: as above                                                                                                                                                                                                                                                                                                                             |
+| `presign/expired-url`                 | `presignedUrls`                   | `slow` | A URL signed with `expiresIn: 1`, called after two seconds, answers `400` or `403`, while a URL signed with `expiresIn: 60` in the same case answers `200`. Without: as above                                                                                                                                                                                                         |
+| `presign/put-content-headers`         | `presignedUrls`, `contentHeaders` | `fast` | `presignPut` with the three; `fetch` with `PUT`, the returned `headers` and a body of the signed length answers `2xx`; `stat` reports the three byte for byte and no `contentEncoding`. Without `presignedUrls`: as above. Without `contentHeaders`: `presignPut` with one of the three rejects with `Unsupported` naming `contentHeaders`, `attempts: 0`, and one without them signs |
+| `presign/put-rejects-content-headers` | `presignedUrls`, `contentHeaders` | `slow` | Under a URL signed with the three, an upload sending one of them with another value and an upload leaving one out each answer `4xx`. Without: as `presign/put-content-headers`                                                                                                                                                                                                        |
 
 ### 14.6 Reference flow cases
 
@@ -2647,9 +2864,16 @@ repository's servers, tested in this repository and not by the suite:
 - A client disconnecting cancels the stream `get` returned and reaches the provider (flow 4), on
   every runtime of every cell of section 2's second table. A cell this fails on carries no "yes".
 - Memory stays flat through an upload and a download through each server, on Node.
-- The status table of section 10.2, the whole `get` after a ranged `ProviderError`, and an object
-  changing between `stat` and `get` (section 10.3), against a storage that answers so, since no
-  endpoint in CI produces a content-coded object or a race on demand.
+- The status table of section 10.2, the whole `get` after a ranged `ProviderError`, an object
+  changing between `stat` and `get`, and the answer for an object whose `contentEncoding` is set,
+  without `Content-Length` and `Accept-Ranges` and planned `200` without a ranged `get` where a
+  `stat` comes first (section 10.3), against a storage that answers so, since no endpoint in CI
+  produces a content-coded object or a race on demand.
+- Option handling that does not depend on the runtime, which a case would reach only through a new
+  route or a new duty of the target's routes: the order of `storedCacheControl`, `cacheControl` and
+  the default (section 10.3); `acceptUpload` handing its content headers to `put` and reading none
+  from the request (section 10.5); `presignUpload` handing its content headers to `presignPut` and
+  answering `400` for a value outside the form or a bound (section 10.6) (ADR 0064).
 - The `400` of `acceptUpload` for a body that ends short of its `Content-Length` and for a body
   that fails while it is read, over a raw socket: `fetch` cannot send a `Content-Length` that
   contradicts its body. A body that runs past its `Content-Length` is tested as a web `Request`,
@@ -2670,23 +2894,26 @@ with `requires` carries a `runWithout` half, described in the last column. A dat
 
 **Serving**
 
-| Case                        | Requires     | Cost   | Asserts                                                                                                                                                                                                          |
-| --------------------------- | ------------ | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `serve/whole`               |              | `fast` | `GET` answers `200`, the bytes and the stored `Content-Type`, without `Content-Length`                                                                                                                           |
-| `serve/headers`             |              | `fast` | `X-Content-Type-Options: nosniff`, `Cache-Control: private, no-cache`, `ETag` the quoted `etag` of `stat` and none where `stat` has none, `Last-Modified` the `lastModified` of `stat` at whole seconds          |
-| `serve/disposition`         |              | `fast` | A key ending in `résumé 100%.pdf` answers `attachment; filename="r_sum_ 100_.pdf"; filename*=UTF-8''r%C3%A9sum%C3%A9%20100%25.pdf`                                                                               |
-| `serve/head`                |              | `fast` | `HEAD` answers `200` with the headers of the `GET`, no body and no `Content-Length`; with `Range: bytes=0-1` it answers the same                                                                                 |
-| `serve/not-found`           |              | `fast` | A missing key answers `404` with an empty body to `GET`, to `HEAD` and to `GET` with `If-Match: *`; the key `a//b` answers `404`                                                                                 |
-| `serve/method-not-allowed`  |              | `fast` | `POST`, `PUT` and `DELETE` answer `405` with `Allow: GET, HEAD`; the object is unchanged                                                                                                                         |
-| `serve/range`               | `rangeReads` | `fast` | `bytes=2-5`, `bytes=4-` and `bytes=2-999` on a 16-byte object answer `206` with the bytes, `Content-Range`, `Content-Length` and `Accept-Ranges: bytes`. Without: `200` and the whole object, no `Accept-Ranges` |
-| `serve/suffix-range`        | `rangeReads` | `fast` | `bytes=-3` answers `206` with the last three bytes and `Content-Range: bytes 13-15/16`. Without: `200` and the whole object                                                                                      |
-| `serve/unsatisfiable-range` | `rangeReads` | `fast` | `bytes=16-` on a 16-byte object answers `416` with `Content-Range: bytes */16`. Without: `200` and the whole object                                                                                              |
-| `serve/ignored-range`       |              | `fast` | `bytes=0-1,3-4`, `items=0-1` and `bytes=x` each answer `200` and the whole object                                                                                                                                |
-| `serve/if-none-match`       |              | `fast` | The `ETag` of a first `GET`, also as `W/`, and `*` answer `304` without a body; another tag answers `200`. Where the first `GET` carried no `ETag`, `*` alone is sent                                            |
-| `serve/if-modified-since`   |              | `fast` | `lastModified` of `stat` at whole seconds answers `304`, a second before the `Last-Modified` of a first `GET` answers `200`; beside an `If-None-Match` that fails to match it is ignored and the answer is `200` |
-| `serve/if-match`            |              | `fast` | The strong `ETag` of a first `GET` and `*` answer `200`; another tag and the `ETag` as `W/` answer `412`. Where the first `GET` carried no `ETag`, any tag answers `412` and `*` answers `200`                   |
-| `serve/if-unmodified-since` |              | `fast` | A second before the `Last-Modified` of a first `GET` answers `412`, `lastModified` of `stat` at whole seconds answers `200`; beside an `If-Match: *` it is ignored and the answer is `200`                       |
-| `serve/if-range`            | `rangeReads` | `fast` | `Range: bytes=2-5` with the strong `ETag` of a first `GET` answers `206`; with another tag or with a date it answers `200` and the whole object. Without: `200` and the whole object for each                    |
+| Case                         | Requires         | Cost   | Asserts                                                                                                                                                                                                                                                           |
+| ---------------------------- | ---------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `serve/whole`                |                  | `fast` | `GET` answers `200`, the bytes, the stored `Content-Type` and `Content-Length` equal to the size                                                                                                                                                                  |
+| `serve/headers`              |                  | `fast` | `X-Content-Type-Options: nosniff`, `Cache-Control: private, no-cache`, `ETag` the quoted `etag` of `stat` and none where `stat` has none, `Last-Modified` the `lastModified` of `stat` at whole seconds                                                           |
+| `serve/disposition`          |                  | `fast` | A key ending in `résumé 100%.pdf` answers `attachment; filename="r_sum_ 100_.pdf"; filename*=UTF-8''r%C3%A9sum%C3%A9%20100%25.pdf`                                                                                                                                |
+| `serve/head`                 |                  | `fast` | `HEAD` answers `200` with the headers of the `GET`, `Content-Length` equal to the size among them, and no body; with `Range: bytes=0-1` it answers the same                                                                                                       |
+| `serve/not-found`            |                  | `fast` | A missing key answers `404` with an empty body to `GET`, to `HEAD` and to `GET` with `If-Match: *`; the key `a//b` answers `404`                                                                                                                                  |
+| `serve/method-not-allowed`   |                  | `fast` | `POST`, `PUT` and `DELETE` answer `405` with `Allow: GET, HEAD`; the object is unchanged                                                                                                                                                                          |
+| `serve/range`                | `rangeReads`     | `fast` | `bytes=2-5`, `bytes=4-` and `bytes=2-999` on a 16-byte object answer `206` with the bytes, `Content-Range`, `Content-Length` and `Accept-Ranges: bytes`. Without: `200` and the whole object, no `Accept-Ranges`                                                  |
+| `serve/suffix-range`         | `rangeReads`     | `fast` | `bytes=-3` answers `206` with the last three bytes and `Content-Range: bytes 13-15/16`. Without: `200` and the whole object                                                                                                                                       |
+| `serve/unsatisfiable-range`  | `rangeReads`     | `fast` | `bytes=16-` on a 16-byte object answers `416` with `Content-Range: bytes */16`. Without: `200` and the whole object                                                                                                                                               |
+| `serve/ignored-range`        |                  | `fast` | `bytes=0-1,3-4`, `items=0-1` and `bytes=x` each answer `200` and the whole object                                                                                                                                                                                 |
+| `serve/if-none-match`        |                  | `fast` | The `ETag` of a first `GET`, also as `W/`, and `*` answer `304` without a body; another tag answers `200`. Where the first `GET` carried no `ETag`, `*` alone is sent                                                                                             |
+| `serve/if-modified-since`    |                  | `fast` | `lastModified` of `stat` at whole seconds answers `304`, a second before the `Last-Modified` of a first `GET` answers `200`; beside an `If-None-Match` that fails to match it is ignored and the answer is `200`                                                  |
+| `serve/if-match`             |                  | `fast` | The strong `ETag` of a first `GET` and `*` answer `200`; another tag and the `ETag` as `W/` answer `412`. Where the first `GET` carried no `ETag`, any tag answers `412` and `*` answers `200`                                                                    |
+| `serve/if-unmodified-since`  |                  | `fast` | A second before the `Last-Modified` of a first `GET` answers `412`, `lastModified` of `stat` at whole seconds answers `200`; beside an `If-Match: *` it is ignored and the answer is `200`                                                                        |
+| `serve/if-range`             | `rangeReads`     | `fast` | `Range: bytes=2-5` with the strong `ETag` of a first `GET` answers `206`; with another tag or with a date it answers `200` and the whole object. Without: `200` and the whole object for each                                                                     |
+| `serve/content-language`     | `contentHeaders` | `fast` | A stored `contentLanguage` `de-AT` is answered as `Content-Language: de-AT` to `GET`, to `HEAD` and on a `304`. Without: an object written without them is answered without `Content-Language`                                                                    |
+| `serve/stored-disposition`   | `contentHeaders` | `fast` | A stored `attachment; filename="stored.pdf"` is answered as stored; a stored `inline; filename="x.html"` is answered as `attachment` with the key's last segment. Without: an object written without them is answered as `attachment` with the key's last segment |
+| `serve/stored-cache-control` | `contentHeaders` | `fast` | A stored `public, max-age=60` is answered as `Cache-Control: private, no-cache`, since the route passes no options. Without: `private, no-cache`                                                                                                                  |
 
 **Redirecting**
 
@@ -2739,10 +2966,15 @@ with `requires` carries a `runWithout` half, described in the last column. A dat
 - The defaults this document declares movable, the backoff numbers of sections 7.5, 8.5 and 9.5
   and the upload numbers of sections 7.6, 8.6 and 9.6, move in a minor release and never in a
   patch.
-- A new conformance case is a minor release. A patch may repair a case and may not add one. A new
-  required member on `ConformanceTarget` is breaking; a new optional one is not. The same holds for
-  the HTTP conformance suite, where a new value of the `answer` that `url` addresses counts as a
-  new required member.
+- A new conformance case is a minor release. A patch may repair a case and may not add one. A case
+  changed to assert more of a target than it did is a withdrawal, since a target that passed it
+  may fail it (ADR 0064). A new required member on `ConformanceTarget` is breaking; a new optional
+  one is not. The same holds for the HTTP conformance suite, where a new value of the `answer` that
+  `url` addresses counts as a new required member.
+- A promise this document states for the first time takes nothing from a caller, so what a
+  promised provider cannot hold is written into it without a withdrawal (ADR 0059). An option a
+  storage refused as unknown with `InvalidOption`, which a release accepts or refuses as
+  `Unsupported`, is no withdrawal either: the input was never valid (ADR 0060).
 - Tightening a key rule is a minor release below 1.0 and a major above it. Loosening one is neither.
 - A provider promised later does not narrow the parity core: what it cannot hold becomes a
   capability its adapter does not declare. Where a difference refuses that shape, as a batch size
@@ -2854,8 +3086,10 @@ that disagrees with this document is corrected without a changeset.
   the README of `@stowage/nestjs` with `experimentalDecorators` and without
   `erasableSyntaxOnly`, against `@types/node` and `@types/express` (ADR 0055). Links are not
   checked.
-- TSDoc is written where a meaning was decided: the ten error codes, the five capability names,
-  `retry`, `multipart`, `expiresIn`, `contentLength` on `presignPut`, the two forms of
+- TSDoc is written where a meaning was decided: the ten error codes, the six capability names,
+  `retry`, `multipart`, `expiresIn`, `contentLength` on `presignPut`, the three content headers on
+  `PutOptions`, on `ObjectStat`, on `presignPut` and on the options of `acceptUpload` and
+  `presignUpload`, `contentEncoding`, `storedCacheControl`, the two forms of
   `AzureBlobCredentials`, the two forms of `GcsSigner`, `headers` on `PresignedPut`, `maxSize`,
   `expiresIn` on `redirectToObject` and `presignUpload`, `disposition`, `cacheControl`,
   `storageErrorOf`, `objectStatOf`, `global` on `StorageModule`, the factories of `withStorage`
@@ -2865,7 +3099,7 @@ that disagrees with this document is corrected without a changeset.
 
 ## 17. Non-goals
 
-v0.5 does not have, and does not promise a path to:
+v0.6 does not have, and does not promise a path to:
 
 - Bucket and container management: creating, listing or deleting them.
 - A connection URL, a connection string or any other configuration string, and a key file or a
@@ -2878,10 +3112,18 @@ v0.5 does not have, and does not promise a path to:
 - Anonymous or unsigned requests.
 - Presigned `POST` policies, presigned multipart uploads, presigned block uploads and presigned
   resumable uploads.
+- Writing `Content-Encoding` through `put`, `Expires`, and a generic map of headers on `put`
+  (ADR 0058).
+- Changing the content headers of an object that exists, through an option of `copy` or `move` or
+  an operation of its own (ADR 0058).
+- Binding the absence of a content header into a presigned upload (ADR 0063).
+- Reading a header value of 16 KiB or more that another tool stored, which Node's `fetch` fails to
+  read (ADR 0059).
 - Conditional operations, versioning, object lock, tagging, storage classes, ACLs, server-managed
-  encryption and `x-amz-checksum-*` headers; on Azure Blob, append and page blobs, access tiers,
-  snapshots, soft delete, leases, immutability policies and blob index tags; on GCS, object holds,
-  retention policies, customer-managed and customer-supplied encryption keys and Autoclass.
+  encryption, customer-supplied encryption keys, requester pays and `x-amz-checksum-*` headers; on
+  Azure Blob, append and page blobs, access tiers, snapshots, soft delete, leases, immutability
+  policies and blob index tags; on GCS, object holds, retention policies, customer-managed and
+  customer-supplied encryption keys and Autoclass.
 - Accounts and buckets with hierarchical namespace, sovereign clouds, other universes and
   dual-region turbo replication as promised targets.
 - Chunked signing, a per-runtime hasher, and any option to skip payload signing on a request the
@@ -2914,10 +3156,25 @@ settled; those are stated in the sections they belong to. The one promise no run
 that R2 answers `ExpiredRequest` for an expired credential, a probe of its own disproved, and it is
 withdrawn (section 7.2, ADR 0045). Each point left here names why no run has answered it.
 
-Promises: none. The servers of v0.5 add none: their suite runs against SeaweedFS behind
-`adapter-s3`, and they add no provider behavior (section 2).
+Promises:
+
+- `adapter-gcs`: the JSON resource returns `cacheControl`, `contentDisposition` and
+  `contentLanguage` as sent, a tab and a run of spaces included, after `uploadType=multipart`, a
+  resumable upload, `rewriteTo` without a body and `moveTo`. The measurements behind ADR 0059 ran
+  against the XML API, whose documentation differs from the JSON API's on `Cache-Control`. The
+  scheduled run's `put/content-headers`, `put/content-headers-multipart`, `copy/content-headers`
+  and `move/content-headers` against the bucket answer it.
+- `adapter-azure-blob`: a user delegation SAS naming the `x-ms-blob-*` headers in `srh` admits an
+  upload carrying the signed values and refuses one whose value differs or that lacks one,
+  `x-ms-blob-content-type` among them (section 8.9). No signature of a real key over them has been
+  measured, since `Get User Delegation Key` needs an Entra token; the scheduled run on `main`, whose
+  token can, answers it through `presign/put-content-headers`,
+  `presign/put-rejects-content-headers` and the repository test of section 14.4 (ADR 0063).
 
 Recorded only, since this document already states what follows from any answer:
+
+- `adapter-azure-blob`: whether Azure collapses runs of spaces in a value `srh` binds, as SigV4
+  and GOOG4 do. Section 8.9 states the binding exact up to runs of spaces either way.
 
 - `adapter-s3`: how the multipart answers and `<Deleted><Key>` spell a key holding `U+FFFE`, how
   R2 encodes a space under `encoding-type=url`, and whether R2's continuation token is ASCII. No

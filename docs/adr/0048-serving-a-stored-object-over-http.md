@@ -100,3 +100,8 @@ ranged `get` never hands such an object over.
   character outside `U+0020` to `U+007E`, and `"`, `\`, and `%`, becomes `_`, and `filename*` is
   always sent, so the fallback holds no `%XX` and no `\` that a recipient might decode. An
   `inline` disposition carries the same parameters.
+- ADR 0062 sends `Content-Length: size` on a `200` and a `HEAD` whose object has no
+  `contentEncoding`, leaves `Accept-Ranges` off one that has, serves a stored `Content-Language`,
+  a stored `attachment` where the caller passes neither `filename` nor `disposition`, and a stored
+  `Cache-Control` under `storedCacheControl: true`. The download name and `Accept-Ranges` narrow
+  what v0.5 released, and ADR 0062 names that conflict with ADR 0017.

@@ -94,3 +94,6 @@ secret would be a long-lived credential in the environment when a federated one 
 - Nothing here creates the account. Provisioning it, with both identities, their roles, the
   lifecycle rule, the CORS rule and the GitHub environment, is work done by hand once, before the
   real account can settle whether `srh` binds `Content-Type` and `Content-Length`.
+- ADR 0063 and ADR 0064 add `x-ms-blob-content-type` to the account's CORS rule, since the
+  preflight test sends the headers `presignPut` returns. The rule gains none of the content
+  headers: the preflight test signs none.

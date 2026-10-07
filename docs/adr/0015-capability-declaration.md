@@ -115,3 +115,6 @@ would pass because its calls all fail correctly.
 - ADR 0032 has the GCS adapter declare `presignedUrls` only where its configuration names a signer,
   and ADR 0035 overloads its constructor on that option, so the type carries the two methods
   exactly where the capability is declared.
+- ADR 0060 adds `contentHeaders`, declared by every adapter but `adapter-fs`, which refuses the
+  content headers as it refuses user metadata: no sidecar file, no extended attribute, no silent
+  drop.

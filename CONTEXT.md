@@ -55,12 +55,19 @@ the parity core, and differs from one provider to the next.
 _Avoid_: secret, key, token
 
 **Object**:
-A sequence of bytes stored under a key, together with its content type and its metadata.
+A sequence of bytes stored under a key, together with its content type, its content headers and
+its metadata.
 _Avoid_: file, blob, entry
 
+**Content headers**:
+The `Cache-Control`, `Content-Disposition` and `Content-Language` an object is stored with, which a
+caller writes and reads back with its description, and which a copy keeps. They tell a client that
+downloads the object how to cache, name and present it.
+_Avoid_: object headers, system metadata, HTTP metadata, properties
+
 **Content-coded object**:
-An object another tool stored with a content coding such as gzip, which stowage never writes. Its
-size counts the bytes the storage holds. No range of it can be read, and read whole it may arrive
+An object another tool stored with a content coding such as gzip, which stowage never writes and
+which the object's description names. Its size counts the bytes the storage holds. No range of it can be read, and read whole it may arrive
 decoded and longer than its size, depending on the runtime and the adapter.
 _Avoid_: compressed object, gzipped object, encoded object
 
@@ -180,7 +187,8 @@ _Avoid_: raw, escape hatch, native client, adapter class
 A URL that carries its own authorization, so a client holding no credential can call it. It is bound
 to one operation on one key, to the content it may carry, and to a moment it stops working — at the
 latest when the key of its signer expires. A client may have to send headers beside it
-that the signature names. Azure Blob calls its form a shared access signature.
+that the signature names; a content header the signature does not name stays open to whoever holds
+the URL. Azure Blob calls its form a shared access signature.
 _Avoid_: signed URL, temporary link, upload URL
 
 **Signer**:

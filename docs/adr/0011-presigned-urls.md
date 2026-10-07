@@ -98,3 +98,7 @@ something to check it against.
   token cannot sign. Signing through `signBlob` sends one request per URL, and an expired URL on
   GCS answers `400`, so the expired-URL case accepts `400` or `403` beside a control URL that must
   answer `200`.
+- ADR 0063 lets `presignPut` bind `Cache-Control`, `Content-Disposition` and `Content-Language`
+  as signed headers where the caller gives them, and leaves a content header it is not given open
+  to whoever holds the URL. It finds the binding exact up to runs of spaces, which SigV4 and GOOG4
+  collapse before comparing, and withdraws "exact" for `Content-Type` in that measure.
