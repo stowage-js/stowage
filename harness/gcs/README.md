@@ -128,15 +128,11 @@ reachable, and runs its `fast` cases a second time under the default flags of th
 date (ADR 0026, ADR 0039). fake-gcs-server answers over plain HTTP, so no runtime has a certificate
 to trust.
 
-## The cases run so far
+## The cases run
 
-The adapter gains its operations one ticket at a time, and `src/target.ts` names the cases it
-passes. A case joins that list with the operation it needs, until the list is the whole suite.
-Every column takes the case list and the divergence list of `src/divergences.ts` from here, so a
-case that joins `src/target.ts` runs on Node, Bun, Deno and `workerd` alike.
-
-`list/noncharacter-key` stays out on every GCS endpoint, since GCS refuses the key the case writes
-(spec 14.7, ADR 0034).
+Every column runs the whole suite, with the divergence list of `src/divergences.ts`, on Node,
+Bun, Deno and `workerd` alike. `list/noncharacter-key` stays out on every GCS endpoint, since GCS
+refuses the key the case writes (spec 14.7, ADR 0034).
 
 ## The divergence list
 

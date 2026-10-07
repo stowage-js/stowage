@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 
+import { selectedCases } from "../../../packages/conformance/src/run.ts";
 import { gcsEndpointFrom } from "./configuration.ts";
 import { gcsCases, gcsRunCases, gcsTarget } from "./target.ts";
 
@@ -70,6 +71,17 @@ test("the missing bucket is a new one on every call", async () => {
 
   expect((await target.createStorageWithMissingBucket?.())?.bucket).not.toBe(
     (await target.createStorageWithMissingBucket?.())?.bucket,
+  );
+});
+
+// Spec 14.7 and ADR 0034: GCS refuses the key `list/noncharacter-key` writes.
+test("every endpoint runs the whole suite but `list/noncharacter-key`", () => {
+  const options = { includeSlow: true };
+
+  expect(gcsCases(options).map((source) => source.name)).toEqual(
+    selectedCases(options)
+      .map((source) => source.name)
+      .filter((name) => name !== "list/noncharacter-key"),
   );
 });
 

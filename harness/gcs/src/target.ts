@@ -15,112 +15,14 @@ import { endpointNameFrom, type GcsEndpoint } from "./configuration.ts";
 import { withGcsDivergences } from "./divergences.ts";
 
 /**
- * The cases the adapter passes while its operations arrive one by one: those that need
- * `put` of held bytes and of a stream, user metadata, `get` with or without a range,
- * `stat`, `exists`, `list`, `delete`, `deleteAll`, `copy`, `move` and the presigned URLs,
- * and nothing else.
- * Every operation that joins the adapter adds its cases here, until the list is the whole
- * suite and goes. The `Expired` case stays in the list and reports itself skipped on every
- * endpoint, and the Bad and Denied cases against fake-gcs-server, since the target supplies
- * no factory there (ADR 0033, ADR 0034). `flow/3-file-browser`, the three rejections a
- * presigned URL owes, the two cases of `move` and `errors/missing-bucket` run against
- * fake-gcs-server as divergences (`divergences.ts`).
- */
-const coveredCases: ReadonlySet<string> = new Set([
-  "declaration/valid-names",
-  "declaration/identity",
-  "put/bytes-round-trip",
-  "put/accepted-keys",
-  "put/string-round-trip",
-  "put/stream-round-trip",
-  "put/multipart-round-trip",
-  "put/empty-body",
-  "put/abort-during-upload",
-  "put/stream-consumed",
-  "put/concurrent-writers",
-  "put/overwrites",
-  "put/content-type-stored",
-  "put/content-type-default",
-  "put/user-metadata",
-  "put/user-metadata-limits",
-  "put/user-metadata-token-keys",
-  "put/refused-keys",
-  "put/unknown-option",
-  "put/aborted-signal",
-  "get/missing-key",
-  "get/stream",
-  "get/text-and-json",
-  "get/body-read-once",
-  "get/stat-from-response",
-  "get/addressable-keys",
-  "get/refused-keys",
-  "get/aborted-signal",
-  "get/range",
-  "get/range-unsatisfiable",
-  "get/range-clipped",
-  "stat/describes-object",
-  "stat/missing-key",
-  "exists/answers",
-  "exists/invalid-key",
-  "list/nothing",
-  "list/every-object-once",
-  "list/entry-shape",
-  "list/pages-and-cursor",
-  "list/delimiter",
-  "list/prefix-mid-segment",
-  "list/lazy",
-  "list/page-size-bounds",
-  "list/invalid-cursor",
-  "list/invalid-delimiter",
-  "list/past-one-thousand",
-  "list/key-bytes",
-  "delete/single",
-  "delete/many",
-  "delete/absent-key-succeeds",
-  "delete/nothing",
-  "delete/invalid-key-reported",
-  "delete/past-one-thousand",
-  "deleteAll/below-prefix",
-  "deleteAll/nothing",
-  "deleteAll/past-one-thousand",
-  "copy/round-trip",
-  "copy/overwrites",
-  "copy/missing-source",
-  "copy/onto-itself",
-  "copy/invalid-keys",
-  "copy/user-metadata",
-  "move/round-trip",
-  "move/missing-source",
-  "presign/get",
-  "presign/put",
-  "presign/expires-in-bounds",
-  "presign/put-rejects-type",
-  "presign/put-rejects-length",
-  "presign/expired-url",
-  "errors/shape",
-  "errors/bad-credentials",
-  "errors/denied-credentials",
-  "errors/expired-credentials",
-  "errors/missing-bucket",
-  "errors/not-a-storage-error",
-  "flow/1-large-upload",
-  "flow/2-presigned-put",
-  "flow/3-file-browser",
-  "flow/4-streaming-download",
-  "flow/5-prefix-move",
-]);
-
-/**
  * Spec 14.7 and ADR 0034: GCS refuses the key `list/noncharacter-key` writes (spec 9.1), so
  * the case stays unrun on every GCS endpoint. It is no divergence, since no real endpoint
- * runs it to settle one, and it stays out once the list above goes.
+ * runs it to settle one.
  */
 const unrunCases: ReadonlySet<string> = new Set(["list/noncharacter-key"]);
 
 export function gcsCases(options: ConformanceRunOptions): readonly ConformanceCaseSource[] {
-  return selectedCases(options).filter(
-    (source) => coveredCases.has(source.name) && !unrunCases.has(source.name),
-  );
+  return selectedCases(options).filter((source) => !unrunCases.has(source.name));
 }
 
 /**
