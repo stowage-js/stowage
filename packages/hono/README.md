@@ -52,7 +52,7 @@ exported; on Node, `serve(app)` of `@hono/node-server` does. Two storages are tw
 
 Node 24 and later, Bun, Deno and `workerd` at the compatibility date `2026-09-01` without Node
 APIs, with the peer `hono` `^4.13.12`. Its floor is 4.13.12, on `@hono/node-server` 2.1.3, and at
-this release CI ran 4.13.12 as the newest release of Hono 4. CI last ran green on Bun 1.4.2 and Deno 2.9.6.
+this release CI ran 4.13.13 as the newest release of Hono 4. CI last ran green on Bun 1.4.2 and Deno 2.9.6.
 
 |                 | Node | Bun | Deno | `workerd` |
 | --------------- | ---- | --- | ---- | --------- |
