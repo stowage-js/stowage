@@ -72,6 +72,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - uses: changesets/action/version@v2
+        with:
+          script: pnpm run version-packages
 
   # Spec 2: the `slow` tier runs before every release, and a release waits for it to pass.
   slow-tier:

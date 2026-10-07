@@ -8,6 +8,7 @@
   "include": [
     "packages/*/src/**/*.ts",
     "harness/*/src/**/*.ts",
+    "scripts/**/*.ts",
     "test/**/*.ts",
     "tsdown.config.ts",
     "vitest.config.ts",
