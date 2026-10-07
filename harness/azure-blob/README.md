@@ -146,11 +146,6 @@ CPU the `workerd` process spent.
 The last job of the workflow writes the points into the same table as the S3 ones, in the columns
 `azure-blob-node-24`, `azure-blob-node-26` and `azure-blob-workerd`.
 
-## The cases run so far
-
-The adapter gains its operations one ticket at a time, and `src/target.ts` names the cases it
-passes. A case joins that list with the operation it needs, until the list is the whole suite.
-
 ## The divergence list
 
 `src/divergences.ts` holds one entry per conformance case Azurite answers differently from the
