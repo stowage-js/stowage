@@ -187,7 +187,8 @@ _Avoid_: raw, escape hatch, native client, adapter class
 A URL that carries its own authorization, so a client holding no credential can call it. It is bound
 to one operation on one key, to the content it may carry, and to a moment it stops working — at the
 latest when the key of its signer expires. A client may have to send headers beside it
-that the signature names. Azure Blob calls its form a shared access signature.
+that the signature names; a content header the signature does not name stays open to whoever holds
+the URL. Azure Blob calls its form a shared access signature.
 _Avoid_: signed URL, temporary link, upload URL
 
 **Signer**:
