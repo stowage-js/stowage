@@ -24,11 +24,6 @@ export function inStorage(
   return s3Error(bucket, { ...fieldsOf(failure), operation, key: key ?? failure.key });
 }
 
-/** The same failure, counting the attempts made where the one that failed does not know. */
-export function withAttemptsMade(failure: StorageError, attempts: number): StorageError {
-  return s3Error(failure.bucket, { ...fieldsOf(failure), attempts });
-}
-
 /**
  * Every field of `StorageErrorFields` is named below, so a field added to that type has
  * to be added here too or it is dropped on the way through.

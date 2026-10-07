@@ -1,5 +1,6 @@
 import {
   errorCodeForStatus,
+  type FailureReading,
   isTransientStatus,
   type StorageError,
   type StorageErrorCode,
@@ -139,19 +140,31 @@ export function providerError(
   request: AnsweredAttempts,
   answer: ProviderAnswer,
 ): StorageError {
-  const failure = readProviderFailure(answer);
-
   return gcsError(bucket, {
-    code: failure.code,
-    message: failure.message,
+    ...readFailedAnswer(request.key, request.requestId, answer),
     operation: request.operation,
-    key: failure.ofBucket === true ? undefined : request.key,
     attempts: request.attempts,
     status: answer.status,
-    providerCode: answer.providerCode,
-    requestId: request.requestId,
     retryable: isTransientStatus(answer.status),
   });
+}
+
+/** What spec 9.8 reads out of a failed answer, before the request's context joins it. */
+export function readFailedAnswer(
+  key: string | undefined,
+  requestId: string | undefined,
+  answer: ProviderAnswer,
+): FailureReading {
+  const failure = readProviderFailure(answer);
+
+  return {
+    code: failure.code,
+    message: failure.message,
+    key: failure.ofBucket === true ? undefined : key,
+    providerCode: answer.providerCode,
+    requestId,
+    refusedCredential: isRefusedToken(answer),
+  };
 }
 
 function statusMessage(answer: Pick<ProviderAnswer, "status" | "method">): string {

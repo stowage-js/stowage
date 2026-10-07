@@ -1,4 +1,4 @@
-import type { Resolvable, StorageError } from "@stowage/core";
+import { readMaxAttempts, type Resolvable, type StorageError } from "@stowage/core";
 
 import type { S3Credentials } from "./credentials.ts";
 import { optionError as refuseOption, requireKnownOptions } from "./options.ts";
@@ -64,16 +64,13 @@ const adapterOptionKeys: readonly string[] = [
   "retry",
   "multipart",
 ];
-const retryOptionKeys: readonly string[] = ["maxAttempts"];
 const multipartOptionKeys: readonly string[] = ["partSize", "concurrency"];
 
 const mebibyte = 1024 * 1024;
 
-const defaultMaxAttempts = 3;
 const defaultPartSize = 8 * mebibyte;
 const defaultConcurrency = 4;
 
-const maxAttemptsRange = { least: 1, most: 3 };
 const partSizeRange = { least: 5 * mebibyte, most: 5 * 1024 * mebibyte };
 const concurrencyRange = { least: 1, most: 16 };
 
@@ -109,7 +106,11 @@ export function readConfiguration(options: S3AdapterOptions): S3Configuration {
     ...endpoint,
     forcePathStyle,
     credentials: options.credentials,
-    maxAttempts: readMaxAttempts(bucket, options.retry),
+    maxAttempts: readMaxAttempts(options.retry, {
+      provider: "s3",
+      bucket: bucket,
+      constructedBy: "s3Storage",
+    }),
     ...readMultipart(bucket, options.multipart),
   };
 }
@@ -167,22 +168,6 @@ function isLoopbackHttp(endpoint: URL): boolean {
 
 function hostFor(host: string, bucket: string, forcePathStyle: boolean): string {
   return forcePathStyle ? host : `${bucket}.${host}`;
-}
-
-function readMaxAttempts(bucket: string, retry: S3AdapterOptions["retry"]): number {
-  if (retry === false) return 1;
-  if (retry === undefined) return defaultMaxAttempts;
-
-  requireGroup(bucket, retry, "retry");
-  requireKnownOptions(bucket, retry, retryOptionKeys, "s3Storage");
-
-  return readInRange(
-    bucket,
-    retry.maxAttempts,
-    "maxAttempts",
-    maxAttemptsRange,
-    defaultMaxAttempts,
-  );
 }
 
 function readMultipart(

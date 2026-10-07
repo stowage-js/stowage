@@ -1,4 +1,4 @@
-import type { Resolvable, StorageError } from "@stowage/core";
+import { readMaxAttempts, type Resolvable, type StorageError } from "@stowage/core";
 
 import type { GcsCredentials } from "./credentials.ts";
 import { optionError as refuseOption, requireKnownOptions } from "./options.ts";
@@ -99,7 +99,6 @@ const adapterOptionKeys: readonly string[] = [
   "retry",
   "multipart",
 ];
-const retryOptionKeys: readonly string[] = ["maxAttempts"];
 const multipartOptionKeys: readonly string[] = ["partSize"];
 const signerFields: ReadonlySet<string> = new Set(["serviceAccount", "privateKey", "credentials"]);
 
@@ -111,10 +110,8 @@ const gibibyte = 1024 * mebibyte;
 const chunkGranularity = 256 * kibibyte;
 
 const defaultEndpoint = "https://storage.googleapis.com";
-const defaultMaxAttempts = 3;
 const defaultPartSize = 8 * mebibyte;
 
-const maxAttemptsRange = { least: 1, most: 3 };
 const partSizeRange = { least: chunkGranularity, most: 5 * gibibyte };
 
 /**
@@ -144,7 +141,11 @@ export function readConfiguration(options: GcsAdapterOptions): GcsConfiguration 
     ...readEndpoint(bucket, options.endpoint),
     credentials: options.credentials,
     ...(options.signer === undefined ? {} : { signer: readSigner(bucket, options.signer) }),
-    maxAttempts: readMaxAttempts(bucket, options.retry),
+    maxAttempts: readMaxAttempts(options.retry, {
+      provider: "gcs",
+      bucket: bucket,
+      constructedBy: "gcsStorage",
+    }),
     partSize: readPartSize(bucket, options.multipart),
   };
 }
@@ -247,22 +248,6 @@ function isPrivateKeySource(value: unknown): boolean {
 
 function isCredentialsSource(value: unknown): boolean {
   return typeof value === "function" || (typeof value === "object" && value !== null);
-}
-
-function readMaxAttempts(bucket: string, retry: GcsAdapterOptions["retry"]): number {
-  if (retry === false) return 1;
-  if (retry === undefined) return defaultMaxAttempts;
-
-  requireGroup(bucket, retry, "retry");
-  requireKnownOptions(bucket, retry, retryOptionKeys, "gcsStorage");
-
-  return readInRange(
-    bucket,
-    retry.maxAttempts,
-    "maxAttempts",
-    maxAttemptsRange,
-    defaultMaxAttempts,
-  );
 }
 
 function readPartSize(bucket: string, multipart: GcsAdapterOptions["multipart"]): number {

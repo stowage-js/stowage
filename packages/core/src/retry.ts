@@ -1,4 +1,4 @@
-import { isStorageError, withAttempts } from "./errors.ts";
+import { isStorageError, type StorageError, withAttempts } from "./errors.ts";
 
 export interface RetryOptions {
   readonly maxAttempts: number;
@@ -21,10 +21,25 @@ const maximumDelay = 5_000;
  * `adapter-memory` have no request to send again and do not call it.
  */
 export async function withRetry<T>(attempt: () => Promise<T>, options: RetryOptions): Promise<T> {
-  // One attempt is one request for most callers, and `adapter-s3` sends a second where
-  // the provider answered `Expired` (spec 7.3). The error an attempt rejects with says
-  // which of the two it was, so what the caller finally reads counts the requests that
-  // went out rather than the times this loop ran.
+  return await repeatOnBudget(attempt, options, () => undefined);
+}
+
+/**
+ * The failure a request ends with although the budget would repeat it, or `undefined` to
+ * let the budget decide. `sendRequest` passes the rules of spec 7.5 and ADR 0037 here.
+ */
+export type Settle = (failure: StorageError) => StorageError | undefined;
+
+/** The loop of `withRetry`, ended early where `settle` names a failure. Not published. */
+export async function repeatOnBudget<T>(
+  attempt: () => Promise<T>,
+  options: RetryOptions,
+  settle: Settle,
+): Promise<T> {
+  // One attempt is one request for most callers, and an attempt sends a second where the
+  // provider refused a credential that a refresh may pass (spec 7.3, 8.3 and 9.3). The error an attempt
+  // rejects with says which of the two it was, so what the caller finally reads counts the
+  // requests that went out rather than the times this loop ran.
   let requestsSent = 0;
 
   for (let attemptsMade = 1; ; attemptsMade += 1) {
@@ -35,6 +50,10 @@ export async function withRetry<T>(attempt: () => Promise<T>, options: RetryOpti
       requestsSent += costOf(failure);
 
       if (!isStorageError(failure)) throw failure;
+
+      const settled = settle(failure);
+
+      if (settled !== undefined) throw withAttempts(settled, requestsSent);
       if (!failure.retryable || attemptsMade >= options.maxAttempts) {
         throw withAttempts(failure, requestsSent);
       }
