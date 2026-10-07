@@ -42,8 +42,6 @@ const trailingHeaders = [
 
 const canonicalPrefix = "x-ms-";
 
-const whitespaceRun = /\s+/gu;
-
 const utf8 = new TextEncoder();
 
 /** Spec 8.4: a request under an account key is signed with Shared Key. */
@@ -93,11 +91,15 @@ export async function hmacSha256Base64(accountKey: string, data: string): Promis
   return btoa(String.fromCharCode(...signature));
 }
 
+/**
+ * Spec 8.4: the trim and nothing else. Azure hashes a tab or a run of spaces as sent, so a
+ * value folded the way SigV4 folds it is refused with `403 AuthenticationFailed` (ADR 0059).
+ */
 function canonicalHeaders(fields: ReadonlyMap<string, string>): string[] {
   return [...fields]
     .filter(([name]) => name.startsWith(canonicalPrefix))
     .toSorted(([one], [other]) => compareHeaderNames(one, other))
-    .map(([name, value]) => `${name}:${value.trim().replace(whitespaceRun, " ")}`);
+    .map(([name, value]) => `${name}:${value.trim()}`);
 }
 
 /**
