@@ -3,6 +3,7 @@ import type { ObjectStat } from "@stowage/core";
 import { assert, assertSameBytes, expectStorageError } from "../assertions.ts";
 import type { ConformanceCaseSource } from "../case.ts";
 import type { ConformanceContext } from "../target.ts";
+import { copyContentHeaderCase, moveContentHeaderCase } from "./content-headers.ts";
 import { prefixFor } from "./keys.ts";
 import { textContentType } from "./objects.ts";
 
@@ -146,6 +147,7 @@ export const copyAndMoveCases: readonly ConformanceCaseSource[] = [
       );
     },
   },
+  copyContentHeaderCase,
   {
     name: "move/round-trip",
     requires: [],
@@ -176,6 +178,7 @@ export const copyAndMoveCases: readonly ConformanceCaseSource[] = [
       await assertAbsent(ctx, to, "a move whose source is not there");
     },
   },
+  moveContentHeaderCase,
 ];
 
 async function write(ctx: ConformanceContext, key: string, text: string): Promise<WrittenObject> {

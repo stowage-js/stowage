@@ -1,5 +1,6 @@
 import {
   type CapabilityName,
+  contentHeadersRefusal,
   isUserMetadataKey,
   type ObjectStat,
   type Storage,
@@ -19,6 +20,10 @@ interface UndeclaredBehavior {
   readonly storesUserMetadata?: boolean;
   /** Reads user metadata back although it declares none, which the half has to catch. */
   readonly readsUserMetadata?: boolean;
+  /** Takes an empty content header although it declares none, which the half has to catch. */
+  readonly checksContentHeaders?: boolean;
+  /** Reports `cacheControl` as `undefined`, which spec 4.4 has missing instead. */
+  readonly readsContentHeadersAsUndefined?: boolean;
 }
 
 // Spec 4.9: a storage declaring no `keyBytesPreserved` hands a key back Unicode-
@@ -39,6 +44,7 @@ const undeclaring = (behavior: UndeclaredBehavior = {}): Storage => {
     size: bodies.get(key)?.bytes.byteLength ?? 0,
     lastModified: new Date(),
     contentType: bodies.get(key)?.contentType ?? "application/octet-stream",
+    ...(behavior.readsContentHeadersAsUndefined === true ? { cacheControl: undefined } : {}),
     userMetadata:
       behavior.readsUserMetadata === true ? { "written-by": "stowage" } : (held.get(key) ?? {}),
   });
@@ -49,6 +55,16 @@ const undeclaring = (behavior: UndeclaredBehavior = {}): Storage => {
 
       if (Object.keys(userMetadata).length > 0 && behavior.storesUserMetadata !== true) {
         throw unsupported("userMetadata", "put");
+      }
+
+      // A storage checking the form before the capability passes over the empty value.
+      const headers =
+        behavior.checksContentHeaders === true && options?.cacheControl === ""
+          ? { ...options, cacheControl: undefined }
+          : (options ?? {});
+
+      if (contentHeadersRefusal(headers, options?.contentType, []) !== undefined) {
+        throw unsupported("contentHeaders", "put");
       }
 
       held.set(storedKey(key), userMetadata);
@@ -79,6 +95,13 @@ const undeclaring = (behavior: UndeclaredBehavior = {}): Storage => {
 
       return describe(storedKey(to));
     },
+    move: async (from, to) => {
+      held.set(storedKey(to), held.get(storedKey(from)) ?? {});
+      held.delete(storedKey(from));
+
+      return describe(storedKey(to));
+    },
+    exists: async (key) => held.has(storedKey(key)),
   });
 };
 
@@ -271,3 +294,28 @@ test("the `copy/user-metadata` half refuses a storage reading metadata it declar
     runWithout("copy/user-metadata", undeclaring({ readsUserMetadata: true })),
   ).rejects.toThrow("on a storage that holds none");
 });
+
+test.each([
+  "put/content-headers",
+  "put/content-headers-multipart",
+  "put/content-headers-refused",
+  "copy/content-headers",
+  "move/content-headers",
+])("`%s` holds where the storage declares no `contentHeaders`", async (name) => {
+  await expect(runWithout(name, undeclaring())).resolves.toBe("without");
+});
+
+test("the `put/content-headers` half refuses a storage checking an empty value it cannot hold", async () => {
+  await expect(
+    runWithout("put/content-headers", undeclaring({ checksContentHeaders: true })),
+  ).rejects.toThrow('`code: "Unsupported"` for `cacheControl` as ""');
+});
+
+test.each(["put/content-headers", "copy/content-headers", "move/content-headers"])(
+  "the `%s` half refuses a storage reporting a content header as `undefined`",
+  async (name) => {
+    await expect(
+      runWithout(name, undeclaring({ readsContentHeadersAsUndefined: true })),
+    ).rejects.toThrow("reports `cacheControl` as undefined");
+  },
+);
