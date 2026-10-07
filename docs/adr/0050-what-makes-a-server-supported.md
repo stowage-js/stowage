@@ -116,3 +116,7 @@ object on demand.
   0042's member rule.
 - The `400` for a body contradicting its `Content-Length` is a repository test over a raw socket,
   since `fetch` cannot send such a header.
+- ADR 0064 has `serve/whole` and `serve/head` assert `Content-Length` equal to the size, adds
+  `serve/content-language`, `serve/stored-disposition` and `serve/stored-cache-control`, and keeps
+  `storedCacheControl` and the content headers of `presignUpload` out of the suite, since reaching
+  them would change what a target's routes do.

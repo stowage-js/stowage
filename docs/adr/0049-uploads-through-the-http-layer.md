@@ -86,3 +86,7 @@ takes no `signal` on any adapter.
 - ADR 0046 corrects when the Node bridge aborts the signal: when the Node response closes before it
   has finished, not when the request closes. Node closes the request as soon as its body is read,
   while `put` may still be completing.
+- ADR 0063 gives `presignUpload` and `acceptUpload` the three content headers as options, never
+  read from a request, and has `presignUpload` answer `400` for a value outside the rule or a
+  bound. The header-value rule for `contentType` moves into `@stowage/core` as `isHeaderValue`,
+  shared with the content headers of `put` (spec 4.13).

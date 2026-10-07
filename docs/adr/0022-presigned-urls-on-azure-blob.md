@@ -107,3 +107,7 @@ before the signature, and the key request falls inside it, between the server an
 - The presign cases of the suite run on Azure under an access token, because `presign/put` fails
   under an account key by design. Azurite accepts a bearer token only over HTTPS, so how the `fast`
   tier gets one is decided with the conformance endpoint.
+- ADR 0063 adds `x-ms-blob-content-type` to `srh` and to `headers`, since `Put Blob` stores it in
+  place of `Content-Type` and an unsigned one overrode the bound type under a service SAS, and
+  appends the `x-ms-blob-*` form of each content header the caller gives. Flow 2's CORS rule on the
+  account gains each of them.

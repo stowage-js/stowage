@@ -92,3 +92,6 @@ a range.
   content coding takes no range and may read longer than its `size`.
 - It replaces ADR 0040's consequence that leaves `adapter-s3` and `adapter-azure-blob` unspecified,
   and corrects its reasoning about the runtimes. The rest of ADR 0040 stands.
+- ADR 0061 adds `contentEncoding` to `ObjectStat` and corrects the remark that such a member would
+  tell a caller which bytes arrived: it names how the object is stored, and which bytes arrive
+  still depends on the runtime and the adapter.
