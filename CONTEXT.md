@@ -55,8 +55,15 @@ the parity core, and differs from one provider to the next.
 _Avoid_: secret, key, token
 
 **Object**:
-A sequence of bytes stored under a key, together with its content type and its metadata.
+A sequence of bytes stored under a key, together with its content type, its content headers and
+its metadata.
 _Avoid_: file, blob, entry
+
+**Content headers**:
+The `Cache-Control`, `Content-Disposition` and `Content-Language` an object is stored with, which a
+caller writes and reads back with its description, and which a copy keeps. They tell a client that
+downloads the object how to cache, name and present it.
+_Avoid_: object headers, system metadata, HTTP metadata, properties
 
 **Content-coded object**:
 An object another tool stored with a content coding such as gzip, which stowage never writes. Its
