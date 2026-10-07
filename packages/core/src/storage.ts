@@ -10,6 +10,28 @@ export interface OperationOptions {
 export interface PutOptions extends OperationOptions {
   contentType?: string;
   /**
+   * Stored as `Cache-Control` where the storage declares `contentHeaders`, and `Unsupported`
+   * elsewhere, `""` included. Nothing parses it. Visible ASCII with spaces and tabs inside
+   * alone, else `InvalidOption`. With `contentType` and the other content headers, names and
+   * values hold at most 2,048 bytes, and more is `InvalidRequest`.
+   */
+  cacheControl?: string;
+  /**
+   * Stored as `Content-Disposition` where the storage declares `contentHeaders`, and
+   * `Unsupported` elsewhere, `""` included. Nothing parses it; a file name outside ASCII
+   * travels as RFC 8187's `filename*=UTF-8''…`, which the caller encodes. Visible ASCII with
+   * spaces and tabs inside alone, else `InvalidOption`. With `contentType` and the other
+   * content headers, names and values hold at most 2,048 bytes, and more is `InvalidRequest`.
+   */
+  contentDisposition?: string;
+  /**
+   * Stored as `Content-Language` where the storage declares `contentHeaders`, and
+   * `Unsupported` elsewhere, `""` included. Visible ASCII with spaces and tabs inside alone,
+   * else `InvalidOption`. At most 100 characters, and with `contentType` and the other content
+   * headers, names and values hold at most 2,048 bytes; more is `InvalidRequest`.
+   */
+  contentLanguage?: string;
+  /**
    * Stored where the storage declares `userMetadata`, and `Unsupported` elsewhere unless it is
    * empty. Keys are non-empty ASCII HTTP tokens compared case-insensitively; values may hold
    * any Unicode. Keys and values together hold at most 2 KB of encoded header bytes, and more
@@ -56,6 +78,22 @@ export interface ObjectEntry {
 
 export interface ObjectStat extends ObjectEntry {
   readonly contentType: string;
+  /**
+   * `Cache-Control` as stored, byte for byte. Missing where the object holds no value or an
+   * empty one, and wherever the storage does not declare `contentHeaders`.
+   */
+  readonly cacheControl?: string;
+  /**
+   * `Content-Disposition` as stored, byte for byte. Missing where the object holds no value or
+   * an empty one, and wherever the storage does not declare `contentHeaders`.
+   */
+  readonly contentDisposition?: string;
+  /**
+   * `Content-Language` as stored, byte for byte, except that a `copy` or a `move` may remove the
+   * whitespace around its commas. Missing where the object holds no value or an empty one, and
+   * wherever the storage does not declare `contentHeaders`.
+   */
+  readonly contentLanguage?: string;
   readonly userMetadata: Readonly<Record<string, string>>;
 }
 

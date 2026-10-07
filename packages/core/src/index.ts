@@ -8,6 +8,7 @@ export {
   type SubresponseReading,
 } from "./batch.ts";
 export { type CapabilityName, capabilityNames } from "./capabilities.ts";
+export { type ContentHeaders, contentHeadersRefusal, isHeaderValue } from "./content-headers.ts";
 export type { Resolvable, ResolverOptions } from "./credentials.ts";
 export { readEnvironment } from "./environment.ts";
 export {
