@@ -66,8 +66,8 @@ downloads the object how to cache, name and present it.
 _Avoid_: object headers, system metadata, HTTP metadata, properties
 
 **Content-coded object**:
-An object another tool stored with a content coding such as gzip, which stowage never writes. Its
-size counts the bytes the storage holds. No range of it can be read, and read whole it may arrive
+An object another tool stored with a content coding such as gzip, which stowage never writes and
+which the object's description names. Its size counts the bytes the storage holds. No range of it can be read, and read whole it may arrive
 decoded and longer than its size, depending on the runtime and the adapter.
 _Avoid_: compressed object, gzipped object, encoded object
 
