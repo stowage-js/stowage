@@ -99,3 +99,7 @@ It lets a client reach no other type, disposition or language than the one signe
   headers `presignPut` returns. Whether they gain the content headers, and which cases the suites
   add for this decision, is decided under "Conformance and HTTP cases for the content headers"
   (#375).
+- Settled under "Write the v0.6 spec" (#376): a storage that does not declare `contentHeaders`
+  refuses the three in `presignPut`, which `presignUpload` answers `500`, since that is the
+  caller's storage and not the client's value. A value `acceptUpload` hands to `put` that `put`
+  refuses by a bound is `InvalidRequest` and answers `500` as well.

@@ -81,3 +81,10 @@ the options as `responseContentDisposition`.
 - Which of these the HTTP conformance suite asserts is decided under "Conformance and HTTP cases for
   the content headers" (#375); `serve/whole` and `serve/head` assert no `Content-Length` today and
   change with it.
+- Settled under "Write the v0.6 spec" (#376): a `304` carries the headers of the `200` but
+  `Content-Length`, the content headers among them. RFC 9110 8.6 allows either, a cache needs no
+  length to revalidate, and what each runtime does with a length on an answer without a body was
+  measured for `HEAD` alone. Where a `stat` comes first, the layer ignores the whole `Range` of a
+  coded object, a suffix of length zero included, and answers `200`, as it does on a storage
+  without `rangeReads`. `Deno.serve` adds `Content-Length: 0` to a `HEAD` answered without a
+  length as `Bun.serve` does, as the server alterations of v0.5 recorded for both.

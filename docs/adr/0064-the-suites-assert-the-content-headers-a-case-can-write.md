@@ -132,3 +132,13 @@ run meets.
   final list, and spec 2's notes follow it.
 - The changeset of `@stowage/conformance` marks the change to `serve/whole` and `serve/head`
   `**Breaking:**`. v0.6 carries five such lines in all, every other change being an addition.
+- Settled under "Write the v0.6 spec" (#376): the suite runs `adapter-azure-blob` under an access
+  token (spec 14.2), so no case meets the Shared Key signer ADR 0059 repairs. The tests of the
+  account key (spec 14.4) send the content headers of `put/content-headers`, a tab and a run of
+  spaces among them, on `Put Blob` and on `Put Block List`, against Azurite on every commit and
+  the account in the `slow` tier. Spec 2 names the server alterations the measurements of
+  `research/http-serving-semantics` predict: `noLengthOnStream` on `workerd` for `serve/whole`,
+  `serve/head` and `serve/range`, and none on `Bun.serve`, which keeps the length of a body
+  complete before its headers go out and of a `HEAD` without a body. A run that meets another
+  changes the list and spec 2 with it. `put/content-headers-refused` sends a value that is no
+  string, `""`, a value with a space at one end, one holding a line feed and one holding `ü`.

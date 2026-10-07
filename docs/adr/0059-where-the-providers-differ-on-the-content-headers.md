@@ -72,3 +72,8 @@ against the GCS bucket settles, as every addition no ticket observed does.
 - A value of 16 KiB or more that another tool stored fails Node's `fetch` on the way back with
   `HeadersOverflowError`. That is a limit of the runtime, which holds for any header, and v0.6 does
   not address it.
+- Settled under "Write the v0.6 spec" (#376): no README gains a limit line for the content headers.
+  The one difference among the providers is the parity core's promise for `copy` and `move` (spec
+  4.11), not a line about one adapter, and `adapter-fs` names `contentHeaders` among the
+  capabilities it does not declare. Reading a value of 16 KiB or more is listed among the
+  non-goals of spec 17.

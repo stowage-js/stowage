@@ -72,3 +72,11 @@ rule would refuse what `adapter-memory` accepts today.
   what its adapter declares, is its own ticket on the map.
 - `presignUpload` in `@stowage/http` and the core share one header-value rule, whichever package
   ends up owning it.
+- Settled under "Write the v0.6 spec" (#376): spec 4.13 exports `isHeaderValue`, the form of the
+  rule, and `contentHeadersRefusal(headers, contentType, capabilities)`, which runs the checks of
+  spec 4.3 in their order over a `ContentHeaders` of the three. `@stowage/http` calls the first on
+  the content type of `presignUpload` and the second under `capabilityNames`, so that the form and
+  the bounds alone decide there. The 2,048 bytes count the header names as AWS does, `Content-Type`,
+  `Cache-Control`, `Content-Disposition` and `Content-Language`, beside their values. TSDoc is
+  written on the three options and members wherever they appear, on `contentEncoding` and on
+  `storedCacheControl`.

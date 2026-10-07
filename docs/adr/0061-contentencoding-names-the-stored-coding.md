@@ -68,3 +68,6 @@ the runtime and the adapter, as spec 4.4 states.
   decided under "serveObject with stored content headers and a known coding" (#373).
 - It corrects ADR 0044's remark on what such a member would tell a caller. The rest of ADR 0044
   stands.
+- Settled under "Write the v0.6 spec" (#376): spec 4.13 exports `contentEncodingOf`, which turns
+  a stored value into the member, so that the three cloud adapters and `contentCodingRefusal`
+  share the definition of a coding in code as in the spec.
