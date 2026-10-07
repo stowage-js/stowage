@@ -2,6 +2,9 @@
  * Every capability a storage can declare (spec 4.9). The list grows in minor releases, so a
  * `switch` over it needs a default branch.
  *
+ * - `contentHeaders`: `put` stores `cacheControl`, `contentDisposition` and `contentLanguage`;
+ *   `stat` and `get` return them, `copy` and `move` keep them. Where not declared, a `put`
+ *   carrying any of the three is `Unsupported` and reads report none.
  * - `keyBytesPreserved`: a key comes back byte for byte as it was written. Where not
  *   declared, it comes back Unicode-equivalent.
  * - `presignedUrls`: the concrete type carries `presignGet` and `presignPut`. Where not
@@ -15,6 +18,7 @@
  *   without `userMetadata` too, the call is `Unsupported` naming that.
  */
 export const capabilityNames = [
+  "contentHeaders",
   "keyBytesPreserved",
   "presignedUrls",
   "rangeReads",

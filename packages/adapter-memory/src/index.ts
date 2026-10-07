@@ -1,5 +1,6 @@
 import type {
   CapabilityName,
+  ContentHeaders,
   DeleteReport,
   GetOptions,
   ListOptions,
@@ -15,6 +16,7 @@ import type {
 } from "@stowage/core";
 
 import { cancelBody, readBody } from "./bytes.ts";
+import { readContentHeaders } from "./content-headers.ts";
 import { etagOf } from "./etag.ts";
 import { keyError, requireKey } from "./key.ts";
 import { createListing } from "./listing.ts";
@@ -42,6 +44,7 @@ const defaultContentType = "application/octet-stream";
 // One frozen array behind every storage: the declaration is fixed once the storage is
 // constructed, and a caller reaching past the `readonly` type reaches all of them.
 const memoryCapabilities: readonly CapabilityName[] = Object.freeze([
+  "contentHeaders",
   "keyBytesPreserved",
   "rangeReads",
   "userMetadata",
@@ -52,6 +55,7 @@ interface MemoryObject {
   readonly key: string;
   readonly bytes: Uint8Array<ArrayBuffer>;
   readonly contentType: string;
+  readonly contentHeaders: ContentHeaders;
   readonly userMetadata: Readonly<Record<string, string>>;
   readonly etag: string;
   readonly lastModified: Date;
@@ -65,12 +69,13 @@ class InMemoryStorage implements MemoryStorage {
   readonly #objects = new Map<string, MemoryObject>();
 
   async put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat> {
-    const userMetadata = await this.#accept(key, body, options);
+    const { contentType, contentHeaders, userMetadata } = await this.#accept(key, body, options);
     const bytes = await readBody(body, options?.signal);
     const object: MemoryObject = {
       key,
       bytes,
-      contentType: options?.contentType ?? defaultContentType,
+      contentType,
+      contentHeaders,
       userMetadata,
       etag: await etagOf(bytes),
       lastModified: new Date(),
@@ -82,20 +87,27 @@ class InMemoryStorage implements MemoryStorage {
   }
 
   /**
-   * What `put` checks in front of the body, answering with the metadata to hold. Spec 4.2
-   * leaves a stream at its end or canceled once `put` settled, so a refusal here cancels
-   * the body it is not going to read.
+   * What `put` checks in front of the body, answering with the headers and the metadata to
+   * hold. Spec 4.2 leaves a stream at its end or canceled once `put` settled, so a refusal
+   * here cancels the body it is not going to read.
    */
   async #accept(
     key: string,
     body: PutBody,
     options?: PutOptions,
-  ): Promise<Readonly<Record<string, string>>> {
+  ): Promise<Pick<MemoryObject, "contentType" | "contentHeaders" | "userMetadata">> {
     try {
       requireKey(key, "writable", "put");
       requireKnownOptions(options, putOptionKeys, "put");
 
-      return readUserMetadata(options?.userMetadata, key, this.capabilities);
+      const userMetadata = readUserMetadata(options?.userMetadata, key, this.capabilities);
+      const contentType = options?.contentType ?? defaultContentType;
+
+      return {
+        contentType,
+        userMetadata,
+        contentHeaders: readContentHeaders(options ?? {}, contentType, key, this.capabilities),
+      };
     } catch (refusal) {
       try {
         await cancelBody(body, refusal);
@@ -231,11 +243,16 @@ class InMemoryStorage implements MemoryStorage {
 }
 
 function describe(object: MemoryObject): ObjectStat {
-  return { ...entryOf(object), contentType: object.contentType, userMetadata: object.userMetadata };
+  return {
+    ...entryOf(object),
+    contentType: object.contentType,
+    ...object.contentHeaders,
+    userMetadata: object.userMetadata,
+  };
 }
 
-// What a listing yields carries neither the content type nor the user metadata, because
-// a listing response of a provider carries neither (spec 4.4).
+// What a listing yields carries neither the content type, the content headers nor the user
+// metadata, because a listing response of a provider carries none of them (spec 4.4).
 function entryOf(object: MemoryObject): ObjectEntry {
   return {
     key: object.key,

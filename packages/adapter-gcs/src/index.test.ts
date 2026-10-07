@@ -427,6 +427,31 @@ test("an unknown option of `put` is `InvalidOption` naming it, before any reques
   expect(sent).toEqual([]);
 });
 
+// Until the adapter declares `contentHeaders`, spec 4.3 refuses the three before any check
+// of their form, `""` included.
+test.each([
+  ["cacheControl", "public, max-age=60"],
+  ["contentDisposition", "attachment"],
+  ["contentLanguage", "de-AT"],
+  ["cacheControl", ""],
+])(
+  "`%s` as %j is `Unsupported` naming `contentHeaders` before any request",
+  async (option, value) => {
+    const sent = stubFetch(() => resource());
+
+    const failure = await failureOf(() => storage().put("object", "hello", { [option]: value }));
+
+    expect(failure).toMatchObject({
+      code: "Unsupported",
+      capability: "contentHeaders",
+      operation: "put",
+      key: "object",
+      attempts: 0,
+    });
+    expect(sent).toEqual([]);
+  },
+);
+
 test.each([[""], ["text/plain\r\nX-Injected: 1"]])(
   "the content type %j is `InvalidOption`",
   async (contentType) => {

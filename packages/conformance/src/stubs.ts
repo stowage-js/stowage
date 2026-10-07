@@ -23,6 +23,7 @@ export interface StubStorageFields {
   readonly exists?: Storage["exists"];
   readonly list?: Storage["list"];
   readonly copy?: Storage["copy"];
+  readonly move?: Storage["move"];
   readonly delete?: Storage["delete"];
   readonly deleteAll?: (prefix: string) => Promise<DeleteReport>;
 }
@@ -54,7 +55,7 @@ export function stubStorage(fields: StubStorageFields = {}): Storage {
     delete: fields.delete ?? unreachable<DeleteReport>("delete"),
     deleteAll,
     copy: fields.copy ?? unreachable<ObjectStat>("copy"),
-    move: unreachable<ObjectStat>("move"),
+    move: fields.move ?? unreachable<ObjectStat>("move"),
   };
 }
 

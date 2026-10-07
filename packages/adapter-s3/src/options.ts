@@ -8,6 +8,9 @@ export const operationOptionKeys: readonly string[] = ["signal"];
 export const putOptionKeys: readonly string[] = [
   ...operationOptionKeys,
   "contentType",
+  "cacheControl",
+  "contentDisposition",
+  "contentLanguage",
   "userMetadata",
 ];
 export const getOptionKeys: readonly string[] = [...operationOptionKeys, "range"];

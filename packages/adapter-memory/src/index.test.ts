@@ -81,6 +81,7 @@ test("names the provider and the bucket it is bound to", () => {
 
 test("declares the capabilities it implements", () => {
   expect(memoryStorage().capabilities.toSorted()).toEqual([
+    "contentHeaders",
     "keyBytesPreserved",
     "rangeReads",
     "userMetadata",
@@ -493,6 +494,164 @@ test("takes a metadata key that is an HTTP token beyond identifiers", async () =
   });
 
   expect(written.userMetadata).toEqual({ "content-hash": "abc", "x.y": "z", "1st": "one" });
+});
+
+/** The values of `put/content-headers`, a tab and a run of spaces among them. */
+const contentHeaders = {
+  cacheControl: "public, max-age=60, immutable",
+  contentDisposition: 'attachment;\tfilename="report  2026.pdf"',
+  contentLanguage: "de-AT, en",
+} as const;
+
+test("carries the content headers through put, stat and get byte for byte", async () => {
+  const storage = memoryStorage();
+
+  const written = await storage.put("greeting", "hello", contentHeaders);
+
+  expect(written).toMatchObject(contentHeaders);
+  expect(await storage.stat("greeting")).toMatchObject(contentHeaders);
+  expect((await storage.get("greeting")).stat).toMatchObject(contentHeaders);
+});
+
+test.each([undefined, "text/plain"])(
+  "keeps the accepted content type %s when options change during an upload",
+  async (contentType) => {
+    const storage = memoryStorage();
+    const options = { contentType, cacheControl: "no-store" };
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        options.contentType = "x".repeat(2048);
+        controller.enqueue(new TextEncoder().encode("hello"));
+        controller.close();
+      },
+    });
+
+    const written = await storage.put("greeting", body, options);
+    const expected = contentType ?? "application/octet-stream";
+
+    expect(written.contentType).toBe(expected);
+    expect((await storage.stat("greeting")).contentType).toBe(expected);
+    expect((await storage.get("greeting")).stat.contentType).toBe(expected);
+  },
+);
+
+test("stores the content type it validated when its getter changes", async () => {
+  const storage = memoryStorage();
+  let reads = 0;
+  const options = {
+    cacheControl: "no-store",
+    get contentType() {
+      return reads++ === 0 ? "text/plain" : "x".repeat(2048);
+    },
+  };
+
+  const written = await storage.put("greeting", "hello", options);
+
+  expect(written.contentType).toBe("text/plain");
+  expect((await storage.stat("greeting")).contentType).toBe("text/plain");
+  expect(reads).toBe(1);
+});
+
+test.each(["cacheControl", "contentDisposition", "contentLanguage"] as const)(
+  "validates and stores the first value of a changing %s getter",
+  async (header) => {
+    const storage = memoryStorage();
+    let reads = 0;
+    const options: PutOptions = Object.defineProperty({}, header, {
+      get() {
+        return reads++ === 0 ? contentHeaders[header] : "invalid\nvalue";
+      },
+    });
+
+    const written = await storage.put("greeting", "hello", options);
+    const expected = { [header]: contentHeaders[header] };
+
+    expect(written).toMatchObject(expected);
+    expect(await storage.stat("greeting")).toMatchObject(expected);
+    expect((await storage.get("greeting")).stat).toMatchObject(expected);
+    expect(reads).toBe(1);
+  },
+);
+
+test("reports no content header on an object written without them", async () => {
+  const storage = memoryStorage();
+
+  const written = await storage.put("greeting", "hello");
+
+  // Spec 4.4: a member is missing, never present as `undefined`.
+  for (const described of [written, await storage.stat("greeting")]) {
+    expect(described).not.toHaveProperty("cacheControl");
+    expect(described).not.toHaveProperty("contentDisposition");
+    expect(described).not.toHaveProperty("contentLanguage");
+  }
+});
+
+test("reports only the content headers it was given", async () => {
+  const storage = memoryStorage();
+
+  const written = await storage.put("greeting", "hello", {
+    cacheControl: "no-store",
+    contentLanguage: undefined,
+  });
+
+  expect(written.cacheControl).toBe("no-store");
+  expect(written).not.toHaveProperty("contentDisposition");
+  expect(written).not.toHaveProperty("contentLanguage");
+});
+
+test("replaces the content headers under a key that is taken", async () => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello", contentHeaders);
+
+  await storage.put("greeting", "servus");
+
+  expect(await storage.stat("greeting")).not.toHaveProperty("cacheControl");
+});
+
+test.each(["copy", "move"] as const)(
+  "carries the content headers of the source through %s byte for byte",
+  async (operation) => {
+    const storage = memoryStorage();
+    await storage.put("greeting", "hello", contentHeaders);
+
+    const destination = await storage[operation]("greeting", "servus");
+
+    expect(destination).toMatchObject(contentHeaders);
+    expect(await storage.stat("servus")).toMatchObject(contentHeaders);
+  },
+);
+
+test.each([
+  ["an empty value", { cacheControl: "" }, "InvalidOption"],
+  ["a line feed", { contentDisposition: "inline\nx-injected: 1" }, "InvalidOption"],
+  ["2,049 header bytes", { contentDisposition: "x".repeat(2008) }, "InvalidRequest"],
+  ["101 characters of language", { contentLanguage: "x".repeat(101) }, "InvalidRequest"],
+] as const)("refuses content headers holding %s before it writes", async (_, options, code) => {
+  const storage = memoryStorage();
+
+  const error = await storageErrorOf(
+    storage.put("greeting", "hello", { contentType: "text/plain", ...options }),
+  );
+
+  expect(error.code).toBe(code);
+  expect(error.operation).toBe("put");
+  expect(error.key).toBe("greeting");
+  expect(error.attempts).toBe(0);
+  expect(await storage.exists("greeting")).toBe(false);
+});
+
+test("cancels a stream body whose content headers it refuses", async () => {
+  let canceled = false;
+  const body = new ReadableStream<Uint8Array>({
+    cancel() {
+      canceled = true;
+    },
+  });
+
+  const error = await storageErrorOf(memoryStorage().put("greeting", body, { cacheControl: "" }));
+
+  expect(error.code).toBe("InvalidOption");
+  expect(canceled).toBe(true);
 });
 
 test.each([

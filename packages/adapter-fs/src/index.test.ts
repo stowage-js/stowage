@@ -282,6 +282,54 @@ test("refuses user metadata and reads back none", async () => {
   expect((await storage.get("empty")).stat.userMetadata).toEqual({});
 });
 
+test.each([
+  ["cacheControl", "a value", "public, max-age=60"],
+  ["contentDisposition", "a value", "attachment"],
+  ["contentLanguage", "a value", "de-AT"],
+  ["cacheControl", "an empty value", ""],
+  ["contentLanguage", "a value above its bound", "x".repeat(101)],
+])("refuses `%s` holding %s before it writes anything", async (option, _, value) => {
+  const root = await temporaryRoot();
+  const storage = fsStorage({ root });
+  let canceled = false;
+  const body = new ReadableStream<Uint8Array>({
+    cancel() {
+      canceled = true;
+    },
+  });
+
+  const refused = await storageErrorOf(storage.put("docs/refused", body, { [option]: value }));
+
+  expect(refused.code).toBe("Unsupported");
+  expect(refused.capability).toBe("contentHeaders");
+  expect(refused.operation).toBe("put");
+  expect(refused.key).toBe("docs/refused");
+  expect(refused.attempts).toBe(0);
+  expect(canceled).toBe(true);
+  expect(await readdir(root)).toEqual([]);
+});
+
+test("takes the content headers given as `undefined` and reads back none", async () => {
+  const storage = await rootedStorage();
+
+  const written = await storage.put("object", "a body", {
+    cacheControl: undefined,
+    contentDisposition: undefined,
+    contentLanguage: undefined,
+  });
+
+  // Spec 4.4: a member is missing, never present as `undefined`.
+  for (const described of [
+    written,
+    await storage.stat("object"),
+    (await storage.get("object")).stat,
+  ]) {
+    expect(described).not.toHaveProperty("cacheControl");
+    expect(described).not.toHaveProperty("contentDisposition");
+    expect(described).not.toHaveProperty("contentLanguage");
+  }
+});
+
 test("refuses an option a call does not take", async () => {
   const storage = await rootedStorage();
 
