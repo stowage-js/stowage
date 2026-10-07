@@ -130,9 +130,9 @@ to trust.
 
 ## The cases run
 
-Every column runs the whole suite, with the divergence list of `src/divergences.ts`, on Node,
-Bun, Deno and `workerd` alike. `list/noncharacter-key` stays out on every GCS endpoint, since GCS
-refuses the key the case writes (spec 14.7, ADR 0034).
+Every column runs the whole suite but `list/noncharacter-key`, with the divergence list of
+`src/divergences.ts`, on Node, Bun, Deno and `workerd` alike. That case stays out on every GCS
+endpoint, since GCS refuses the key it writes (spec 14.7, ADR 0034).
 
 ## The divergence list
 

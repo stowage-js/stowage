@@ -49,8 +49,8 @@ fails its check.
 
 The worker runs the tier under `no_nodejs_compat` and `no_nodejs_compat_v2`, where no Node API is
 reachable, and runs its `fast` cases a second time under the default flags of the compatibility
-date (ADR 0026). Both runs take the case list and the divergence list from `src/`, so a case that
-joins `src/target.ts` runs in every column.
+date (ADR 0026). Both runs take the whole suite and the divergence list from `src/`, so a case
+that joins the suite runs in every column.
 
 ## Two credentials
 
