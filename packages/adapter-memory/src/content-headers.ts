@@ -13,17 +13,17 @@ export function readContentHeaders(
   key: string,
   capabilities: readonly CapabilityName[],
 ): ContentHeaders {
-  const refusal = contentHeadersRefusal(headers, contentType, capabilities);
+  const { cacheControl, contentDisposition, contentLanguage } = headers;
+  const snapshot = Object.freeze({
+    ...(cacheControl === undefined ? {} : { cacheControl }),
+    ...(contentDisposition === undefined ? {} : { contentDisposition }),
+    ...(contentLanguage === undefined ? {} : { contentLanguage }),
+  });
+  const refusal = contentHeadersRefusal(snapshot, contentType, capabilities);
 
   if (refusal !== undefined) {
     throw memoryError({ ...refusal, operation: "put", key, attempts: 0 });
   }
 
-  const { cacheControl, contentDisposition, contentLanguage } = headers;
-
-  return Object.freeze({
-    ...(cacheControl === undefined ? {} : { cacheControl }),
-    ...(contentDisposition === undefined ? {} : { contentDisposition }),
-    ...(contentLanguage === undefined ? {} : { contentLanguage }),
-  });
+  return snapshot;
 }

@@ -69,12 +69,12 @@ class InMemoryStorage implements MemoryStorage {
   readonly #objects = new Map<string, MemoryObject>();
 
   async put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat> {
-    const { contentHeaders, userMetadata } = await this.#accept(key, body, options);
+    const { contentType, contentHeaders, userMetadata } = await this.#accept(key, body, options);
     const bytes = await readBody(body, options?.signal);
     const object: MemoryObject = {
       key,
       bytes,
-      contentType: options?.contentType ?? defaultContentType,
+      contentType,
       contentHeaders,
       userMetadata,
       etag: await etagOf(bytes),
@@ -95,19 +95,18 @@ class InMemoryStorage implements MemoryStorage {
     key: string,
     body: PutBody,
     options?: PutOptions,
-  ): Promise<Pick<MemoryObject, "contentHeaders" | "userMetadata">> {
+  ): Promise<Pick<MemoryObject, "contentType" | "contentHeaders" | "userMetadata">> {
     try {
       requireKey(key, "writable", "put");
       requireKnownOptions(options, putOptionKeys, "put");
 
+      const userMetadata = readUserMetadata(options?.userMetadata, key, this.capabilities);
+      const contentType = options?.contentType ?? defaultContentType;
+
       return {
-        userMetadata: readUserMetadata(options?.userMetadata, key, this.capabilities),
-        contentHeaders: readContentHeaders(
-          options ?? {},
-          options?.contentType,
-          key,
-          this.capabilities,
-        ),
+        contentType,
+        userMetadata,
+        contentHeaders: readContentHeaders(options ?? {}, contentType, key, this.capabilities),
       };
     } catch (refusal) {
       try {

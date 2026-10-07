@@ -513,6 +513,66 @@ test("carries the content headers through put, stat and get byte for byte", asyn
   expect((await storage.get("greeting")).stat).toMatchObject(contentHeaders);
 });
 
+test.each([undefined, "text/plain"])(
+  "keeps the accepted content type %s when options change during an upload",
+  async (contentType) => {
+    const storage = memoryStorage();
+    const options = { contentType, cacheControl: "no-store" };
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        options.contentType = "x".repeat(2048);
+        controller.enqueue(new TextEncoder().encode("hello"));
+        controller.close();
+      },
+    });
+
+    const written = await storage.put("greeting", body, options);
+    const expected = contentType ?? "application/octet-stream";
+
+    expect(written.contentType).toBe(expected);
+    expect((await storage.stat("greeting")).contentType).toBe(expected);
+    expect((await storage.get("greeting")).stat.contentType).toBe(expected);
+  },
+);
+
+test("stores the content type it validated when its getter changes", async () => {
+  const storage = memoryStorage();
+  let reads = 0;
+  const options = {
+    cacheControl: "no-store",
+    get contentType() {
+      return reads++ === 0 ? "text/plain" : "x".repeat(2048);
+    },
+  };
+
+  const written = await storage.put("greeting", "hello", options);
+
+  expect(written.contentType).toBe("text/plain");
+  expect((await storage.stat("greeting")).contentType).toBe("text/plain");
+  expect(reads).toBe(1);
+});
+
+test.each(["cacheControl", "contentDisposition", "contentLanguage"] as const)(
+  "validates and stores the first value of a changing %s getter",
+  async (header) => {
+    const storage = memoryStorage();
+    let reads = 0;
+    const options: PutOptions = Object.defineProperty({}, header, {
+      get() {
+        return reads++ === 0 ? contentHeaders[header] : "invalid\nvalue";
+      },
+    });
+
+    const written = await storage.put("greeting", "hello", options);
+    const expected = { [header]: contentHeaders[header] };
+
+    expect(written).toMatchObject(expected);
+    expect(await storage.stat("greeting")).toMatchObject(expected);
+    expect((await storage.get("greeting")).stat).toMatchObject(expected);
+    expect(reads).toBe(1);
+  },
+);
+
 test("reports no content header on an object written without them", async () => {
   const storage = memoryStorage();
 
