@@ -1173,6 +1173,8 @@ const contentHeaders = {
   contentLanguage: "de-AT, en",
 };
 
+const contentHeaderMembers = Object.keys(contentHeaders);
+
 test("`put` sends the content headers as written, signed, and reports them", async () => {
   const sent = stubFetch(accepted);
 
@@ -1197,7 +1199,7 @@ test("`put` without content headers sends none and reports none", async () => {
   for (const name of ["cache-control", "content-disposition", "content-language"]) {
     expect(sent[0]?.headers.has(name)).toBe(false);
   }
-  for (const member of ["cacheControl", "contentDisposition", "contentLanguage"]) {
+  for (const member of contentHeaderMembers) {
     expect(member in written).toBe(false);
   }
 });
@@ -1262,7 +1264,7 @@ test.each(describingOperations)(
 
     const described = await describe(s3Storage(options()));
 
-    for (const member of ["cacheControl", "contentDisposition", "contentLanguage"]) {
+    for (const member of contentHeaderMembers) {
       expect(member in described).toBe(false);
     }
   },

@@ -3,12 +3,17 @@ import { type CapabilityName, type ContentHeaders, contentHeadersRefusal } from 
 import type { HeaderField } from "./canonical.ts";
 import { s3Error } from "./storage-error.ts";
 
-/** Each content header beside the option and the `ObjectStat` member it is read into. */
-const headerNames: Readonly<Record<keyof ContentHeaders, string>> = {
+const headerNames = {
   cacheControl: "cache-control",
   contentDisposition: "content-disposition",
   contentLanguage: "content-language",
-};
+} as const satisfies Readonly<Record<keyof ContentHeaders, string>>;
+
+const contentHeaderOptions: readonly (keyof ContentHeaders)[] = [
+  "cacheControl",
+  "contentDisposition",
+  "contentLanguage",
+];
 
 export interface ContentHeaderFields {
   /** What `PutObject` and `CreateMultipartUpload` carry the content headers in. */
@@ -19,8 +24,8 @@ export interface ContentHeaderFields {
 
 /**
  * The header fields the content headers travel in, refused before the request is signed in
- * the order of spec 4.3. AWS and R2 store each value as sent, so what was sent is what a
- * later `stat` reports.
+ * the order of spec 4.3. The check reads a snapshot, so what it passed is what is sent. AWS
+ * and R2 store each value as sent, so what was sent is what a later `stat` reports.
  */
 export function contentHeaderFields(
   bucket: string,
@@ -29,25 +34,26 @@ export function contentHeaderFields(
   key: string,
   capabilities: readonly CapabilityName[],
 ): ContentHeaderFields {
-  const refusal = contentHeadersRefusal(headers, contentType, capabilities);
+  const { cacheControl, contentDisposition, contentLanguage } = headers;
+  const held: ContentHeaders = Object.freeze({
+    ...(cacheControl === undefined ? {} : { cacheControl }),
+    ...(contentDisposition === undefined ? {} : { contentDisposition }),
+    ...(contentLanguage === undefined ? {} : { contentLanguage }),
+  });
+  const refusal = contentHeadersRefusal(held, contentType, capabilities);
 
   if (refusal !== undefined) {
     throw s3Error(bucket, { ...refusal, operation: "put", key, attempts: 0 });
   }
 
-  const fields: HeaderField[] = [];
-  const held: Record<string, string> = {};
+  return {
+    headers: contentHeaderOptions.flatMap((option): HeaderField[] => {
+      const value = held[option];
 
-  for (const [option, name] of Object.entries(headerNames)) {
-    const value: unknown = Reflect.get(headers, option);
-
-    if (typeof value !== "string") continue;
-
-    fields.push([name, value]);
-    held[option] = value;
-  }
-
-  return { headers: fields, held: Object.freeze(held) };
+      return value === undefined ? [] : [[headerNames[option], value]];
+    }),
+    held,
+  };
 }
 
 /**
@@ -55,13 +61,13 @@ export function contentHeaderFields(
  * none: AWS stores `Cache-Control:` as empty where R2 stores none (spec 4.4).
  */
 export function readContentHeaders(headers: Headers): ContentHeaders {
-  const held: Record<string, string> = {};
+  const held: Partial<Record<keyof ContentHeaders, string>> = {};
 
-  for (const [option, name] of Object.entries(headerNames)) {
-    const value = headers.get(name);
+  for (const option of contentHeaderOptions) {
+    const value = headers.get(headerNames[option]);
 
     if (value !== null && value !== "") held[option] = value;
   }
 
-  return held;
+  return Object.freeze(held);
 }
