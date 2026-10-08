@@ -19,7 +19,8 @@ export interface S3AdapterOptions {
   /**
    * How often one HTTP request is attempted while its failure is transient: a response of
    * `408`, `429` or `5xx`, or none at all. `false` sends one attempt. Neither switches off
-   * the one repeat with a fresh credential after the provider answered `Expired`.
+   * the refresh of spec 7.3, the one repeat with a fresh credential after the provider
+   * refused one that a fresh one may pass.
    */
   retry?:
     | false
