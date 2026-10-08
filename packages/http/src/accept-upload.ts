@@ -14,6 +14,15 @@ export interface AcceptUploadOptions {
   maxSize: number;
   /** Replaces the request's `Content-Type`, which replaces the storage's default. */
   contentType?: string;
+  /**
+   * The `Cache-Control` stored with the object, handed to `put` as given. The request's
+   * `Cache-Control` is a directive to the server and never stands in for it.
+   */
+  cacheControl?: string;
+  /** The `Content-Disposition` stored with the object. Request headers never set it. */
+  contentDisposition?: string;
+  /** The `Content-Language` stored with the object. Request headers never set it. */
+  contentLanguage?: string;
   /** The user metadata stored with the object. Request headers never add to it. */
   userMetadata?: Record<string, string>;
 }
@@ -63,6 +72,9 @@ export async function acceptUpload(
   try {
     stat = await storage.put(key, counted.body, {
       contentType: options.contentType ?? request.headers.get("content-type") ?? undefined,
+      cacheControl: options.cacheControl,
+      contentDisposition: options.contentDisposition,
+      contentLanguage: options.contentLanguage,
       userMetadata: options.userMetadata,
       signal: request.signal,
     });

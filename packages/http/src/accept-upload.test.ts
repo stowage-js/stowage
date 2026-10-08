@@ -409,6 +409,47 @@ describe("user metadata", () => {
   });
 });
 
+describe("the content headers", () => {
+  const requestHeaders = {
+    "cache-control": "no-cache",
+    "content-disposition": 'inline; filename="x.html"',
+    "content-language": "en",
+  };
+
+  test("are `cacheControl`, `contentDisposition` and `contentLanguage` as given, over the request's headers", async () => {
+    const storage = holdingStorage();
+    const sent = upload(bytes("x"), { headers: requestHeaders });
+
+    await acceptUpload(
+      storage,
+      "a",
+      sent,
+      limited(1024, {
+        cacheControl: "public, max-age=60, immutable",
+        contentDisposition: 'attachment; filename="report.pdf"',
+        contentLanguage: "de-AT, en",
+      }),
+    );
+
+    expect(storage.puts[0]?.options).toMatchObject({
+      cacheControl: "public, max-age=60, immutable",
+      contentDisposition: 'attachment; filename="report.pdf"',
+      contentLanguage: "de-AT, en",
+    });
+  });
+
+  test("are none without the options, whatever the request's headers say", async () => {
+    const storage = holdingStorage();
+    const sent = upload(bytes("x"), { headers: requestHeaders });
+
+    await acceptUpload(storage, "a", sent, limited());
+
+    expect(storage.puts[0]?.options?.cacheControl).toBeUndefined();
+    expect(storage.puts[0]?.options?.contentDisposition).toBeUndefined();
+    expect(storage.puts[0]?.options?.contentLanguage).toBeUndefined();
+  });
+});
+
 describe("`Content-Encoding`", () => {
   test.each(["gzip", "br", "identity, gzip", "x-unknown"])(
     "`%s` answers `415` and reaches no storage",
@@ -467,6 +508,11 @@ describe("a `StorageError` from `put`", () => {
     },
     { row: "`AccessDenied`", fields: { code: "AccessDenied" }, status: 500 },
     { row: "`Expired`", fields: { code: "Expired" }, status: 500 },
+    {
+      row: "`InvalidOption` for a content header the caller passed",
+      fields: { code: "InvalidOption" },
+      status: 500,
+    },
     {
       row: "`InvalidRequest` over the part limit",
       fields: { code: "InvalidRequest" },
