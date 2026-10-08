@@ -1,6 +1,7 @@
 import { type CapabilityName, type ContentHeaders, contentHeadersRefusal } from "@stowage/core";
 
 import { fieldOf, stringOf } from "./json.ts";
+import type { HeaderField } from "./request.ts";
 import { gcsError } from "./storage-error.ts";
 
 const contentHeaderOptions: readonly (keyof ContentHeaders)[] = [
@@ -9,17 +10,25 @@ const contentHeaderOptions: readonly (keyof ContentHeaders)[] = [
   "contentLanguage",
 ];
 
+/** The standard name the XML API takes each content header under, in the order of spec 9.9. */
+const signedNames = {
+  cacheControl: "cache-control",
+  contentDisposition: "content-disposition",
+  contentLanguage: "content-language",
+} as const satisfies Readonly<Record<keyof ContentHeaders, string>>;
+
 /**
- * The content headers as `put` sends them in the object resource, or the refusal of spec 4.3
- * before anything is sent. The check reads a snapshot, so what it passed is what is sent.
+ * The content headers as `put` sends them in the object resource and `presignPut` signs them,
+ * or the refusal of spec 4.3 before anything is sent. The check reads a snapshot, so what it
+ * passed is what is sent.
  */
 export function heldContentHeaders(
   bucket: string,
   headers: ContentHeaders,
   contentType: string,
   key: string,
+  operation: "put" | "presignPut",
   capabilities: readonly CapabilityName[],
-  operation = "put",
 ): ContentHeaders {
   const { cacheControl, contentDisposition, contentLanguage } = headers;
   const held: ContentHeaders = Object.freeze({
@@ -34,6 +43,15 @@ export function heldContentHeaders(
   }
 
   return held;
+}
+
+/** The header fields a presigned `PUT` signs and hands back for what passed the check. */
+export function signedContentHeaders(held: ContentHeaders): readonly HeaderField[] {
+  return contentHeaderOptions.flatMap((option): HeaderField[] => {
+    const value = held[option];
+
+    return value === undefined ? [] : [[signedNames[option], value]];
+  });
 }
 
 /**

@@ -173,7 +173,9 @@ export function azureBlobStorageFromConnectionString(
 
 A browser upload through `presignPut` is preflighted, so the account needs a CORS rule for the
 Blob service that allows the uploading origin, `PUT`, and the headers `content-type`,
-`x-ms-blob-type` and `x-ms-blob-content-type`. stowage configures none
+`x-ms-blob-type` and `x-ms-blob-content-type`, and `x-ms-blob-cache-control`,
+`x-ms-blob-content-disposition` and `x-ms-blob-content-language` where `presignPut` binds them
+through `cacheControl`, `contentDisposition` and `contentLanguage`. stowage configures none
 ([flow 2](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.5.0/docs/spec.md#flow-2-browser-upload-through-a-presigned-put)).
 With the Azure CLI:
 

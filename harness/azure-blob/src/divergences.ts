@@ -59,6 +59,11 @@ export const azureBlobDivergences: readonly Divergence<AzureBlobEmulator, AzureB
       ...signedHeadersUnbound,
     },
     {
+      case: "presign/put-content-headers",
+      failureMessagePart: "carrying the content headers answered 403 and not a success",
+      ...signedHeadersUnbound,
+    },
+    {
       case: "flow/2-presigned-put",
       failureMessagePart: "presigned URL was answered 403",
       ...signedHeadersUnbound,

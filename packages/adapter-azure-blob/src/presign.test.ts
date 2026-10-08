@@ -1,8 +1,6 @@
 import { isStorageError, type StorageError } from "@stowage/core";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { presignUpload } from "../../http/src/presign-upload.ts";
-
 import { type AzureBlobAdapterOptions, azureBlobStorage } from "./index.ts";
 
 beforeEach(() => {
@@ -335,6 +333,83 @@ test("`presignPut` binds four headers through `srh` and hands back the three a c
   ]);
 });
 
+test("`presignPut` appends the `x-ms-blob-*` name of each content header given to `srh` and hands it back", async () => {
+  stubFetch(delegationKey);
+
+  // Given in another order than spec 8.9 appends them in.
+  const presigned = await storage().presignPut("a.txt", {
+    expiresIn: 300,
+    contentType: "text/plain",
+    contentLength: 11,
+    contentLanguage: "de-AT, en",
+    contentDisposition: 'attachment;\tfilename="a  b.txt"',
+    cacheControl: "public, max-age=60, immutable",
+  });
+
+  expect(queryOf(presigned.url)).toContainEqual([
+    "srh",
+    "content-type,content-length,x-ms-blob-type,x-ms-blob-content-type,x-ms-blob-cache-control,x-ms-blob-content-disposition,x-ms-blob-content-language",
+  ]);
+  expect(presigned.headers).toEqual({
+    "content-type": "text/plain",
+    "x-ms-blob-type": "BlockBlob",
+    "x-ms-blob-content-type": "text/plain",
+    "x-ms-blob-cache-control": "public, max-age=60, immutable",
+    "x-ms-blob-content-disposition": 'attachment;\tfilename="a  b.txt"',
+    "x-ms-blob-content-language": "de-AT, en",
+  });
+});
+
+test("a content header left out is neither named in `srh` nor handed back", async () => {
+  stubFetch(delegationKey);
+
+  const presigned = await storage().presignPut("a.txt", {
+    expiresIn: 300,
+    contentType: "text/plain",
+    contentLength: 11,
+    contentDisposition: "inline",
+    cacheControl: undefined,
+  });
+
+  expect(queryOf(presigned.url)).toContainEqual([
+    "srh",
+    "content-type,content-length,x-ms-blob-type,x-ms-blob-content-type,x-ms-blob-content-disposition",
+  ]);
+  expect(presigned.headers).toEqual({
+    "content-type": "text/plain",
+    "x-ms-blob-type": "BlockBlob",
+    "x-ms-blob-content-type": "text/plain",
+    "x-ms-blob-content-disposition": "inline",
+  });
+});
+
+test.each([
+  ["an empty `cacheControl`", { cacheControl: "" }, "InvalidOption"],
+  ["a `cacheControl` ending in a line feed", { cacheControl: "no-store\n" }, "InvalidOption"],
+  ["101 characters of `contentLanguage`", { contentLanguage: "x".repeat(101) }, "InvalidRequest"],
+  // `Content-Type` and the type are 2,024 bytes, `Content-Disposition` and `inline` 25: 2,049.
+  [
+    "2,049 header bytes with the content type",
+    { contentType: `text/plain; x=${"y".repeat(1998)}`, contentDisposition: "inline" },
+    "InvalidRequest",
+  ],
+] as const)("%s is `%s` before the user delegation key is requested", async (_, given, code) => {
+  const sent = stubFetch(delegationKey);
+
+  const failure = await failureOf(
+    async () =>
+      await storage().presignPut("a.txt", {
+        expiresIn: 300,
+        contentType: "text/plain",
+        contentLength: 11,
+        ...given,
+      }),
+  );
+
+  expect(failure).toMatchObject({ code, operation: "presignPut", attempts: 0 });
+  expect(sent).toEqual([]);
+});
+
 const overrides = {
   responseContentType: "text/plain",
   responseContentDisposition: 'attachment; filename="c.txt"',
@@ -437,127 +512,3 @@ test("a key answer without a `Value` is `ProviderError`", async () => {
 
   expect(failure).toMatchObject({ code: "ProviderError", operation: "presignGet" });
 });
-
-const contentHeaderOptions = {
-  cacheControl: "public, max-age=60",
-  contentDisposition: 'attachment; filename="report.txt"',
-  contentLanguage: "en",
-};
-
-const contentHeaderNames = {
-  cacheControl: "x-ms-blob-cache-control",
-  contentDisposition: "x-ms-blob-content-disposition",
-  contentLanguage: "x-ms-blob-content-language",
-} as const;
-
-test.each(["cacheControl", "contentDisposition", "contentLanguage"] as const)(
-  "`presignPut` signs and returns `%s`, leaving omitted headers open",
-  async (option) => {
-    stubFetch(delegationKey);
-    const presigner = storage();
-    const base = { expiresIn: 300, contentType: "text/plain", contentLength: 12 };
-    const omitted = await presigner.presignPut("object.txt", base);
-    const undefinedHeader = await presigner.presignPut("object.txt", {
-      ...base,
-      [option]: undefined,
-    });
-    const given = await presigner.presignPut("object.txt", {
-      ...base,
-      [option]: contentHeaderOptions[option],
-    });
-    const changed = await presigner.presignPut("object.txt", { ...base, [option]: "different" });
-
-    expect(undefinedHeader).toEqual(omitted);
-    expect(given.headers).toEqual({
-      ...omitted.headers,
-      [contentHeaderNames[option]]: contentHeaderOptions[option],
-    });
-    const query = new URL(given.url).searchParams;
-    expect(query.get("srh")?.split(",").toSorted()).toEqual(
-      [
-        "content-type",
-        "content-length",
-        "x-ms-blob-type",
-        "x-ms-blob-content-type",
-        contentHeaderNames[option],
-      ].toSorted(),
-    );
-    expect(query.get("sig")).not.toBe(new URL(changed.url).searchParams.get("sig"));
-  },
-);
-
-test("`presignUpload` forwards all content headers through the adapter", async () => {
-  stubFetch(delegationKey);
-  const presigner = storage();
-  const response = await presignUpload(presigner, "object.txt", {
-    expiresIn: 300,
-    maxSize: 12,
-    contentType: "text/plain",
-    contentLength: 12,
-    ...contentHeaderOptions,
-  });
-
-  expect(response.status).toBe(200);
-  expect(await response.json()).toMatchObject({
-    method: "PUT",
-    headers: {
-      "content-type": "text/plain",
-      "x-ms-blob-type": "BlockBlob",
-      "x-ms-blob-content-type": "text/plain",
-      "x-ms-blob-cache-control": contentHeaderOptions.cacheControl,
-      "x-ms-blob-content-disposition": contentHeaderOptions.contentDisposition,
-      "x-ms-blob-content-language": contentHeaderOptions.contentLanguage,
-    },
-  });
-});
-
-test.each(["cacheControl", "contentDisposition", "contentLanguage"] as const)(
-  "`presignPut` validates `%s` before signing or sending a request",
-  async (option) => {
-    const fetch = vi.fn<() => never>(() => {
-      throw new Error("Invalid headers must send no request");
-    });
-    vi.stubGlobal("fetch", fetch);
-    const presigner = storage();
-
-    await Promise.all(
-      ["", " leading", "trailing ", "line\r\nbreak", "café", 12].map(async (value) => {
-        await expect(
-          presigner.presignPut("object.txt", {
-            expiresIn: 300,
-            contentType: "text/plain",
-            contentLength: 12,
-            [option]: value,
-          }),
-        ).rejects.toMatchObject({
-          code: "InvalidOption",
-          operation: "presignPut",
-          attempts: 0,
-          message: expect.stringContaining(option),
-        });
-      }),
-    );
-    expect(fetch).not.toHaveBeenCalled();
-  },
-);
-
-test.each([{ contentLanguage: "a".repeat(101) }, { cacheControl: "a".repeat(2048) }])(
-  "`presignPut` refuses content header bounds before any request",
-  async (headers) => {
-    const fetch = vi.fn<() => never>(() => {
-      throw new Error("Invalid headers must send no request");
-    });
-    vi.stubGlobal("fetch", fetch);
-    const presigner = storage();
-
-    await expect(
-      presigner.presignPut("object.txt", {
-        expiresIn: 300,
-        contentType: "text/plain",
-        contentLength: 12,
-        ...headers,
-      }),
-    ).rejects.toMatchObject({ code: "InvalidRequest", operation: "presignPut", attempts: 0 });
-    expect(fetch).not.toHaveBeenCalled();
-  },
-);

@@ -1,7 +1,7 @@
-import type { ContentHeaders, PresignedPut } from "@stowage/core";
+import type { CapabilityName, PresignedPut } from "@stowage/core";
 
 import type { GcsConfiguration, GcsSigner } from "./configuration.ts";
-import { heldContentHeaders } from "./content-headers.ts";
+import { heldContentHeaders, signedContentHeaders } from "./content-headers.ts";
 import { requireKey } from "./key.ts";
 import {
   optionError,
@@ -26,7 +26,7 @@ export interface GcsPresignGetOptions {
   responseContentDisposition?: string;
 }
 
-export interface GcsPresignPutOptions extends ContentHeaders {
+export interface GcsPresignPutOptions {
   /**
    * Seconds, 1 to 604800; anything else is `InvalidOption` before anything is sent.
    * The URL counts them from the moment of signing. One signed through `signBlob` may stop
@@ -40,6 +40,15 @@ export interface GcsPresignPutOptions extends ContentHeaders {
    * finite, non-negative integer; anything else is `InvalidOption` before anything is sent.
    */
   contentLength: number;
+  /**
+   * Checked as `put` checks it, signed as `cache-control` and handed back in `headers` where
+   * given. Left out, it is not bound: whoever holds the URL may send it (ADR 0063).
+   */
+  cacheControl?: string;
+  /** Bound as `content-disposition`, as `cacheControl` is. */
+  contentDisposition?: string;
+  /** Bound as `content-language`, as `cacheControl` is. */
+  contentLanguage?: string;
 }
 
 /** The week V4 signing allows `X-Goog-Expires`; GCS refuses `604801` with `400`. */
@@ -85,14 +94,16 @@ export async function presignGet(
 }
 
 /**
- * Spec 9.9 and ADR 0063: bind the type, length and each content header given.
- * Return the headers the client sends beside the body; it sets the length itself.
+ * Spec 9.9: `PUT` on a writable key, with the content type, the content length and each
+ * content header given bound through signed headers beside `host`. All but the length are
+ * handed back to send beside the body, since a client sets the length itself (spec 4.13).
  */
 export async function presignPut(
   configuration: GcsConfiguration,
   signer: GcsSigner,
   key: string,
   options: GcsPresignPutOptions,
+  capabilities: readonly CapabilityName[],
 ): Promise<PresignedPut> {
   const operation = "presignPut";
 
@@ -102,36 +113,26 @@ export async function presignPut(
   const expiresIn = readExpiresIn(configuration.bucket, given.expiresIn, operation);
   const contentType = readText(configuration.bucket, given.contentType, "contentType", operation);
   const contentLength = readContentLength(configuration.bucket, given.contentLength, operation);
-  const contentHeaders = heldContentHeaders(
+  const held = heldContentHeaders(
     configuration.bucket,
-    given,
+    options,
     contentType,
     key,
-    ["contentHeaders"],
     operation,
+    capabilities,
   );
-  const headers: HeaderField[] = [];
-
-  for (const [option, header] of [
-    ["cacheControl", "cache-control"],
-    ["contentDisposition", "content-disposition"],
-    ["contentLanguage", "content-language"],
-  ] as const) {
-    const value = contentHeaders[option];
-
-    if (value !== undefined) headers.push([header, value]);
-  }
+  const contentHeaders = signedContentHeaders(held);
 
   const url = await presignedUrl(configuration, signer, {
     method: "PUT",
     operation,
     key,
     query: [],
-    headers: [["content-type", contentType], ["content-length", contentLength], ...headers],
+    headers: [["content-type", contentType], ["content-length", contentLength], ...contentHeaders],
     expiresIn,
   });
 
-  return { url, headers: { "content-type": contentType, ...Object.fromEntries(headers) } };
+  return { url, headers: { "content-type": contentType, ...Object.fromEntries(contentHeaders) } };
 }
 
 interface Presignable {

@@ -1,8 +1,6 @@
 import { isStorageError, StorageError } from "@stowage/core";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
-import { presignUpload } from "../../http/src/presign-upload.ts";
-
 import { type S3AdapterOptions, type S3Credentials, s3Storage } from "./index.ts";
 
 beforeEach(() => {
@@ -123,6 +121,79 @@ test("a presigned `PUT` binds no header beyond the two and `host`", async () => 
   const { url } = await s3Storage(options()).presignPut("object.txt", putOptions);
 
   expect(Object.keys(queryOf(url)).filter((name) => !name.startsWith("X-Amz-"))).toEqual([]);
+});
+
+const contentHeaders = {
+  cacheControl: "public, max-age=60, immutable",
+  contentDisposition: 'attachment;\tfilename="a  b.txt"',
+  contentLanguage: "de-AT, en",
+};
+
+test("`presignPut` signs each content header given under its standard name and hands it back", async () => {
+  const { url, headers } = await s3Storage(options()).presignPut("object.txt", {
+    ...putOptions,
+    ...contentHeaders,
+  });
+
+  expect(queryOf(url)["X-Amz-SignedHeaders"]).toBe(
+    "cache-control;content-disposition;content-language;content-length;content-type;host",
+  );
+  expect(headers).toEqual({
+    "content-type": "text/plain",
+    "cache-control": "public, max-age=60, immutable",
+    "content-disposition": 'attachment;\tfilename="a  b.txt"',
+    "content-language": "de-AT, en",
+  });
+});
+
+test("a content header left out is neither signed nor handed back", async () => {
+  const { url, headers } = await s3Storage(options()).presignPut("object.txt", {
+    ...putOptions,
+    contentLanguage: "de-AT, en",
+    cacheControl: undefined,
+  });
+
+  expect(queryOf(url)["X-Amz-SignedHeaders"]).toBe(
+    "content-language;content-length;content-type;host",
+  );
+  expect(headers).toEqual({ "content-type": "text/plain", "content-language": "de-AT, en" });
+});
+
+test.each(["", " public", "public\n", "Sprache: ü", 60])(
+  "a content header of %j is `InvalidOption` naming it before the credential is resolved",
+  async (value) => {
+    const resolve = vi.fn<() => S3Credentials>(() => credentials);
+    const failure = await rejection(
+      async () =>
+        await s3Storage(options({ credentials: resolve })).presignPut("object.txt", {
+          ...putOptions,
+          // oxlint-disable-next-line no-unsafe-type-assertion -- a caller outside TypeScript
+          contentLanguage: value as string,
+        }),
+    );
+
+    expect(failure).toMatchObject({ code: "InvalidOption", operation: "presignPut", attempts: 0 });
+    expect(failure.message).toContain("`contentLanguage`");
+    expect(resolve).not.toHaveBeenCalled();
+  },
+);
+
+// `Content-Type` and `text/plain` are 22 bytes, `Cache-Control` 13, which leaves 2,013 of 2,048.
+test("the content type counts toward the 2,048 header bytes of the content headers", async () => {
+  const resolve = vi.fn<() => S3Credentials>(() => credentials);
+  const storage = s3Storage(options({ credentials: resolve }));
+
+  await expect(
+    storage.presignPut("object.txt", { ...putOptions, cacheControl: "x".repeat(2013) }),
+  ).resolves.toMatchObject({ url: expect.stringMatching(/^https:/u) });
+
+  const failure = await rejection(
+    async () =>
+      await storage.presignPut("object.txt", { ...putOptions, cacheControl: "x".repeat(2014) }),
+  );
+
+  expect(failure).toMatchObject({ code: "InvalidRequest", operation: "presignPut", attempts: 0 });
+  expect(resolve).toHaveBeenCalledTimes(1);
 });
 
 test("`presignPut` refuses a key that is addressable and not writable", async () => {
@@ -390,119 +461,3 @@ test("an `InvalidCredentials` resolver failure keeps its diagnostic details", as
     attempts: 0,
   });
 });
-
-const contentHeaderOptions = {
-  cacheControl: "public, max-age=60",
-  contentDisposition: 'attachment; filename="report.txt"',
-  contentLanguage: "en",
-};
-
-const contentHeaderNames = {
-  cacheControl: "cache-control",
-  contentDisposition: "content-disposition",
-  contentLanguage: "content-language",
-} as const;
-
-test.each(["cacheControl", "contentDisposition", "contentLanguage"] as const)(
-  "`presignPut` signs and returns `%s`, leaving omitted headers open",
-  async (option) => {
-    const presigner = s3Storage(options());
-    const base = { expiresIn: 300, contentType: "text/plain", contentLength: 12 };
-    const omitted = await presigner.presignPut("object.txt", base);
-    const undefinedHeader = await presigner.presignPut("object.txt", {
-      ...base,
-      [option]: undefined,
-    });
-    const given = await presigner.presignPut("object.txt", {
-      ...base,
-      [option]: contentHeaderOptions[option],
-    });
-    const changed = await presigner.presignPut("object.txt", { ...base, [option]: "different" });
-
-    expect(undefinedHeader).toEqual(omitted);
-    expect(given.headers).toEqual({
-      ...omitted.headers,
-      [contentHeaderNames[option]]: contentHeaderOptions[option],
-    });
-    const query = new URL(given.url).searchParams;
-    expect(query.get("X-Amz-SignedHeaders")?.split(";").toSorted()).toEqual(
-      ["content-length", "content-type", "host", contentHeaderNames[option]].toSorted(),
-    );
-    expect(query.get("X-Amz-Signature")).not.toBe(
-      new URL(changed.url).searchParams.get("X-Amz-Signature"),
-    );
-  },
-);
-
-test("`presignUpload` forwards all content headers through the adapter", async () => {
-  const presigner = s3Storage(options());
-  const response = await presignUpload(presigner, "object.txt", {
-    expiresIn: 300,
-    maxSize: 12,
-    contentType: "text/plain",
-    contentLength: 12,
-    ...contentHeaderOptions,
-  });
-
-  expect(response.status).toBe(200);
-  expect(await response.json()).toMatchObject({
-    method: "PUT",
-    headers: {
-      "content-type": "text/plain",
-      "cache-control": contentHeaderOptions.cacheControl,
-      "content-disposition": contentHeaderOptions.contentDisposition,
-      "content-language": contentHeaderOptions.contentLanguage,
-    },
-  });
-});
-
-test.each(["cacheControl", "contentDisposition", "contentLanguage"] as const)(
-  "`presignPut` validates `%s` before signing or sending a request",
-  async (option) => {
-    const fetch = vi.fn<() => never>(() => {
-      throw new Error("Invalid headers must send no request");
-    });
-    vi.stubGlobal("fetch", fetch);
-    const presigner = s3Storage(options());
-
-    await Promise.all(
-      ["", " leading", "trailing ", "line\r\nbreak", "café", 12].map(async (value) => {
-        await expect(
-          presigner.presignPut("object.txt", {
-            expiresIn: 300,
-            contentType: "text/plain",
-            contentLength: 12,
-            [option]: value,
-          }),
-        ).rejects.toMatchObject({
-          code: "InvalidOption",
-          operation: "presignPut",
-          attempts: 0,
-          message: expect.stringContaining(option),
-        });
-      }),
-    );
-    expect(fetch).not.toHaveBeenCalled();
-  },
-);
-
-test.each([{ contentLanguage: "a".repeat(101) }, { cacheControl: "a".repeat(2048) }])(
-  "`presignPut` refuses content header bounds before any request",
-  async (headers) => {
-    const fetch = vi.fn<() => never>(() => {
-      throw new Error("Invalid headers must send no request");
-    });
-    vi.stubGlobal("fetch", fetch);
-    const presigner = s3Storage(options());
-
-    await expect(
-      presigner.presignPut("object.txt", {
-        expiresIn: 300,
-        contentType: "text/plain",
-        contentLength: 12,
-        ...headers,
-      }),
-    ).rejects.toMatchObject({ code: "InvalidRequest", operation: "presignPut", attempts: 0 });
-    expect(fetch).not.toHaveBeenCalled();
-  },
-);

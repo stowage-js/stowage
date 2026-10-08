@@ -14,6 +14,7 @@ export const azureProbeNames = {
   expiredUrlCors: "the `403` for an expired presigned `PUT` carries the CORS headers of the rule",
   differingBlobContentType:
     "a presigned `PUT` whose `x-ms-blob-content-type` differs from the signed one is refused",
+  spaceRuns: "a value `srh` binds, signed or sent with a run of spaces",
   longNameOnHead: "a name above 1,024 characters is answered `InvalidKey` by `stat` and `exists`",
   copyAboveLimit: "`copy` of a source above 5,000 MiB",
   staleMarker: "a `marker` Azure does not continue from",
@@ -30,8 +31,8 @@ const conformanceCase = (title: string): FirstRunTest => ({ suite: azureBlobSuit
 /**
  * Spec 18 on `adapter-azure-blob` as it stood before the first run against the account,
  * point by point, with what the scheduled run reads each one off, the question ADR 0023 has
- * the run settle for flow 2, and the refusal of a differing `x-ms-blob-content-type` that
- * ADR 0063 added since. A point stated as a promise holds or is disproved; one
+ * the run settle for flow 2, and the binding of the `x-ms-blob-*` headers that ADR 0063 added
+ * since. A point stated as a promise holds or is disproved; one
  * recorded or one that may loosen a rule reads what the run observed.
  */
 export const azureBlobFirstRunPoints: readonly FirstRunPoint[] = [
@@ -94,8 +95,19 @@ export const azureBlobFirstRunPoints: readonly FirstRunPoint[] = [
   },
   {
     promise:
-      "Azure Blob: a user delegation SAS naming `x-ms-blob-content-type` in `srh` refuses an upload whose `x-ms-blob-content-type` differs from the signed one (ADR 0063)",
-    tests: [probe(azureProbeNames.differingBlobContentType)],
+      "Azure Blob: a user delegation SAS naming the `x-ms-blob-*` headers in `srh` admits an upload carrying the signed values and refuses one whose value differs or that lacks one, `x-ms-blob-content-type` among them (ADR 0063)",
+    tests: [
+      conformanceCase("presign/put-content-headers"),
+      conformanceCase("presign/put-rejects-content-headers"),
+      probe(azureProbeNames.differingBlobContentType),
+    ],
+    endpoints: account,
+    runtime: "node",
+  },
+  {
+    promise:
+      "Azure Blob, recorded: whether Azure collapses runs of spaces in a value `srh` binds, as SigV4 and GOOG4 do (ADR 0063)",
+    tests: [probe(azureProbeNames.spaceRuns)],
     endpoints: account,
     runtime: "node",
   },

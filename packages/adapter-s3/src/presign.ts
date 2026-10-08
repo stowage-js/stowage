@@ -1,9 +1,9 @@
-import { isStorageError, type ContentHeaders, type PresignedPut } from "@stowage/core";
+import { type CapabilityName, isStorageError, type PresignedPut } from "@stowage/core";
 
 import type { HeaderField, QueryParameter } from "./canonical.ts";
 import type { S3Configuration } from "./configuration.ts";
-import { resolveCredentials } from "./credentials.ts";
 import { contentHeaderFields } from "./content-headers.ts";
+import { resolveCredentials } from "./credentials.ts";
 import { requireKey } from "./key.ts";
 import {
   optionError,
@@ -24,7 +24,7 @@ export interface S3PresignGetOptions {
   responseExpires?: string;
 }
 
-export interface S3PresignPutOptions extends ContentHeaders {
+export interface S3PresignPutOptions {
   /** Seconds, 1 to 604800. The credential that signs may cut the lifetime shorter. */
   expiresIn: number;
   /** Bound exactly: an upload of another type is refused by the provider. */
@@ -35,6 +35,15 @@ export interface S3PresignPutOptions extends ContentHeaders {
    * finite, non-negative integer; anything else is `InvalidOption` before signing.
    */
   contentLength: number;
+  /**
+   * Checked as `put` checks it, signed as `Cache-Control` and handed back in `headers` where
+   * given. Left out, it is not bound: whoever holds the URL may send it (ADR 0063).
+   */
+  cacheControl?: string;
+  /** Bound as `Content-Disposition`, as `cacheControl` is. */
+  contentDisposition?: string;
+  /** Bound as `Content-Language`, as `cacheControl` is. */
+  contentLanguage?: string;
 }
 
 /** The ceiling SigV4 query signing sets on `X-Amz-Expires`, a week in seconds. */
@@ -81,13 +90,17 @@ export async function presignGet(
 }
 
 /**
- * Spec 7.10 and ADR 0063: bind the type, length and each content header given.
- * Return the headers the client sends beside the body; it sets the length itself.
+ * Spec 7.10: `PutObject` on a writable key, with the content type, the content length and
+ * each content header given bound through signed headers. Nothing else is signed in: no user
+ * metadata and no checksum, which the browser would have to match exactly for a `403` that
+ * names nothing (ADR 0011). All but the length are handed back to send beside the body
+ * (spec 4.13).
  */
 export async function presignPut(
   configuration: S3Configuration,
   key: string,
   options: S3PresignPutOptions,
+  capabilities: readonly CapabilityName[],
 ): Promise<PresignedPut> {
   const operation = "presignPut";
 
@@ -99,11 +112,11 @@ export async function presignPut(
   const contentLength = readContentLength(configuration.bucket, given.contentLength, operation);
   const contentHeaders = contentHeaderFields(
     configuration.bucket,
-    given,
+    options,
     contentType,
     key,
-    ["contentHeaders"],
     operation,
+    capabilities,
   );
 
   const url = await presignedUrl(configuration, {

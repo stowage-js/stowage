@@ -1,8 +1,8 @@
-import type { ContentHeaders, PresignedPut } from "@stowage/core";
+import type { CapabilityName, PresignedPut } from "@stowage/core";
 
 import type { AzureBlobConfiguration } from "./configuration.ts";
-import { type AzureBlobCredentials, resolveCredentials } from "./credentials.ts";
 import { contentHeaderFields } from "./content-headers.ts";
+import { type AzureBlobCredentials, resolveCredentials } from "./credentials.ts";
 import { requireKey } from "./key.ts";
 import {
   optionError,
@@ -37,7 +37,7 @@ export interface AzureBlobPresignGetOptions {
   responseCacheControl?: string;
 }
 
-export interface AzureBlobPresignPutOptions extends ContentHeaders {
+export interface AzureBlobPresignPutOptions {
   /**
    * Seconds, 1 to 604800; anything else is `InvalidOption` before anything is sent. The SAS
    * normally starts 15 minutes in the past, so an account's SAS expiration policy measures
@@ -53,6 +53,16 @@ export interface AzureBlobPresignPutOptions extends ContentHeaders {
    * It is not held against the 5,000 MiB of a single `Put Blob`, which Azure enforces.
    */
   contentLength: number;
+  /**
+   * Checked as `put` checks it before the user delegation key is requested, named in `srh` as
+   * `x-ms-blob-cache-control` and handed back in `headers` under that name where given. Left
+   * out, it is not bound: whoever holds the URL may send it (ADR 0063).
+   */
+  cacheControl?: string;
+  /** Bound as `x-ms-blob-content-disposition`, as `cacheControl` is. */
+  contentDisposition?: string;
+  /** Bound as `x-ms-blob-content-language`, as `cacheControl` is. */
+  contentLanguage?: string;
 }
 
 /** Spec 8.9: a `PUT` creates a block blob only when it names the type. */
@@ -108,6 +118,7 @@ export async function presignPut(
   configuration: AzureBlobConfiguration,
   key: string,
   options: AzureBlobPresignPutOptions,
+  capabilities: readonly CapabilityName[],
 ): Promise<PresignedPut> {
   const operation = "presignPut";
 
@@ -125,11 +136,11 @@ export async function presignPut(
   const contentLength = readContentLength(configuration.container, given.contentLength, operation);
   const contentHeaders = contentHeaderFields(
     configuration.container,
-    given,
+    options,
     contentType,
     key,
-    ["contentHeaders"],
     operation,
+    capabilities,
   );
 
   const credentials = await credentialsOfCall(configuration, operation, key);

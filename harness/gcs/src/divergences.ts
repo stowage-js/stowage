@@ -64,6 +64,11 @@ export const gcsDivergences: readonly Divergence<GcsEmulator, GcsRealEndpoint>[]
     ...signatureUnchecked,
   },
   {
+    case: "presign/put-rejects-content-headers",
+    failureMessagePart: "carrying another `cacheControl` was answered 200",
+    ...signatureUnchecked,
+  },
+  {
     case: "move/round-trip",
     failureMessagePart: "Metadata in the request couldn't decode",
     ...moveUnserved,

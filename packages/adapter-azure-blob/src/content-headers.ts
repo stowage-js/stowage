@@ -26,7 +26,10 @@ const answeredNames = {
 } as const satisfies Readonly<Record<keyof ContentHeaders, string>>;
 
 export interface ContentHeaderFields {
-  /** What `Put Blob` and `Put Block List` carry the content headers in. */
+  /**
+   * What `Put Blob` and `Put Block List` carry the content headers in, and what the SAS of
+   * `presignPut` names in `srh`, in the order of spec 8.9.
+   */
   readonly headers: readonly HeaderField[];
   /** The content headers as the service stores them: each byte for byte, none `undefined`. */
   readonly held: ContentHeaders;
@@ -43,8 +46,8 @@ export function contentHeaderFields(
   headers: ContentHeaders,
   contentType: string,
   key: string,
+  operation: "put" | "presignPut",
   capabilities: readonly CapabilityName[],
-  operation = "put",
 ): ContentHeaderFields {
   const { cacheControl, contentDisposition, contentLanguage } = headers;
   const held: ContentHeaders = Object.freeze({

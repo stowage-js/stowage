@@ -127,6 +127,7 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
         options ?? {},
         contentType,
         key,
+        "put",
         this.capabilities,
       ),
       userMetadata,
@@ -249,7 +250,7 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
   }
 
   async presignPut(key: string, options: AzureBlobPresignPutOptions): Promise<PresignedPut> {
-    return await presignPut(this.#configuration, key, options);
+    return await presignPut(this.#configuration, key, options, this.capabilities);
   }
 
   /** `Get Blob Properties`, whose failure spec 8.4 reads the code off `x-ms-error-code`. */

@@ -201,6 +201,47 @@ describe.skipIf(!scheduled)(firstRunSuite, () => {
     expect((await storage().stat(key)).contentType).toBe("text/plain");
   });
 
+  // Spec 18 records whether Azure collapses runs of spaces in a value `srh` binds before it
+  // compares, as SigV4 and GOOG4 do. The adapter signs the value as given, so a service that
+  // collapses admits two spaces sent where one was signed, and refuses a value signed with two.
+  // oxlint-disable-next-line vitest/expect-expect -- spec 18 records what the service answers, so any answer passes
+  test(azureProbeNames.spaceRuns, async ({ task }) => {
+    const body = utf8.encode("an upload whose cache directive holds a run of spaces");
+    const upload = async (name: string, signedValue: string, sentValue: string) => {
+      const key = `${prefix}${name}.txt`;
+      const { url, headers } = await storage().presignPut(key, {
+        expiresIn: 300,
+        contentType: "text/plain",
+        contentLength: body.byteLength,
+        cacheControl: signedValue,
+      });
+      const response = await fetch(url, {
+        method: "PUT",
+        headers: { ...headers, "x-ms-blob-cache-control": sentValue },
+        body,
+      });
+
+      await response.arrayBuffer();
+
+      if (!response.ok) {
+        return `${response.status} \`${response.headers.get("x-ms-error-code") ?? ""}\``;
+      }
+
+      const stored = (await storage().stat(key)).cacheControl;
+
+      return `${response.status}, stored as ${JSON.stringify(stored)}`;
+    };
+
+    const widened = await upload("space-run-sent", "public, max-age=60", "public,  max-age=60");
+    const signedWide = await upload(
+      "space-run-signed",
+      "public,  max-age=60",
+      "public,  max-age=60",
+    );
+
+    task.meta.observed = `signed with one space and sent with two: ${widened}; signed and sent with two: ${signedWide}`;
+  });
+
   test(azureProbeNames.longNameOnHead, async () => {
     // Addressable above the 1,024 characters Azure holds, so the request goes out and the
     // answer is the service's.
