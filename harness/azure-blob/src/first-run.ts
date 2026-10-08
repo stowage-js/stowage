@@ -29,8 +29,9 @@ const conformanceCase = (title: string): FirstRunTest => ({ suite: azureBlobSuit
 
 /**
  * Spec 18 on `adapter-azure-blob` as it stood before the first run against the account,
- * point by point, with what the scheduled run reads each one off, and the question ADR 0023
- * has the run settle for flow 2. A point stated as a promise holds or is disproved; one
+ * point by point, with what the scheduled run reads each one off, the question ADR 0023 has
+ * the run settle for flow 2, and the refusal of a differing `x-ms-blob-content-type` that
+ * ADR 0063 added since. A point stated as a promise holds or is disproved; one
  * recorded or one that may loosen a rule reads what the run observed.
  */
 export const azureBlobFirstRunPoints: readonly FirstRunPoint[] = [

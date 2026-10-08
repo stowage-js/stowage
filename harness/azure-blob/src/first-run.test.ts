@@ -162,8 +162,8 @@ describe.skipIf(!scheduled)(firstRunSuite, () => {
   });
 
   // ADR 0063: `Put Blob` stores an `x-ms-blob-content-type` in place of `Content-Type`, so the
-  // type is bound only where the service refuses one the URL did not sign. The same URL then
-  // takes the headers as `presignPut` returned them, so the refusal is the differing value's.
+  // type is bound only where the service refuses a value other than the signed one. The same URL
+  // then takes the headers as `presignPut` returned them, so the refusal is the differing value's.
   test(azureProbeNames.differingBlobContentType, async ({ task }) => {
     const key = `${prefix}differing-blob-content-type.txt`;
     const body = utf8.encode("an upload naming another type than the one signed");
