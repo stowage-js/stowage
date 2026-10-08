@@ -10,7 +10,7 @@ import type { S3Configuration } from "./configuration.ts";
 import { resolveCredentials } from "./credentials.ts";
 import { readErrorDocument } from "./error-document.ts";
 import { sha256Hex } from "./hash.ts";
-import { readProviderFailure } from "./provider-code.ts";
+import { isRefusedTemporaryCredential, readProviderFailure } from "./provider-code.ts";
 import { signRequest } from "./sign.ts";
 
 export interface S3Request {
@@ -46,7 +46,7 @@ const service = "s3";
 /**
  * One S3 request, answered by the response the provider sent or rejected with the failure
  * it reported. Spec 7.4 computes the payload hash once and signs every attempt again; the
- * attempts of spec 7.5 and the `Expired` repeat of spec 7.3 live in `@stowage/core`
+ * attempts of spec 7.5 and the refresh of spec 7.3 live in `@stowage/core`
  * (ADR 0057).
  */
 export async function send(configuration: S3Configuration, request: S3Request): Promise<Response> {
@@ -141,6 +141,7 @@ export function urlOf(
  */
 function readFailure(request: S3Request, answer: RefusedAnswer): FailureReading {
   const document = answer.body === undefined ? {} : readErrorDocument(answer.body);
+  const underSessionToken = carriedSessionToken(answer);
   const failure = readProviderFailure({
     status: answer.status,
     operation: request.operation,
@@ -150,27 +151,28 @@ function readFailure(request: S3Request, answer: RefusedAnswer): FailureReading 
     providerCode: document.code,
     providerMessage: document.message,
     bucketRegion: answer.headers.get("x-amz-bucket-region") ?? undefined,
+    underSessionToken,
+    underRefreshedCredential: answer.refreshed,
   });
-  const refusedTemporary = document.code === "SignatureDoesNotMatch" && carriedSessionToken(answer);
 
   return {
     code: failure.code,
-    message:
-      refusedTemporary && answer.refreshed
-        ? `The temporary credential expired or is not accepted, and so is the one the resolver refreshed: ${failure.message}`
-        : failure.message,
+    message: failure.message,
     // Spec 4.10: an unset `key` is what tells a missing bucket from a missing object, which
     // share the code `NotFound` (ADR 0043).
     key: document.code === "NoSuchBucket" ? undefined : request.key,
     providerCode: document.code,
     requestId: answer.headers.get("x-amz-request-id") ?? undefined,
-    refusedCredential: failure.code === "Expired" || refusedTemporary,
+    refusedCredential:
+      failure.code === "Expired" ||
+      isRefusedTemporaryCredential({ providerCode: document.code, underSessionToken }),
   };
 }
 
 /**
- * ADR 0065: R2 answers a temporary credential past its `exp` as it answers a wrong secret,
- * and the session token is the one sign that the credential refused may have expired.
+ * ADR 0065: R2 answers a temporary credential past its `exp` as it answers a credential
+ * that is wrong, and the session token is the one sign that the credential refused may
+ * have expired.
  */
 function carriedSessionToken(answer: RefusedAnswer): boolean {
   return answer.sentHeaders.some(([name]) => name === "x-amz-security-token");

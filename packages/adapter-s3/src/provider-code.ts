@@ -62,6 +62,10 @@ export interface ProviderAnswer {
   readonly providerMessage?: string;
   /** `x-amz-bucket-region`, the region a redirect says the bucket is really in. */
   readonly bucketRegion?: string;
+  /** Whether the request carried a session token, the one sign of a credential that expires. */
+  readonly underSessionToken?: boolean;
+  /** Whether the request went out under a credential the resolver had just refreshed. */
+  readonly underRefreshedCredential?: boolean;
 }
 
 export interface ProviderFailure {
@@ -129,6 +133,16 @@ export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
     };
   }
 
+  // ADR 0065: an expired temporary credential and a wrong one answer alike on R2, so the
+  // message names both and leaves the caller, who knows what the resolver handed over, to
+  // tell them apart.
+  if (answer.underRefreshedCredential === true && isRefusedTemporaryCredential(answer)) {
+    return {
+      code: "InvalidCredentials",
+      message: `The temporary credential expired or is not accepted, and so is the one the resolver refreshed: ${said}`,
+    };
+  }
+
   const recognized =
     answer.providerCode === undefined ? undefined : providerCodes.get(answer.providerCode);
 
@@ -136,6 +150,16 @@ export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
     code: recognized ?? errorCodeForStatus(answer.status) ?? "ProviderError",
     message: said,
   };
+}
+
+/**
+ * Spec 7.3: the answer R2 gives a temporary credential past its `exp`, after which the
+ * adapter resolves the credential once more with `forceRefresh: true`.
+ */
+export function isRefusedTemporaryCredential(
+  answer: Pick<ProviderAnswer, "providerCode" | "underSessionToken">,
+): boolean {
+  return answer.underSessionToken === true && answer.providerCode === "SignatureDoesNotMatch";
 }
 
 /**
