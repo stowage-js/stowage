@@ -67,7 +67,7 @@ export function contentHeaderFields(
   };
 }
 
-/** The content headers a `Get Blob` or a `Get Blob Properties` response carries, an empty value read as none. */
+/** The content headers a `Get Blob` or a `Get Blob Properties` response carries (spec 8.4). */
 export function readContentHeaders(headers: Headers): ContentHeaders {
   const held: Partial<Record<keyof ContentHeaders, string>> = {};
 

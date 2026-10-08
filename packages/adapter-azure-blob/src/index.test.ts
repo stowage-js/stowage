@@ -507,7 +507,7 @@ const contentHeaders = {
 
 const contentHeaderMembers = Object.keys(contentHeaders);
 
-const contentHeaderFields = [
+const sentContentHeaderNames = [
   "x-ms-blob-cache-control",
   "x-ms-blob-content-disposition",
   "x-ms-blob-content-language",
@@ -515,7 +515,7 @@ const contentHeaderFields = [
 
 /** The content headers a request carried in their `x-ms-blob-*` forms, `null` for each it did not. */
 function contentHeadersOf(request: SentRequest | undefined): (string | null)[] {
-  return contentHeaderFields.map((name) => request?.headers.get(name) ?? null);
+  return sentContentHeaderNames.map((name) => request?.headers.get(name) ?? null);
 }
 
 // ADR 0059: Azurite drops the standard `Cache-Control` and `Content-Language` on `Put Blob`,
