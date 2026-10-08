@@ -1,4 +1,10 @@
-import type { PresignedPut } from "@stowage/core";
+import {
+  capabilityNames,
+  type ContentHeaders,
+  contentHeadersRefusal,
+  isHeaderValue,
+  type PresignedPut,
+} from "@stowage/core";
 
 import { answerFor, refusal } from "./answers.ts";
 
@@ -10,7 +16,14 @@ import { answerFor, refusal } from "./answers.ts";
 export interface PresignsPut {
   presignPut(
     key: string,
-    options: { expiresIn: number; contentType: string; contentLength: number },
+    options: {
+      expiresIn: number;
+      contentType: string;
+      contentLength: number;
+      cacheControl?: string;
+      contentDisposition?: string;
+      contentLanguage?: string;
+    },
   ): Promise<PresignedPut>;
 }
 
@@ -32,15 +45,25 @@ export interface PresignUploadOptions {
    * integer is `400` before signing.
    */
   contentLength: number;
+  /**
+   * The `Cache-Control` the signature binds, passed to `presignPut` where given. A value that
+   * is no valid header value is `400` before signing, as are the three content headers past
+   * 2,048 bytes of names and values with `Content-Type`.
+   */
+  cacheControl?: string;
+  /**
+   * The `Content-Disposition` the signature binds, passed to `presignPut` where given. A value
+   * that is no valid header value is `400` before signing, as are the three content headers
+   * past 2,048 bytes of names and values with `Content-Type`.
+   */
+  contentDisposition?: string;
+  /**
+   * The `Content-Language` the signature binds, passed to `presignPut` where given. A value
+   * that is no valid header value or longer than 100 characters is `400` before signing, as
+   * are the three content headers past 2,048 bytes of names and values with `Content-Type`.
+   */
+  contentLanguage?: string;
 }
-
-/**
- * RFC 9110 5.5's `field-value` without `obs-text`: visible ASCII, with spaces and tabs
- * inside alone. A runtime's `fetch` trims the whitespace around a header value and sends
- * no character beyond ASCII as the UTF-8 a signer hashes, so a client would send a value
- * other than the one signed, and the provider would answer its `PUT` with `403`.
- */
-const headerValuePattern = /^[\x21-\x7E](?:[\x20-\x7E\t]*[\x21-\x7E])?$/u;
 
 /**
  * Answers with what `presignPut` returns, as JSON (spec 10.6). It takes no `Request`: the
@@ -61,7 +84,13 @@ export async function presignUpload(
   }
 
   if (contentLength > options.maxSize) return refusal(413);
-  if (typeof contentType !== "string" || !headerValuePattern.test(contentType)) return refusal(400);
+  if (typeof contentType !== "string" || !isHeaderValue(contentType)) return refusal(400);
+
+  // Every capability is assumed, so that only the client's value is refused here: a storage
+  // that holds no content headers is the caller's, and its own refusal answers `500`.
+  if (contentHeadersRefusal(options, contentType, capabilityNames) !== undefined) {
+    return refusal(400);
+  }
 
   let presigned: PresignedPut;
 
@@ -70,6 +99,7 @@ export async function presignUpload(
       expiresIn: options.expiresIn,
       contentType,
       contentLength,
+      ...givenContentHeaders(options),
     });
   } catch (thrown) {
     return answerFor(thrown);
@@ -81,4 +111,21 @@ export async function presignUpload(
     status: 200,
     headers: { "content-type": "application/json", "cache-control": "private, no-store" },
   });
+}
+
+/**
+ * The content headers the caller gave, without a member for one left out: an adapter signs a
+ * header for each option given (ADR 0063), and a member holding `undefined` must not read as
+ * one.
+ */
+function givenContentHeaders({
+  cacheControl,
+  contentDisposition,
+  contentLanguage,
+}: ContentHeaders): ContentHeaders {
+  return Object.fromEntries(
+    Object.entries({ cacheControl, contentDisposition, contentLanguage }).filter(
+      ([, value]) => value !== undefined,
+    ),
+  );
 }

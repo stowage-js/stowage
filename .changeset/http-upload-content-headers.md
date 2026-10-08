@@ -1,0 +1,5 @@
+---
+"@stowage/http": minor
+---
+
+`acceptUpload` and `presignUpload` take `cacheControl`, `contentDisposition` and `contentLanguage` as optional options, and `PresignsPut` names them as optional members of the options it passes. `acceptUpload` hands the three to `put` as given and reads none of them from the request's headers, so a request's `Cache-Control`, `Content-Disposition` or `Content-Language` reaches no stored object; a value `put` refuses is the caller's and answers `500`, as for `contentType`. `presignUpload` hands the three to `presignPut` where given, and before signing answers `400` for a value outside the header-value rule, past 2,048 bytes of header names and values with `Content-Type`, or a `contentLanguage` past 100 characters, so that a client's value never reaches `presignPut` as an `InvalidOption` answered `500`. A storage that does not declare `contentHeaders` refuses the three in `presignPut`, answered `500` (spec 10.5, 10.6, ADR 0063).

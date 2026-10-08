@@ -1,7 +1,8 @@
-import type { PresignedPut } from "@stowage/core";
+import type { ContentHeaders, PresignedPut } from "@stowage/core";
 
 import type { AzureBlobConfiguration } from "./configuration.ts";
 import { type AzureBlobCredentials, resolveCredentials } from "./credentials.ts";
+import { contentHeaderFields } from "./content-headers.ts";
 import { requireKey } from "./key.ts";
 import {
   optionError,
@@ -36,7 +37,7 @@ export interface AzureBlobPresignGetOptions {
   responseCacheControl?: string;
 }
 
-export interface AzureBlobPresignPutOptions {
+export interface AzureBlobPresignPutOptions extends ContentHeaders {
   /**
    * Seconds, 1 to 604800; anything else is `InvalidOption` before anything is sent. The SAS
    * normally starts 15 minutes in the past, so an account's SAS expiration policy measures
@@ -122,6 +123,14 @@ export async function presignPut(
     operation,
   );
   const contentLength = readContentLength(configuration.container, given.contentLength, operation);
+  const contentHeaders = contentHeaderFields(
+    configuration.container,
+    given,
+    contentType,
+    key,
+    ["contentHeaders"],
+    operation,
+  );
 
   const credentials = await credentialsOfCall(configuration, operation, key);
 
@@ -151,6 +160,7 @@ export async function presignPut(
         ["content-length", contentLength],
         ["x-ms-blob-type", blockBlob],
         ["x-ms-blob-content-type", contentType],
+        ...contentHeaders.headers,
       ],
     },
     operation,
@@ -162,6 +172,7 @@ export async function presignPut(
       "content-type": contentType,
       "x-ms-blob-type": blockBlob,
       "x-ms-blob-content-type": contentType,
+      ...Object.fromEntries(contentHeaders.headers),
     },
   };
 }
