@@ -35,6 +35,12 @@ export interface ServeObjectOptions {
   disposition?: "attachment" | "inline";
   /** Replaces the `Cache-Control: private, no-cache` every answer carries otherwise. */
   cacheControl?: string;
+  /**
+   * Sends the `Cache-Control` the object is stored with, ahead of `cacheControl`. Off by
+   * default, since anyone who wrote the object chose that value: a stored `public` would
+   * let a shared cache hand one user's object to everyone (ADR 0062).
+   */
+  storedCacheControl?: boolean;
 }
 
 /**
@@ -317,7 +323,10 @@ function objectHeaders(
     "content-type": stat.contentType,
     "x-content-type-options": "nosniff",
     "content-disposition": contentDispositionOf(key, options, stat),
-    "cache-control": options.cacheControl ?? "private, no-cache",
+    "cache-control":
+      (options.storedCacheControl === true ? stat.cacheControl : undefined) ??
+      options.cacheControl ??
+      "private, no-cache",
     "last-modified": lastModifiedOf(stat, answeredAt).toUTCString(),
   });
 

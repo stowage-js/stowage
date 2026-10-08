@@ -630,6 +630,55 @@ describe("a stored `contentDisposition`", () => {
   );
 });
 
+const cacheControlOf = async (
+  stored: string | undefined,
+  options: ServeObjectOptions,
+): Promise<string | null> =>
+  (await serve("GET", options, holding({ cacheControl: stored }))).headers.get("cache-control");
+
+describe("`Cache-Control` in the order of spec 10.3", () => {
+  test.each<[string, string | undefined, ServeObjectOptions, string]>([
+    [
+      "the stored value under `storedCacheControl`",
+      "public, max-age=60",
+      { storedCacheControl: true, cacheControl: "no-store" },
+      "public, max-age=60",
+    ],
+    [
+      "`cacheControl` under `storedCacheControl` where none is stored",
+      undefined,
+      { storedCacheControl: true, cacheControl: "no-store" },
+      "no-store",
+    ],
+    [
+      "the default under `storedCacheControl` where neither is given",
+      undefined,
+      { storedCacheControl: true },
+      "private, no-cache",
+    ],
+    [
+      "`cacheControl` over a stored value without `storedCacheControl`",
+      "public, max-age=60",
+      { cacheControl: "no-store" },
+      "no-store",
+    ],
+    [
+      "the default over a stored value without `storedCacheControl`",
+      "public, max-age=60",
+      {},
+      "private, no-cache",
+    ],
+    [
+      "the default over a stored value under `storedCacheControl: false`",
+      "public, max-age=60",
+      { storedCacheControl: false },
+      "private, no-cache",
+    ],
+  ])("is %s", async (_, stored, options, expected) => {
+    expect(await cacheControlOf(stored, options)).toBe(expected);
+  });
+});
+
 describe("`If-None-Match`", () => {
   test("with the `ETag` is `304` with the headers of the `200` but `Content-Length`, from `stat` alone", async () => {
     const { storage, calls } = rangingStorage();
@@ -1007,6 +1056,34 @@ describe("an object changing between `stat` and `get`", () => {
     expect(await response.text()).toBe(sixteenBytes);
     expect(calls).toEqual(["stat", "get"]);
     expect(canceled).toEqual([]);
+  });
+
+  test("carries the stored content headers of the `stat` of `get`", async () => {
+    const { storage } = changingStorage(
+      {
+        etag: "seen",
+        cacheControl: "public, max-age=1",
+        contentDisposition: 'attachment; filename="seen.pdf"',
+        contentLanguage: "de",
+      },
+      {
+        etag: "handed",
+        cacheControl: "public, max-age=2",
+        contentDisposition: 'attachment; filename="handed.pdf"',
+        contentLanguage: "en",
+      },
+    );
+    const response = await serveObject(
+      storage,
+      "docs/report.pdf",
+      request("GET", { headers: { "if-none-match": '"other"' } }),
+      { storedCacheControl: true },
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("public, max-age=2");
+    expect(response.headers.get("content-disposition")).toBe('attachment; filename="handed.pdf"');
+    expect(response.headers.get("content-language")).toBe("en");
   });
 
   test("has its body canceled and `304` answered where `If-None-Match` now fails", async () => {
