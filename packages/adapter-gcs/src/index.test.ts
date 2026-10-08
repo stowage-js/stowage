@@ -618,8 +618,8 @@ test.each(describingOperations)(
   },
 );
 
-// Spec 9.4: GCS serves a `Cache-Control` of its own on a media download where the object
-// stores none, so the download's fields are not what the object holds.
+// Spec 10.4: GCS serves `private, max-age=0` on a media download where the object stores no
+// `Cache-Control`, so the download's fields are not what the object holds.
 test("`get` reads no content header off the media download, and sends no request more", async () => {
   const sent = stubFetch((request) =>
     request.url.includes("alt=media")
@@ -2693,7 +2693,7 @@ test("a signal that already fired rejects `move` before any request", async () =
   expect(sent).toEqual([]);
 });
 
-// Spec 9.7: `rewriteTo` and `objects.move` keep the source's content headers, sent without a body.
+// Spec 9.7: `rewriteTo`, sent without a body, and `objects.move` keep the source's content headers.
 test.each([
   ["copy", () => rewriteDone(contentHeaders)],
   ["move", () => moved(contentHeaders)],

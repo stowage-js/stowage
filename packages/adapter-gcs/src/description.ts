@@ -59,8 +59,8 @@ export async function readResource(
 
 /**
  * Spec 4.4 out of the object resource: `size`, the time of `updated`, the `etag`, the
- * content headers and the user metadata. The key is the one the call named, which the resource's `name` repeats byte
- * for byte.
+ * content headers and the user metadata. The key is the one the call named, which the
+ * resource's `name` repeats byte for byte.
  */
 export function describeResource(
   bucket: string,

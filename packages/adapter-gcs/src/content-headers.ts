@@ -37,8 +37,8 @@ export function heldContentHeaders(
 
 /**
  * The resource's content headers, with an empty value read as none. The media download is
- * never asked: GCS serves a `Cache-Control` of its own there where the object stores none
- * (spec 9.4).
+ * never asked (spec 9.4): GCS serves `private, max-age=0` there where the object stores no
+ * `Cache-Control` (spec 10.4).
  */
 export function readContentHeaders(resource: unknown): ContentHeaders {
   const held: Partial<Record<keyof ContentHeaders, string>> = {};
