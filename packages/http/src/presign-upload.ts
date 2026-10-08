@@ -1,4 +1,9 @@
-import { isHeaderValue, type PresignedPut } from "@stowage/core";
+import {
+  capabilityNames,
+  contentHeadersRefusal,
+  isHeaderValue,
+  type PresignedPut,
+} from "@stowage/core";
 
 import { answerFor, refusal } from "./answers.ts";
 
@@ -41,7 +46,8 @@ export interface PresignUploadOptions {
   contentLength: number;
   /**
    * The `Cache-Control` the signature binds, passed to `presignPut` where given. The layer
-   * never reads it from a request.
+   * never reads it from a request. A value outside the form or the bounds `put` checks the
+   * three by is `400` before signing, as is each of the other two.
    */
   cacheControl?: string;
   /** The `Content-Disposition` the signature binds, passed to `presignPut` where given. */
@@ -70,6 +76,12 @@ export async function presignUpload(
 
   if (contentLength > options.maxSize) return refusal(413);
   if (typeof contentType !== "string" || !isHeaderValue(contentType)) return refusal(400);
+
+  // Every capability is assumed, so that only the client's value is refused here: a storage
+  // that holds no content headers is the caller's, and its own refusal answers `500`.
+  if (contentHeadersRefusal(options, contentType, capabilityNames) !== undefined) {
+    return refusal(400);
+  }
 
   let presigned: PresignedPut;
 

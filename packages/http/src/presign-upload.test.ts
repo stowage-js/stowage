@@ -183,6 +183,62 @@ describe("a `contentType` the client sent", () => {
   );
 });
 
+describe("a content header the client sent", () => {
+  const contentHeaderOptions = ["cacheControl", "contentDisposition", "contentLanguage"] as const;
+
+  test.each(
+    contentHeaderOptions.flatMap((option) =>
+      [
+        ["empty", ""],
+        ["holding a line feed", "a\nb"],
+        ["starting with a space", " de"],
+        ["holding a character beyond ASCII", 'attachment; filename="ü.pdf"'],
+        ["no string", 11],
+        ["null", null],
+      ].map(([row, value]) => [option, row, value] as const),
+    ),
+  )("`%s` %s answers `400`", async (option, _, value) => {
+    expect(await refusalOf({ [option]: value })).toEqual(refused(400));
+  });
+
+  // `Content-Type`, `application/pdf` and `Content-Disposition` count 46 of the 2,048 bytes.
+  test("past 2,048 header bytes with `Content-Type` answers `400`", async () => {
+    expect(await refusalOf({ contentDisposition: "a".repeat(2003) })).toEqual(refused(400));
+  });
+
+  test("at exactly 2,048 header bytes with `Content-Type` is signed", async () => {
+    const storage = signing();
+    const contentDisposition = "a".repeat(2002);
+
+    const response = await presignUpload(
+      storage,
+      "uploads/report.pdf",
+      options({ contentDisposition }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(storage.calls[0]?.[1].contentDisposition).toBe(contentDisposition);
+  });
+
+  test("a `contentLanguage` of 101 characters answers `400`", async () => {
+    expect(await refusalOf({ contentLanguage: "a".repeat(101) })).toEqual(refused(400));
+  });
+
+  test("a `contentLanguage` of exactly 100 characters is signed", async () => {
+    const storage = signing();
+    const contentLanguage = "a".repeat(100);
+
+    const response = await presignUpload(
+      storage,
+      "uploads/report.pdf",
+      options({ contentLanguage }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(storage.calls[0]?.[1].contentLanguage).toBe(contentLanguage);
+  });
+});
+
 /** A storage whose `presignPut` rejects with `thrown`. */
 const refusing = (thrown: unknown): PresignsPut => ({
   presignPut: async () => {
