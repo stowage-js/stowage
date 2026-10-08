@@ -1,14 +1,14 @@
 import type { CaseOf } from "../../../packages/conformance/src/case.ts";
 
 /**
- * A change a runtime's own server makes to the answers of one HTTP case on their way to
- * the socket, setting or dropping a header that no answer of the layer can keep it from.
+ * A change a runtime's own server makes to the answers of HTTP cases on their way to the
+ * socket, setting or dropping a header that no answer of the layer can keep it from.
  * It is no divergence (`CONTEXT.md`): no other run settles it, and a client of that cell
  * sees it, so spec 2 names each one below its second table.
  */
 export interface ServerAlteration {
-  /** The HTTP case the change shows up in. */
-  readonly case: string;
+  /** The HTTP cases the change shows up in, each failing a run where it meets none. */
+  readonly cases: readonly string[];
   /** What the server does to the answer. */
   readonly differs: string;
   /**
@@ -36,7 +36,7 @@ export function withServerAlterations<Context>(
   origin: string,
 ): readonly CaseOf<Context>[] {
   return sources.map((source) => {
-    const alteration = server.alterations?.find((entry) => entry.case === source.name);
+    const alteration = server.alterations?.find((entry) => entry.cases.includes(source.name));
 
     if (alteration === undefined) return source;
 
@@ -47,7 +47,7 @@ export function withServerAlterations<Context>(
 
         if (restored === 0) {
           throw new Error(
-            `\`${alteration.case}\` ran on ${server.name} without meeting the change its ` +
+            `\`${source.name}\` ran on ${server.name} without meeting the change its ` +
               `alterations expect: ${alteration.differs}. Remove the entry, and its note ` +
               `below spec 2's second table.`,
           );

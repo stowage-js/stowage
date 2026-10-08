@@ -10,7 +10,7 @@ function withoutLength(answer: Response): Headers {
 
 /** `Bun.serve` and `Deno.serve`. */
 export const lengthZeroOnHead: ServerAlteration = {
-  case: "serve/head",
+  cases: ["serve/head"],
   differs:
     "a `HEAD` the layer answered without a body and without `Content-Length` carries `Content-Length: 0`",
   restore: (method, answer) =>
@@ -21,7 +21,7 @@ export const lengthZeroOnHead: ServerAlteration = {
 
 /** `Bun.serve`, which measures a body it holds whole before the headers are written. */
 export const lengthOfCompleteBody: ServerAlteration = {
-  case: "serve/whole",
+  cases: ["serve/whole"],
   differs:
     "a `200` whose body is complete before the headers are written, as the 16 bytes of the case are, carries `Content-Length`",
   restore: (method, answer) =>
@@ -34,7 +34,7 @@ const contentRangePattern = /^bytes (\d+)-(\d+)\//u;
 
 /** `workerd`, which sends every body that is a `ReadableStream` chunked. */
 export const noLengthOnStream: ServerAlteration = {
-  case: "serve/range",
+  cases: ["serve/range"],
   differs:
     "an answer whose body is a stream, a `206` among them, goes chunked and without `Content-Length`",
   restore: (_method, answer) => {
