@@ -29,8 +29,8 @@ export interface AzureBlobPresignGetOptions {
    * Seconds, 1 to 604800; anything else is `InvalidOption` before anything is sent. The SAS
    * normally starts 15 minutes in the past, so an account's SAS expiration policy measures
    * 900 seconds more. With an access token and an `expiresIn` above 603900, it starts 604800
-   * seconds before it expires, since a user delegation key is taken to span seven days at
-   * most: the policy measures 604800, and less time is left for clock skew, none at 604800.
+   * seconds before it expires, so that a policy of seven days admits it: less time is left for
+   * clock skew, none at 604800, and an `expiresIn` of 603900 or less keeps the whole 15 minutes.
    */
   expiresIn: number;
   responseContentType?: string;
@@ -43,8 +43,8 @@ export interface AzureBlobPresignPutOptions {
    * Seconds, 1 to 604800; anything else is `InvalidOption` before anything is sent. The SAS
    * normally starts 15 minutes in the past, so an account's SAS expiration policy measures
    * 900 seconds more. With an access token and an `expiresIn` above 603900, it starts 604800
-   * seconds before it expires, since a user delegation key is taken to span seven days at
-   * most: the policy measures 604800, and less time is left for clock skew, none at 604800.
+   * seconds before it expires, so that a policy of seven days admits it: less time is left for
+   * clock skew, none at 604800, and an `expiresIn` of 603900 or less keeps the whole 15 minutes.
    */
   expiresIn: number;
   /**
@@ -201,8 +201,8 @@ async function signUnderDelegation(
   grant: UserDelegationSasGrant,
   operation: string,
 ): Promise<SignedSas> {
-  // ADR 0022: the stricter of Microsoft's two readings, a key spanning seven days at most, which
-  // no run has measured (spec 18).
+  // ADR 0022: a key and a SAS spanning seven days at most, the stricter of Microsoft's two
+  // readings, which also keeps every URL within a SAS expiration policy of seven days.
   const adjustedGrant =
     grant.expiry.getTime() - grant.start.getTime() > longestLifetime * 1000
       ? { ...grant, start: new Date(grant.expiry.getTime() - longestLifetime * 1000) }

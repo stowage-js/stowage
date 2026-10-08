@@ -69,15 +69,15 @@ before the signature, and the key request falls inside it, between the server an
   reference of `Get User Delegation Key` bounds `Start` and `Expiry` each within seven days of the
   current date, and the guide for the Azure CLI limits a key to seven days from its start. Under an
   access token the adapter takes the stricter reading: where `st` 15 minutes in the past would lie
-  more than 604800 seconds before `se`, `st` and the key's `Start` move to `se` less 604800
-  seconds. Above an `expiresIn` of 603900 the URL keeps less of the 15 minutes for clock skew, and
-  at 604800 none, so an account whose clock runs behind the signing clock refuses it at first. No
-  run has measured the looser reading, nor whether a request before its key's `Start` is admitted,
-  nor from when Azure counts the seven days it allows a user delegation SAS. A URL of 604800
-  seconds with `st` 15 minutes in the past that the account admits under either kind of key moves
-  `st` back without a withdrawal. A signing clock running ahead can
-  push a key that expires at 604800 seconds past Azure's seven days, and then the key request
-  fails, not the URL.
+  more than 604800 seconds before `se`, `st` and the user delegation key's `Start` move to `se`
+  less 604800 seconds. Above an `expiresIn` of 603900 the URL keeps less of the 15 minutes for
+  clock skew, and at 604800 none, so an account whose clock runs behind the signing clock refuses
+  it at first. The move stays whatever the looser reading turns out to be, and no run measures it:
+  keeping `st` 15 minutes in the past at the ceiling would have a SAS expiration policy of seven
+  days, which measures `se − st`, refuse URLs it admits now, a withdrawal for the accounts that
+  set one. A caller who needs the whole 15 minutes passes an `expiresIn` of 603900 or less. A
+  signing clock running ahead can push a key that expires at 604800 seconds past Azure's seven
+  days, and then the key request fails, not the URL.
 - Whether `srh` accepts `Content-Type` and `Content-Length` is unverified: the documentation shows
   invented header names only, and Azurite derives its user delegation key from a public seed, so it
   cannot settle the question. A real account settles it before the v0.2 spec is written. If either

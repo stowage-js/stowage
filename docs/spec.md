@@ -1584,9 +1584,10 @@ A URL is a SAS, and the credential of the call decides which kind (ADR 0022):
   address; none carries `sip`. An account with a SAS expiration policy therefore measures
   `expiresIn + 900` seconds.
 - Under an access token, where `st` 15 minutes in the past would lie more than 604800 seconds before
-  `se`, `st` is `se` less 604800 seconds instead, and a SAS expiration policy measures 604800:
-  above an `expiresIn` of 603900 the URL keeps less of the 15 minutes for clock skew, and at
-  604800 `st` is the moment of signing (ADR 0022).
+  `se`, `st` is `se` less 604800 seconds instead, so that a SAS and its key span seven days at
+  most and a SAS expiration policy of seven days admits every URL. Above an `expiresIn` of 603900
+  the URL keeps less of the 15 minutes for clock skew, and at 604800 `st` is the moment of signing;
+  a caller who needs the whole 15 minutes passes 603900 or less (ADR 0022).
 - Under an access token each call requests one user delegation key, valid from `st` until `se` or 15
   minutes from now, whichever is later, and keeps it nowhere; it is an ordinary request of the
   adapter under sections 8.3 and 8.5, and a refusal of it is `AccessDenied`. The principal needs the
@@ -3190,13 +3191,6 @@ What a run may add or loosen, in a minor release and without a withdrawal:
 - `adapter-s3`: whether a `DeleteObjects` body holding `&#xFFFE;` or `&#65534;` deletes the object
   on AWS S3 and R2. If one spelling does on both, these keys go back into the batch without a
   change to this document. No test of the scheduled run sends either body yet.
-- `adapter-azure-blob`: whether the account admits a `GET` through a user delegation SAS of an
-  `expiresIn` of 604800 whose `st` lies 15 minutes in the past, signed with a key from that `st`
-  until `se`, or with a key whose `Start` lies after the request. Microsoft's documentation
-  disagrees on whether a key may span more than seven days, is silent on a request before the
-  key's `Start`, and limits a user delegation SAS to seven days without saying from when. If the
-  first is admitted, key and SAS start 15 minutes in the past for every `expiresIn`; if only the
-  second, `st` alone does (section 8.9). No test of the scheduled run sends either URL yet.
 - `adapter-azure-blob`: whether a key holding a character from `U+0080` to `U+009F` needs
   refusing. A refusal shown needless is loosened. The first run sent `U+0085` alone, which the
   account stored and listed as written; the scheduled run now sends each of the 32.
