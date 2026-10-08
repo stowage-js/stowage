@@ -45,7 +45,10 @@ export interface AzureBlobPresignPutOptions {
    * current time instead because a user delegation key can live for only seven days.
    */
   expiresIn: number;
-  /** Bound exactly, case and parameters included: an upload of another type is refused. */
+  /**
+   * Bound exactly up to runs of spaces, case and parameters included, as `content-type` and
+   * as `x-ms-blob-content-type`: an upload of another type is refused.
+   */
   contentType: string;
   /**
    * Bound exactly, so the client reports the length and the server signs that number. A
@@ -54,9 +57,11 @@ export interface AzureBlobPresignPutOptions {
    */
   contentLength: number;
   /**
-   * Checked as `put` checks it before the user delegation key is requested, named in `srh` as
-   * `x-ms-blob-cache-control` and handed back in `headers` under that name where given. Left
-   * out, it is not bound: whoever holds the URL may send it (ADR 0063).
+   * Checked as `put` checks it, `contentType` always counted in the 2,048 bytes, before the
+   * user delegation key is requested, then named in `srh` as `x-ms-blob-cache-control` and
+   * handed back in `headers` under that name where given. Bound exactly up to runs of spaces,
+   * which Azure stores as sent. Left out, it is not bound: whoever holds the URL may send it
+   * (ADR 0063).
    */
   cacheControl?: string;
   /** Bound as `x-ms-blob-content-disposition`, as `cacheControl` is. */

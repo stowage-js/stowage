@@ -27,7 +27,10 @@ export interface S3PresignGetOptions {
 export interface S3PresignPutOptions {
   /** Seconds, 1 to 604800. The credential that signs may cut the lifetime shorter. */
   expiresIn: number;
-  /** Bound exactly: an upload of another type is refused by the provider. */
+  /**
+   * Bound exactly up to runs of spaces, which SigV4 collapses before comparing: an upload of
+   * another type is refused by the provider.
+   */
   contentType: string;
   /**
    * Bound exactly, so the client reports the length and the server signs that number: an
@@ -36,13 +39,15 @@ export interface S3PresignPutOptions {
    */
   contentLength: number;
   /**
-   * Checked as `put` checks it, signed as `Cache-Control` and handed back in `headers` where
-   * given. Left out, it is not bound: whoever holds the URL may send it (ADR 0063).
+   * Checked as `put` checks it, `contentType` always counted in the 2,048 bytes, then signed
+   * as `Cache-Control` and handed back in `headers` as `cache-control` where given. Bound
+   * exactly up to runs of spaces, which the provider stores as sent. Left out, it is not
+   * bound: whoever holds the URL may send it (ADR 0063).
    */
   cacheControl?: string;
-  /** Bound as `Content-Disposition`, as `cacheControl` is. */
+  /** Bound as `Content-Disposition`, handed back as `content-disposition`, as `cacheControl` is. */
   contentDisposition?: string;
-  /** Bound as `Content-Language`, as `cacheControl` is. */
+  /** Bound as `Content-Language`, handed back as `content-language`, as `cacheControl` is. */
   contentLanguage?: string;
 }
 

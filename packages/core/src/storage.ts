@@ -11,24 +11,30 @@ export interface PutOptions extends OperationOptions {
   contentType?: string;
   /**
    * Stored as `Cache-Control` where the storage declares `contentHeaders`, and `Unsupported`
-   * elsewhere, `""` included. Nothing parses it. Visible ASCII with spaces and tabs inside
-   * alone, else `InvalidOption`. With `contentType` and the other content headers, names and
-   * values hold at most 2,048 bytes, and more is `InvalidRequest`.
+   * elsewhere for any value but `undefined`, `""` included. Nothing parses it. A non-empty
+   * string of visible ASCII with spaces and tabs inside alone, else `InvalidOption`. The names
+   * and values of `Content-Type` and of the content headers a `put` carries hold at most 2,048
+   * bytes, the type counted as `application/octet-stream` where absent; more is
+   * `InvalidRequest`.
    */
   cacheControl?: string;
   /**
    * Stored as `Content-Disposition` where the storage declares `contentHeaders`, and
-   * `Unsupported` elsewhere, `""` included. Nothing parses it; a file name outside ASCII
-   * travels as RFC 8187's `filename*=UTF-8''…`, which the caller encodes. Visible ASCII with
-   * spaces and tabs inside alone, else `InvalidOption`. With `contentType` and the other
-   * content headers, names and values hold at most 2,048 bytes, and more is `InvalidRequest`.
+   * `Unsupported` elsewhere for any value but `undefined`, `""` included. Nothing parses it; a
+   * file name outside ASCII travels as RFC 8187's `filename*=UTF-8''…`, which the caller
+   * encodes. A non-empty string of visible ASCII with spaces and tabs inside alone, else
+   * `InvalidOption`. The names and values of `Content-Type` and of the content headers a `put`
+   * carries hold at most 2,048 bytes, the type counted as `application/octet-stream` where
+   * absent; more is `InvalidRequest`.
    */
   contentDisposition?: string;
   /**
    * Stored as `Content-Language` where the storage declares `contentHeaders`, and
-   * `Unsupported` elsewhere, `""` included. Visible ASCII with spaces and tabs inside alone,
-   * else `InvalidOption`. At most 100 characters, and with `contentType` and the other content
-   * headers, names and values hold at most 2,048 bytes; more is `InvalidRequest`.
+   * `Unsupported` elsewhere for any value but `undefined`, `""` included. A non-empty string of
+   * visible ASCII with spaces and tabs inside alone, else `InvalidOption`. At most 100
+   * characters, and the names and values of `Content-Type` and of the content headers a `put`
+   * carries hold at most 2,048 bytes, the type counted as `application/octet-stream` where
+   * absent; more is `InvalidRequest`.
    */
   contentLanguage?: string;
   /**
@@ -79,26 +85,31 @@ export interface ObjectEntry {
 export interface ObjectStat extends ObjectEntry {
   readonly contentType: string;
   /**
-   * `Cache-Control` as stored, byte for byte. Missing where the object holds no value or an
-   * empty one, and wherever the storage does not declare `contentHeaders`.
+   * `Cache-Control` as stored, byte for byte, also where another tool stored a value `put`
+   * would refuse. Missing where the object holds no value or an empty one, and wherever the
+   * storage does not declare `contentHeaders`.
    */
   readonly cacheControl?: string;
   /**
-   * `Content-Disposition` as stored, byte for byte. Missing where the object holds no value or
-   * an empty one, and wherever the storage does not declare `contentHeaders`.
+   * `Content-Disposition` as stored, byte for byte, also where another tool stored a value
+   * `put` would refuse. Missing where the object holds no value or an empty one, and wherever
+   * the storage does not declare `contentHeaders`.
    */
   readonly contentDisposition?: string;
   /**
-   * `Content-Language` as stored, byte for byte, except that a `copy` or a `move` may remove the
-   * whitespace around its commas. Missing where the object holds no value or an empty one, and
-   * wherever the storage does not declare `contentHeaders`.
+   * `Content-Language` as stored, byte for byte, also where another tool stored a value `put`
+   * would refuse, except that a `copy` or a `move` may remove the whitespace around its commas.
+   * Missing where the object holds no value or an empty one, and wherever the storage does not
+   * declare `contentHeaders`.
    */
   readonly contentLanguage?: string;
   /**
    * The content coding the object is stored with, as stored, such as `GZIP` or `gzip, br`;
    * a caller lower-cases before comparing. Missing where the object holds no coding, an empty
-   * value or `identity` in any case. It names how the object is stored, not which bytes `get` hands over,
-   * which may arrive decoded. `put` never reports one.
+   * value or `identity` in any case, so set exactly where a `range` is refused. It names how
+   * the object is stored, not which bytes `get` hands over, which may arrive decoded. `put`
+   * never reports one, `copy` and `move` report the source's, and `adapter-memory` and
+   * `adapter-fs` never report one.
    */
   readonly contentEncoding?: string;
   readonly userMetadata: Readonly<Record<string, string>>;

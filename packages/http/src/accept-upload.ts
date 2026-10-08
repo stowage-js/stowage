@@ -15,13 +15,20 @@ export interface AcceptUploadOptions {
   /** Replaces the request's `Content-Type`, which replaces the storage's default. */
   contentType?: string;
   /**
-   * The `Cache-Control` stored with the object, handed to `put` as given. The request's
-   * `Cache-Control` is a directive to the server and never stands in for it.
+   * The `Cache-Control` stored with the object, handed to `put` as given, so a value `put`
+   * refuses is the caller's mistake, answered `500`. The request's `Cache-Control` is a
+   * directive to the server and never stands in for it.
    */
   cacheControl?: string;
-  /** The `Content-Disposition` stored with the object. Request headers never set it. */
+  /**
+   * The `Content-Disposition` stored with the object, handed to `put` as `cacheControl` is.
+   * Request headers never set it.
+   */
   contentDisposition?: string;
-  /** The `Content-Language` stored with the object. Request headers never set it. */
+  /**
+   * The `Content-Language` stored with the object, handed to `put` as `cacheControl` is.
+   * Request headers never set it.
+   */
   contentLanguage?: string;
   /** The user metadata stored with the object. Request headers never add to it. */
   userMetadata?: Record<string, string>;

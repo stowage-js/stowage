@@ -33,7 +33,10 @@ export interface ServeObjectOptions {
    * prevent for an uploaded `text/html` or `image/svg+xml`: the caller's choice and risk.
    */
   disposition?: "attachment" | "inline";
-  /** Replaces the `Cache-Control: private, no-cache` every answer carries otherwise. */
+  /**
+   * Replaces the `Cache-Control: private, no-cache` every answer carries otherwise. A stored
+   * value sent through `storedCacheControl` takes its place.
+   */
   cacheControl?: string;
   /**
    * Sends the `Cache-Control` the object is stored with, ahead of `cacheControl`. Off by

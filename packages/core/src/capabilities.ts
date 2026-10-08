@@ -4,7 +4,8 @@
  *
  * - `contentHeaders`: `put` stores `cacheControl`, `contentDisposition` and `contentLanguage`;
  *   `stat` and `get` return them, `copy` and `move` keep them. Where not declared, a `put`
- *   carrying any of the three is `Unsupported` and reads report none.
+ *   carrying any of the three as a value other than `undefined` is `Unsupported`, and reads
+ *   report none.
  * - `keyBytesPreserved`: a key comes back byte for byte as it was written. Where not
  *   declared, it comes back Unicode-equivalent.
  * - `presignedUrls`: the concrete type carries `presignGet` and `presignPut`. Where not

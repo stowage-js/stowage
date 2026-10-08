@@ -13,6 +13,8 @@ import hono from "../packages/hono/package.json" with { type: "json" };
 import http from "../packages/http/package.json" with { type: "json" };
 import nestjs from "../packages/nestjs/package.json" with { type: "json" };
 import nextjs from "../packages/nextjs/package.json" with { type: "json" };
+import { memoryStorage } from "../packages/adapter-memory/src/index.ts";
+import { capabilityNames } from "../packages/core/src/capabilities.ts";
 import { integrations, ranVersionOf } from "../scripts/newest-versions.ts";
 
 const read = async (path: string): Promise<string> =>
@@ -82,6 +84,79 @@ test("the README of @stowage/conformance names the five adapters of this reposit
   }
 });
 
+/** A section's text with its line breaks undone, so a phrase may wrap anywhere. */
+const proseOf = (section: string): string => section.replaceAll(/\s+/gu, " ");
+
+/** The READMEs count capabilities in words, as their prose does, up to eight. */
+const numberWords = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight"];
+
+test("the README of @stowage/core counts the names of `capabilityNames`", async () => {
+  const limits = proseOf(sectionOf(await readmeOf(core), "Limits"));
+
+  expect(limits).toContain(`out of the ${numberWords[capabilityNames.length]} names`);
+});
+
+test("the README of @stowage/conformance counts the capabilities adapter-memory declares", async () => {
+  const declared = memoryStorage().capabilities.length;
+
+  expect(proseOf(sectionOf(await readmeOf(conformance), "Read an adapter"))).toContain(
+    `declares ${numberWords[declared]} of the ${numberWords[capabilityNames.length]} capabilities`,
+  );
+});
+
+/** Spec 4.9: what each adapter leaves undeclared, which spec 16 has its limits name. */
+const undeclaredCapabilities = [
+  { manifest: adapterMemory, names: ["presignedUrls"] },
+  {
+    manifest: adapterFs,
+    names: [
+      "contentHeaders",
+      "keyBytesPreserved",
+      "presignedUrls",
+      "userMetadata",
+      "userMetadataTokenKeys",
+    ],
+  },
+  { manifest: adapterS3, names: ["keyBytesPreserved"] },
+  { manifest: adapterAzureBlob, names: ["userMetadataTokenKeys"] },
+];
+
+const bulletsOf = (section: string): string[] => section.split(/^- /mu).slice(1);
+
+test.each(undeclaredCapabilities)(
+  "the README of $manifest.name names each capability it does not declare beside spec 4.9",
+  async ({ manifest, names }) => {
+    const bullets = bulletsOf(sectionOf(await readmeOf(manifest), "Limits"));
+
+    for (const name of names) {
+      const bullet = bullets.find((text) => text.startsWith(`\`${name}\` is not declared`));
+
+      expect(bullet, `names no bullet for \`${name}\``).toBeDefined();
+      expect(bullet).toContain("#49-capabilities");
+    }
+  },
+);
+
+// The one difference among the providers on the content headers, a `contentLanguage` that
+// `copy` and `move` may respace, is the parity core's promise in spec 4.11. So no README but
+// that of `adapter-fs`, which does not declare them, gives them a limit.
+test.each(sectioned.filter((manifest) => manifest !== adapterFs))(
+  "the README of $name gives the content headers no limit",
+  async (manifest) => {
+    const limits = sectionOf(await readmeOf(manifest), "Limits");
+
+    for (const marker of [
+      "contentHeaders",
+      "cacheControl",
+      "contentDisposition",
+      "contentLanguage",
+      "content header",
+    ]) {
+      expect(limits).not.toContain(marker);
+    }
+  },
+);
+
 test("the README of @stowage/core covers the exports of spec 4.13", async () => {
   const text = await readmeOf(core);
 
@@ -97,6 +172,8 @@ test("the README of @stowage/core covers the exports of spec 4.13", async () => 
     "encodeUserMetadataValue",
     "decodeUserMetadataValue",
     "userMetadataByteLength",
+    "isHeaderValue",
+    "contentHeadersRefusal",
     "PresignedPut",
   ]) {
     expect(text).toContain(`\`${name}\``);
@@ -139,6 +216,40 @@ test("the README of @stowage/adapter-azure-blob orders its notes as spec 16 does
   expect(positions).not.toContain(-1);
   expect(positions).toEqual(positions.toSorted((left, right) => left - right));
 });
+
+/** Flow 2: the CORS rule allows `always` on every upload and `bound` where the URL binds them. */
+const corsHeaders = [
+  {
+    manifest: adapterAzureBlob,
+    always: ["content-type", "x-ms-blob-type", "x-ms-blob-content-type"],
+    bound: [
+      "x-ms-blob-cache-control",
+      "x-ms-blob-content-disposition",
+      "x-ms-blob-content-language",
+    ],
+  },
+  {
+    manifest: adapterGcs,
+    always: ["content-type"],
+    bound: ["cache-control", "content-disposition", "content-language"],
+  },
+];
+
+test.each(corsHeaders)(
+  "the README of $manifest.name states the CORS rule flow 2 needs",
+  async ({ manifest, always, bound }) => {
+    const notes = sectionOf(await readmeOf(manifest), "Notes");
+    const ruleStart = notes.indexOf("CORS");
+    const rule = notes.slice(ruleStart, notes.indexOf("```", ruleStart));
+    const positionOf = (header: string): number => rule.indexOf(`\`${header}\``);
+
+    for (const header of [...always, ...bound]) expect(positionOf(header)).not.toBe(-1);
+
+    expect(Math.max(...always.map(positionOf))).toBeLessThan(Math.min(...bound.map(positionOf)));
+    expect(rule).toContain("where `presignPut` binds them");
+    expect(rule).toContain("#flow-2-browser-upload-through-a-presigned-put");
+  },
+);
 
 test("the README of @stowage/adapter-gcs writes its example with an access token", async () => {
   const example = sectionOf(await readmeOf(adapterGcs), "Example");

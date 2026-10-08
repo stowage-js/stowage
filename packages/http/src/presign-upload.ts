@@ -68,7 +68,8 @@ export interface PresignUploadOptions {
 /**
  * Answers with what `presignPut` returns, as JSON (spec 10.6). It takes no `Request`: the
  * caller names the key first, usually from the request body, and hands over the values the
- * client sent (ADR 0049).
+ * client sent (ADR 0049). A storage that does not declare `contentHeaders` refuses the three
+ * content headers in `presignPut`, answered `500`.
  */
 export async function presignUpload(
   storage: PresignsPut,
