@@ -772,8 +772,7 @@ export interface ContentHeaders {
   readonly contentDisposition?: string;
   readonly contentLanguage?: string;
 }
-export type ContentHeadersCheck =
-  { readonly held: ContentHeaders } | { readonly refusal: Refusal };
+export type ContentHeadersCheck = { readonly held: ContentHeaders } | { readonly refusal: Refusal };
 /** Runs the checks of section 4.3 in order on a frozen snapshot; `held` is what passed. */
 export function checkContentHeaders(
   headers: ContentHeaders,
@@ -894,11 +893,11 @@ export function readSubresponses(
   It reads each of the three once into a frozen snapshot and checks that, so `held` is what an
   adapter sends, with no member for a header given as `undefined`. Every adapter, `adapter-fs`
   included, runs it before a `put` writes or sends anything, and every adapter that declares
-  `presignedUrls` before `presignPut` signs, with the content type the request carries; it raises
-  the refusal with `attempts: 0` and sends `held`. `isHeaderValue` is the form that check applies.
-  `@stowage/http` checks the content type of `presignUpload` with `isHeaderValue` and its content
-  headers with `checkContentHeaders` under `capabilityNames`, so that the form and the bounds alone
-  decide there (section 10.6, ADR 0058, ADR 0063).
+  `presignedUrls` before `presignPut` signs, with the content type the request carries. The adapter
+  raises the refusal with `attempts: 0`, and sends or stores `held`. `isHeaderValue` is the form
+  that check applies. `@stowage/http` checks the content type of `presignUpload` with
+  `isHeaderValue` and its content headers with `checkContentHeaders` under `capabilityNames`, so
+  that the form and the bounds alone decide there (section 10.6, ADR 0058, ADR 0063).
 - What two adapters need on the wire is defined here once; what one adapter alone needs stays in
   that adapter, the signers among it (ADR 0019).
 - `parseXml` reads elements, attributes, text, comments, the five named entities and a numeric

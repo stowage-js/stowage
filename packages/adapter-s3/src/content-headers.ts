@@ -27,8 +27,8 @@ export interface ContentHeaderFields {
 
 /**
  * The header fields the content headers travel in, refused before the request is signed in
- * the order of spec 4.3. The check reads a snapshot, so what it passed is what is sent. AWS
- * and R2 store each value as sent, so what was sent is what a later `stat` reports.
+ * the order of spec 4.3. AWS and R2 store each value as sent, so what was sent is what a later
+ * `stat` reports.
  */
 export function contentHeaderFields(
   bucket: string,

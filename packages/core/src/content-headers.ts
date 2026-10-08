@@ -43,9 +43,10 @@ export type ContentHeadersCheck = { readonly held: ContentHeaders } | { readonly
 
 /**
  * The content headers a storage holds, or the first check of spec 4.3 they fail, in its order.
- * The checks read a frozen snapshot that reads each option once, so what passed is what an
- * adapter sends. A `put` carrying none of the three as a value other than `undefined` is not
- * measured at all, so a long `contentType` a storage accepted before stays accepted (ADR 0058).
+ * The checks run on a frozen snapshot, built by reading each option once, so what passed is
+ * what an adapter sends. A `put` carrying none of the three as a value other than `undefined`
+ * is not measured at all, so a long `contentType` a storage accepted before stays accepted
+ * (ADR 0058).
  */
 export function checkContentHeaders(
   headers: ContentHeaders,

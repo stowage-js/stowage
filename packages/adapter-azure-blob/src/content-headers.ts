@@ -37,9 +37,8 @@ export interface ContentHeaderFields {
 
 /**
  * The header fields the content headers travel in, refused before the request is signed in
- * the order of spec 4.3. The check reads a snapshot, so what it passed is what is sent.
- * Shared Key signs each value trimmed and otherwise as sent (spec 8.4), and the core lets no
- * value through that trimming changes.
+ * the order of spec 4.3. Shared Key signs each value trimmed and otherwise as sent (spec 8.4),
+ * and the core lets no value through that trimming changes.
  */
 export function contentHeaderFields(
   container: string,
