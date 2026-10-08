@@ -11,7 +11,8 @@ const contentHeaderOptions: readonly (keyof ContentHeaders)[] = [
 
 /**
  * The content headers as `put` sends them in the object resource and `presignPut` signs them,
- * or the refusal of spec 4.3 before anything is sent. The check reads a snapshot, so what it passed is what is sent.
+ * or the refusal of spec 4.3 before anything is sent. The check reads a snapshot, so what it
+ * passed is what is sent.
  */
 export function heldContentHeaders(
   bucket: string,
