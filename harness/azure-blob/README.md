@@ -158,8 +158,8 @@ account (ADR 0012, ADR 0023), read against `STOWAGE_AZURE_BLOB_ENDPOINT_NAME`, w
 sets to `azurite`. The mechanism is the S3 harness's: against the endpoint an entry names, the
 case passes where it fails as the entry says and fails where it passes. The six cases that send
 a copy are on it while the pinned Azurite lacks `Put Blob From URL` and ignores
-`x-ms-copy-source-authorization` (ADR 0025). `presign/put` and `flow/2-presigned-put` are on it
-because Azurite leaves the headers `srh` names out of the string to sign of a user delegation SAS,
+`x-ms-copy-source-authorization` (ADR 0025). `presign/put`, `presign/put-content-headers` and
+`flow/2-presigned-put` are on it because Azurite leaves the headers `srh` names out of the string to sign of a user delegation SAS,
 and so refuses the upload the real account accepts (ADR 0022). `list/noncharacter-key` stays
 unrun against Azurite, which answers a listing of a name holding `U+FFFE` with `500`: the blob
 the case leaves behind would fail the run's `cleanup` the same way (#171).

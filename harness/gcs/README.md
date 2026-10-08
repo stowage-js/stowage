@@ -47,8 +47,8 @@ themselves skipped, and the `Expired` case is skipped against every GCS endpoint
 
 There the storage signs its URLs with a `privateKey`: an RSA `CryptoKey` the target generates in Web
 Crypto once per run, on every runtime, under a service account that does not exist. The URLs point
-at the emulator, so `presign/get`, `presign/put`, `presign/expires-in-bounds` and
-`flow/2-presigned-put` show that it serves the object the adapter addressed, with the method and
+at the emulator, so `presign/get`, `presign/put`, `presign/expires-in-bounds`,
+`presign/put-content-headers` and `flow/2-presigned-put` show that it serves the object the adapter addressed, with the method and
 body the URL grants. Whether the signature is right is shown by Google's V4 vectors in the adapter's
 own tests and by the real bucket (ADR 0034, ADR 0035).
 
@@ -141,8 +141,8 @@ the real bucket (ADR 0012, ADR 0034), and applies where `STOWAGE_GCS_ENDPOINT_NA
 fake-gcs-server alone. The mechanism is the S3 harness's: against the endpoint an entry names, the
 case passes where it fails as the entry says and fails where it passes. `flow/3-file-browser` is on it because the emulator counts only the objects
 of a page towards `maxResults`, where GCS counts the pseudo-directories as well, so the level the
-flow lists arrives as one page without a cursor. `presign/expired-url`, `presign/put-rejects-length`
-and `presign/put-rejects-type` are on it because the emulator checks neither the signature nor the
+flow lists arrives as one page without a cursor. `presign/expired-url`, `presign/put-rejects-length`,
+`presign/put-rejects-type` and `presign/put-rejects-content-headers` are on it because the emulator checks neither the signature nor the
 expiry of a signed URL, as its README states, so it serves the URL each case expects refused.
 `move/round-trip` and `move/missing-source` are on it because the emulator serves no `objects.move`
 and answers every `moveTo` with `400 invalid`, the source left where it was (ADR 0037).
