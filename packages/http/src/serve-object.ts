@@ -37,8 +37,9 @@ export interface ServeObjectOptions {
  * Answers `GET` with the object streamed from `get`, and `HEAD` from `stat` with the same
  * headers and no body (spec 10.3). Any other method is `405`. Where the storage declares
  * `rangeReads`, one range of `bytes` of an object without `contentEncoding` is `206`, or
- * `416` where it is unsatisfiable; any other `Range` is ignored. The preconditions of RFC 9110 13.2.2 answer `304` or `412` where one
- * fails, and `If-Range` sends the whole object for anything but the strong `ETag`.
+ * `416` where it is unsatisfiable; any other `Range` is ignored. The preconditions of
+ * RFC 9110 13.2.2 answer `304` or `412` where one fails, and `If-Range` sends the whole
+ * object for anything but the strong `ETag`.
  */
 export async function serveObject(
   storage: Storage,
