@@ -1,6 +1,7 @@
-import type { PresignedPut } from "@stowage/core";
+import type { CapabilityName, PresignedPut } from "@stowage/core";
 
 import type { AzureBlobConfiguration } from "./configuration.ts";
+import { contentHeaderFields } from "./content-headers.ts";
 import { type AzureBlobCredentials, resolveCredentials } from "./credentials.ts";
 import { requireKey } from "./key.ts";
 import {
@@ -52,6 +53,14 @@ export interface AzureBlobPresignPutOptions {
    * It is not held against the 5,000 MiB of a single `Put Blob`, which Azure enforces.
    */
   contentLength: number;
+  /**
+   * Each content header given is checked as `put` checks it before the user delegation key
+   * is requested, named in `srh` by its `x-ms-blob-*` form and handed back under that name.
+   * One left out is not bound: whoever holds the URL may send it (ADR 0063).
+   */
+  cacheControl?: string;
+  contentDisposition?: string;
+  contentLanguage?: string;
 }
 
 /** Spec 8.9: a `PUT` creates a block blob only when it names the type. */
@@ -107,6 +116,7 @@ export async function presignPut(
   configuration: AzureBlobConfiguration,
   key: string,
   options: AzureBlobPresignPutOptions,
+  capabilities: readonly CapabilityName[],
 ): Promise<PresignedPut> {
   const operation = "presignPut";
 
@@ -122,6 +132,14 @@ export async function presignPut(
     operation,
   );
   const contentLength = readContentLength(configuration.container, given.contentLength, operation);
+  const contentHeaders = contentHeaderFields(
+    configuration.container,
+    options,
+    contentType,
+    key,
+    operation,
+    capabilities,
+  );
 
   const credentials = await credentialsOfCall(configuration, operation, key);
 
@@ -151,6 +169,7 @@ export async function presignPut(
         ["content-length", contentLength],
         ["x-ms-blob-type", blockBlob],
         ["x-ms-blob-content-type", contentType],
+        ...contentHeaders.headers,
       ],
     },
     operation,
@@ -162,6 +181,7 @@ export async function presignPut(
       "content-type": contentType,
       "x-ms-blob-type": blockBlob,
       "x-ms-blob-content-type": contentType,
+      ...Object.fromEntries(contentHeaders.headers),
     },
   };
 }

@@ -333,6 +333,83 @@ test("`presignPut` binds four headers through `srh` and hands back the three a c
   ]);
 });
 
+test("`presignPut` appends the `x-ms-blob-*` name of each content header given to `srh` and hands it back", async () => {
+  stubFetch(delegationKey);
+
+  // Given in another order than spec 8.9 appends them in.
+  const presigned = await storage().presignPut("a.txt", {
+    expiresIn: 300,
+    contentType: "text/plain",
+    contentLength: 11,
+    contentLanguage: "de-AT, en",
+    contentDisposition: 'attachment;\tfilename="a  b.txt"',
+    cacheControl: "public, max-age=60, immutable",
+  });
+
+  expect(queryOf(presigned.url)).toContainEqual([
+    "srh",
+    "content-type,content-length,x-ms-blob-type,x-ms-blob-content-type,x-ms-blob-cache-control,x-ms-blob-content-disposition,x-ms-blob-content-language",
+  ]);
+  expect(presigned.headers).toEqual({
+    "content-type": "text/plain",
+    "x-ms-blob-type": "BlockBlob",
+    "x-ms-blob-content-type": "text/plain",
+    "x-ms-blob-cache-control": "public, max-age=60, immutable",
+    "x-ms-blob-content-disposition": 'attachment;\tfilename="a  b.txt"',
+    "x-ms-blob-content-language": "de-AT, en",
+  });
+});
+
+test("a content header left out is neither named in `srh` nor handed back", async () => {
+  stubFetch(delegationKey);
+
+  const presigned = await storage().presignPut("a.txt", {
+    expiresIn: 300,
+    contentType: "text/plain",
+    contentLength: 11,
+    contentDisposition: "inline",
+    cacheControl: undefined,
+  });
+
+  expect(queryOf(presigned.url)).toContainEqual([
+    "srh",
+    "content-type,content-length,x-ms-blob-type,x-ms-blob-content-type,x-ms-blob-content-disposition",
+  ]);
+  expect(presigned.headers).toEqual({
+    "content-type": "text/plain",
+    "x-ms-blob-type": "BlockBlob",
+    "x-ms-blob-content-type": "text/plain",
+    "x-ms-blob-content-disposition": "inline",
+  });
+});
+
+test.each([
+  ["an empty `cacheControl`", { cacheControl: "" }, "InvalidOption"],
+  ["a `cacheControl` ending in a line feed", { cacheControl: "no-store\n" }, "InvalidOption"],
+  ["101 characters of `contentLanguage`", { contentLanguage: "x".repeat(101) }, "InvalidRequest"],
+  // `Content-Type` and the type are 2,024 bytes, `Content-Disposition` and `inline` 25: 2,049.
+  [
+    "2,049 header bytes with the content type",
+    { contentType: `text/plain; x=${"y".repeat(1998)}`, contentDisposition: "inline" },
+    "InvalidRequest",
+  ],
+] as const)("%s is `%s` before the user delegation key is requested", async (_, given, code) => {
+  const sent = stubFetch(delegationKey);
+
+  const failure = await failureOf(
+    async () =>
+      await storage().presignPut("a.txt", {
+        expiresIn: 300,
+        contentType: "text/plain",
+        contentLength: 11,
+        ...given,
+      }),
+  );
+
+  expect(failure).toMatchObject({ code, operation: "presignPut", attempts: 0 });
+  expect(sent).toEqual([]);
+});
+
 const overrides = {
   responseContentType: "text/plain",
   responseContentDisposition: 'attachment; filename="c.txt"',
