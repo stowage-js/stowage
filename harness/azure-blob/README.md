@@ -118,7 +118,10 @@ A lifecycle rule deletes a block blob one day after its last modification, which
 run that died before its cleanup left; the service discards uncommitted blocks after seven days
 on its own. The one CORS rule is what flow 2 needs from a page and what the probe of the expired
 presigned URL preflights against: the origin `https://conformance.stowage.invalid`, the methods
-`GET` and `PUT`, and the headers `content-type` and `x-ms-blob-type`.
+`GET` and `PUT`, and the headers `content-type`, `x-ms-blob-type` and `x-ms-blob-content-type`,
+which the probe sends because `presignPut` returns them. The rule allows none of the other content
+headers, since the probe signs none (ADR 0064). `cors add` appends a rule, so the commands clear
+the old one first.
 
 ```sh
 az storage account management-policy create --account-name stowageconformance \
@@ -126,9 +129,10 @@ az storage account management-policy create --account-name stowageconformance \
   "name": "delete-after-one-day", "type": "Lifecycle", "definition": {"filters":
   {"blobTypes": ["blockBlob"]}, "actions": {"baseBlob": {"delete":
   {"daysAfterModificationGreaterThan": 1}}}}}]}'
+az storage cors clear --account-name stowageconformance --services b --auth-mode key
 az storage cors add --account-name stowageconformance --services b --auth-mode key \
   --origins https://conformance.stowage.invalid --methods GET PUT \
-  --allowed-headers content-type x-ms-blob-type --max-age 0
+  --allowed-headers content-type x-ms-blob-type x-ms-blob-content-type --max-age 0
 ```
 
 ## Settled by the first run
