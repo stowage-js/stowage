@@ -298,7 +298,7 @@ test.each([
   },
 );
 
-test("`presignPut` binds three headers through `srh` and hands back the two a client sends", async () => {
+test("`presignPut` binds four headers through `srh` and hands back the three a client sends", async () => {
   stubFetch(delegationKey);
 
   const presigned = await storage().presignPut("a b/c.txt", {
@@ -310,6 +310,7 @@ test("`presignPut` binds three headers through `srh` and hands back the two a cl
   expect(presigned.headers).toEqual({
     "content-type": "text/plain",
     "x-ms-blob-type": "BlockBlob",
+    "x-ms-blob-content-type": "text/plain",
   });
   expect(presigned.url.split("?")[0]).toBe(
     "https://stowage.blob.core.windows.net/conformance/a%20b/c.txt",
@@ -327,7 +328,7 @@ test("`presignPut` binds three headers through `srh` and hands back the two a cl
     ["skv", "2026-04-06"],
     ["sr", "b"],
     ["sp", "w"],
-    ["srh", "content-type,content-length,x-ms-blob-type"],
+    ["srh", "content-type,content-length,x-ms-blob-type,x-ms-blob-content-type"],
     ["sig", expect.any(String)],
   ]);
 });

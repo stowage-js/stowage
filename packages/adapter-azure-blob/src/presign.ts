@@ -144,10 +144,13 @@ export async function presignPut(
       key,
       permissions: "w",
       ...sasWindow(expiresIn * 1000),
+      // ADR 0063: `Put Blob` stores an `x-ms-blob-content-type` in place of `Content-Type`,
+      // so left unsigned it would let a client store another type than the one bound.
       signedHeaders: [
         ["content-type", contentType],
         ["content-length", contentLength],
         ["x-ms-blob-type", blockBlob],
+        ["x-ms-blob-content-type", contentType],
       ],
     },
     operation,
@@ -155,7 +158,11 @@ export async function presignPut(
 
   return {
     url: blobUrl(configuration, key, sas.query),
-    headers: { "content-type": contentType, "x-ms-blob-type": blockBlob },
+    headers: {
+      "content-type": contentType,
+      "x-ms-blob-type": blockBlob,
+      "x-ms-blob-content-type": contentType,
+    },
   };
 }
 
