@@ -98,8 +98,8 @@ minute have passed. Its policy grants `s3:GetObject`, `s3:PutObject`, `s3:Delete
 `s3:ListBucket`, `s3:ListBucketMultipartUploads` and `s3:AbortMultipartUpload` on the bucket.
 On R2 both are API tokens scoped to the bucket, `Object Read & Write` and `Object Read only`.
 The `Expired` case reports itself skipped there, because it cannot pass: R2 answers an expired
-credential with `403 SignatureDoesNotMatch`, which `adapter-s3` reads as `InvalidCredentials`
-after one attempt (ADR 0045).
+credential with `403 SignatureDoesNotMatch`, which `adapter-s3` reads as `InvalidCredentials`,
+after a refresh under a session token (ADR 0045, ADR 0065).
 
 `errors/missing-bucket` runs against a bucket named at random on both. AWS names it `NoSuchBucket`,
 which is `NotFound` without `key`. R2 answers the token scoped to the CI bucket with

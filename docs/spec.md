@@ -1078,31 +1078,36 @@ Where the two answer differently the adapter is written to the stricter side, an
 promises what both hold (ADR 0014). A compatible endpoint can be configured and is not promised,
 Google Cloud Storage's XML API among them (ADR 0031).
 
-| Point                              | Promised                                                                                                                                                                                                                                           |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Listing order                      | None. A page holds at most 1000 keys                                                                                                                                                                                                               |
-| Unicode-equivalent keys            | May name one object (R2 normalizes to NFC) or two (S3 keeps both). `keyBytesPreserved` is not declared                                                                                                                                             |
-| `userMetadata`                     | 2 KB of encoded header bytes; keys handed back in lower case                                                                                                                                                                                       |
-| Single `PUT`                       | Up to 5 GB                                                                                                                                                                                                                                         |
-| Object size ceiling                | The provider's, answered with `EntityTooLarge`                                                                                                                                                                                                     |
-| `Content-Type`                     | Always sent by `put`, `application/octet-stream` where none was given                                                                                                                                                                              |
-| `CompleteMultipartUpload`          | Judged by its body, which may carry an error under `200`                                                                                                                                                                                           |
-| Writes per key                     | R2 answers `429` above one write per second and key; the retry of section 7.5 may recover a single collision, but does not guarantee it                                                                                                            |
-| Incomplete multipart uploads       | Removed by a lifecycle rule on AWS, after seven days by default on R2; stowage removes none                                                                                                                                                        |
-| Presigned URL host                 | The endpoint that signed it; on R2 the `r2.cloudflarestorage.com` endpoint and not a custom domain                                                                                                                                                 |
-| Response overrides on `presignGet` | Answered as the four response headers, on AWS and on R2                                                                                                                                                                                            |
-| Missing bucket                     | `NotFound` without `key` where AWS answers `NoSuchBucket` (section 7.9). Under a token scoped to other buckets, R2 answers `403 AccessDenied` for a missing bucket as for any other, and the call rejects with `AccessDenied`                      |
-| Expired credential                 | R2 answers an expired credential, a temporary credential past its `exp` included, with `403 SignatureDoesNotMatch`, which is `InvalidCredentials` with `attempts: 1`; the resolver is not called again with `forceRefresh: true` for it (ADR 0045) |
-| Objects stored compressed          | An object another tool stored with a content coding may read decoded and longer than its `size`, which is the stored size, or as stored (section 4.4); a range starting inside it is `ProviderError` (section 4.3)                                 |
+| Point                              | Promised                                                                                                                                                                                                                                                                                                      |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Listing order                      | None. A page holds at most 1000 keys                                                                                                                                                                                                                                                                          |
+| Unicode-equivalent keys            | May name one object (R2 normalizes to NFC) or two (S3 keeps both). `keyBytesPreserved` is not declared                                                                                                                                                                                                        |
+| `userMetadata`                     | 2 KB of encoded header bytes; keys handed back in lower case                                                                                                                                                                                                                                                  |
+| Single `PUT`                       | Up to 5 GB                                                                                                                                                                                                                                                                                                    |
+| Object size ceiling                | The provider's, answered with `EntityTooLarge`                                                                                                                                                                                                                                                                |
+| `Content-Type`                     | Always sent by `put`, `application/octet-stream` where none was given                                                                                                                                                                                                                                         |
+| `CompleteMultipartUpload`          | Judged by its body, which may carry an error under `200`                                                                                                                                                                                                                                                      |
+| Writes per key                     | R2 answers `429` above one write per second and key; the retry of section 7.5 may recover a single collision, but does not guarantee it                                                                                                                                                                       |
+| Incomplete multipart uploads       | Removed by a lifecycle rule on AWS, after seven days by default on R2; stowage removes none                                                                                                                                                                                                                   |
+| Presigned URL host                 | The endpoint that signed it; on R2 the `r2.cloudflarestorage.com` endpoint and not a custom domain                                                                                                                                                                                                            |
+| Response overrides on `presignGet` | Answered as the four response headers, on AWS and on R2                                                                                                                                                                                                                                                       |
+| Missing bucket                     | `NotFound` without `key` where AWS answers `NoSuchBucket` (section 7.9). Under a token scoped to other buckets, R2 answers `403 AccessDenied` for a missing bucket as for any other, and the call rejects with `AccessDenied`                                                                                 |
+| Expired credential                 | R2 answers an expired credential, a temporary credential past its `exp` included, with `403 SignatureDoesNotMatch`, which is `InvalidCredentials` (ADR 0045). Under a session token a refresh follows (section 7.3), and a fresh credential refused too is `InvalidCredentials` with `attempts: 2` (ADR 0065) |
+| Objects stored compressed          | An object another tool stored with a content coding may read decoded and longer than its `size`, which is the stored size, or as stored (section 4.4); a range starting inside it is `ProviderError` (section 4.3)                                                                                            |
 
 ### 7.3 Credentials
 
 - `credentials` is required. No unsigned request is sent.
-- The adapter resolves `credentials` before every request it signs and caches nothing between
-  calls. A function is called with `{ forceRefresh: false }`, and with `{ forceRefresh: true }` once
-  after the provider answered `Expired`, which R2 does not answer for an expired credential (section
-  7.2); that one repeat has no delay and is not switched off by `retry: false`. Caching and rotation
-  are the function's job.
+- The adapter resolves `credentials` before every request it signs and caches nothing between calls.
+  A function is called with `{ forceRefresh: false }`, and with `{ forceRefresh: true }` for one
+  refresh after the provider answered `Expired`, whatever the credential, or `SignatureDoesNotMatch`
+  to an attempt that carried a session token, which is how R2 answers an expired one (section 7.2).
+  The refresh has no delay and is not switched off by `retry: false`. Where the fresh credential is
+  refused too, the failure carries `attempts: 2`, and after `SignatureDoesNotMatch` it is
+  `InvalidCredentials` whose message says that the temporary credential expired or is not accepted.
+  A key pair answered `SignatureDoesNotMatch` gets no refresh. Nor do `stat` and `exists`: their
+  `HEAD` is answered `403` without a provider code, which is `AccessDenied` (section 7.9, ADR 0065).
+  Caching and rotation are the function's job.
 - Before signing, `accessKeyId` and `secretAccessKey` are checked to be non-empty strings and every
   key of the resolved object to be one of the three; a violation is `InvalidCredentials` naming the
   field, with `attempts: 0`.
@@ -2574,6 +2579,10 @@ adapters, tested in this repository and not by the suite:
   run of spaces among them, on `Put Blob` and on `Put Block List`; `presignGet` as a service SAS;
   `presignPut` refused before any request; and a `copy`, once the pinned Azurite carries `Put Blob
 From URL`. Against Azurite on every commit and the account in the `slow` tier.
+- The refresh of `adapter-s3` after `SignatureDoesNotMatch` under a session token (section 7.3),
+  against a stubbed `fetch`: one resolver call with `forceRefresh: true`, then success, or
+  `InvalidCredentials` with `attempts: 2` after a second one; one attempt for the same answer to a
+  key pair.
 - The repeat after `401 InvalidAuthenticationInfo` under an access token (section 8.3), against a
   stubbed `fetch`: one resolver call with `forceRefresh: true`, then success, or
   `InvalidCredentials` after a second `401`.
