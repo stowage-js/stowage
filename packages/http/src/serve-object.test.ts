@@ -576,8 +576,16 @@ describe("`Content-Language`", () => {
     expect(response.headers.get("content-language")).toBe("de-AT, en");
   });
 
-  test.each(["GET", "HEAD"])("is absent on `%s` where none is stored", async (method) => {
-    expect((await serve(method)).headers.has("content-language")).toBe(false);
+  test.each([
+    ["a `200`", "GET", {}, 200],
+    ["a `HEAD`", "HEAD", {}, 200],
+    ["a `206`", "GET", { range: "bytes=2-5" }, 206],
+    ["a `304`", "GET", { "if-none-match": "*" }, 304],
+  ])("is absent on %s where none is stored", async (_, method, headers, status) => {
+    const response = await serveConditional(headers, rangingStorage().storage, method);
+
+    expect(response.status).toBe(status);
+    expect(response.headers.has("content-language")).toBe(false);
   });
 });
 
