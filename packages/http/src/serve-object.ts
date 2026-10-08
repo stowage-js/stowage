@@ -317,6 +317,8 @@ function objectHeaders(
     "last-modified": lastModifiedOf(stat, answeredAt).toUTCString(),
   });
 
+  if (stat.contentLanguage !== undefined) headers.set("content-language", stat.contentLanguage);
+
   // A storage that hands over no `etag`, `adapter-fs`, gets none derived for it: a tag
   // built from size and time would claim a strength the layer cannot vouch for.
   if (stat.etag !== undefined) headers.set("etag", `"${stat.etag}"`);

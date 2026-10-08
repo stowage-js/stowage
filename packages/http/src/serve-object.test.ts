@@ -15,12 +15,13 @@ const request = (method: string, init: RequestInit = {}): Request =>
 
 /** A storage holding one object, under whatever key it is asked for. */
 const holding = (
-  fields: { capabilities?: Storage["capabilities"]; etag?: string } = {},
+  fields: { capabilities?: Storage["capabilities"] } & Partial<ObjectStat> = {},
 ): Storage => {
-  const stat = statOf("etag" in fields ? { etag: fields.etag } : {});
+  const { capabilities, ...described } = fields;
+  const stat = statOf(described);
 
   return stubStorage({
-    capabilities: fields.capabilities,
+    capabilities,
     get: async (key) => storedObject({ ...stat, key }, streamOf("body")),
     stat: async (key) => ({ ...stat, key }),
   });
@@ -254,20 +255,20 @@ const rangingStorage = (
   fields: {
     capabilities?: Storage["capabilities"];
     get?: Storage["get"];
-    contentEncoding?: string;
-  } = {},
+  } & Pick<Partial<ObjectStat>, "contentEncoding" | "contentLanguage"> = {},
 ): { storage: Storage; calls: string[] } => {
   const calls: string[] = [];
-  const stat = statOf({ size: sixteenBytes.length, contentEncoding: fields.contentEncoding });
+  const { capabilities, get, ...described } = fields;
+  const stat = statOf({ size: sixteenBytes.length, ...described });
 
   const storage = stubStorage({
-    capabilities: fields.capabilities ?? ["rangeReads"],
+    capabilities: capabilities ?? ["rangeReads"],
     get: async (key, options) => {
       const range = options?.range;
 
       calls.push(range === undefined ? "get" : `get ${range.start}-${range.end ?? ""}`);
 
-      if (fields.get !== undefined) return await fields.get(key, options);
+      if (get !== undefined) return await get(key, options);
       if (range === undefined) return storedObject(stat, streamOf(sixteenBytes));
       if (stat.contentEncoding !== undefined) throw storageError({ code: "ProviderError" });
       if (range.start >= stat.size) throw storageError({ code: "InvalidRequest", key });
@@ -560,6 +561,25 @@ const serveConditional = async (
   storage: Storage = rangingStorage().storage,
   method = "GET",
 ): Promise<Response> => await serveObject(storage, "docs/report.pdf", request(method, { headers }));
+
+describe("`Content-Language`", () => {
+  test.each([
+    ["a `200`", "GET", {}, 200],
+    ["a `HEAD`", "HEAD", {}, 200],
+    ["a `206`", "GET", { range: "bytes=2-5" }, 206],
+    ["a `304`", "GET", { "if-none-match": "*" }, 304],
+  ])("is the stored `contentLanguage` on %s", async (_, method, headers, status) => {
+    const { storage } = rangingStorage({ contentLanguage: "de-AT, en" });
+    const response = await serveConditional(headers, storage, method);
+
+    expect(response.status).toBe(status);
+    expect(response.headers.get("content-language")).toBe("de-AT, en");
+  });
+
+  test.each(["GET", "HEAD"])("is absent on `%s` where none is stored", async (method) => {
+    expect((await serve(method)).headers.has("content-language")).toBe(false);
+  });
+});
 
 describe("`If-None-Match`", () => {
   test("with the `ETag` is `304` with the headers of the `200` but `Content-Length`, from `stat` alone", async () => {
