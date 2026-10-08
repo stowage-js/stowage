@@ -33,7 +33,10 @@ export interface GcsPresignPutOptions {
    * working 12 hours after that, whatever this asked for.
    */
   expiresIn: number;
-  /** Bound exactly, case and parameters included: an upload of another type is refused. */
+  /**
+   * Bound exactly up to runs of spaces, case and parameters included: an upload of another
+   * type is refused.
+   */
   contentType: string;
   /**
    * Bound exactly, so the client reports the length and the server signs that number. A
@@ -41,8 +44,10 @@ export interface GcsPresignPutOptions {
    */
   contentLength: number;
   /**
-   * Checked as `put` checks it, signed as `cache-control` and handed back in `headers` where
-   * given. Left out, it is not bound: whoever holds the URL may send it (ADR 0063).
+   * Checked as `put` checks it, `contentType` always counted in the 2,048 bytes, then signed
+   * as `cache-control` and handed back in `headers` where given. Bound exactly up to runs of
+   * spaces, which GCS stores as sent. Left out, it is not bound: whoever holds the URL may
+   * send it (ADR 0063).
    */
   cacheControl?: string;
   /** Bound as `content-disposition`, as `cacheControl` is. */

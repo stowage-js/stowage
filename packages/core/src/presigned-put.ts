@@ -4,6 +4,9 @@
  */
 export interface PresignedPut {
   readonly url: string;
-  /** The headers the client sends beside the body. `Content-Length` is never among them. */
+  /**
+   * The headers the client sends beside the body, each content header the URL binds among
+   * them. `Content-Length` is never among them.
+   */
   readonly headers: Readonly<Record<string, string>>;
 }
