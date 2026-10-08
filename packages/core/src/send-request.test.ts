@@ -333,6 +333,30 @@ test("a credential refused after its refresh is reported, counting both requests
   expect(failure.attempts).toBe(2);
 });
 
+test("a refusal is read beside the headers the attempt that met it sent", async () => {
+  const answers: RefusedAnswer[] = [];
+
+  stubFetch(() => refused(400, "Expired"));
+
+  await rejection(
+    async () =>
+      await sendRequest(
+        request({
+          readFailure: (answer) => {
+            answers.push(answer);
+
+            return readFailure(answer);
+          },
+        }),
+      ),
+  );
+
+  expect(answers.map((answer) => answer.sentHeaders)).toEqual([
+    [["authorization", "resolved"]],
+    [["authorization", "refreshed"]],
+  ]);
+});
+
 test("a credential the attempt cannot refresh is reported at once", async () => {
   const answers: RefusedAnswer[] = [];
   const sent = stubFetch(() => refused(400, "Expired"));
