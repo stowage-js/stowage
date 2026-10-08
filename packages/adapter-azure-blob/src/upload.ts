@@ -1,7 +1,8 @@
 import { type ObjectStat, type SendParts, uploadStream } from "@stowage/core";
 
 import type { AzureBlobConfiguration } from "./configuration.ts";
-import { describeWrite } from "./description.ts";
+import type { ContentHeaderFields } from "./content-headers.ts";
+import { describeWrite, type WrittenObject } from "./description.ts";
 import { send } from "./request.ts";
 import type { UserMetadataHeaders } from "./user-metadata.ts";
 
@@ -9,8 +10,20 @@ import type { UserMetadataHeaders } from "./user-metadata.ts";
 export interface ObjectWrite {
   readonly key: string;
   readonly contentType: string;
+  readonly contentHeaders: ContentHeaderFields;
   readonly userMetadata: UserMetadataHeaders;
   readonly signal?: AbortSignal;
+}
+
+/** The object `write` holds once `size` bytes of it are stored. */
+function writtenObject(write: ObjectWrite, size: number): WrittenObject {
+  return {
+    key: write.key,
+    size,
+    contentType: write.contentType,
+    ...write.contentHeaders.held,
+    userMetadata: write.userMetadata.held,
+  };
 }
 
 /** Spec 8.6: bytes the adapter holds go as one `Put Blob`, which it never splits. */
@@ -26,6 +39,7 @@ export async function putBlob(
     headers: [
       ["content-type", write.contentType],
       ["x-ms-blob-type", "BlockBlob"],
+      ...write.contentHeaders.headers,
       ...write.userMetadata.headers,
     ],
     body: bytes,
@@ -34,14 +48,7 @@ export async function putBlob(
 
   await response.body?.cancel();
 
-  return describeWrite(
-    configuration.container,
-    write.key,
-    bytes.byteLength,
-    write.contentType,
-    write.userMetadata.held,
-    response,
-  );
+  return describeWrite(configuration.container, writtenObject(write, bytes.byteLength), response);
 }
 
 /**
@@ -139,7 +146,8 @@ async function putBlock(
 /**
  * Spec 8.5: repeated like every other request, a lost response included, since a repeat
  * commits the same blocks in the same order. The object's own headers travel here,
- * because a commit without them resets the content type and drops the user metadata.
+ * because a commit without them resets the content type and clears the content headers
+ * and the user metadata.
  */
 async function commitBlocks(
   configuration: AzureBlobConfiguration,
@@ -152,21 +160,18 @@ async function commitBlocks(
     operation: "put",
     key: write.key,
     query: [["comp", "blocklist"]],
-    headers: [["x-ms-blob-content-type", write.contentType], ...write.userMetadata.headers],
+    headers: [
+      ["x-ms-blob-content-type", write.contentType],
+      ...write.contentHeaders.headers,
+      ...write.userMetadata.headers,
+    ],
     body: utf8.encode(blockListDocument(blockIds)),
     signal: write.signal,
   });
 
   await response.body?.cancel();
 
-  return describeWrite(
-    configuration.container,
-    write.key,
-    size,
-    write.contentType,
-    write.userMetadata.held,
-    response,
-  );
+  return describeWrite(configuration.container, writtenObject(write, size), response);
 }
 
 const utf8 = new TextEncoder();

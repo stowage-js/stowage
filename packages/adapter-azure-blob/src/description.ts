@@ -1,5 +1,6 @@
 import { type ObjectStat, type StorageError, wholeSizeOf } from "@stowage/core";
 
+import { readContentHeaders } from "./content-headers.ts";
 import { partialContent } from "./range.ts";
 import { azureBlobError } from "./storage-error.ts";
 import { readUserMetadata } from "./user-metadata.ts";
@@ -19,31 +20,29 @@ export function describeResponse(
     lastModified: lastModifiedOf(container, key, operation, response),
     etag: etagOf(response),
     contentType: response.headers.get("content-type") ?? defaultContentType,
+    ...readContentHeaders(response.headers),
     userMetadata: readUserMetadata(response.headers),
   };
 }
 
+/** What `put` knows of the object it wrote before the service answered. */
+export type WrittenObject = Omit<ObjectStat, "lastModified" | "etag">;
+
 /**
  * What `put` wrote, described from what it sent and what `Put Blob` answered: the entity
- * tag and the time the service wrote the blob, and neither length nor type. Spec 4.4 has
- * that time come from the provider, so an answer without one is reported rather than
- * dated from this clock.
+ * tag and the time the service wrote the blob, and neither length, type nor content
+ * headers. Spec 4.4 has that time come from the provider, so an answer without one is
+ * reported rather than dated from this clock.
  */
 export function describeWrite(
   container: string,
-  key: string,
-  size: number,
-  contentType: string,
-  userMetadata: Readonly<Record<string, string>>,
+  written: WrittenObject,
   response: Response,
 ): ObjectStat {
   return {
-    key,
-    size,
-    lastModified: lastModifiedOf(container, key, "put", response),
+    ...written,
+    lastModified: lastModifiedOf(container, written.key, "put", response),
     etag: etagOf(response),
-    contentType,
-    userMetadata,
   };
 }
 

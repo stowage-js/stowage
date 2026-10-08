@@ -1,0 +1,81 @@
+import { type CapabilityName, type ContentHeaders, contentHeadersRefusal } from "@stowage/core";
+
+import type { HeaderField } from "./sign.ts";
+import { azureBlobError } from "./storage-error.ts";
+
+const contentHeaderOptions: readonly (keyof ContentHeaders)[] = [
+  "cacheControl",
+  "contentDisposition",
+  "contentLanguage",
+];
+
+/**
+ * ADR 0059: `Put Block List` takes the `x-ms-blob-*` forms alone, and Azurite drops the
+ * standard `Cache-Control` and `Content-Language` on `Put Blob`, so both requests send these.
+ */
+const sentNames = {
+  cacheControl: "x-ms-blob-cache-control",
+  contentDisposition: "x-ms-blob-content-disposition",
+  contentLanguage: "x-ms-blob-content-language",
+} as const satisfies Readonly<Record<keyof ContentHeaders, string>>;
+
+const answeredNames = {
+  cacheControl: "cache-control",
+  contentDisposition: "content-disposition",
+  contentLanguage: "content-language",
+} as const satisfies Readonly<Record<keyof ContentHeaders, string>>;
+
+export interface ContentHeaderFields {
+  /** What `Put Blob` and `Put Block List` carry the content headers in. */
+  readonly headers: readonly HeaderField[];
+  /** The content headers as the service stores them: each byte for byte, none `undefined`. */
+  readonly held: ContentHeaders;
+}
+
+/**
+ * The header fields the content headers travel in, refused before the request is signed in
+ * the order of spec 4.3. The check reads a snapshot, so what it passed is what is sent.
+ * Shared Key signs each value trimmed and otherwise as sent (spec 8.4), and the core lets no
+ * value through that trimming changes.
+ */
+export function contentHeaderFields(
+  container: string,
+  headers: ContentHeaders,
+  contentType: string,
+  key: string,
+  capabilities: readonly CapabilityName[],
+): ContentHeaderFields {
+  const { cacheControl, contentDisposition, contentLanguage } = headers;
+  const held: ContentHeaders = Object.freeze({
+    ...(cacheControl === undefined ? {} : { cacheControl }),
+    ...(contentDisposition === undefined ? {} : { contentDisposition }),
+    ...(contentLanguage === undefined ? {} : { contentLanguage }),
+  });
+  const refusal = contentHeadersRefusal(held, contentType, capabilities);
+
+  if (refusal !== undefined) {
+    throw azureBlobError(container, { ...refusal, operation: "put", key, attempts: 0 });
+  }
+
+  return {
+    headers: contentHeaderOptions.flatMap((option): HeaderField[] => {
+      const value = held[option];
+
+      return value === undefined ? [] : [[sentNames[option], value]];
+    }),
+    held,
+  };
+}
+
+/** The content headers a `Get Blob` or a `Get Blob Properties` response carries (spec 8.4). */
+export function readContentHeaders(headers: Headers): ContentHeaders {
+  const held: Partial<Record<keyof ContentHeaders, string>> = {};
+
+  for (const option of contentHeaderOptions) {
+    const value = headers.get(answeredNames[option]);
+
+    if (value !== null && value !== "") held[option] = value;
+  }
+
+  return Object.freeze(held);
+}

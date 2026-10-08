@@ -1,6 +1,5 @@
 import {
   type CapabilityName,
-  contentHeadersRefusal,
   type DeleteReport,
   type GetOptions,
   isStorageError,
@@ -21,6 +20,7 @@ import {
   type AzureBlobConfiguration,
   readConfiguration,
 } from "./configuration.ts";
+import { contentHeaderFields } from "./content-headers.ts";
 import { copyBlob } from "./copy.ts";
 import { deleteBelow, deleteKeys } from "./delete.ts";
 import { defaultContentType, describeResponse } from "./description.ts";
@@ -43,7 +43,7 @@ import { rangeAnswerFailure, requireRange } from "./range.ts";
 import { send } from "./request.ts";
 import { azureBlobError } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
-import { putBlob, putStream } from "./upload.ts";
+import { type ObjectWrite, putBlob, putStream } from "./upload.ts";
 import { userMetadataHeaders } from "./user-metadata.ts";
 
 export type { AzureBlobAdapterOptions } from "./configuration.ts";
@@ -76,6 +76,7 @@ export function azureBlobStorage(options: AzureBlobAdapterOptions): AzureBlobSto
 }
 
 const azureBlobCapabilities: readonly CapabilityName[] = Object.freeze([
+  "contentHeaders",
   "keyBytesPreserved",
   "presignedUrls",
   "rangeReads",
@@ -117,13 +118,22 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
       this.capabilities,
     );
     const contentType = this.#readContentType(options?.contentType);
-
-    this.#requireContentHeaders(options, contentType, key);
+    const write: ObjectWrite = {
+      key,
+      contentType,
+      contentHeaders: contentHeaderFields(
+        this.bucket,
+        options ?? {},
+        contentType,
+        key,
+        this.capabilities,
+      ),
+      userMetadata,
+      signal: options?.signal,
+    };
 
     // Spec 4.3: a signal that already fired rejects before the request goes out.
     options?.signal?.throwIfAborted();
-
-    const write = { key, contentType, userMetadata, signal: options?.signal };
 
     if (isStream(body)) return await putStream(this.#configuration, write, body);
 
@@ -280,18 +290,6 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
       key: from,
       attempts: 0,
     });
-  }
-
-  /**
-   * Spec 4.3, before anything is sent. The adapter declares no `contentHeaders` yet, so any of
-   * the three is refused as `Unsupported` rather than as an option it does not know.
-   */
-  #requireContentHeaders(options: PutOptions | undefined, contentType: string, key: string): void {
-    const refusal = contentHeadersRefusal(options ?? {}, contentType, this.capabilities);
-
-    if (refusal === undefined) return;
-
-    throw azureBlobError(this.bucket, { ...refusal, operation: "put", key, attempts: 0 });
   }
 
   #readContentType(contentType: string | undefined): string {

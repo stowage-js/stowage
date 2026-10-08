@@ -255,6 +255,58 @@ test("a stream that fills more than one part is staged as blocks and committed o
   });
 });
 
+/** The content headers a request carried in their `x-ms-blob-*` forms, `null` for each it did not. */
+function contentHeadersOf(request: SentRequest | undefined): (string | null)[] {
+  return [
+    "x-ms-blob-cache-control",
+    "x-ms-blob-content-disposition",
+    "x-ms-blob-content-language",
+  ].map((name) => request?.headers.get(name) ?? null);
+}
+
+const contentHeaders = {
+  cacheControl: "no-store",
+  contentDisposition: 'attachment;\tfilename="report  final.pdf"',
+  contentLanguage: "de-AT, en",
+};
+
+// Spec 8.6: a commit clears what it does not name, so `Put Block List` restates all three,
+// and the blocks carry none.
+test("a block upload restates the content headers on its commit", async () => {
+  const sent = stubFetch(blockProvider());
+
+  const written = await storage({ multipart: { partSize: smallestPart } }).put(
+    "object.bin",
+    streamOf(patternOf(smallestPart + 1), mebibyte),
+    contentHeaders,
+  );
+
+  const commit = sent.find((request) => stepOf(request) === "commit");
+
+  expect(contentHeadersOf(commit)).toEqual([
+    contentHeaders.cacheControl,
+    contentHeaders.contentDisposition,
+    contentHeaders.contentLanguage,
+  ]);
+  expect(blocksOf(sent).map(contentHeadersOf)).toEqual([
+    [null, null, null],
+    [null, null, null],
+  ]);
+  expect(written).toMatchObject(contentHeaders);
+});
+
+test("a stream that ends within one part sends the content headers on its `Put Blob`", async () => {
+  const sent = stubFetch(created);
+
+  const written = await storage().put("object.bin", streamOf(patternOf(kibibyte), kibibyte), {
+    cacheControl: contentHeaders.cacheControl,
+  });
+
+  expect(contentHeadersOf(sent[0])).toEqual([contentHeaders.cacheControl, null, null]);
+  expect(written).toMatchObject({ cacheControl: contentHeaders.cacheControl });
+  expect("contentLanguage" in written).toBe(false);
+});
+
 test("every upload draws block ids of its own", async () => {
   const sent = stubFetch(blockProvider());
   const upload = storage({ multipart: { partSize: smallestPart } });
@@ -377,6 +429,7 @@ test("a commit that received no response is sent again with the headers it carri
 
   const written = await upload.put("object.bin", streamOf(patternOf(smallestPart + 1), mebibyte), {
     contentType: "text/plain",
+    cacheControl: "no-store",
     userMetadata: { writtenBy: "stowage" },
   });
 
@@ -386,6 +439,7 @@ test("a commit that received no response is sent again with the headers it carri
   expect(second).toBeDefined();
   expect(second?.headers.get("x-ms-blob-content-type")).toBe("text/plain");
   expect(second?.headers.get("x-ms-meta-writtenby")).toBe("stowage");
+  expect(second?.headers.get("x-ms-blob-cache-control")).toBe("no-store");
   expect(new TextDecoder().decode(second?.body)).toBe(new TextDecoder().decode(first?.body));
 });
 
