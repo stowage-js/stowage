@@ -68,7 +68,7 @@ export async function serveObject(
       const failed = failedPreconditionOf(preconditions, stat);
 
       return failed === undefined
-        ? new Response(null, { status: 200, headers: objectHeaders(serving, stat) })
+        ? new Response(null, { status: 200, headers: wholeHeaders(serving, stat) })
         : failedAnswer(serving, failed, stat);
     }
 
@@ -210,12 +210,9 @@ async function serveWhole(serving: ServeRequest, planning?: Planning): Promise<R
     return failedAnswer(serving, changed, object.stat);
   }
 
-  // No `Content-Length`: an object another tool stored with a content coding may arrive
-  // decoded and longer than `size`, and Node and Deno would cut such a body to `size`
-  // and end the response as complete.
   return new Response(object.stream(), {
     status: 200,
-    headers: objectHeaders(serving, object.stat),
+    headers: wholeHeaders(serving, object.stat),
   });
 }
 
@@ -272,7 +269,7 @@ async function serveRange(
   const headers = objectHeaders(serving, object.stat);
 
   // A ranged `get` never hands over an object stored with a content coding (ADR 0044),
-  // so the length holds here where a `200` could not carry one.
+  // so the length holds here for every object a `206` is sent for.
   headers.set("content-range", `bytes ${range.start}-${last}/${size}`);
   headers.set("content-length", String(last - range.start + 1));
 
@@ -289,6 +286,19 @@ async function discard(object: StoredObject): Promise<void> {
     .stream()
     .cancel()
     .catch(() => {});
+}
+
+/**
+ * The headers of a `200` and of its `HEAD`. A coded object may arrive decoded and longer
+ * than `size`, which Node and Deno would cut to a declared length and end as complete
+ * (ADR 0062), so only an object without `contentEncoding` gets one.
+ */
+function wholeHeaders(serving: ServeRequest, stat: ObjectStat): Headers {
+  const headers = objectHeaders(serving, stat);
+
+  if (stat.contentEncoding === undefined) headers.set("content-length", String(stat.size));
+
+  return headers;
 }
 
 function objectHeaders(
