@@ -67,7 +67,7 @@ export async function PUT(request: Request, segments: Segments): Promise<Respons
 Next.js routes a `HEAD` to `GET` with the request's method kept, which `serveObject` answers from
 `stat` without a body. The getter keeps the concrete type, so `redirectToObject` and
 `presignUpload` take `files()` without a cast. Two storages are two calls of `lazyStorage`
-([spec 13](https://github.com/stowage-js/stowage/blob/@stowage/nextjs@0.5.0/docs/spec.md#13-stowagenextjs)).
+([spec 13](https://github.com/stowage-js/stowage/blob/@stowage/nextjs@0.6.0/docs/spec.md#13-stowagenextjs)).
 
 ## Runtimes
 
@@ -80,7 +80,7 @@ Node 24 and Node 26.
 | `@stowage/nextjs` | yes  | no  | no   | no        |
 
 These are the package's cells in the
-[runtime matrix](https://github.com/stowage-js/stowage/blob/@stowage/nextjs@0.5.0/docs/spec.md#2-runtime-matrix).
+[runtime matrix](https://github.com/stowage-js/stowage/blob/@stowage/nextjs@0.6.0/docs/spec.md#2-runtime-matrix).
 Bun and Deno are not promised, as Next.js promises neither.
 
 The bundle measures 0.1 kB minified and gzipped, without Next.js.
@@ -93,7 +93,7 @@ The bundle measures 0.1 kB minified and gzipped, without Next.js.
   arrives cut, and `acceptUpload` answers it `400`; Next.js 16.3.8 did so when measured for this
   release. An application leaves its upload routes out of the `matcher`, or raises
   `experimental.proxyClientMaxBodySize` above `maxSize`
-  ([spec 13](https://github.com/stowage-js/stowage/blob/@stowage/nextjs@0.5.0/docs/spec.md#13-stowagenextjs)).
+  ([spec 13](https://github.com/stowage-js/stowage/blob/@stowage/nextjs@0.6.0/docs/spec.md#13-stowagenextjs)).
 
 ## Notes
 
@@ -198,10 +198,10 @@ test("answers 404 for a missing file", async () => {
 
 ## Specification
 
-[`docs/spec.md` at `@stowage/nextjs@0.5.0`](https://github.com/stowage-js/stowage/blob/@stowage/nextjs@0.5.0/docs/spec.md#13-stowagenextjs)
+[`docs/spec.md` at `@stowage/nextjs@0.6.0`](https://github.com/stowage-js/stowage/blob/@stowage/nextjs@0.6.0/docs/spec.md#13-stowagenextjs)
 is the contract: a caller may rely on what it states and on nothing else this package happens to
-export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/nextjs@0.5.0/CONTEXT.md)
-and the [decisions behind it](https://github.com/stowage-js/stowage/tree/@stowage/nextjs@0.5.0/docs/adr)
+export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/nextjs@0.6.0/CONTEXT.md)
+and the [decisions behind it](https://github.com/stowage-js/stowage/tree/@stowage/nextjs@0.6.0/docs/adr)
 are at the same tag.
 
 ## License

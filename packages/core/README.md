@@ -39,16 +39,16 @@ The bundle measures 5.9 kB minified and gzipped.
 ## Limits
 
 This section is empty. `@stowage/core` declares no capability; each storage declares its own, out
-of the five names of [spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/core@0.5.0/docs/spec.md#49-capabilities).
+of the six names of [spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/core@0.6.0/docs/spec.md#49-capabilities).
 
 ## Notes
 
 A failure reaches the caller in one of two shapes: a `StorageError`, which `isStorageError` tells
 apart, or the runtime's `AbortError` once a signal fired
-([spec 4.10](https://github.com/stowage-js/stowage/blob/@stowage/core@0.5.0/docs/spec.md#410-errors)).
+([spec 4.10](https://github.com/stowage-js/stowage/blob/@stowage/core@0.6.0/docs/spec.md#410-errors)).
 A name added to `StorageErrorCode` or `capabilityNames` is a minor release, so a `switch` over
 either needs a default branch
-([spec 15](https://github.com/stowage-js/stowage/blob/@stowage/core@0.5.0/docs/spec.md#15-versions)).
+([spec 15](https://github.com/stowage-js/stowage/blob/@stowage/core@0.6.0/docs/spec.md#15-versions)).
 
 ```ts
 import { isStorageError } from "@stowage/core";
@@ -72,7 +72,7 @@ export function describeFailure(failure: unknown): string {
 
 An adapter written outside this repository takes what two adapters here need on the wire from
 this package rather than writing it again
-([spec 4.13](https://github.com/stowage-js/stowage/blob/@stowage/core@0.5.0/docs/spec.md#413-exports-for-adapter-authors)):
+([spec 4.13](https://github.com/stowage-js/stowage/blob/@stowage/core@0.6.0/docs/spec.md#413-exports-for-adapter-authors)):
 
 - `invalidKeyReason` checks a key against its rule of spec 4.8, as the first act of every
   operation.
@@ -84,6 +84,8 @@ this package rather than writing it again
   runtime cannot read it.
 - `isUserMetadataKey`, `encodeUserMetadataValue`, `decodeUserMetadataValue` and
   `userMetadataByteLength` carry user metadata in headers, and measure the 2 KB of spec 4.3.
+- `isHeaderValue` and `contentHeadersRefusal` check the content headers against the form and the
+  bounds of spec 4.3, in its order.
 - `PresignedPut` is what `presignPut` resolves with on every adapter that declares
   `presignedUrls`.
 
@@ -109,10 +111,10 @@ export function requireWritableKey(bucket: string, key: string): void {
 
 ## Specification
 
-[`docs/spec.md` at `@stowage/core@0.5.0`](https://github.com/stowage-js/stowage/blob/@stowage/core@0.5.0/docs/spec.md#4-the-core-api-stowagecore)
+[`docs/spec.md` at `@stowage/core@0.6.0`](https://github.com/stowage-js/stowage/blob/@stowage/core@0.6.0/docs/spec.md#4-the-core-api-stowagecore)
 is the contract: a caller may rely on what it states and on nothing else this package happens to
-export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/core@0.5.0/CONTEXT.md)
-and the [decisions behind it](https://github.com/stowage-js/stowage/tree/@stowage/core@0.5.0/docs/adr)
+export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/core@0.6.0/CONTEXT.md)
+and the [decisions behind it](https://github.com/stowage-js/stowage/tree/@stowage/core@0.6.0/docs/adr)
 are at the same tag.
 
 ## License

@@ -77,7 +77,7 @@ release CI ran 12.1.2 as the newest release of NestJS 12, each on Node 24 and No
 | NestJS on Fastify | yes  | no  | no   | no        |
 
 These are the package's cells in the
-[runtime matrix](https://github.com/stowage-js/stowage/blob/@stowage/nestjs@0.5.0/docs/spec.md#2-runtime-matrix).
+[runtime matrix](https://github.com/stowage-js/stowage/blob/@stowage/nestjs@0.6.0/docs/spec.md#2-runtime-matrix).
 Bun and Deno are not promised, as NestJS promises neither.
 
 The bundle measures 0.5 kB minified and gzipped without NestJS. With the Node bridge of
@@ -166,10 +166,10 @@ integration provides no separate fake or `forTesting` module.
 
 ## Specification
 
-[`docs/spec.md` at `@stowage/nestjs@0.5.0`](https://github.com/stowage-js/stowage/blob/@stowage/nestjs@0.5.0/docs/spec.md#11-stowagenestjs)
+[`docs/spec.md` at `@stowage/nestjs@0.6.0`](https://github.com/stowage-js/stowage/blob/@stowage/nestjs@0.6.0/docs/spec.md#11-stowagenestjs)
 is the contract: a caller may rely on what it states and on nothing else this package happens to
-export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/nestjs@0.5.0/CONTEXT.md)
-and the [decisions behind it](https://github.com/stowage-js/stowage/tree/@stowage/nestjs@0.5.0/docs/adr)
+export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/nestjs@0.6.0/CONTEXT.md)
+and the [decisions behind it](https://github.com/stowage-js/stowage/tree/@stowage/nestjs@0.6.0/docs/adr)
 are at the same tag.
 
 ## License

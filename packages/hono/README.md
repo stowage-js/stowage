@@ -46,7 +46,7 @@ Hono routes a `HEAD` to the `GET` handler, and `c.req.raw.method` stays `"HEAD"`
 `serveObject` answers from `stat` without a body. Bun, Deno and `workerd` serve `app` as it is
 exported; on Node, `serve(app)` of `@hono/node-server` does. Two storages are two calls of
 `withStorage` under two names
-([spec 12](https://github.com/stowage-js/stowage/blob/@stowage/hono@0.5.0/docs/spec.md#12-stowagehono)).
+([spec 12](https://github.com/stowage-js/stowage/blob/@stowage/hono@0.6.0/docs/spec.md#12-stowagehono)).
 
 ## Runtimes
 
@@ -59,7 +59,7 @@ this release CI ran 4.13.12 as the newest release of Hono 4. CI last ran green o
 | `@stowage/hono` | yes  | yes | yes  | yes       |
 
 These are the package's cells in the
-[runtime matrix](https://github.com/stowage-js/stowage/blob/@stowage/hono@0.5.0/docs/spec.md#2-runtime-matrix).
+[runtime matrix](https://github.com/stowage-js/stowage/blob/@stowage/hono@0.6.0/docs/spec.md#2-runtime-matrix).
 
 The bundle measures 0.1 kB minified and gzipped, without Hono.
 
@@ -192,10 +192,10 @@ The application itself calls `createApp` with the storages it constructs. For th
 
 ## Specification
 
-[`docs/spec.md` at `@stowage/hono@0.5.0`](https://github.com/stowage-js/stowage/blob/@stowage/hono@0.5.0/docs/spec.md#12-stowagehono)
+[`docs/spec.md` at `@stowage/hono@0.6.0`](https://github.com/stowage-js/stowage/blob/@stowage/hono@0.6.0/docs/spec.md#12-stowagehono)
 is the contract: a caller may rely on what it states and on nothing else this package happens to
-export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/hono@0.5.0/CONTEXT.md)
-and the [decisions behind it](https://github.com/stowage-js/stowage/tree/@stowage/hono@0.5.0/docs/adr)
+export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/hono@0.6.0/CONTEXT.md)
+and the [decisions behind it](https://github.com/stowage-js/stowage/tree/@stowage/hono@0.6.0/docs/adr)
 are at the same tag.
 
 ## License
