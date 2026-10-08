@@ -46,14 +46,22 @@ export interface PresignUploadOptions {
    */
   contentLength: number;
   /**
-   * The `Cache-Control` the signature binds, passed to `presignPut` where given. The layer
-   * never reads it from a request. A value outside the form or the bounds `put` checks the
-   * three by is `400` before signing, as is each of the other two.
+   * The `Cache-Control` the signature binds, passed to `presignPut` where given. A value that
+   * is no valid header value is `400` before signing, as are the three content headers past
+   * 2,048 bytes of names and values with `Content-Type`.
    */
   cacheControl?: string;
-  /** The `Content-Disposition` the signature binds, passed to `presignPut` where given. */
+  /**
+   * The `Content-Disposition` the signature binds, passed to `presignPut` where given. A value
+   * that is no valid header value is `400` before signing, as are the three content headers
+   * past 2,048 bytes of names and values with `Content-Type`.
+   */
   contentDisposition?: string;
-  /** The `Content-Language` the signature binds, passed to `presignPut` where given. */
+  /**
+   * The `Content-Language` the signature binds, passed to `presignPut` where given. A value
+   * that is no valid header value or longer than 100 characters is `400` before signing, as
+   * are the three content headers past 2,048 bytes of names and values with `Content-Type`.
+   */
   contentLanguage?: string;
 }
 
