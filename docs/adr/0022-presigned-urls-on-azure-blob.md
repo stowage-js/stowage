@@ -42,7 +42,7 @@ the same storage makes.
 
 Under an access token a presign call sends a request, which ADR 0011 said neither method does. The
 adapter requests a user delegation key for each call and keeps none: the user delegation key starts
-15 minutes in the past and expires at `se` or 15 minutes from now, whichever is later, so one key
+at the SAS's `st` and expires at `se` or 15 minutes from now, whichever is later, so one key
 signs one URL. It expired with the SAS at first, and on `workerd` the account answered the key
 request for a SAS of one second with `400` and "The value for one of the XML nodes is not in the
 correct format"; the presumed cause is an expiry that had passed by the time the service read the
@@ -61,11 +61,23 @@ before the signature, and the key request falls inside it, between the server an
   carries `sip`.
 - `st` is set 15 minutes in the past, as Microsoft recommends for clock skew, and `se` is
   `expiresIn` seconds from now. An account with a SAS expiration policy requires `st` and measures
-  `se − st`, so that policy sees `expiresIn + 900`. Leaving `st` out avoided the 900 seconds and
-  would have made every URL fail on such an account.
+  `se − st`, so that policy sees `expiresIn + 900`, and under an access token at most 604800 (next
+  point). Leaving `st` out avoided the 900 seconds and would have made every URL fail on such an
+  account.
 - `expiresIn` keeps its 1 to 604800 seconds. The ceiling equals the seven days a user delegation
-  key may live. A signing clock running ahead can push a key that expires at 604800 seconds past
-  Azure's seven days, and then the key request fails, not the URL.
+  key may live. Microsoft's documentation disagrees on what those seven days are counted from: the
+  reference of `Get User Delegation Key` bounds `Start` and `Expiry` each within seven days of the
+  current date, and the guide for the Azure CLI limits a key to seven days from its start. Under an
+  access token the adapter takes the stricter reading: where `st` 15 minutes in the past would lie
+  more than 604800 seconds before `se`, `st` and the user delegation key's `Start` move to `se`
+  less 604800 seconds. Above an `expiresIn` of 603900 the URL keeps less of the 15 minutes for
+  clock skew, and at 604800 none, so an account whose clock runs behind the signing clock refuses
+  it at first. The move stays whatever the looser reading turns out to be, and no run measures it:
+  keeping `st` 15 minutes in the past at the ceiling would have a SAS expiration policy of seven
+  days, which measures `se − st`, refuse URLs it admits now, a withdrawal for the accounts that
+  set one. A caller who needs the whole 15 minutes passes an `expiresIn` of 603900 or less. A
+  signing clock running ahead can push a key that expires at 604800 seconds past Azure's seven
+  days, and then the key request fails, not the URL.
 - Whether `srh` accepts `Content-Type` and `Content-Length` is unverified: the documentation shows
   invented header names only, and Azurite derives its user delegation key from a public seed, so it
   cannot settle the question. A real account settles it before the v0.2 spec is written. If either

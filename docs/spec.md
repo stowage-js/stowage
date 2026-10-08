@@ -1579,9 +1579,15 @@ A URL is a SAS, and the credential of the call decides which kind (ADR 0022):
   Azure refuses a value that differs from the signed one or is missing is a promise of section 18.
 - Under an account key `presignPut` rejects before any request, because a service SAS binds no
   request header. Its message says that `presignPut` needs an access token.
-- Every SAS carries `sr=b`, `st` 15 minutes in the past and `se` `expiresIn` seconds from now, and
-  `spr=https`, or `https,http` where the endpoint is a loopback address; none carries `sip`. An
-  account with a SAS expiration policy therefore measures `expiresIn + 900` seconds.
+- Every SAS carries `sr=b`, `st` 15 minutes in the past unless the next point moves it, `se`
+  `expiresIn` seconds from now, and `spr=https`, or `https,http` where the endpoint is a loopback
+  address; none carries `sip`. An account with a SAS expiration policy therefore measures
+  `expiresIn + 900` seconds.
+- Under an access token, where `st` 15 minutes in the past would lie more than 604800 seconds before
+  `se`, `st` is `se` less 604800 seconds instead, so that a SAS and its key span seven days at
+  most and a SAS expiration policy of seven days admits every URL. Above an `expiresIn` of 603900
+  the URL keeps less of the 15 minutes for clock skew, and at 604800 `st` is the moment of signing;
+  a caller who needs the whole 15 minutes passes 603900 or less (ADR 0022).
 - Under an access token each call requests one user delegation key, valid from `st` until `se` or 15
   minutes from now, whichever is later, and keeps it nowhere; it is an ordinary request of the
   adapter under sections 8.3 and 8.5, and a refusal of it is `AccessDenied`. The principal needs the
