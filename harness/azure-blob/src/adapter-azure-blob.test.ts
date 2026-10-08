@@ -29,6 +29,17 @@ const encodedKey = `${encodedPrefix}grüße/日本.txt`;
  */
 const userMetadata = { a1: "digit", a_: "a run   of spaces" };
 
+/**
+ * The content headers of `put/content-headers`: ADR 0059 has Shared Key sign each
+ * `x-ms-blob-*` value as sent, a tab and a run of spaces included, where folding them was
+ * refused with `403 AuthenticationFailed`.
+ */
+const contentHeaders = {
+  cacheControl: "public, max-age=60, immutable",
+  contentDisposition: 'attachment;\tfilename="conformance  report.pdf"',
+  contentLanguage: "de-AT, en",
+};
+
 const mebibyte = 1024 * 1024;
 
 /** The smallest part spec 8.1 accepts, which keeps a block upload at three blocks. */
@@ -163,6 +174,33 @@ describe.skipIf(underAccountKey === undefined || underAccessToken === undefined)
         await storage.put(key, sourceStream(partSize + 1), { contentType });
 
         expect((await storage.stat(key)).contentType).toBe(contentType);
+      },
+      uploadTimeout,
+    );
+
+    test("Shared Key signs a `Put Blob` carrying the content headers", async () => {
+      const storage = azureBlobStorage(endpointOrFail(underAccountKey));
+      const key = `${encodedPrefix}content-headers`;
+
+      expect(await storage.put(key, "carries content headers", contentHeaders)).toMatchObject(
+        contentHeaders,
+      );
+      expect(await storage.stat(key)).toMatchObject(contentHeaders);
+      expect((await storage.get(key)).stat).toMatchObject(contentHeaders);
+    });
+
+    test(
+      "Shared Key signs a `Put Block List` restating the content headers",
+      async () => {
+        const storage = azureBlobStorage({
+          ...endpointOrFail(underAccountKey),
+          multipart: { partSize },
+        });
+        const key = `${encodedPrefix}content-headers.bin`;
+
+        await storage.put(key, sourceStream(partSize + 1), contentHeaders);
+
+        expect(await storage.stat(key)).toMatchObject(contentHeaders);
       },
       uploadTimeout,
     );
