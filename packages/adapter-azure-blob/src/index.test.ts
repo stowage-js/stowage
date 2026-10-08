@@ -419,8 +419,9 @@ test("a signal that already fired rejects with `AbortError` before any request",
   expect(sent).toHaveLength(0);
 });
 
-test("the storage declares `keyBytesPreserved`, `presignedUrls`, `rangeReads` and `userMetadata`, and not `userMetadataTokenKeys`", () => {
+test("the storage declares `contentHeaders`, `keyBytesPreserved`, `presignedUrls`, `rangeReads` and `userMetadata`, and not `userMetadataTokenKeys`", () => {
   expect(storage().capabilities).toEqual([
+    "contentHeaders",
     "keyBytesPreserved",
     "presignedUrls",
     "rangeReads",
@@ -498,30 +499,136 @@ test.each(["content-hash", "x.y", "1st"])(
   },
 );
 
-// Until the adapter declares `contentHeaders`, spec 4.3 refuses the three before any check
-// of their form, `""` included.
+const contentHeaders = {
+  cacheControl: "public, max-age=60, immutable",
+  contentDisposition: 'attachment;\tfilename="conformance  report.pdf"',
+  contentLanguage: "de-AT, en",
+};
+
+const contentHeaderMembers = Object.keys(contentHeaders);
+
+const contentHeaderFields = [
+  "x-ms-blob-cache-control",
+  "x-ms-blob-content-disposition",
+  "x-ms-blob-content-language",
+];
+
+/** The content headers a request carried in their `x-ms-blob-*` forms, `null` for each it did not. */
+function contentHeadersOf(request: SentRequest | undefined): (string | null)[] {
+  return contentHeaderFields.map((name) => request?.headers.get(name) ?? null);
+}
+
+// ADR 0059: Azurite drops the standard `Cache-Control` and `Content-Language` on `Put Blob`,
+// and `Content-Disposition` has no other form.
+test("`put` sends the content headers in their `x-ms-blob-*` forms as written, and reports them", async () => {
+  const sent = stubFetch(() => created());
+
+  const written = await storage({ credentials: { accountKey } }).put(
+    "object",
+    "body",
+    contentHeaders,
+  );
+
+  expect(contentHeadersOf(sent[0])).toEqual([
+    contentHeaders.cacheControl,
+    contentHeaders.contentDisposition,
+    contentHeaders.contentLanguage,
+  ]);
+  for (const name of ["cache-control", "content-disposition", "content-language"]) {
+    expect(sent[0]?.headers.has(name)).toBe(false);
+  }
+  expect(written).toMatchObject(contentHeaders);
+});
+
+test("`put` without content headers sends none and reports none", async () => {
+  const sent = stubFetch(() => created());
+
+  const written = await storage().put("object", "body", { cacheControl: undefined });
+
+  expect(contentHeadersOf(sent[0])).toEqual([null, null, null]);
+  for (const member of contentHeaderMembers) {
+    expect(member in written).toBe(false);
+  }
+});
+
 test.each([
-  ["cacheControl", "public, max-age=60"],
-  ["contentDisposition", "attachment"],
-  ["contentLanguage", "de-AT"],
   ["cacheControl", ""],
-])(
-  "`%s` as %j is `Unsupported` naming `contentHeaders` before any request",
-  async (option, value) => {
-    const sent = stubFetch(() => created());
+  ["contentDisposition", " attachment"],
+  ["contentLanguage", "de-AT\nx-injected: 1"],
+  ["cacheControl", 60],
+])("`%s` as %j is `InvalidOption` naming it before any request", async (option, value) => {
+  const sent = stubFetch(() => created());
 
-    const failure = await failureOf(() => storage().put("object", "body", { [option]: value }));
+  const failure = await failureOf(() => storage().put("object", "body", { [option]: value }));
 
-    expect(failure).toMatchObject({
-      code: "Unsupported",
-      capability: "contentHeaders",
-      operation: "put",
-      key: "object",
-      attempts: 0,
-    });
-    expect(sent).toHaveLength(0);
+  expect(failure).toMatchObject({
+    code: "InvalidOption",
+    operation: "put",
+    key: "object",
+    attempts: 0,
+  });
+  expect(failure.message).toContain(option);
+  expect(sent).toHaveLength(0);
+});
+
+test("content headers over the bound are `InvalidRequest` before any request", async () => {
+  const sent = stubFetch(() => created());
+
+  const failure = await failureOf(() =>
+    storage().put("object", "body", { contentLanguage: "x".repeat(101) }),
+  );
+
+  expect(failure).toMatchObject({ code: "InvalidRequest", attempts: 0 });
+  expect(sent).toHaveLength(0);
+});
+
+const storedContentHeaders = {
+  "cache-control": contentHeaders.cacheControl,
+  "content-disposition": contentHeaders.contentDisposition,
+  "content-language": contentHeaders.contentLanguage,
+};
+
+/** Answers a `HEAD` and a `GET` of one stored blob alike. */
+function storedBlob(headers: Record<string, string>) {
+  return (request: SentRequest): Response =>
+    request.method === "HEAD" ? described(headers) : blob("body", headers);
+}
+
+const describingOperations = [
+  ["stat", async () => await storage().stat("object")],
+  ["get", async () => (await storage().get("object")).stat],
+] as const;
+
+test.each(describingOperations)(
+  "`%s` reads the content headers from the answer",
+  async (_operation, describe) => {
+    stubFetch(storedBlob(storedContentHeaders));
+
+    expect(await describe()).toMatchObject(contentHeaders);
   },
 );
+
+test.each(describingOperations)(
+  "`%s` reads an empty or absent content header as none",
+  async (_operation, describe) => {
+    stubFetch(storedBlob({ "cache-control": "", "content-language": "" }));
+
+    const stat = await describe();
+
+    for (const member of contentHeaderMembers) {
+      expect(member in stat).toBe(false);
+    }
+  },
+);
+
+// Spec 4.4 reads what another tool stored outside the rule of `put`, decoded in no way.
+test("`stat` reports a content header another tool stored outside the rule as read", async () => {
+  const raw = "attachment; filename=gr\u00fc\u00dfe.txt";
+
+  stubFetch(storedBlob({ "content-disposition": raw }));
+
+  expect((await storage().stat("object")).contentDisposition).toBe(raw);
+});
 
 test("an empty user metadata set sends no `x-ms-meta-` field", async () => {
   const sent = stubFetch(() => created());
@@ -1411,6 +1518,43 @@ test("`copy` rejects a signal that already fired before any request", async () =
     storage().copy("from.txt", "to.txt", { signal: AbortSignal.abort() }),
   ).rejects.toMatchObject({ name: "AbortError" });
   expect(sent).toHaveLength(0);
+});
+
+// Spec 8.7: the service copies the source's content headers, so the request names none.
+test.each(["copy", "move"] as const)(
+  "`%s` sends no content header and reads them from the `HEAD` of the destination",
+  async (operation) => {
+    const sent = stubFetch((request) =>
+      request.method === "DELETE"
+        ? new Response(null, { status: 202 })
+        : copied(storedContentHeaders)(request),
+    );
+
+    const written = await storage()[operation]("from.txt", "to.txt");
+
+    expect(contentHeadersOf(sent[0])).toEqual([null, null, null]);
+    expect(written).toMatchObject(contentHeaders);
+  },
+);
+
+// Spec 8.4 and ADR 0061: a response override would be reported in place of the stored value,
+// so a request whose answer feeds an `ObjectStat` carries no query at all.
+test("no request whose answer describes an object carries a response override", async () => {
+  const sent = stubFetch((request) => {
+    if (request.method === "DELETE") return new Response(null, { status: 202 });
+
+    return request.method === "GET" ? blob("body") : copied()(request);
+  });
+
+  await storage().stat("object");
+  await (await storage().get("object")).text();
+  await storage().copy("from.txt", "to.txt");
+  await storage().move("from.txt", "to.txt");
+
+  const describing = sent.filter((request) => ["GET", "HEAD"].includes(request.method));
+
+  expect(describing).toHaveLength(4);
+  expect(describing.map((request) => new URL(request.url).search)).toEqual(["", "", "", ""]);
 });
 
 test("`move` copies, then deletes the source without a condition, and describes the destination", async () => {
