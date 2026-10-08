@@ -24,6 +24,14 @@ export function dispositionOf(
   );
 }
 
+/**
+ * Whether a `Content-Disposition` is of the type `attachment`: the token before the first
+ * `;`, compared without case. RFC 6266 lets whitespace stand around the `;`.
+ */
+export function isAttachment(value: string): boolean {
+  return value.split(";", 1)[0]?.trim().toLowerCase() === "attachment";
+}
+
 /** The name a key gives a download: its last segment, empty for a key ending in `/`. */
 function lastSegmentOf(key: string): string {
   return key.slice(key.lastIndexOf("/") + 1);

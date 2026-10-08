@@ -581,6 +581,55 @@ describe("`Content-Language`", () => {
   });
 });
 
+const keyDisposition = `attachment; filename="report.pdf"; filename*=UTF-8''report.pdf`;
+
+const storedDisposition = async (
+  contentDisposition: string,
+  options?: ServeObjectOptions,
+  method = "GET",
+): Promise<string | null> =>
+  (await serve(method, options, holding({ contentDisposition }))).headers.get(
+    "content-disposition",
+  );
+
+describe("a stored `contentDisposition`", () => {
+  test.each([
+    'attachment; filename="stored.pdf"',
+    "attachment; filename*=UTF-8''st%C3%B6red.pdf",
+    'ATTACHMENT; filename="stored.pdf"',
+    'attachment ; filename="stored.pdf"',
+    "attachment",
+  ])("of the type `attachment` is sent as stored: `%s`", async (stored) => {
+    expect(await storedDisposition(stored)).toBe(stored);
+    expect(await storedDisposition(stored, {}, "HEAD")).toBe(stored);
+  });
+
+  test.each([
+    'inline; filename="x.html"',
+    "INLINE",
+    'attachments; filename="x.html"',
+    'form-data; name="x"',
+    'filename="x.html"; attachment',
+  ])("of any other type gives way to the default: `%s`", async (stored) => {
+    expect(await storedDisposition(stored)).toBe(keyDisposition);
+  });
+
+  test("gives way to `filename`", async () => {
+    expect(
+      await storedDisposition('attachment; filename="stored.pdf"', { filename: "Q3.pdf" }),
+    ).toBe(`attachment; filename="Q3.pdf"; filename*=UTF-8''Q3.pdf`);
+  });
+
+  test.each(["attachment", "inline"] as const)(
+    "gives way to the `disposition` `%s`",
+    async (type) => {
+      expect(
+        await storedDisposition('attachment; filename="stored.pdf"', { disposition: type }),
+      ).toBe(`${type}; filename="report.pdf"; filename*=UTF-8''report.pdf`);
+    },
+  );
+});
+
 describe("`If-None-Match`", () => {
   test("with the `ETag` is `304` with the headers of the `200` but `Content-Length`, from `stat` alone", async () => {
     const { storage, calls } = rangingStorage();

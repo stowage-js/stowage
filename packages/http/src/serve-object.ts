@@ -8,7 +8,7 @@ import {
 } from "@stowage/core";
 
 import { answerFor, methodNotAllowed, rangeNotSatisfiable } from "./answers.ts";
-import { dispositionOf } from "./disposition.ts";
+import { dispositionOf, isAttachment } from "./disposition.ts";
 import { lastModifiedOf } from "./http-date.ts";
 import {
   type FailedPrecondition,
@@ -21,7 +21,11 @@ import {
 import { type RequestedRange, requestedRangeOf, suffixOf } from "./range.ts";
 
 export interface ServeObjectOptions {
-  /** The name a download is saved under; the key's last segment where it is absent. */
+  /**
+   * The name a download is saved under. Where neither it nor `disposition` is given, an
+   * object stored with an `attachment` disposition is served with that one, and any other
+   * with the key's last segment.
+   */
   filename?: string;
   /**
    * `"attachment"`, the default, has a browser save the object. `"inline"` has it shown
@@ -312,7 +316,7 @@ function objectHeaders(
     date: new Date(answeredAt).toUTCString(),
     "content-type": stat.contentType,
     "x-content-type-options": "nosniff",
-    "content-disposition": dispositionOf(key, options),
+    "content-disposition": contentDispositionOf(key, options, stat),
     "cache-control": options.cacheControl ?? "private, no-cache",
     "last-modified": lastModifiedOf(stat, answeredAt).toUTCString(),
   });
@@ -327,4 +331,18 @@ function objectHeaders(
   }
 
   return headers;
+}
+
+/**
+ * The stored `Content-Disposition` where the caller names no download of its own and the
+ * stored one is an attachment, which hands its writer no more than the name a download is
+ * saved under; anything else would let it have the object rendered inline (ADR 0062).
+ */
+function contentDispositionOf(key: string, options: ServeObjectOptions, stat: ObjectStat): string {
+  const stored = stat.contentDisposition;
+  const callerNamesOne = options.filename !== undefined || options.disposition !== undefined;
+
+  return !callerNamesOne && stored !== undefined && isAttachment(stored)
+    ? stored
+    : dispositionOf(key, options);
 }
