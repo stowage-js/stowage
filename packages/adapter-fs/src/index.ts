@@ -4,7 +4,7 @@ import { dirname, isAbsolute } from "node:path";
 
 import {
   type CapabilityName,
-  contentHeadersRefusal,
+  checkContentHeaders,
   type DeleteReport,
   type GetOptions,
   isStorageError,
@@ -506,11 +506,11 @@ class FileSystemStorage implements FsStorage {
 
   /** Spec 6: the adapter has nowhere to keep them, and declares no `contentHeaders` (ADR 0060). */
   #requireNoContentHeaders(options: PutOptions | undefined, key: string): void {
-    const refusal = contentHeadersRefusal(options ?? {}, options?.contentType, this.capabilities);
+    const check = checkContentHeaders(options ?? {}, options?.contentType, this.capabilities);
 
-    if (refusal === undefined) return;
+    if (!("refusal" in check)) return;
 
-    throw fsError(this.#root, { ...refusal, operation: "put", key, attempts: 0 });
+    throw fsError(this.#root, { ...check.refusal, operation: "put", key, attempts: 0 });
   }
 
   #requireNoUserMetadata(userMetadata: Record<string, string> | undefined, key: string): void {

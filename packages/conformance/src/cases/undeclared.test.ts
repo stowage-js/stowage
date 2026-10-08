@@ -1,6 +1,6 @@
 import {
   type CapabilityName,
-  contentHeadersRefusal,
+  checkContentHeaders,
   isUserMetadataKey,
   type ObjectStat,
   type Storage,
@@ -63,7 +63,7 @@ const undeclaring = (behavior: UndeclaredBehavior = {}): Storage => {
           ? { ...options, cacheControl: undefined }
           : (options ?? {});
 
-      if (contentHeadersRefusal(headers, options?.contentType, []) !== undefined) {
+      if ("refusal" in checkContentHeaders(headers, options?.contentType, [])) {
         throw unsupported("contentHeaders", "put");
       }
 

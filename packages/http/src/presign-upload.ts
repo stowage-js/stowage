@@ -1,7 +1,7 @@
 import {
   capabilityNames,
+  checkContentHeaders,
   type ContentHeaders,
-  contentHeadersRefusal,
   isHeaderValue,
   type PresignedPut,
 } from "@stowage/core";
@@ -89,7 +89,7 @@ export async function presignUpload(
 
   // Every capability is assumed, so that only the client's value is refused here: a storage
   // that holds no content headers is the caller's, and its own refusal answers `500`.
-  if (contentHeadersRefusal(options, contentType, capabilityNames) !== undefined) {
+  if ("refusal" in checkContentHeaders(options, contentType, capabilityNames)) {
     return refusal(400);
   }
 

@@ -1,4 +1,4 @@
-import { type CapabilityName, type ContentHeaders, contentHeadersRefusal } from "@stowage/core";
+import { type CapabilityName, checkContentHeaders, type ContentHeaders } from "@stowage/core";
 
 import type { HeaderField } from "./sign.ts";
 import { azureBlobError } from "./storage-error.ts";
@@ -49,17 +49,13 @@ export function contentHeaderFields(
   operation: "put" | "presignPut",
   capabilities: readonly CapabilityName[],
 ): ContentHeaderFields {
-  const { cacheControl, contentDisposition, contentLanguage } = headers;
-  const held: ContentHeaders = Object.freeze({
-    ...(cacheControl === undefined ? {} : { cacheControl }),
-    ...(contentDisposition === undefined ? {} : { contentDisposition }),
-    ...(contentLanguage === undefined ? {} : { contentLanguage }),
-  });
-  const refusal = contentHeadersRefusal(held, contentType, capabilities);
+  const check = checkContentHeaders(headers, contentType, capabilities);
 
-  if (refusal !== undefined) {
-    throw azureBlobError(container, { ...refusal, operation, key, attempts: 0 });
+  if ("refusal" in check) {
+    throw azureBlobError(container, { ...check.refusal, operation, key, attempts: 0 });
   }
+
+  const { held } = check;
 
   return {
     headers: contentHeaderOptions.flatMap((option): HeaderField[] => {
