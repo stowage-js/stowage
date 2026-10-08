@@ -256,7 +256,96 @@ test("`presignPut` signs a `PUT` binding length, type and host, and hands back t
   expect(presigned.headers).toEqual({ "content-type": "text/plain" });
 });
 
+const contentHeaders = {
+  cacheControl: "public, max-age=60, immutable",
+  contentDisposition: 'attachment;\tfilename="a  b.txt"',
+  contentLanguage: "de-AT, en",
+};
+
+test("`presignPut` adds each content header given to the signed headers and hands it back", async () => {
+  refuseFetch();
+
+  const presigned = await keySigningStorage(pem).presignPut("object.txt", {
+    ...putOptions,
+    ...contentHeaders,
+  });
+
+  expect(queryOf(presigned.url)["X-Goog-SignedHeaders"]).toBe(
+    "cache-control;content-disposition;content-language;content-length;content-type;host",
+  );
+  expect(presigned.headers).toEqual({
+    "content-type": "text/plain",
+    "cache-control": "public, max-age=60, immutable",
+    "content-disposition": 'attachment;\tfilename="a  b.txt"',
+    "content-language": "de-AT, en",
+  });
+});
+
+test("a content header left out is neither signed nor handed back", async () => {
+  refuseFetch();
+
+  const presigned = await keySigningStorage(pem).presignPut("object.txt", {
+    ...putOptions,
+    cacheControl: "no-store",
+    contentLanguage: undefined,
+  });
+
+  expect(queryOf(presigned.url)["X-Goog-SignedHeaders"]).toBe(
+    "cache-control;content-length;content-type;host",
+  );
+  expect(presigned.headers).toEqual({ "content-type": "text/plain", "cache-control": "no-store" });
+});
+
 // What is refused before signing
+
+test.each(["", "inline ", "inline\r\n", 'attachment; filename="ü.txt"', 60])(
+  "a content header of %j is `InvalidOption` naming it before `signBlob` is sent",
+  async (value) => {
+    const sent = stubFetch(() => signedBlob(new Uint8Array(256)));
+
+    const refusal = await failureOf(
+      async () =>
+        await iamSigningStorage({ accessToken: signerToken }).presignPut(
+          "object",
+          untyped({ ...putOptions, contentDisposition: value }),
+        ),
+    );
+
+    expect(refusal).toMatchObject({ code: "InvalidOption", operation: "presignPut", attempts: 0 });
+    expect(refusal.message).toContain("`contentDisposition`");
+    expect(sent).toEqual([]);
+  },
+);
+
+// `Content-Type` is 12 bytes and the long type 2,019, `Content-Language` and `de` 18: 2,049 in all.
+// The long type alone carries no content header, so it is not measured.
+test("the bounds of the content headers count the content type and refuse before signing", async () => {
+  refuseFetch();
+
+  const storage = keySigningStorage(pem);
+  const longType = { ...putOptions, contentType: `text/plain; x=${"y".repeat(2005)}` };
+
+  await expect(
+    storage.presignPut("object", { ...putOptions, contentLanguage: "x".repeat(100) }),
+  ).resolves.toMatchObject({ url: expect.stringMatching(/^https:/u) });
+
+  const refusals = await Promise.all(
+    [
+      { ...putOptions, contentLanguage: "x".repeat(101) },
+      { ...longType, contentLanguage: "de" },
+    ].map(
+      async (beyond) => await failureOf(async () => await storage.presignPut("object", beyond)),
+    ),
+  );
+
+  for (const refusal of refusals) {
+    expect(refusal).toMatchObject({ code: "InvalidRequest", operation: "presignPut", attempts: 0 });
+  }
+
+  await expect(storage.presignPut("object", longType)).resolves.toMatchObject({
+    url: expect.stringMatching(/^https:/u),
+  });
+});
 
 test.each([
   ["zero seconds", 0],

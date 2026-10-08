@@ -146,6 +146,7 @@ class GcsBucketStorage implements GcsStorage {
         options ?? {},
         contentType,
         key,
+        "put",
         this.capabilities,
       ),
       userMetadata,
@@ -293,7 +294,7 @@ class GcsSigningBucketStorage extends GcsBucketStorage implements GcsSigningStor
   }
 
   async presignPut(key: string, options: GcsPresignPutOptions): Promise<PresignedPut> {
-    return await presignPut(this.configuration, this.#signer, key, options);
+    return await presignPut(this.configuration, this.#signer, key, options, this.capabilities);
   }
 }
 

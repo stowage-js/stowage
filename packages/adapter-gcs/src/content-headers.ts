@@ -10,14 +10,15 @@ const contentHeaderOptions: readonly (keyof ContentHeaders)[] = [
 ];
 
 /**
- * The content headers as `put` sends them in the object resource, or the refusal of spec 4.3
- * before anything is sent. The check reads a snapshot, so what it passed is what is sent.
+ * The content headers as `put` sends them in the object resource and `presignPut` signs them,
+ * or the refusal of spec 4.3 before anything is sent. The check reads a snapshot, so what it passed is what is sent.
  */
 export function heldContentHeaders(
   bucket: string,
   headers: ContentHeaders,
   contentType: string,
   key: string,
+  operation: "put" | "presignPut",
   capabilities: readonly CapabilityName[],
 ): ContentHeaders {
   const { cacheControl, contentDisposition, contentLanguage } = headers;
@@ -29,7 +30,7 @@ export function heldContentHeaders(
   const refusal = contentHeadersRefusal(held, contentType, capabilities);
 
   if (refusal !== undefined) {
-    throw gcsError(bucket, { ...refusal, operation: "put", key, attempts: 0 });
+    throw gcsError(bucket, { ...refusal, operation, key, attempts: 0 });
   }
 
   return held;

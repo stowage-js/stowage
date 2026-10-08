@@ -1,6 +1,7 @@
-import type { PresignedPut } from "@stowage/core";
+import type { CapabilityName, ContentHeaders, PresignedPut } from "@stowage/core";
 
 import type { GcsConfiguration, GcsSigner } from "./configuration.ts";
+import { heldContentHeaders } from "./content-headers.ts";
 import { requireKey } from "./key.ts";
 import {
   optionError,
@@ -39,6 +40,14 @@ export interface GcsPresignPutOptions {
    * finite, non-negative integer; anything else is `InvalidOption` before anything is sent.
    */
   contentLength: number;
+  /**
+   * Each content header given is checked as `put` checks it, signed under its standard name
+   * and handed back in `headers`. One left out is not bound: whoever holds the URL may send
+   * it (ADR 0063).
+   */
+  cacheControl?: string;
+  contentDisposition?: string;
+  contentLanguage?: string;
 }
 
 /** The week V4 signing allows `X-Goog-Expires`; GCS refuses `604801` with `400`. */
@@ -49,6 +58,13 @@ const responseOverrides = [
   ["responseContentType", "response-content-type"],
   ["responseContentDisposition", "response-content-disposition"],
 ] as const;
+
+/** The standard name the XML API takes each content header under, in the order of spec 9.9. */
+const contentHeaderNames = [
+  ["cacheControl", "cache-control"],
+  ["contentDisposition", "content-disposition"],
+  ["contentLanguage", "content-language"],
+] as const satisfies readonly (readonly [keyof ContentHeaders, string])[];
 
 /** Spec 9.9: `GET` on an addressable key, the two overrides carried in the query. */
 export async function presignGet(
@@ -84,15 +100,16 @@ export async function presignGet(
 }
 
 /**
- * Spec 9.9: `PUT` on a writable key, with the content type and the content length bound
- * through signed headers beside `host`. Only the content type is handed back to send beside
- * the body, since a client sets the length itself (spec 4.13).
+ * Spec 9.9: `PUT` on a writable key, with the content type, the content length and each
+ * content header given bound through signed headers beside `host`. All but the length are
+ * handed back to send beside the body, since a client sets the length itself (spec 4.13).
  */
 export async function presignPut(
   configuration: GcsConfiguration,
   signer: GcsSigner,
   key: string,
   options: GcsPresignPutOptions,
+  capabilities: readonly CapabilityName[],
 ): Promise<PresignedPut> {
   const operation = "presignPut";
 
@@ -102,20 +119,30 @@ export async function presignPut(
   const expiresIn = readExpiresIn(configuration.bucket, given.expiresIn, operation);
   const contentType = readText(configuration.bucket, given.contentType, "contentType", operation);
   const contentLength = readContentLength(configuration.bucket, given.contentLength, operation);
+  const held = heldContentHeaders(
+    configuration.bucket,
+    options,
+    contentType,
+    key,
+    operation,
+    capabilities,
+  );
+  const contentHeaders = contentHeaderNames.flatMap(([option, name]): HeaderField[] => {
+    const value = held[option];
+
+    return value === undefined ? [] : [[name, value]];
+  });
 
   const url = await presignedUrl(configuration, signer, {
     method: "PUT",
     operation,
     key,
     query: [],
-    headers: [
-      ["content-type", contentType],
-      ["content-length", contentLength],
-    ],
+    headers: [["content-type", contentType], ["content-length", contentLength], ...contentHeaders],
     expiresIn,
   });
 
-  return { url, headers: { "content-type": contentType } };
+  return { url, headers: { "content-type": contentType, ...Object.fromEntries(contentHeaders) } };
 }
 
 interface Presignable {
