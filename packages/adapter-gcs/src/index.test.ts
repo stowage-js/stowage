@@ -155,6 +155,7 @@ test("the storage names its provider and its bucket", () => {
 
 test("without a signer it declares every capability of spec 9.1 but `presignedUrls`", () => {
   expect(storage().capabilities).toEqual([
+    "contentHeaders",
     "keyBytesPreserved",
     "rangeReads",
     "userMetadata",
@@ -164,6 +165,7 @@ test("without a signer it declares every capability of spec 9.1 but `presignedUr
 
 test("with a signer it declares `presignedUrls` as well", () => {
   expect(signingStorage().capabilities).toEqual([
+    "contentHeaders",
     "keyBytesPreserved",
     "presignedUrls",
     "rangeReads",
@@ -427,30 +429,36 @@ test("an unknown option of `put` is `InvalidOption` naming it, before any reques
   expect(sent).toEqual([]);
 });
 
-// Until the adapter declares `contentHeaders`, spec 4.3 refuses the three before any check
-// of their form, `""` included.
 test.each([
-  ["cacheControl", "public, max-age=60"],
-  ["contentDisposition", "attachment"],
-  ["contentLanguage", "de-AT"],
   ["cacheControl", ""],
-])(
-  "`%s` as %j is `Unsupported` naming `contentHeaders` before any request",
-  async (option, value) => {
-    const sent = stubFetch(() => resource());
+  ["contentDisposition", " attachment"],
+  ["contentLanguage", "de-AT\nx-injected: 1"],
+  ["cacheControl", 60],
+])("`%s` as %j is `InvalidOption` naming it before any request", async (option, value) => {
+  const sent = stubFetch(() => resource());
 
-    const failure = await failureOf(() => storage().put("object", "hello", { [option]: value }));
+  const failure = await failureOf(() => storage().put("object", "hello", { [option]: value }));
 
-    expect(failure).toMatchObject({
-      code: "Unsupported",
-      capability: "contentHeaders",
-      operation: "put",
-      key: "object",
-      attempts: 0,
-    });
-    expect(sent).toEqual([]);
-  },
-);
+  expect(failure).toMatchObject({
+    code: "InvalidOption",
+    operation: "put",
+    key: "object",
+    attempts: 0,
+  });
+  expect(failure.message).toContain(option);
+  expect(sent).toEqual([]);
+});
+
+test("content headers over the bound are `InvalidRequest` before any request", async () => {
+  const sent = stubFetch(() => resource());
+
+  const failure = await failureOf(() =>
+    storage().put("object", "hello", { contentLanguage: "x".repeat(101) }),
+  );
+
+  expect(failure).toMatchObject({ code: "InvalidRequest", attempts: 0 });
+  expect(sent).toEqual([]);
+});
 
 test.each([[""], ["text/plain\r\nX-Injected: 1"]])(
   "the content type %j is `InvalidOption`",
@@ -542,6 +550,106 @@ test("a resource without `metadata` holds no user metadata", async () => {
   stubFetch(stored("hello"));
 
   expect((await storage().stat("object")).userMetadata).toEqual({});
+});
+
+// Content headers
+
+const contentHeaders = {
+  cacheControl: "public, max-age=60, immutable",
+  contentDisposition: 'attachment;\tfilename="conformance  report.pdf"',
+  contentLanguage: "de-AT, en",
+};
+
+const contentHeaderMembers = Object.keys(contentHeaders);
+
+test("`put` sends the content headers as members of the resource, as written", async () => {
+  const sent = stubFetch(() => resource());
+
+  await storage().put("object", "hello", contentHeaders);
+
+  expect(await uploadedResource(sent[0])).toMatchObject(contentHeaders);
+  for (const name of ["cache-control", "content-disposition", "content-language"]) {
+    expect(sent[0]?.headers.has(name)).toBe(false);
+  }
+});
+
+test("`put` without content headers sends none", async () => {
+  const sent = stubFetch(() => resource());
+
+  await storage().put("object", "hello", { cacheControl: undefined });
+
+  const uploaded = await uploadedResource(sent[0]);
+
+  for (const member of contentHeaderMembers) {
+    expect(uploaded).not.toHaveProperty(member);
+  }
+});
+
+test("`put` resolves with the content headers the answer describes", async () => {
+  stubFetch(() => resource(contentHeaders));
+
+  expect(await storage().put("object", "hello", contentHeaders)).toMatchObject(contentHeaders);
+});
+
+const describingOperations = [
+  ["stat", async () => await storage().stat("object")],
+  ["get", async () => (await storage().get("object")).stat],
+] as const;
+
+test.each(describingOperations)(
+  "`%s` reads the content headers from the resource",
+  async (_operation, describe) => {
+    stubFetch(stored("hello", contentHeaders));
+
+    expect(await describe()).toMatchObject(contentHeaders);
+  },
+);
+
+test.each(describingOperations)(
+  "`%s` reads an empty or absent content header as none",
+  async (_operation, describe) => {
+    stubFetch(stored("hello", { cacheControl: "", contentLanguage: "" }));
+
+    const described = await describe();
+
+    for (const member of contentHeaderMembers) {
+      expect(member in described).toBe(false);
+    }
+  },
+);
+
+// Spec 10.4: GCS serves `private, max-age=0` on a media download where the object stores no
+// `Cache-Control`, so the download's fields are not what the object holds.
+test("`get` reads no content header off the media download, and sends no request more", async () => {
+  const sent = stubFetch((request) =>
+    request.url.includes("alt=media")
+      ? new Response("hello", {
+          headers: {
+            "content-type": "text/plain",
+            "x-goog-generation": "1790665923456000",
+            "cache-control": "private, max-age=0",
+            "content-disposition": "inline",
+            "content-language": "fr",
+          },
+        })
+      : resource(),
+  );
+
+  const read = await storage().get("object");
+
+  expect(sent).toHaveLength(2);
+  for (const member of contentHeaderMembers) {
+    expect(member in read.stat).toBe(false);
+  }
+});
+
+// Spec 4.4 reads what another tool stored outside the rule of `put`, decoded in no way.
+test("`stat` reports a content header another tool stored outside the rule as read", async () => {
+  const raw = "attachment; filename=gr\u00fc\u00dfe.txt";
+
+  stubFetch(stored("hello", { contentDisposition: raw }));
+
+  expect((await storage().stat("object")).contentDisposition).toBe(raw);
 });
 
 test("a signal that already fired rejects `put` with `AbortError` before any request", async () => {
@@ -2584,3 +2692,19 @@ test("a signal that already fired rejects `move` before any request", async () =
   expect(failure).toMatchObject({ name: "AbortError" });
   expect(sent).toEqual([]);
 });
+
+// Spec 9.7: `rewriteTo`, sent without a body, and `objects.move` keep the source's content headers.
+test.each([
+  ["copy", () => rewriteDone(contentHeaders)],
+  ["move", () => moved(contentHeaders)],
+] as const)(
+  "`%s` reads the content headers from the destination the answer carries",
+  async (operation, answer) => {
+    const sent = stubFetch(answer);
+
+    const written = await storage()[operation]("from/a.txt", "to/b.txt");
+
+    expect(sent[0]?.body).toBeUndefined();
+    expect(written).toMatchObject(contentHeaders);
+  },
+);

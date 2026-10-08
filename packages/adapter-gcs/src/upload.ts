@@ -1,4 +1,10 @@
-import { isStorageError, type ObjectStat, type SendParts, uploadStream } from "@stowage/core";
+import {
+  type ContentHeaders,
+  isStorageError,
+  type ObjectStat,
+  type SendParts,
+  uploadStream,
+} from "@stowage/core";
 
 import type { GcsConfiguration } from "./configuration.ts";
 import { describeResource, readResource } from "./description.ts";
@@ -8,6 +14,7 @@ import { startSession } from "./session.ts";
 export interface ObjectWrite {
   readonly key: string;
   readonly contentType: string;
+  readonly contentHeaders: ContentHeaders;
   readonly userMetadata: Readonly<Record<string, string>>;
   readonly signal?: AbortSignal;
 }
@@ -134,11 +141,15 @@ function isUnanswered(failure: unknown, signal: AbortSignal | undefined): boolea
   return isStorageError(failure) && failure.code === "NetworkError";
 }
 
-/** The object's resource as the JSON API takes it: name, content type and user metadata. */
+/**
+ * The object's resource as the JSON API takes it: name, content type, content headers and
+ * user metadata.
+ */
 function objectResource(write: ObjectWrite): string {
   return JSON.stringify({
     name: write.key,
     contentType: write.contentType,
+    ...write.contentHeaders,
     ...(Object.keys(write.userMetadata).length === 0 ? {} : { metadata: write.userMetadata }),
   });
 }

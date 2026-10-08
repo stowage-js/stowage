@@ -256,6 +256,23 @@ test("a stream above one part goes as one session: a start, the parts at their o
   });
 });
 
+test("the start of a session carries the content headers as members of the resource", async () => {
+  const contentHeaders = {
+    cacheControl: "no-store",
+    contentDisposition: 'attachment;\tfilename="report  final.pdf"',
+    contentLanguage: "de-AT, en",
+  };
+  const { sent } = stubSession();
+
+  await storage().put("object.bin", streamOf(pattern(partSize + 1)).body, contentHeaders);
+
+  expect(JSON.parse(new TextDecoder().decode(sent[0]?.bytes))).toEqual({
+    name: "object.bin",
+    contentType: "application/octet-stream",
+    ...contentHeaders,
+  });
+});
+
 /** A chunk the service persisted whose answer never arrived. */
 const lostAfterPersisting: Answer = (_, service) => {
   service();

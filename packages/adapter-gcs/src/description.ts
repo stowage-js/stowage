@@ -2,6 +2,7 @@ import type { ObjectStat } from "@stowage/core";
 
 import { type AnsweredRequest, malformedAnswer, readAnswerJson } from "./answer.ts";
 import type { GcsConfiguration } from "./configuration.ts";
+import { readContentHeaders } from "./content-headers.ts";
 import { fieldOf, stringOf } from "./json.ts";
 import { objectPath, pinnedTo, send } from "./request.ts";
 import { readUserMetadata } from "./user-metadata.ts";
@@ -57,9 +58,9 @@ export async function readResource(
 }
 
 /**
- * Spec 4.4 out of the object resource: `size`, the time of `updated`, the `etag` and the
- * user metadata. The key is the one the call named, which the resource's `name` repeats byte
- * for byte.
+ * Spec 4.4 out of the object resource: `size`, the time of `updated`, the `etag`, the
+ * content headers and the user metadata. The key is the one the call named, which the
+ * resource's `name` repeats byte for byte.
  */
 export function describeResource(
   bucket: string,
@@ -83,6 +84,7 @@ export function describeResource(
     ...etagOf(resource),
     contentType:
       typeof contentType === "string" && contentType !== "" ? contentType : defaultContentType,
+    ...readContentHeaders(resource),
     userMetadata: readUserMetadata(resource),
   };
 }
