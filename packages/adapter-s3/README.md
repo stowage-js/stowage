@@ -45,8 +45,9 @@ for (const storage of [aws, r2]) {
 }
 ```
 
-The bucket has to allow `UNSIGNED-PAYLOAD` and carry a CORS rule for the uploading origin; stowage
-configures neither
+The bucket has to allow `UNSIGNED-PAYLOAD` and carry a CORS rule for the uploading origin, which
+allows `cache-control`, `content-disposition` and `content-language` where `presignPut` binds them
+through `cacheControl`, `contentDisposition` and `contentLanguage`; stowage configures neither
 ([flow 2](https://github.com/stowage-js/stowage/blob/@stowage/adapter-s3@0.5.0/docs/spec.md#flow-2-browser-upload-through-a-presigned-put)).
 
 ## Runtimes

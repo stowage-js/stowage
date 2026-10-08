@@ -127,6 +127,7 @@ class SimpleStorageServiceStorage implements S3Storage {
         options ?? {},
         contentType,
         key,
+        "put",
         this.capabilities,
       ),
       signal: options?.signal,
@@ -243,7 +244,7 @@ class SimpleStorageServiceStorage implements S3Storage {
   }
 
   async presignPut(key: string, options: S3PresignPutOptions): Promise<PresignedPut> {
-    return await presignPut(this.#configuration, key, options);
+    return await presignPut(this.#configuration, key, options, this.capabilities);
   }
 
   async #head(key: string, operation: string, options?: OperationOptions): Promise<Response> {

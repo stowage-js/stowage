@@ -16,7 +16,10 @@ const contentHeaderOptions: readonly (keyof ContentHeaders)[] = [
 ];
 
 export interface ContentHeaderFields {
-  /** What `PutObject` and `CreateMultipartUpload` carry the content headers in. */
+  /**
+   * What `PutObject` and `CreateMultipartUpload` carry the content headers in, and what a
+   * presigned `PutObject` signs.
+   */
   readonly headers: readonly HeaderField[];
   /** The content headers as the provider stores them: each byte for byte, none `undefined`. */
   readonly held: ContentHeaders;
@@ -32,6 +35,7 @@ export function contentHeaderFields(
   headers: ContentHeaders,
   contentType: string,
   key: string,
+  operation: "put" | "presignPut",
   capabilities: readonly CapabilityName[],
 ): ContentHeaderFields {
   const { cacheControl, contentDisposition, contentLanguage } = headers;
@@ -43,7 +47,7 @@ export function contentHeaderFields(
   const refusal = contentHeadersRefusal(held, contentType, capabilities);
 
   if (refusal !== undefined) {
-    throw s3Error(bucket, { ...refusal, operation: "put", key, attempts: 0 });
+    throw s3Error(bucket, { ...refusal, operation, key, attempts: 0 });
   }
 
   return {
