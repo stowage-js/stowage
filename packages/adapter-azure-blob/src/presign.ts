@@ -54,12 +54,14 @@ export interface AzureBlobPresignPutOptions {
    */
   contentLength: number;
   /**
-   * Each content header given is checked as `put` checks it before the user delegation key
-   * is requested, named in `srh` by its `x-ms-blob-*` form and handed back under that name.
-   * One left out is not bound: whoever holds the URL may send it (ADR 0063).
+   * Checked as `put` checks it before the user delegation key is requested, named in `srh` as
+   * `x-ms-blob-cache-control` and handed back in `headers` under that name where given. Left
+   * out, it is not bound: whoever holds the URL may send it (ADR 0063).
    */
   cacheControl?: string;
+  /** Bound as `x-ms-blob-content-disposition`, as `cacheControl` is. */
   contentDisposition?: string;
+  /** Bound as `x-ms-blob-content-language`, as `cacheControl` is. */
   contentLanguage?: string;
 }
 

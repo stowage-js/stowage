@@ -36,12 +36,13 @@ export interface S3PresignPutOptions {
    */
   contentLength: number;
   /**
-   * Each content header given is checked as `put` checks it, signed under its standard name
-   * and handed back in `headers`. One left out is not bound: whoever holds the URL may send
-   * it (ADR 0063).
+   * Checked as `put` checks it, signed as `Cache-Control` and handed back in `headers` where
+   * given. Left out, it is not bound: whoever holds the URL may send it (ADR 0063).
    */
   cacheControl?: string;
+  /** Bound as `Content-Disposition`, as `cacheControl` is. */
   contentDisposition?: string;
+  /** Bound as `Content-Language`, as `cacheControl` is. */
   contentLanguage?: string;
 }
 
