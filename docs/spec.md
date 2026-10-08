@@ -1175,8 +1175,8 @@ Google Cloud Storage's XML API among them (ADR 0031).
   `CreateMultipartUpload` is repeated, and an upload the first request created may be left behind.
 - Only a body the adapter holds is sent again. Every request the adapter sends carries one, because
   a stream travels as buffered parts.
-- One request costs at most six HTTP requests: three attempts, each doubled by the `Expired`
-  repeat.
+- One request costs at most six HTTP requests: three attempts, each doubled by the refresh of
+  section 7.3.
 - A per-key failure in `delete` is reported, not repeated. A body stream that breaks during `get` is
   not resumed.
 - The backoff numbers move in a minor release and never in a patch. The three-attempt ceiling is a
@@ -1449,8 +1449,8 @@ another endpoint that speaks the Blob wire protocol can be configured and are no
   a transport failure that received no response too: a repeat commits the same blocks in the same
   order. Section 7.7 is S3's alone, and a `put` of any size is answered with certainty, except
   where another writer replaced the key between a lost commit and its repeat (section 8.6).
-- The repeat after `401 InvalidAuthenticationInfo` of section 8.3 doubles an attempt as the
-  `Expired` repeat does on S3, so one request costs at most six HTTP requests.
+- The refresh after `401 InvalidAuthenticationInfo` of section 8.3 doubles an attempt as the
+  refresh of section 7.3 does on S3, so one request costs at most six HTTP requests.
 - A per-key failure in `delete` is reported, not repeated. A body stream that breaks during `get` is
   not resumed.
 
@@ -1778,8 +1778,8 @@ reached through `adapter-s3` over the XML API is an S3-compatible endpoint like 
   have happened. That later `404` remains ambiguous unless the adapter can identify the destination
   as the object committed by this move; `stat(to)` alone is insufficient when the destination may
   have pre-existed. It is the one ambiguous outcome on GCS (ADR 0037).
-- The repeat after `401` of section 9.3 doubles an attempt as the `Expired` repeat does on S3, so
-  one request that carries the credential costs at most six HTTP requests.
+- The refresh after `401` of section 9.3 doubles an attempt as the refresh of section 7.3 does on
+  S3, so one request that carries the credential costs at most six HTTP requests.
 - A per-key failure in `delete` is reported, not repeated. A body stream that breaks during `get` is
   not resumed.
 

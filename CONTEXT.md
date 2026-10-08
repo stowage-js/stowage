@@ -216,9 +216,16 @@ _Avoid_: temporary error, intermittent failure, flake
 
 **Attempt**:
 One request an adapter sends for a single step of an operation. A step that meets a transient
-failure may cost several attempts only when the retry policy permits another request, and the error
-that reaches the caller says how many attempts went out.
+failure may cost several attempts only when the retry policy permits another request, or when the
+provider refused a credential and a refresh follows, and the error that reaches the caller says how
+many attempts went out.
 _Avoid_: try, retry, call
+
+**Refresh**:
+The one further attempt an adapter sends after the provider refused a credential that a fresh one
+may pass, under a credential the caller was asked to obtain afresh. It is not a retry: the retry
+policy neither grants nor forbids it.
+_Avoid_: Expired repeat, credential retry
 
 **Runtime**:
 The JavaScript engine and standard library the code runs on: Node, Bun, Deno, workerd.
