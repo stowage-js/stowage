@@ -1,5 +1,6 @@
 import {
   capabilityNames,
+  type ContentHeaders,
   contentHeadersRefusal,
   isHeaderValue,
   type PresignedPut,
@@ -90,9 +91,7 @@ export async function presignUpload(
       expiresIn: options.expiresIn,
       contentType,
       contentLength,
-      cacheControl: options.cacheControl,
-      contentDisposition: options.contentDisposition,
-      contentLanguage: options.contentLanguage,
+      ...givenContentHeaders(options),
     });
   } catch (thrown) {
     return answerFor(thrown);
@@ -104,4 +103,21 @@ export async function presignUpload(
     status: 200,
     headers: { "content-type": "application/json", "cache-control": "private, no-store" },
   });
+}
+
+/**
+ * The content headers the caller gave, without a member for one left out: an adapter signs a
+ * header for each option given (ADR 0063), and a member holding `undefined` must not read as
+ * one.
+ */
+function givenContentHeaders({
+  cacheControl,
+  contentDisposition,
+  contentLanguage,
+}: ContentHeaders): ContentHeaders {
+  return Object.fromEntries(
+    Object.entries({ cacheControl, contentDisposition, contentLanguage }).filter(
+      ([, value]) => value !== undefined,
+    ),
+  );
 }

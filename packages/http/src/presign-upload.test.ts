@@ -80,6 +80,19 @@ describe("a signed upload", () => {
     ]);
   });
 
+  test("a content header left out is no member of the options `presignPut` gets", async () => {
+    const storage = signing();
+
+    await presignUpload(storage, "uploads/report.pdf", options({ contentLanguage: "de-AT" }));
+
+    expect(Object.keys(storage.calls[0]?.[1] ?? {}).toSorted()).toEqual([
+      "contentLanguage",
+      "contentLength",
+      "contentType",
+      "expiresIn",
+    ]);
+  });
+
   test("the answer's headers are the caller's to change", async () => {
     const response = await presignUpload(signing(), "uploads/report.pdf", options());
 
