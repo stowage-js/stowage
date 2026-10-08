@@ -1,4 +1,10 @@
-import { type ObjectStat, type PutBody, type Storage, StorageError } from "@stowage/core";
+import {
+  type ContentHeaders,
+  type ObjectStat,
+  type PutBody,
+  type Storage,
+  StorageError,
+} from "@stowage/core";
 import { afterEach, expect, test, vi } from "vitest";
 
 import type { HttpConformanceTarget } from "../http-target.ts";
@@ -24,7 +30,11 @@ type Flaw =
   | "modified-since-beside-none-match"
   | "weak-match"
   | "unmodified-since-beside-match"
-  | "if-range-date";
+  | "if-range-date"
+  | "no-language-on-304"
+  | "stored-disposition-ignored"
+  | "stored-inline-served"
+  | "stored-cache-control-served";
 
 interface Held {
   readonly bytes: Uint8Array<ArrayBuffer>;
@@ -61,6 +71,11 @@ function heldStorage(capabilities: readonly string[], etag: string | undefined):
 
       const bytes =
         typeof body === "string" ? new TextEncoder().encode(body) : new Uint8Array(body);
+      const contentHeaders = contentHeadersOf(options ?? {});
+
+      if (Object.keys(contentHeaders).length > 0 && !capabilities.includes("contentHeaders")) {
+        throw new Error("The stub stores the content headers only where it declares them");
+      }
 
       const stat: ObjectStat = {
         key,
@@ -69,6 +84,7 @@ function heldStorage(capabilities: readonly string[], etag: string | undefined):
         etag,
         contentType: options?.contentType ?? "application/octet-stream",
         userMetadata: {},
+        ...contentHeaders,
       };
 
       held.set(key, { bytes, stat });
@@ -88,6 +104,22 @@ function heldStorage(capabilities: readonly string[], etag: string | undefined):
       };
     },
   });
+}
+
+/** The content headers among `options`, each one only where it is given. */
+function contentHeadersOf(options: ContentHeaders): ContentHeaders {
+  return Object.fromEntries(
+    (["cacheControl", "contentDisposition", "contentLanguage"] as const).flatMap((name) =>
+      options[name] === undefined ? [] : [[name, options[name]]],
+    ),
+  );
+}
+
+/** Whether a stored `Content-Disposition` is one spec 10.3 sends, short of `flaw`. */
+function servesStoredDisposition(stored: string | undefined, flaw?: Flaw): stored is string {
+  if (stored === undefined || flaw === "stored-disposition-ignored") return false;
+
+  return flaw === "stored-inline-served" || /^attachment\s*(;|$)/iu.test(stored);
 }
 
 /**
@@ -124,13 +156,19 @@ async function answer(
   const headers = new Headers({
     "content-type": stat.contentType,
     "x-content-type-options": "nosniff",
-    "content-disposition":
-      name === "résumé 100%.pdf" && flaw !== "raw-disposition"
+    "content-disposition": servesStoredDisposition(stat.contentDisposition, flaw)
+      ? stat.contentDisposition
+      : name === "résumé 100%.pdf" && flaw !== "raw-disposition"
         ? `attachment; filename="r_sum_ 100_.pdf"; filename*=UTF-8''r%C3%A9sum%C3%A9%20100%25.pdf`
-        : `attachment; filename="${name}"`,
-    "cache-control": "private, no-cache",
+        : `attachment; filename="${name}"; filename*=UTF-8''${encodeURIComponent(name)}`,
+    "cache-control":
+      flaw === "stored-cache-control-served"
+        ? (stat.cacheControl ?? "private, no-cache")
+        : "private, no-cache",
     "last-modified": "Tue, 01 Sep 2026 10:20:30 GMT",
   });
+
+  if (stat.contentLanguage !== undefined) headers.set("content-language", stat.contentLanguage);
 
   if (stat.etag !== undefined) {
     headers.set("etag", flaw === "unquoted-etag" ? stat.etag : `"${stat.etag}"`);
@@ -145,7 +183,11 @@ async function answer(
 
   const refused = refusalOf(request.headers, stat, flaw);
 
-  if (refused === 304) return new Response(null, { status: 304, headers });
+  if (refused === 304) {
+    if (flaw === "no-language-on-304") headers.delete("content-language");
+
+    return new Response(null, { status: 304, headers });
+  }
   if (refused === 412) return new Response(null, { status: 412 });
 
   if (flaw === "no-nosniff") headers.delete("x-content-type-options");
@@ -314,6 +356,7 @@ test.each(serveCases.map((source) => source.name))(
   async (name) => {
     await expect(runAgainst(name)).resolves.toBeUndefined();
     await expect(runAgainst(name, { capabilities: ["rangeReads"] })).resolves.toBeUndefined();
+    await expect(runAgainst(name, { capabilities: ["contentHeaders"] })).resolves.toBeUndefined();
   },
 );
 
@@ -354,6 +397,20 @@ test.each<[string, Flaw, string]>([
   "`%s` fails against a server with the flaw %s behind a storage declaring `rangeReads`",
   async (name, flaw, message) => {
     await expect(runAgainst(name, { flaw, capabilities: ["rangeReads"] })).rejects.toThrow(message);
+  },
+);
+
+test.each<[string, Flaw, string]>([
+  ["serve/content-language", "no-language-on-304", "content-language"],
+  ["serve/stored-disposition", "stored-disposition-ignored", "stored.pdf"],
+  ["serve/stored-disposition", "stored-inline-served", "inline"],
+  ["serve/stored-cache-control", "stored-cache-control-served", "public, max-age=60"],
+])(
+  "`%s` fails against a server with the flaw %s behind a storage declaring `contentHeaders`",
+  async (name, flaw, message) => {
+    await expect(runAgainst(name, { flaw, capabilities: ["contentHeaders"] })).rejects.toThrow(
+      message,
+    );
   },
 );
 

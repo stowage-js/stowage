@@ -1,4 +1,4 @@
-import type { ObjectStat } from "@stowage/core";
+import type { ContentHeaders, ObjectStat } from "@stowage/core";
 
 import { assertSameBytes } from "../assertions.ts";
 import { patternOf } from "../cases/bytes.ts";
@@ -29,14 +29,25 @@ const serve = async (
   init?: RequestInit,
 ): Promise<Response> => await fetch(ctx.target.url("serve", key), init);
 
-/** An object of its own for one case, written through the storage behind the server. */
-async function seed(ctx: HttpConformanceContext, key: string): Promise<Uint8Array> {
+/**
+ * An object of its own for one case, written through the storage behind the server, with
+ * the content headers in `contentHeaders`.
+ */
+async function seed(
+  ctx: HttpConformanceContext,
+  key: string,
+  contentHeaders: ContentHeaders = {},
+): Promise<Uint8Array> {
   const bytes = patternOf(objectSize);
 
-  await ctx.storage.put(key, bytes, { contentType: "text/plain" });
+  await ctx.storage.put(key, bytes, { contentType: "text/plain", ...contentHeaders });
 
   return bytes;
 }
+
+/** The `Content-Disposition` spec 10.3 gives a key whose last segment `name` is plain ASCII. */
+const dispositionNamed = (name: string): string =>
+  `attachment; filename="${name}"; filename*=UTF-8''${name}`;
 
 /** The ranges `serve/range` asks for, each with the first and last byte it is answered with. */
 const satisfiableRanges = [
@@ -535,6 +546,109 @@ export const serveCases: readonly HttpConformanceCase[] = [
         // oxlint-disable-next-line no-await-in-loop -- one request after the other
         await expectWhole(response, bytes, what);
       }
+    },
+  },
+  {
+    name: "serve/content-language",
+    requires: ["contentHeaders"],
+    cost: "fast",
+    async run(ctx) {
+      const key = keyFor(ctx, "serve/content-language");
+
+      await seed(ctx, key, { contentLanguage: "de-AT" });
+
+      // Spec 10.3: a `304` carries the headers of the `200` but `Content-Length`.
+      for (const [what, init, status] of [
+        ["`GET`", {}, 200],
+        ["`HEAD`", { method: "HEAD" }, 200],
+        ["`GET` with `If-None-Match: *`", { headers: { "if-none-match": "*" } }, 304],
+      ] as const) {
+        // oxlint-disable-next-line no-await-in-loop -- one request after the other
+        const response = await serve(ctx, key, init);
+
+        // oxlint-disable-next-line no-await-in-loop -- one request after the other
+        await expectStatus(response, status, what);
+        assertHeaderOf(response, "content-language", "de-AT", what);
+      }
+    },
+    async runWithout(ctx) {
+      const key = keyFor(ctx, "serve/content-language");
+
+      await seed(ctx, key);
+
+      const response = await serve(ctx, key);
+
+      await expectStatus(response, 200, "`GET`");
+      assertHeaderOf(response, "content-language", null, "`GET`");
+    },
+  },
+  {
+    name: "serve/stored-disposition",
+    requires: ["contentHeaders"],
+    cost: "fast",
+    async run(ctx) {
+      const prefix = prefixFor(ctx, "serve/stored-disposition");
+
+      // Spec 10.3 sends a stored disposition only where it is an `attachment`, and the
+      // default in place of any other, so that an uploader cannot have its object rendered.
+      for (const [name, stored, expected] of [
+        [
+          "attachment.pdf",
+          'attachment; filename="stored.pdf"',
+          'attachment; filename="stored.pdf"',
+        ],
+        ["inline.html", 'inline; filename="x.html"', dispositionNamed("inline.html")],
+      ] as const) {
+        const key = `${prefix}${name}`;
+        const what = `\`GET\` of an object stored with \`${stored}\``;
+
+        // oxlint-disable-next-line no-await-in-loop -- one object after the other
+        await seed(ctx, key, { contentDisposition: stored });
+
+        // oxlint-disable-next-line no-await-in-loop -- one request after the other
+        const response = await serve(ctx, key);
+
+        // oxlint-disable-next-line no-await-in-loop -- one request after the other
+        await expectStatus(response, 200, what);
+        assertHeaderOf(response, "content-disposition", expected, what);
+      }
+    },
+    async runWithout(ctx) {
+      const key = `${prefixFor(ctx, "serve/stored-disposition")}plain.pdf`;
+
+      await seed(ctx, key);
+
+      const response = await serve(ctx, key);
+
+      await expectStatus(response, 200, "`GET`");
+      assertHeaderOf(response, "content-disposition", dispositionNamed("plain.pdf"), "`GET`");
+    },
+  },
+  {
+    name: "serve/stored-cache-control",
+    requires: ["contentHeaders"],
+    cost: "fast",
+    async run(ctx) {
+      const key = keyFor(ctx, "serve/stored-cache-control");
+      const what = "`GET` of an object stored with `public, max-age=60`";
+
+      await seed(ctx, key, { cacheControl: "public, max-age=60" });
+
+      const response = await serve(ctx, key);
+
+      // Spec 14.8: the `serve` route passes no `storedCacheControl`, so the default stands.
+      await expectStatus(response, 200, what);
+      assertHeaderOf(response, "cache-control", "private, no-cache", what);
+    },
+    async runWithout(ctx) {
+      const key = keyFor(ctx, "serve/stored-cache-control");
+
+      await seed(ctx, key);
+
+      const response = await serve(ctx, key);
+
+      await expectStatus(response, 200, "`GET`");
+      assertHeaderOf(response, "cache-control", "private, no-cache", "`GET`");
     },
   },
 ];
