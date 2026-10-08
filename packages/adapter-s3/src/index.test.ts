@@ -1279,6 +1279,59 @@ test("`stat` reports a content header another tool stored outside the rule as re
   expect((await s3Storage(options()).stat("object.txt")).contentDisposition).toBe(raw);
 });
 
+// The stored content coding on a description (spec 4.4, ADR 0061)
+
+const codingOperations = [
+  ...describingOperations,
+  ["copy", async (storage: S3Storage) => await storage.copy("from.txt", "object.txt")],
+  ["move", async (storage: S3Storage) => await storage.move("from.txt", "object.txt")],
+] as const;
+
+/** A provider holding an object another tool stored under `coding`, which copies carry along. */
+function codedProvider(coding: string): (request: SentRequest) => Response {
+  return (request) => {
+    if (request.method === "PUT") return copied();
+    if (request.method === "DELETE") return new Response(null, { status: 204 });
+
+    return storedResponse("body", { "content-encoding": coding });
+  };
+}
+
+test.each(codingOperations)("`%s` reports the stored coding as stored", async (_op, describe) => {
+  stubFetch(codedProvider("GZIP"));
+
+  expect((await describe(s3Storage(options()))).contentEncoding).toBe("GZIP");
+});
+
+test.each(
+  codingOperations.flatMap(([operation, describe]) =>
+    ["identity", ""].map((coding) => [operation, coding, describe] as const),
+  ),
+)("`%s` reads %j as no coding", async (_operation, coding, describe) => {
+  stubFetch(codedProvider(coding));
+
+  expect("contentEncoding" in (await describe(s3Storage(options())))).toBe(false);
+});
+
+// AWS reports a `response-content-encoding` override in place of the stored coding.
+test.each(codingOperations)("`%s` asks for no response override", async (_op, describe) => {
+  const sent = stubFetch(codedProvider("gzip"));
+
+  await describe(s3Storage(options()));
+
+  const overrides = sent.flatMap((request) =>
+    [...new URL(request.url).searchParams.keys()].filter((name) => name.startsWith("response-")),
+  );
+
+  expect(overrides).toEqual([]);
+});
+
+test("`put` reports no coding", async () => {
+  stubFetch(accepted);
+
+  expect("contentEncoding" in (await s3Storage(options()).put("object.txt", "body"))).toBe(false);
+});
+
 test("the session token travels as a signed header", async () => {
   const sent = stubFetch(accepted);
 
