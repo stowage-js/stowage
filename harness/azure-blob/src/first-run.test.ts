@@ -161,6 +161,40 @@ describe.skipIf(!scheduled)(firstRunSuite, () => {
     }).toEqual({ status: 403, origin: allowedOrigin });
   });
 
+  // ADR 0063: `Put Blob` stores an `x-ms-blob-content-type` in place of `Content-Type`, so the
+  // type is bound only where the service refuses one the URL did not sign. The same URL then
+  // takes the headers as `presignPut` returned them, so the refusal is the differing value's.
+  test(azureProbeNames.differingBlobContentType, async ({ task }) => {
+    const key = `${prefix}differing-blob-content-type.txt`;
+    const body = utf8.encode("an upload naming another type than the one signed");
+    const { url, headers } = await storage().presignPut(key, {
+      expiresIn: 300,
+      contentType: "text/plain",
+      contentLength: body.byteLength,
+    });
+    const differing = await fetch(url, {
+      method: "PUT",
+      headers: { ...headers, "x-ms-blob-content-type": "text/html" },
+      body,
+    });
+
+    await differing.arrayBuffer();
+
+    task.meta.observed = `${differing.status} \`${differing.headers.get("x-ms-error-code") ?? ""}\``;
+
+    expect({ status: differing.status, stored: await storage().exists(key) }).toEqual({
+      status: 403,
+      stored: false,
+    });
+
+    const signed = await fetch(url, { method: "PUT", headers, body });
+
+    await signed.arrayBuffer();
+
+    expect(signed.status).toBe(201);
+    expect((await storage().stat(key)).contentType).toBe("text/plain");
+  });
+
   test(azureProbeNames.longNameOnHead, async () => {
     // Addressable above the 1,024 characters Azure holds, so the request goes out and the
     // answer is the service's.

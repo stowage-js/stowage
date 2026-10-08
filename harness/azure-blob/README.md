@@ -139,13 +139,14 @@ az storage cors add --account-name stowageconformance --services b \
 
 `src/first-run.test.ts` asks the account what spec 18 left open for Azure, beside the conformance
 cases that answer the rest, together with the tests of spec 14.4 only the account can answer: the
-three response overrides of `presignGet`, a `Put Block List` sent twice, a `Put Blob` discarding
-the uncommitted blocks of its name, and the CORS headers on the `403` for an expired presigned URL
-after a preflight from the rule's origin. It runs only where `STOWAGE_CONFORMANCE_INCLUDE_SLOW` is
-`true` and `STOWAGE_AZURE_BLOB_ENDPOINT_NAME` is `azure-blob`. The upload of 5,000 MiB that
-records the refusal of a copy above the service's limit runs on Node 24 alone. The `workerd`
-harness runs `flow/1-large-upload` once more on its own there and reports its duration and the
-CPU the `workerd` process spent.
+three response overrides of `presignGet`, a `Put Block List` sent twice, a `Put Blob` discarding the
+uncommitted blocks of its name, the CORS headers on the `403` for an expired presigned URL after a
+preflight from the rule's origin, and the refusal of an upload whose `x-ms-blob-content-type`
+differs from the one a URL of `presignPut` binds. It runs only where
+`STOWAGE_CONFORMANCE_INCLUDE_SLOW` is `true` and `STOWAGE_AZURE_BLOB_ENDPOINT_NAME` is `azure-blob`.
+The upload of 5,000 MiB that records the refusal of a copy above the service's limit runs on Node 24
+alone. The `workerd` harness runs `flow/1-large-upload` once more on its own there and reports its
+duration and the CPU the `workerd` process spent.
 
 The last job of the workflow writes the points into the same table as the S3 ones, in the columns
 `azure-blob-node-24`, `azure-blob-node-26` and `azure-blob-workerd`.
