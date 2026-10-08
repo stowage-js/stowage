@@ -1,7 +1,7 @@
-import type { CapabilityName, ContentHeaders, PresignedPut } from "@stowage/core";
+import type { CapabilityName, PresignedPut } from "@stowage/core";
 
 import type { GcsConfiguration, GcsSigner } from "./configuration.ts";
-import { heldContentHeaders } from "./content-headers.ts";
+import { heldContentHeaders, signedContentHeaders } from "./content-headers.ts";
 import { requireKey } from "./key.ts";
 import {
   optionError,
@@ -58,13 +58,6 @@ const responseOverrides = [
   ["responseContentType", "response-content-type"],
   ["responseContentDisposition", "response-content-disposition"],
 ] as const;
-
-/** The standard name the XML API takes each content header under, in the order of spec 9.9. */
-const contentHeaderNames = [
-  ["cacheControl", "cache-control"],
-  ["contentDisposition", "content-disposition"],
-  ["contentLanguage", "content-language"],
-] as const satisfies readonly (readonly [keyof ContentHeaders, string])[];
 
 /** Spec 9.9: `GET` on an addressable key, the two overrides carried in the query. */
 export async function presignGet(
@@ -127,11 +120,7 @@ export async function presignPut(
     operation,
     capabilities,
   );
-  const contentHeaders = contentHeaderNames.flatMap(([option, name]): HeaderField[] => {
-    const value = held[option];
-
-    return value === undefined ? [] : [[name, value]];
-  });
+  const contentHeaders = signedContentHeaders(held);
 
   const url = await presignedUrl(configuration, signer, {
     method: "PUT",
