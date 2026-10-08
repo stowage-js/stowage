@@ -258,7 +258,8 @@ export const presignCases: readonly ConformanceCaseSource[] = [
 
       assertHoldsSignedHeaders(await ctx.storage.stat(key));
     },
-    runWithout: assertWithoutContentHeaders,
+    runWithout: async (ctx) =>
+      await assertWithoutContentHeaders(ctx, "presign/put-content-headers"),
   },
   {
     name: "presign/put-rejects-content-headers",
@@ -299,7 +300,8 @@ export const presignCases: readonly ConformanceCaseSource[] = [
         );
       }
     },
-    runWithout: assertWithoutContentHeaders,
+    runWithout: async (ctx) =>
+      await assertWithoutContentHeaders(ctx, "presign/put-rejects-content-headers"),
   },
 ];
 
@@ -308,14 +310,17 @@ export const presignCases: readonly ConformanceCaseSource[] = [
  * with it a `presignPut` carrying any one of the three is `Unsupported` naming
  * `contentHeaders` while one carrying none still signs (spec 14.5, ADR 0064).
  */
-async function assertWithoutContentHeaders(ctx: ConformanceContext): Promise<void> {
+async function assertWithoutContentHeaders(
+  ctx: ConformanceContext,
+  caseName: string,
+): Promise<void> {
   if (!ctx.declares("presignedUrls")) {
     await assertNeitherMethod(ctx);
 
     return;
   }
 
-  const key = keyFor(ctx, "presign/content-headers-undeclared", "object.txt");
+  const key = keyFor(ctx, caseName, "object.txt");
   const plain = { expiresIn: presignLifetime, contentType: textContentType, contentLength: 0 };
 
   await Promise.all(
