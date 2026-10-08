@@ -16,8 +16,6 @@ const decimalSize = /^(?:0|[1-9]\d*)$/u;
 export interface DescribedObject {
   readonly stat: ObjectStat;
   readonly generation?: string;
-  /** The content coding another tool stored the object with; stowage never writes one. */
-  readonly contentEncoding?: string;
 }
 
 /**
@@ -43,7 +41,6 @@ export async function readDescription(
   return {
     stat: describeResource(configuration.bucket, key, operation, response, resource),
     generation: stringOf(fieldOf(resource, "generation")),
-    contentEncoding: stringOf(fieldOf(resource, "contentEncoding")),
   };
 }
 
