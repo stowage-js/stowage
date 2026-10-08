@@ -670,11 +670,14 @@ function codedBucket(coding: string) {
   };
 }
 
-test.each(codingOperations)("`%s` reports the stored coding as stored", async (_op, describe) => {
-  stubFetch(codedBucket("GZIP"));
+test.each(codingOperations)(
+  "`%s` reports the stored coding as stored",
+  async (_operation, describe) => {
+    stubFetch(codedBucket("GZIP"));
 
-  expect((await describe()).contentEncoding).toBe("GZIP");
-});
+    expect((await describe()).contentEncoding).toBe("GZIP");
+  },
+);
 
 test.each(
   codingOperations.flatMap(([operation, describe]) =>

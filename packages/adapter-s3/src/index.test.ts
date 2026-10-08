@@ -1297,11 +1297,14 @@ function codedProvider(coding: string): (request: SentRequest) => Response {
   };
 }
 
-test.each(codingOperations)("`%s` reports the stored coding as stored", async (_op, describe) => {
-  stubFetch(codedProvider("GZIP"));
+test.each(codingOperations)(
+  "`%s` reports the stored coding as stored",
+  async (_operation, describe) => {
+    stubFetch(codedProvider("GZIP"));
 
-  expect((await describe(s3Storage(options()))).contentEncoding).toBe("GZIP");
-});
+    expect((await describe(s3Storage(options()))).contentEncoding).toBe("GZIP");
+  },
+);
 
 test.each(
   codingOperations.flatMap(([operation, describe]) =>
@@ -1314,7 +1317,7 @@ test.each(
 });
 
 // AWS reports a `response-content-encoding` override in place of the stored coding.
-test.each(codingOperations)("`%s` asks for no response override", async (_op, describe) => {
+test.each(codingOperations)("`%s` asks for no response override", async (_operation, describe) => {
   const sent = stubFetch(codedProvider("gzip"));
 
   await describe(s3Storage(options()));

@@ -648,11 +648,14 @@ function codedService(coding: string): (request: SentRequest) => Response {
   };
 }
 
-test.each(codingOperations)("`%s` reports the stored coding as stored", async (_op, describe) => {
-  stubFetch(codedService("GZIP"));
+test.each(codingOperations)(
+  "`%s` reports the stored coding as stored",
+  async (_operation, describe) => {
+    stubFetch(codedService("GZIP"));
 
-  expect((await describe()).contentEncoding).toBe("GZIP");
-});
+    expect((await describe()).contentEncoding).toBe("GZIP");
+  },
+);
 
 test.each(
   codingOperations.flatMap(([operation, describe]) =>
@@ -665,7 +668,7 @@ test.each(
 });
 
 // A response override such as `rsce` has the service report it in place of the stored value.
-test.each(codingOperations)("`%s` asks for no response override", async (_op, describe) => {
+test.each(codingOperations)("`%s` asks for no response override", async (_operation, describe) => {
   const sent = stubFetch(codedService("gzip"));
 
   await describe();
