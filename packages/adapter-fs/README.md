@@ -31,7 +31,7 @@ The bundle measures 6.5 kB minified and gzipped, `@stowage/core` included.
 ## Limits
 
 - `contentHeaders` is not declared: `put` with `cacheControl`, `contentDisposition` or
-  `contentLanguage` is `Unsupported` whatever the value, and reads report none
+  `contentLanguage` set to any value but `undefined` is `Unsupported`, and reads report none
   ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.6.0/docs/spec.md#49-capabilities)).
 - `keyBytesPreserved` is not declared: a key comes back Unicode-equivalent to what was written
   ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.6.0/docs/spec.md#49-capabilities)).

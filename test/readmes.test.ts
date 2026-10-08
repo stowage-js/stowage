@@ -87,20 +87,20 @@ test("the README of @stowage/conformance names the five adapters of this reposit
 /** A section's text with its line breaks undone, so a phrase may wrap anywhere. */
 const proseOf = (section: string): string => section.replaceAll(/\s+/gu, " ");
 
-/** The READMEs count capabilities in words, as their prose does. */
-const countWords = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight"];
+/** The READMEs count capabilities in words, as their prose does, up to eight. */
+const numberWords = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight"];
 
 test("the README of @stowage/core counts the names of `capabilityNames`", async () => {
   const limits = proseOf(sectionOf(await readmeOf(core), "Limits"));
 
-  expect(limits).toContain(`out of the ${countWords[capabilityNames.length]} names`);
+  expect(limits).toContain(`out of the ${numberWords[capabilityNames.length]} names`);
 });
 
 test("the README of @stowage/conformance counts the capabilities adapter-memory declares", async () => {
   const declared = memoryStorage().capabilities.length;
 
   expect(proseOf(sectionOf(await readmeOf(conformance), "Read an adapter"))).toContain(
-    `declares ${countWords[declared]} of the ${countWords[capabilityNames.length]} capabilities`,
+    `declares ${numberWords[declared]} of the ${numberWords[capabilityNames.length]} capabilities`,
   );
 });
 
@@ -217,7 +217,7 @@ test("the README of @stowage/adapter-azure-blob orders its notes as spec 16 does
   expect(positions).toEqual(positions.toSorted((left, right) => left - right));
 });
 
-/** Flow 2: the headers the CORS rule allows, the first always and the rest where bound. */
+/** Flow 2: the CORS rule allows `always` on every upload and `bound` where the URL binds them. */
 const corsHeaders = [
   {
     manifest: adapterAzureBlob,
@@ -239,7 +239,8 @@ test.each(corsHeaders)(
   "the README of $manifest.name states the CORS rule flow 2 needs",
   async ({ manifest, always, bound }) => {
     const notes = sectionOf(await readmeOf(manifest), "Notes");
-    const rule = notes.slice(notes.indexOf("CORS"), notes.indexOf("```", notes.indexOf("CORS")));
+    const ruleStart = notes.indexOf("CORS");
+    const rule = notes.slice(ruleStart, notes.indexOf("```", ruleStart));
     const positionOf = (header: string): number => rule.indexOf(`\`${header}\``);
 
     for (const header of [...always, ...bound]) expect(positionOf(header)).not.toBe(-1);

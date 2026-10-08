@@ -11,29 +11,30 @@ export interface PutOptions extends OperationOptions {
   contentType?: string;
   /**
    * Stored as `Cache-Control` where the storage declares `contentHeaders`, and `Unsupported`
-   * elsewhere whatever the value, `""` included. Nothing parses it. A non-empty string of
-   * visible ASCII with spaces and tabs inside alone, else `InvalidOption`. The names and values
-   * of `Content-Type` and of the content headers a `put` carries hold at most 2,048 bytes, the
-   * type counted as `application/octet-stream` where absent; more is `InvalidRequest`.
+   * elsewhere for any value but `undefined`, `""` included. Nothing parses it. A non-empty
+   * string of visible ASCII with spaces and tabs inside alone, else `InvalidOption`. The names
+   * and values of `Content-Type` and of the content headers a `put` carries hold at most 2,048
+   * bytes, the type counted as `application/octet-stream` where absent; more is
+   * `InvalidRequest`.
    */
   cacheControl?: string;
   /**
    * Stored as `Content-Disposition` where the storage declares `contentHeaders`, and
-   * `Unsupported` elsewhere whatever the value, `""` included. Nothing parses it; a file name
-   * outside ASCII travels as RFC 8187's `filename*=UTF-8''…`, which the caller encodes. A
-   * non-empty string of visible ASCII with spaces and tabs inside alone, else `InvalidOption`.
-   * The names and values of `Content-Type` and of the content headers a `put` carries hold at
-   * most 2,048 bytes, the type counted as `application/octet-stream` where absent; more is
-   * `InvalidRequest`.
+   * `Unsupported` elsewhere for any value but `undefined`, `""` included. Nothing parses it; a
+   * file name outside ASCII travels as RFC 8187's `filename*=UTF-8''…`, which the caller
+   * encodes. A non-empty string of visible ASCII with spaces and tabs inside alone, else
+   * `InvalidOption`. The names and values of `Content-Type` and of the content headers a `put`
+   * carries hold at most 2,048 bytes, the type counted as `application/octet-stream` where
+   * absent; more is `InvalidRequest`.
    */
   contentDisposition?: string;
   /**
    * Stored as `Content-Language` where the storage declares `contentHeaders`, and
-   * `Unsupported` elsewhere whatever the value, `""` included. A non-empty string of visible
-   * ASCII with spaces and tabs inside alone, else `InvalidOption`. At most 100 characters, and
-   * the names and values of `Content-Type` and of the content headers a `put` carries hold at
-   * most 2,048 bytes, the type counted as `application/octet-stream` where absent; more is
-   * `InvalidRequest`.
+   * `Unsupported` elsewhere for any value but `undefined`, `""` included. A non-empty string of
+   * visible ASCII with spaces and tabs inside alone, else `InvalidOption`. At most 100
+   * characters, and the names and values of `Content-Type` and of the content headers a `put`
+   * carries hold at most 2,048 bytes, the type counted as `application/octet-stream` where
+   * absent; more is `InvalidRequest`.
    */
   contentLanguage?: string;
   /**

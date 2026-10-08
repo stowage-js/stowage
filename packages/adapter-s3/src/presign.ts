@@ -40,14 +40,14 @@ export interface S3PresignPutOptions {
   contentLength: number;
   /**
    * Checked as `put` checks it, `contentType` always counted in the 2,048 bytes, then signed
-   * as `Cache-Control` and handed back in `headers` where given. Bound exactly up to runs of
-   * spaces, which the provider stores as sent. Left out, it is not bound: whoever holds the
-   * URL may send it (ADR 0063).
+   * as `Cache-Control` and handed back in `headers` as `cache-control` where given. Bound
+   * exactly up to runs of spaces, which the provider stores as sent. Left out, it is not
+   * bound: whoever holds the URL may send it (ADR 0063).
    */
   cacheControl?: string;
-  /** Bound as `Content-Disposition`, as `cacheControl` is. */
+  /** Bound as `Content-Disposition`, handed back as `content-disposition`, as `cacheControl` is. */
   contentDisposition?: string;
-  /** Bound as `Content-Language`, as `cacheControl` is. */
+  /** Bound as `Content-Language`, handed back as `content-language`, as `cacheControl` is. */
   contentLanguage?: string;
 }
 
