@@ -1,4 +1,4 @@
-import type { PresignedPut, Storage } from "@stowage/core";
+import type { ContentHeaders, ObjectStat, PresignedPut, Storage } from "@stowage/core";
 
 import { assert, assertHeader, assertSameBytes, expectStorageError } from "../assertions.ts";
 import type { ConformanceCaseSource } from "../case.ts";
@@ -39,11 +39,37 @@ export type PresignName = "presignGet" | "presignPut";
 
 const presignNames: readonly PresignName[] = ["presignGet", "presignPut"];
 
-export interface PresignOptions {
+export interface PresignOptions extends ContentHeaders {
   readonly expiresIn: number;
   readonly contentType?: string;
   readonly contentLength?: number;
 }
+
+type ContentHeaderOption = keyof ContentHeaders;
+
+const contentHeaderOptions: readonly ContentHeaderOption[] = [
+  "cacheControl",
+  "contentDisposition",
+  "contentLanguage",
+];
+
+/**
+ * What the content header cases sign. Each value is one the others do not hold, so that the
+ * case finds it in `headers` under whatever name the adapter hands it back (spec 4.13). None
+ * holds a run of spaces, which every binding admits in place of one (ADR 0063).
+ */
+const signedHeaders: Required<ContentHeaders> = {
+  cacheControl: "public, max-age=60, immutable",
+  contentDisposition: 'attachment; filename="presigned report.pdf"',
+  contentLanguage: "de-AT, en",
+};
+
+/** What a differing upload sends in place of each signed value. */
+const differingHeaders: Required<ContentHeaders> = {
+  cacheControl: "public, max-age=61, immutable",
+  contentDisposition: 'attachment; filename="another report.pdf"',
+  contentLanguage: "de-CH, en",
+};
 
 export const presignCases: readonly ConformanceCaseSource[] = [
   {
@@ -209,7 +235,129 @@ export const presignCases: readonly ConformanceCaseSource[] = [
     },
     runWithout: assertNeitherMethod,
   },
+  {
+    name: "presign/put-content-headers",
+    requires: ["presignedUrls", "contentHeaders"],
+    cost: "fast",
+    async run(ctx) {
+      const key = keyFor(ctx, "presign/put-content-headers", "object.txt");
+      const body = utf8.encode("the body a signed `PUT` stores the content headers with");
+      const { url, headers } = await presignedPut(ctx, key, {
+        expiresIn: presignLifetime,
+        contentType: textContentType,
+        contentLength: body.byteLength,
+        ...signedHeaders,
+      });
+      const response = await fetch(url, { method: "PUT", body, headers });
+
+      assert(
+        response.ok,
+        `\`fetch\` on a signed \`PUT\` carrying the content headers answered ${response.status} and not a success`,
+      );
+      await response.arrayBuffer();
+
+      assertHoldsSignedHeaders(await ctx.storage.stat(key));
+    },
+    runWithout: assertWithoutContentHeaders,
+  },
+  {
+    name: "presign/put-rejects-content-headers",
+    requires: ["presignedUrls", "contentHeaders"],
+    cost: "slow",
+    async run(ctx) {
+      const key = keyFor(ctx, "presign/put-rejects-content-headers", "object.txt");
+      const body = utf8.encode("a body whose content headers deviate from the signed ones");
+      const presigned = await presignedPut(ctx, key, {
+        expiresIn: presignLifetime,
+        contentType: textContentType,
+        contentLength: body.byteLength,
+        ...signedHeaders,
+      });
+      const deviations = contentHeaderOptions.flatMap((option) => {
+        const name = nameCarrying(presigned, option);
+
+        return [
+          { what: `another \`${option}\``, name, value: differingHeaders[option] },
+          { what: `no \`${option}\``, name, value: undefined },
+        ];
+      });
+
+      for (const { what, name, value } of deviations) {
+        const headers = new Headers(presigned.headers);
+
+        if (value === undefined) headers.delete(name);
+        else headers.set(name, value);
+
+        // AWS, R2 and Azure answer `403` and GCS `400` for a missing signed header, so the
+        // row states the class of the answer (spec 14.5, ADR 0064).
+        // oxlint-disable-next-line no-await-in-loop -- one key, so the uploads go in turn
+        const status = await statusOf(await fetch(presigned.url, { method: "PUT", body, headers }));
+
+        assert(
+          status >= 400 && status < 500,
+          `A signed \`PUT\` carrying ${what} was answered ${status} and not refused`,
+        );
+      }
+    },
+    runWithout: assertWithoutContentHeaders,
+  },
 ];
+
+/**
+ * The half of both content header cases: without `presignedUrls` the methods are absent, and
+ * with it a `presignPut` carrying any one of the three is `Unsupported` naming
+ * `contentHeaders` while one carrying none still signs (spec 14.5, ADR 0064).
+ */
+async function assertWithoutContentHeaders(ctx: ConformanceContext): Promise<void> {
+  if (!ctx.declares("presignedUrls")) {
+    await assertNeitherMethod(ctx);
+
+    return;
+  }
+
+  const key = keyFor(ctx, "presign/content-headers-undeclared", "object.txt");
+  const plain = { expiresIn: presignLifetime, contentType: textContentType, contentLength: 0 };
+
+  await Promise.all(
+    contentHeaderOptions.map(
+      async (option) =>
+        await expectStorageError(
+          async () => await presignedPut(ctx, key, { ...plain, [option]: signedHeaders[option] }),
+          { code: "Unsupported", capability: "contentHeaders", attempts: 0 },
+          `\`presignPut\` with \`${option}\` on a storage without \`contentHeaders\``,
+        ),
+    ),
+  );
+  await presignedPut(ctx, key, plain);
+}
+
+/** The name `headers` carries the signed value of `option` under, whatever the provider's. */
+function nameCarrying(presigned: PresignedPut, option: ContentHeaderOption): string {
+  const carrying = Object.entries(presigned.headers).find(
+    ([, value]) => value === signedHeaders[option],
+  );
+
+  assert(
+    carrying !== undefined,
+    `\`presignPut\` handed back no header carrying the signed \`${option}\``,
+  );
+
+  return carrying[0];
+}
+
+function assertHoldsSignedHeaders(described: ObjectStat): void {
+  for (const option of contentHeaderOptions) {
+    assert(
+      described[option] === signedHeaders[option],
+      `\`stat\` reports \`${option}\` as ${JSON.stringify(described[option])} and not as ${JSON.stringify(signedHeaders[option])} for what a signed \`PUT\` wrote`,
+    );
+  }
+
+  assert(
+    !("contentEncoding" in described),
+    "`stat` reports a `contentEncoding` for what a signed `PUT` wrote without one",
+  );
+}
 
 /**
  * What every `runWithout` half of this file asserts: spec 4.9 keeps both methods off a

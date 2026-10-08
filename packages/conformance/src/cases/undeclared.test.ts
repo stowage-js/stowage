@@ -264,6 +264,8 @@ test.each([
   "presign/put-rejects-type",
   "presign/put-rejects-length",
   "presign/expired-url",
+  "presign/put-content-headers",
+  "presign/put-rejects-content-headers",
   "flow/2-presigned-put",
 ])("`%s` holds where the storage declares no `presignedUrls`", async (name) => {
   await expect(runWithout(name, undeclaring())).resolves.toBe("without");

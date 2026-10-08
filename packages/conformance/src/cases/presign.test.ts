@@ -1,4 +1,4 @@
-import { type ObjectStat, type Storage, StorageError } from "@stowage/core";
+import { type ContentHeaders, type ObjectStat, type Storage, StorageError } from "@stowage/core";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { createKeyPrefix, selectHalf, startRun } from "../run.ts";
@@ -268,5 +268,225 @@ test("the `presign/expired-url` case refuses a control URL answering other than 
 
   await expect(runExpiredUrl(signingLifetimes())).rejects.toThrow(
     `the signed \`GET\` for ${controlLifetime} seconds beside it was answered 400 and not 200`,
+  );
+});
+
+const blobHeaderNames = {
+  cacheControl: "x-ms-blob-cache-control",
+  contentDisposition: "x-ms-blob-content-disposition",
+  contentLanguage: "x-ms-blob-content-language",
+} as const satisfies Record<keyof ContentHeaders, string>;
+
+const contentHeaderOptions: readonly (keyof ContentHeaders)[] = [
+  "cacheControl",
+  "contentDisposition",
+  "contentLanguage",
+];
+
+/** How the stub provider answers an upload, from what was signed and what the upload sent. */
+type ProviderCheck = (signed: Headers, sent: Headers) => number;
+
+/** A provider binding what was signed, as spec 7.10, 8.9 and 9.9 have every provider do. */
+const binding: ProviderCheck = (signed, sent) =>
+  [...signed].every(([name, value]) => sent.get(name) === value) ? 201 : 403;
+
+/**
+ * A storage declaring `presignedUrls` and `contentHeaders` that hands each content header
+ * back under its `x-ms-blob-*` name, as `adapter-azure-blob` does, so that the suite is seen
+ * to name no provider's headers; and the provider its URL points at, which stores what an
+ * upload sends under those names and answers as `check` decides.
+ */
+function signingContentHeaders(
+  check: ProviderCheck = binding,
+  report: (held: ContentHeaders) => ContentHeaders = (held) => held,
+): { storage: Storage; uploads: Request[] } {
+  const stored = new Map<string, ContentHeaders>();
+  const uploads: Request[] = [];
+  let signedKey = "";
+  let signed = new Headers();
+
+  const storage = {
+    ...stubStorage({
+      capabilities: ["presignedUrls", "contentHeaders"],
+      stat: async (key) => ({
+        key,
+        size: 0,
+        lastModified: new Date(),
+        contentType,
+        userMetadata: {},
+        ...report(stored.get(key) ?? {}),
+      }),
+      exists: async (key) => stored.has(key),
+    }),
+    presignPut: async (key: string, options: ContentHeaders) => {
+      signedKey = key;
+      signed = new Headers({ "content-type": contentType });
+
+      for (const option of contentHeaderOptions) {
+        const value = options[option];
+
+        if (value !== undefined) signed.set(blobHeaderNames[option], value);
+      }
+
+      return { url: signedUrl, headers: Object.fromEntries(signed) };
+    },
+  };
+
+  vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+    const request = new Request(url, init);
+    const status = check(signed, request.headers);
+
+    uploads.push(request);
+
+    if (status < 300) {
+      const held: Record<string, string> = {};
+
+      for (const option of contentHeaderOptions) {
+        const value = request.headers.get(blobHeaderNames[option]);
+
+        if (value !== null) held[option] = value;
+      }
+
+      stored.set(signedKey, held);
+    }
+
+    return new Response(null, { status });
+  });
+
+  return { storage, uploads };
+}
+
+test("`presign/put-content-headers` uploads with the content headers the storage handed back", async () => {
+  const { storage, uploads } = signingContentHeaders();
+
+  await expect(run("presign/put-content-headers", storage)).resolves.toBe("declared");
+  expect(uploads).toHaveLength(1);
+  expect([...uploads[0]!.headers.keys()]).toEqual(
+    expect.arrayContaining(Object.values(blobHeaderNames)),
+  );
+});
+
+test("the `presign/put-content-headers` case refuses a `stat` reporting another value", async () => {
+  const { storage } = signingContentHeaders(binding, (held) => ({
+    ...held,
+    contentLanguage: held.contentLanguage?.replaceAll(" ", ""),
+  }));
+
+  await expect(run("presign/put-content-headers", storage)).rejects.toThrow(
+    "`stat` reports `contentLanguage`",
+  );
+});
+
+test("the `presign/put-content-headers` case refuses a `stat` reporting a `contentEncoding`", async () => {
+  const { storage } = signingContentHeaders(binding, (held) => ({
+    ...held,
+    contentEncoding: "gzip",
+  }));
+
+  await expect(run("presign/put-content-headers", storage)).rejects.toThrow("`contentEncoding`");
+});
+
+test("`presign/put-rejects-content-headers` sends each content header once differing and once left out", async () => {
+  const { storage, uploads } = signingContentHeaders();
+
+  await expect(run("presign/put-rejects-content-headers", storage)).resolves.toBe("declared");
+  expect(uploads).toHaveLength(6);
+
+  for (const name of Object.values(blobHeaderNames)) {
+    const carrying = uploads.filter((upload) => upload.headers.has(name));
+
+    expect(uploads.length - carrying.length).toBe(1);
+  }
+});
+
+const cacheControlName = blobHeaderNames.cacheControl;
+
+/** A provider that binds every signed header but `Cache-Control`, whose value it never reads. */
+const admittingAnyCacheControl: ProviderCheck = (signed, sent) => {
+  const compared = new Headers(signed);
+
+  if (sent.has(cacheControlName)) compared.set(cacheControlName, sent.get(cacheControlName)!);
+
+  return binding(compared, sent);
+};
+
+/** A provider that binds every signed header, and reads a missing `Cache-Control` as none. */
+const admittingNoCacheControl: ProviderCheck = (signed, sent) => {
+  const compared = new Headers(signed);
+
+  if (!sent.has(cacheControlName)) compared.delete(cacheControlName);
+
+  return binding(compared, sent);
+};
+
+test.each([
+  ["a differing value", admittingAnyCacheControl, "another `cacheControl`"],
+  ["a value left out", admittingNoCacheControl, "no `cacheControl`"],
+])(
+  "the `presign/put-rejects-content-headers` case refuses a provider admitting %s",
+  async (_, check, what) => {
+    const { storage } = signingContentHeaders(check);
+
+    await expect(run("presign/put-rejects-content-headers", storage)).rejects.toThrow(
+      `A signed \`PUT\` carrying ${what} was answered 201 and not refused`,
+    );
+  },
+);
+
+/** A storage declaring `presignedUrls` alone, which refuses the three as spec 4.3 has it. */
+function signingWithoutContentHeaders(): Storage {
+  return signing({
+    presignPut: async (_, options) => {
+      if (contentHeaderOptions.some((option) => Reflect.get(options, option) !== undefined)) {
+        throw new StorageError({
+          code: "Unsupported",
+          message: "This storage holds no content headers",
+          operation: "presignPut",
+          bucket: "stub",
+          provider: "stub",
+          capability: "contentHeaders",
+          attempts: 0,
+        });
+      }
+
+      return { url: signedUrl, headers: { "content-type": contentType } };
+    },
+  });
+}
+
+test.each(["presign/put-content-headers", "presign/put-rejects-content-headers"])(
+  "`%s` holds where the storage declares `presignedUrls` and no `contentHeaders`",
+  async (name) => {
+    await expect(run(name, signingWithoutContentHeaders())).resolves.toBe("without");
+  },
+);
+
+test("the half without `contentHeaders` refuses a storage signing one of the three", async () => {
+  const storage = signing({
+    presignPut: async () => ({ url: signedUrl, headers: { "content-type": contentType } }),
+  });
+
+  await expect(run("presign/put-content-headers", storage)).rejects.toThrow(
+    '`code: "Unsupported"`',
+  );
+});
+
+test("the half without `contentHeaders` refuses a storage refusing a `presignPut` without them", async () => {
+  const storage = signing({
+    presignPut: async () => {
+      throw new StorageError({
+        code: "Unsupported",
+        message: "This storage holds no content headers",
+        operation: "presignPut",
+        bucket: "stub",
+        provider: "stub",
+        capability: "contentHeaders",
+        attempts: 0,
+      });
+    },
+  });
+
+  await expect(run("presign/put-content-headers", storage)).rejects.toThrow(
+    "This storage holds no content headers",
   );
 });
