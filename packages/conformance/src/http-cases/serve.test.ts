@@ -118,7 +118,7 @@ function contentHeadersOf(options: ContentHeaders): ContentHeaders {
 function servesStoredDisposition(stored: string | undefined, flaw?: Flaw): stored is string {
   if (stored === undefined || flaw === "stored-disposition-ignored") return false;
 
-  return flaw === "stored-inline-served" || /^attachment\s*(;|$)/iu.test(stored);
+  return flaw === "stored-inline-served" || /^\s*attachment\s*(;|$)/iu.test(stored);
 }
 
 /**
