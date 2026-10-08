@@ -11,7 +11,7 @@ const origin = "http://server.test";
 const alteration: ServerAlteration = {
   cases: ["serve/head", "serve/whole"],
   differs: "It answers a `HEAD` with `Content-Length: 0`",
-  restore: (method, answer) => {
+  restore: async (method, answer) => {
     if (method !== "HEAD" || answer.headers.get("content-length") !== "0") return undefined;
 
     const headers = new Headers(answer.headers);

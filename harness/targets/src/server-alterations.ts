@@ -15,7 +15,7 @@ export interface ServerAlteration {
    * The headers of `answer` as the layer answered with them, where `answer` carries the
    * change; `undefined` for an answer that does not.
    */
-  restore(method: string, answer: Response): Headers | undefined;
+  restore(method: string, answer: Response): Promise<Headers | undefined>;
 }
 
 /** A server of spec 2's second table, as far as its alterations go. */
@@ -86,7 +86,7 @@ async function restoringAnswers(
     if (new URL(url).origin !== origin) return answer;
 
     const method = (init?.method ?? request?.method ?? "GET").toUpperCase();
-    const headers = alteration.restore(method, answer);
+    const headers = await alteration.restore(method, answer);
 
     if (headers === undefined) return answer;
 
