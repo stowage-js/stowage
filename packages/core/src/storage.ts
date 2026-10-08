@@ -97,7 +97,7 @@ export interface ObjectStat extends ObjectEntry {
   /**
    * The content coding the object is stored with, as stored, such as `GZIP` or `gzip, br`;
    * a caller lower-cases before comparing. Missing where the object holds no coding, an empty
-   * value or `identity`. It names how the object is stored, not which bytes `get` hands over,
+   * value or `identity` in any case. It names how the object is stored, not which bytes `get` hands over,
    * which may arrive decoded. `put` never reports one.
    */
   readonly contentEncoding?: string;

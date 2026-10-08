@@ -92,7 +92,7 @@ export function contentCodingRefusal(
  * What `contentEncoding` of `ObjectStat` reports for a stored value: the value as stored, or
  * `undefined` where it names no coding. `identity` names none in any case, as RFC 9110 makes
  * the tokens case-insensitive, so the member is set exactly where `contentCodingRefusal`
- * refuses a range (spec 4.4, ADR 0061).
+ * refuses a range (spec 4.4, spec 4.13, ADR 0061).
  */
 export function contentEncodingOf(contentEncoding: string | null | undefined): string | undefined {
   const coding = contentEncoding ?? "";
