@@ -849,8 +849,11 @@ test("a temporary credential refused as a wrong signature costs one refresh and 
 test("`retry: false` keeps the refresh, and a refreshed credential refused too is `InvalidCredentials`", async () => {
   const sent = stubFetch(() => signatureRefused());
 
-  const failure = await rejection(async () =>
-    s3Storage(options({ credentials: temporaryCredentials, retry: false })).get("object.txt"),
+  const failure = await rejection(
+    async () =>
+      await s3Storage(options({ credentials: temporaryCredentials, retry: false })).get(
+        "object.txt",
+      ),
   );
 
   expect(failure.code).toBe("InvalidCredentials");
@@ -868,8 +871,8 @@ test("a key pair refused as a wrong signature is not refreshed", async () => {
   const sent = stubFetch(() => signatureRefused());
   const resolve = vi.fn<() => typeof credentials>(() => credentials);
 
-  const failure = await rejection(async () =>
-    s3Storage(options({ credentials: resolve })).get("object.txt"),
+  const failure = await rejection(
+    async () => await s3Storage(options({ credentials: resolve })).get("object.txt"),
   );
 
   expect(failure.code).toBe("InvalidCredentials");
@@ -887,8 +890,9 @@ test.each(["stat", "exists"] as const)(
   async (operation) => {
     const sent = stubFetch(() => new Response(null, { status: 403 }));
 
-    const failure = await rejection(async () =>
-      s3Storage(options({ credentials: temporaryCredentials }))[operation]("object.txt"),
+    const failure = await rejection(
+      async () =>
+        await s3Storage(options({ credentials: temporaryCredentials }))[operation]("object.txt"),
     );
 
     expect(failure.code).toBe("AccessDenied");
