@@ -28,8 +28,9 @@ export interface AzureBlobPresignGetOptions {
   /**
    * Seconds, 1 to 604800; anything else is `InvalidOption` before anything is sent. The SAS
    * normally starts 15 minutes in the past, so an account's SAS expiration policy measures
-   * 900 seconds more. With an access token and `expiresIn` of 604800, it starts at the
-   * current time instead because a user delegation key can live for only seven days.
+   * 900 seconds more. With an access token and an `expiresIn` above 603900, it starts 604800
+   * seconds before it expires, since a user delegation key is taken to span seven days at
+   * most: the policy measures 604800, and less time is left for clock skew, none at 604800.
    */
   expiresIn: number;
   responseContentType?: string;
@@ -41,8 +42,9 @@ export interface AzureBlobPresignPutOptions {
   /**
    * Seconds, 1 to 604800; anything else is `InvalidOption` before anything is sent. The SAS
    * normally starts 15 minutes in the past, so an account's SAS expiration policy measures
-   * 900 seconds more. With an access token and `expiresIn` of 604800, it starts at the
-   * current time instead because a user delegation key can live for only seven days.
+   * 900 seconds more. With an access token and an `expiresIn` above 603900, it starts 604800
+   * seconds before it expires, since a user delegation key is taken to span seven days at
+   * most: the policy measures 604800, and less time is left for clock skew, none at 604800.
    */
   expiresIn: number;
   /**
