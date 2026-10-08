@@ -617,8 +617,9 @@ describe("over `node:http`", () => {
   /** `IncomingMessage` and `ServerResponse` stand for `NodeRequest` and `NodeResponse` as they are. */
   const listen = async (): Promise<URL> => {
     const storage = stubStorage({
-      get: async () => storedObject(statOf({ contentType: "text/plain" }), streamOf("the bytes")),
-      stat: async () => statOf({ contentType: "text/plain" }),
+      get: async () =>
+        storedObject(statOf({ contentType: "text/plain", size: 9 }), streamOf("the bytes")),
+      stat: async () => statOf({ contentType: "text/plain", size: 9 }),
     });
 
     server = createServer((req, res) => {
@@ -646,9 +647,10 @@ describe("over `node:http`", () => {
     expect(get.status).toBe(200);
     expect(await get.text()).toBe("the bytes");
     expect(get.headers.get("content-type")).toBe("text/plain");
-    expect(get.headers.has("content-length")).toBe(false);
+    expect(get.headers.get("content-length")).toBe("9");
     expect(head.status).toBe(200);
     expect(await head.text()).toBe("");
+    expect(head.headers.get("content-length")).toBe("9");
     expect(head.headers.get("etag")).toBe('"0123abcd"');
   });
 
