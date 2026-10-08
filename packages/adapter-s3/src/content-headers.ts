@@ -33,6 +33,7 @@ export function contentHeaderFields(
   contentType: string,
   key: string,
   capabilities: readonly CapabilityName[],
+  operation = "put",
 ): ContentHeaderFields {
   const { cacheControl, contentDisposition, contentLanguage } = headers;
   const held: ContentHeaders = Object.freeze({
@@ -43,7 +44,7 @@ export function contentHeaderFields(
   const refusal = contentHeadersRefusal(held, contentType, capabilities);
 
   if (refusal !== undefined) {
-    throw s3Error(bucket, { ...refusal, operation: "put", key, attempts: 0 });
+    throw s3Error(bucket, { ...refusal, operation, key, attempts: 0 });
   }
 
   return {

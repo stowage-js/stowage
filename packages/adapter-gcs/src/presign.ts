@@ -1,6 +1,7 @@
-import type { PresignedPut } from "@stowage/core";
+import type { ContentHeaders, PresignedPut } from "@stowage/core";
 
 import type { GcsConfiguration, GcsSigner } from "./configuration.ts";
+import { heldContentHeaders } from "./content-headers.ts";
 import { requireKey } from "./key.ts";
 import {
   optionError,
@@ -25,7 +26,7 @@ export interface GcsPresignGetOptions {
   responseContentDisposition?: string;
 }
 
-export interface GcsPresignPutOptions {
+export interface GcsPresignPutOptions extends ContentHeaders {
   /**
    * Seconds, 1 to 604800; anything else is `InvalidOption` before anything is sent.
    * The URL counts them from the moment of signing. One signed through `signBlob` may stop
@@ -84,9 +85,8 @@ export async function presignGet(
 }
 
 /**
- * Spec 9.9: `PUT` on a writable key, with the content type and the content length bound
- * through signed headers beside `host`. Only the content type is handed back to send beside
- * the body, since a client sets the length itself (spec 4.13).
+ * Spec 9.9 and ADR 0063: bind the type, length and each content header given.
+ * Return the headers the client sends beside the body; it sets the length itself.
  */
 export async function presignPut(
   configuration: GcsConfiguration,
@@ -102,20 +102,36 @@ export async function presignPut(
   const expiresIn = readExpiresIn(configuration.bucket, given.expiresIn, operation);
   const contentType = readText(configuration.bucket, given.contentType, "contentType", operation);
   const contentLength = readContentLength(configuration.bucket, given.contentLength, operation);
+  const contentHeaders = heldContentHeaders(
+    configuration.bucket,
+    given,
+    contentType,
+    key,
+    ["contentHeaders"],
+    operation,
+  );
+  const headers: HeaderField[] = [];
+
+  for (const [option, header] of [
+    ["cacheControl", "cache-control"],
+    ["contentDisposition", "content-disposition"],
+    ["contentLanguage", "content-language"],
+  ] as const) {
+    const value = contentHeaders[option];
+
+    if (value !== undefined) headers.push([header, value]);
+  }
 
   const url = await presignedUrl(configuration, signer, {
     method: "PUT",
     operation,
     key,
     query: [],
-    headers: [
-      ["content-type", contentType],
-      ["content-length", contentLength],
-    ],
+    headers: [["content-type", contentType], ["content-length", contentLength], ...headers],
     expiresIn,
   });
 
-  return { url, headers: { "content-type": contentType } };
+  return { url, headers: { "content-type": contentType, ...Object.fromEntries(headers) } };
 }
 
 interface Presignable {
