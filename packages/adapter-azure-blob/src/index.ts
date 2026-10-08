@@ -65,8 +65,9 @@ export interface AzureBlobStorage extends Storage {
    * A user delegation SAS a client holding no credential calls with a plain `PUT` of one
    * body under this key until it expires. `contentType` and `contentLength` bind exactly,
    * so a body of unknown length cannot be uploaded through it. Resolves with the URL and
-   * the `content-type` and `x-ms-blob-type` the `PUT` sends beside the body. Needs an
-   * access token: under an account key it is `InvalidCredentials` before any request.
+   * the `content-type`, `x-ms-blob-type` and `x-ms-blob-content-type` the `PUT` sends beside
+   * the body, which the account's CORS rule must allow. Needs an access token: under an
+   * account key it is `InvalidCredentials` before any request.
    */
   presignPut(key: string, options: AzureBlobPresignPutOptions): Promise<PresignedPut>;
 }

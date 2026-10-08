@@ -12,6 +12,8 @@ export const azureProbeNames = {
   commitTwice: "a `Put Block List` sent twice answers `201` both times with the same bytes",
   putBlobDiscards: "a `Put Blob` discards the uncommitted blocks of its name",
   expiredUrlCors: "the `403` for an expired presigned `PUT` carries the CORS headers of the rule",
+  differingBlobContentType:
+    "a presigned `PUT` whose `x-ms-blob-content-type` differs from the signed one is refused",
   longNameOnHead: "a name above 1,024 characters is answered `InvalidKey` by `stat` and `exists`",
   copyAboveLimit: "`copy` of a source above 5,000 MiB",
   staleMarker: "a `marker` Azure does not continue from",
@@ -27,8 +29,9 @@ const conformanceCase = (title: string): FirstRunTest => ({ suite: azureBlobSuit
 
 /**
  * Spec 18 on `adapter-azure-blob` as it stood before the first run against the account,
- * point by point, with what the scheduled run reads each one off, and the question ADR 0023
- * has the run settle for flow 2. A point stated as a promise holds or is disproved; one
+ * point by point, with what the scheduled run reads each one off, the question ADR 0023 has
+ * the run settle for flow 2, and the refusal of a differing `x-ms-blob-content-type` that
+ * ADR 0063 added since. A point stated as a promise holds or is disproved; one
  * recorded or one that may loosen a rule reads what the run observed.
  */
 export const azureBlobFirstRunPoints: readonly FirstRunPoint[] = [
@@ -86,6 +89,13 @@ export const azureBlobFirstRunPoints: readonly FirstRunPoint[] = [
     promise:
       "Azure Blob: the `403` for an expired presigned URL carries the CORS headers of the rule, after a preflight from its origin (ADR 0023)",
     tests: [probe(azureProbeNames.expiredUrlCors)],
+    endpoints: account,
+    runtime: "node",
+  },
+  {
+    promise:
+      "Azure Blob: a user delegation SAS naming `x-ms-blob-content-type` in `srh` refuses an upload whose `x-ms-blob-content-type` differs from the signed one (ADR 0063)",
+    tests: [probe(azureProbeNames.differingBlobContentType)],
     endpoints: account,
     runtime: "node",
   },

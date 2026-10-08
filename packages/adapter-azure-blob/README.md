@@ -172,15 +172,15 @@ export function azureBlobStorageFromConnectionString(
 ```
 
 A browser upload through `presignPut` is preflighted, so the account needs a CORS rule for the
-Blob service that allows the uploading origin, `PUT`, and the headers `content-type` and
-`x-ms-blob-type`. stowage configures none
+Blob service that allows the uploading origin, `PUT`, and the headers `content-type`,
+`x-ms-blob-type` and `x-ms-blob-content-type`. stowage configures none
 ([flow 2](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.5.0/docs/spec.md#flow-2-browser-upload-through-a-presigned-put)).
 With the Azure CLI:
 
 ```sh
 az storage cors add --account-name myappuploads --services b \
   --origins https://app.example.com --methods PUT \
-  --allowed-headers content-type x-ms-blob-type --max-age 3600
+  --allowed-headers content-type x-ms-blob-type x-ms-blob-content-type --max-age 3600
 ```
 
 A `put` of a stream that fills more than one part stages blocks and commits them. When it rejects
