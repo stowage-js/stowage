@@ -72,8 +72,10 @@ before the signature, and the key request falls inside it, between the server an
   more than 604800 seconds before `se`, `st` and the key's `Start` move to `se` less 604800
   seconds. Above an `expiresIn` of 603900 the URL keeps less of the 15 minutes for clock skew, and
   at 604800 none, so an account whose clock runs behind the signing clock refuses it at first. No
-  run has measured the looser reading, nor whether a SAS whose `st` precedes its key's `Start` is
-  admitted; either answer moves `st` back without a withdrawal. A signing clock running ahead can
+  run has measured the looser reading, nor whether a request before its key's `Start` is admitted,
+  nor from when Azure counts the seven days it allows a user delegation SAS. A URL of 604800
+  seconds with `st` 15 minutes in the past that the account admits under either kind of key moves
+  `st` back without a withdrawal. A signing clock running ahead can
   push a key that expires at 604800 seconds past Azure's seven days, and then the key request
   fails, not the URL.
 - Whether `srh` accepts `Content-Type` and `Content-Length` is unverified: the documentation shows

@@ -3190,11 +3190,13 @@ What a run may add or loosen, in a minor release and without a withdrawal:
 - `adapter-s3`: whether a `DeleteObjects` body holding `&#xFFFE;` or `&#65534;` deletes the object
   on AWS S3 and R2. If one spelling does on both, these keys go back into the batch without a
   change to this document. No test of the scheduled run sends either body yet.
-- `adapter-azure-blob`: whether `Get User Delegation Key` grants a key from 15 minutes in the past
-  until seven days from now, and whether a user delegation SAS whose `st` precedes its `skt` admits
-  a request. Microsoft's documentation disagrees on the first and is silent on the second. If
-  either holds, `st` stays 15 minutes in the past for every `expiresIn` under an access token
-  (section 8.9). No test of the scheduled run requests such a key or sends such a SAS yet.
+- `adapter-azure-blob`: whether the account admits a `GET` through a user delegation SAS of an
+  `expiresIn` of 604800 whose `st` lies 15 minutes in the past, signed with a key from that `st`
+  until `se`, or with a key whose `Start` lies after the request. Microsoft's documentation
+  disagrees on whether a key may span more than seven days, is silent on a request before the
+  key's `Start`, and limits a user delegation SAS to seven days without saying from when. If the
+  first is admitted, key and SAS start 15 minutes in the past for every `expiresIn`; if only the
+  second, `st` alone does (section 8.9). No test of the scheduled run sends either URL yet.
 - `adapter-azure-blob`: whether a key holding a character from `U+0080` to `U+009F` needs
   refusing. A refusal shown needless is loosened. The first run sent `U+0085` alone, which the
   account stored and listed as written; the scheduled run now sends each of the 32.
