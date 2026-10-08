@@ -15,12 +15,13 @@ const request = (method: string, init: RequestInit = {}): Request =>
 
 /** A storage holding one object, under whatever key it is asked for. */
 const holding = (
-  fields: { capabilities?: Storage["capabilities"]; etag?: string } = {},
+  fields: { capabilities?: Storage["capabilities"] } & Partial<ObjectStat> = {},
 ): Storage => {
-  const stat = statOf("etag" in fields ? { etag: fields.etag } : {});
+  const { capabilities, ...described } = fields;
+  const stat = statOf(described);
 
   return stubStorage({
-    capabilities: fields.capabilities,
+    capabilities,
     get: async (key) => storedObject({ ...stat, key }, streamOf("body")),
     stat: async (key) => ({ ...stat, key }),
   });
@@ -254,20 +255,20 @@ const rangingStorage = (
   fields: {
     capabilities?: Storage["capabilities"];
     get?: Storage["get"];
-    contentEncoding?: string;
-  } = {},
+  } & Pick<Partial<ObjectStat>, "contentEncoding" | "contentLanguage"> = {},
 ): { storage: Storage; calls: string[] } => {
   const calls: string[] = [];
-  const stat = statOf({ size: sixteenBytes.length, contentEncoding: fields.contentEncoding });
+  const { capabilities, get, ...described } = fields;
+  const stat = statOf({ size: sixteenBytes.length, ...described });
 
   const storage = stubStorage({
-    capabilities: fields.capabilities ?? ["rangeReads"],
+    capabilities: capabilities ?? ["rangeReads"],
     get: async (key, options) => {
       const range = options?.range;
 
       calls.push(range === undefined ? "get" : `get ${range.start}-${range.end ?? ""}`);
 
-      if (fields.get !== undefined) return await fields.get(key, options);
+      if (get !== undefined) return await get(key, options);
       if (range === undefined) return storedObject(stat, streamOf(sixteenBytes));
       if (stat.contentEncoding !== undefined) throw storageError({ code: "ProviderError" });
       if (range.start >= stat.size) throw storageError({ code: "InvalidRequest", key });
@@ -560,6 +561,131 @@ const serveConditional = async (
   storage: Storage = rangingStorage().storage,
   method = "GET",
 ): Promise<Response> => await serveObject(storage, "docs/report.pdf", request(method, { headers }));
+
+describe("`Content-Language`", () => {
+  test.each([
+    ["a `200`", "GET", {}, 200],
+    ["a `HEAD`", "HEAD", {}, 200],
+    ["a `206`", "GET", { range: "bytes=2-5" }, 206],
+    ["a `304`", "GET", { "if-none-match": "*" }, 304],
+  ])("is the stored `contentLanguage` on %s", async (_, method, headers, status) => {
+    const { storage } = rangingStorage({ contentLanguage: "de-AT, en" });
+    const response = await serveConditional(headers, storage, method);
+
+    expect(response.status).toBe(status);
+    expect(response.headers.get("content-language")).toBe("de-AT, en");
+  });
+
+  test.each([
+    ["a `200`", "GET", {}, 200],
+    ["a `HEAD`", "HEAD", {}, 200],
+    ["a `206`", "GET", { range: "bytes=2-5" }, 206],
+    ["a `304`", "GET", { "if-none-match": "*" }, 304],
+  ])("is absent on %s where none is stored", async (_, method, headers, status) => {
+    const response = await serveConditional(headers, rangingStorage().storage, method);
+
+    expect(response.status).toBe(status);
+    expect(response.headers.has("content-language")).toBe(false);
+  });
+});
+
+const defaultDisposition = `attachment; filename="report.pdf"; filename*=UTF-8''report.pdf`;
+
+const servedDispositionOf = async (
+  contentDisposition: string,
+  options?: ServeObjectOptions,
+  method = "GET",
+): Promise<string | null> =>
+  (await serve(method, options, holding({ contentDisposition }))).headers.get(
+    "content-disposition",
+  );
+
+describe("a stored `contentDisposition`", () => {
+  test.each([
+    'attachment; filename="stored.pdf"',
+    "attachment; filename*=UTF-8''st%C3%B6red.pdf",
+    'ATTACHMENT; filename="stored.pdf"',
+    'attachment ; filename="stored.pdf"',
+    "attachment",
+  ])("of the type `attachment` is sent as stored: `%s`", async (stored) => {
+    expect(await servedDispositionOf(stored)).toBe(stored);
+    expect(await servedDispositionOf(stored, {}, "HEAD")).toBe(stored);
+  });
+
+  test.each([
+    'inline; filename="x.html"',
+    "INLINE",
+    'attachments; filename="x.html"',
+    'form-data; name="x"',
+    'filename="x.html"; attachment',
+  ])("of any other type gives way to the default: `%s`", async (stored) => {
+    expect(await servedDispositionOf(stored)).toBe(defaultDisposition);
+  });
+
+  test("gives way to `filename`", async () => {
+    expect(
+      await servedDispositionOf('attachment; filename="stored.pdf"', { filename: "Q3.pdf" }),
+    ).toBe(`attachment; filename="Q3.pdf"; filename*=UTF-8''Q3.pdf`);
+  });
+
+  test.each(["attachment", "inline"] as const)(
+    "gives way to the `disposition` `%s`",
+    async (type) => {
+      expect(
+        await servedDispositionOf('attachment; filename="stored.pdf"', { disposition: type }),
+      ).toBe(`${type}; filename="report.pdf"; filename*=UTF-8''report.pdf`);
+    },
+  );
+});
+
+const cacheControlOf = async (
+  stored: string | undefined,
+  options: ServeObjectOptions,
+): Promise<string | null> =>
+  (await serve("GET", options, holding({ cacheControl: stored }))).headers.get("cache-control");
+
+describe("`Cache-Control` in the order of spec 10.3", () => {
+  test.each<[string, string | undefined, ServeObjectOptions, string]>([
+    [
+      "the stored value under `storedCacheControl`",
+      "public, max-age=60",
+      { storedCacheControl: true, cacheControl: "no-store" },
+      "public, max-age=60",
+    ],
+    [
+      "`cacheControl` under `storedCacheControl` where none is stored",
+      undefined,
+      { storedCacheControl: true, cacheControl: "no-store" },
+      "no-store",
+    ],
+    [
+      "the default under `storedCacheControl` where neither is given",
+      undefined,
+      { storedCacheControl: true },
+      "private, no-cache",
+    ],
+    [
+      "`cacheControl` over a stored value without `storedCacheControl`",
+      "public, max-age=60",
+      { cacheControl: "no-store" },
+      "no-store",
+    ],
+    [
+      "the default over a stored value without `storedCacheControl`",
+      "public, max-age=60",
+      {},
+      "private, no-cache",
+    ],
+    [
+      "the default over a stored value under `storedCacheControl: false`",
+      "public, max-age=60",
+      { storedCacheControl: false },
+      "private, no-cache",
+    ],
+  ])("is %s", async (_, stored, options, expected) => {
+    expect(await cacheControlOf(stored, options)).toBe(expected);
+  });
+});
 
 describe("`If-None-Match`", () => {
   test("with the `ETag` is `304` with the headers of the `200` but `Content-Length`, from `stat` alone", async () => {
@@ -938,6 +1064,34 @@ describe("an object changing between `stat` and `get`", () => {
     expect(await response.text()).toBe(sixteenBytes);
     expect(calls).toEqual(["stat", "get"]);
     expect(canceled).toEqual([]);
+  });
+
+  test("carries the stored content headers of the `stat` of `get`", async () => {
+    const { storage } = changingStorage(
+      {
+        etag: "seen",
+        cacheControl: "public, max-age=1",
+        contentDisposition: 'attachment; filename="seen.pdf"',
+        contentLanguage: "de",
+      },
+      {
+        etag: "handed",
+        cacheControl: "public, max-age=2",
+        contentDisposition: 'attachment; filename="handed.pdf"',
+        contentLanguage: "en",
+      },
+    );
+    const response = await serveObject(
+      storage,
+      "docs/report.pdf",
+      request("GET", { headers: { "if-none-match": '"other"' } }),
+      { storedCacheControl: true },
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("public, max-age=2");
+    expect(response.headers.get("content-disposition")).toBe('attachment; filename="handed.pdf"');
+    expect(response.headers.get("content-language")).toBe("en");
   });
 
   test("has its body canceled and `304` answered where `If-None-Match` now fails", async () => {
