@@ -1,9 +1,8 @@
-import { isStorageError, type ContentHeaders, type PresignedPut } from "@stowage/core";
+import { isStorageError, type PresignedPut } from "@stowage/core";
 
 import type { HeaderField, QueryParameter } from "./canonical.ts";
 import type { S3Configuration } from "./configuration.ts";
 import { resolveCredentials } from "./credentials.ts";
-import { contentHeaderFields } from "./content-headers.ts";
 import { requireKey } from "./key.ts";
 import {
   optionError,
@@ -24,7 +23,7 @@ export interface S3PresignGetOptions {
   responseExpires?: string;
 }
 
-export interface S3PresignPutOptions extends ContentHeaders {
+export interface S3PresignPutOptions {
   /** Seconds, 1 to 604800. The credential that signs may cut the lifetime shorter. */
   expiresIn: number;
   /** Bound exactly: an upload of another type is refused by the provider. */
@@ -81,8 +80,11 @@ export async function presignGet(
 }
 
 /**
- * Spec 7.10 and ADR 0063: bind the type, length and each content header given.
- * Return the headers the client sends beside the body; it sets the length itself.
+ * Spec 7.10: `PutObject` on a writable key, with the content type and the content length
+ * bound through signed headers. Nothing else is signed in: no user metadata and no
+ * checksum, which the browser would have to match exactly for a `403` that names nothing
+ * (ADR 0011). Of the two, only the content type is handed back to send beside the body
+ * (spec 4.13).
  */
 export async function presignPut(
   configuration: S3Configuration,
@@ -97,14 +99,6 @@ export async function presignPut(
   const expiresIn = readExpiresIn(configuration.bucket, given.expiresIn, operation);
   const contentType = readText(configuration.bucket, given.contentType, "contentType", operation);
   const contentLength = readContentLength(configuration.bucket, given.contentLength, operation);
-  const contentHeaders = contentHeaderFields(
-    configuration.bucket,
-    given,
-    contentType,
-    key,
-    ["contentHeaders"],
-    operation,
-  );
 
   const url = await presignedUrl(configuration, {
     method: "PUT",
@@ -114,15 +108,11 @@ export async function presignPut(
     headers: [
       ["content-type", contentType],
       ["content-length", contentLength],
-      ...contentHeaders.headers,
     ],
     expiresIn,
   });
 
-  return {
-    url,
-    headers: { "content-type": contentType, ...Object.fromEntries(contentHeaders.headers) },
-  };
+  return { url, headers: { "content-type": contentType } };
 }
 
 interface Presignable {

@@ -19,7 +19,6 @@ export function heldContentHeaders(
   contentType: string,
   key: string,
   capabilities: readonly CapabilityName[],
-  operation = "put",
 ): ContentHeaders {
   const { cacheControl, contentDisposition, contentLanguage } = headers;
   const held: ContentHeaders = Object.freeze({
@@ -30,7 +29,7 @@ export function heldContentHeaders(
   const refusal = contentHeadersRefusal(held, contentType, capabilities);
 
   if (refusal !== undefined) {
-    throw gcsError(bucket, { ...refusal, operation, key, attempts: 0 });
+    throw gcsError(bucket, { ...refusal, operation: "put", key, attempts: 0 });
   }
 
   return held;

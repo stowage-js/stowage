@@ -24,9 +24,6 @@ export const presignPutOptionKeys: readonly string[] = [
   "expiresIn",
   "contentType",
   "contentLength",
-  "cacheControl",
-  "contentDisposition",
-  "contentLanguage",
 ];
 export const listOptionKeys: readonly string[] = [
   ...operationOptionKeys,
