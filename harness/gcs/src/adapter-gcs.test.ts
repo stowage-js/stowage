@@ -148,10 +148,10 @@ function storage(): GcsSigningStorage {
 // Spec 14.4: what fake-gcs-server shows on every commit and the real bucket in the scheduled
 // job, as the harnesses of `adapter-s3` and `adapter-azure-blob` hold it against both.
 const endpoint = configuredEndpoint();
-const everyCommitOrScheduled =
+const endpointUnderTest =
   endpoint?.kind === "emulator" || scheduled !== undefined ? endpoint : undefined;
 
-describe.skipIf(everyCommitOrScheduled === undefined)("adapter-gcs against the endpoint", () => {
+describe.skipIf(endpointUnderTest === undefined)("adapter-gcs against the endpoint", () => {
   afterAll(async () => {
     const report = await endpointStorage().deleteAll(prefix);
 
@@ -201,11 +201,11 @@ describe.skipIf(everyCommitOrScheduled === undefined)("adapter-gcs against the e
 });
 
 function endpointOrFail(): GcsEndpoint {
-  if (everyCommitOrScheduled === undefined) {
+  if (endpointUnderTest === undefined) {
     throw new Error("No GCS endpoint is configured; see `harness/gcs/README.md`");
   }
 
-  return everyCommitOrScheduled;
+  return endpointUnderTest;
 }
 
 function endpointStorage(): GcsStorage {
