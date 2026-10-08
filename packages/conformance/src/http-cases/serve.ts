@@ -29,10 +29,7 @@ const serve = async (
   init?: RequestInit,
 ): Promise<Response> => await fetch(ctx.target.url("serve", key), init);
 
-/**
- * An object of its own for one case, written through the storage behind the server, with
- * the content headers in `contentHeaders`.
- */
+/** An object of its own for one case, written through the storage behind the server. */
 async function seed(
   ctx: HttpConformanceContext,
   key: string,

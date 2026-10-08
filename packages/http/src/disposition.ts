@@ -24,10 +24,7 @@ export function dispositionOf(
   );
 }
 
-/**
- * Whether a `Content-Disposition` is of the type `attachment`: the token before the first
- * `;`, compared without case. RFC 6266 lets whitespace stand around the `;`.
- */
+/** RFC 6266 lets whitespace stand around the `;` that ends the disposition type. */
 export function isAttachment(value: string): boolean {
   return value.split(";", 1)[0]?.trim().toLowerCase() === "attachment";
 }

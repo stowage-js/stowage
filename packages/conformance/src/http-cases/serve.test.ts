@@ -106,7 +106,6 @@ function heldStorage(capabilities: readonly string[], etag: string | undefined):
   });
 }
 
-/** The content headers among `options`, each one only where it is given. */
 function contentHeadersOf(options: ContentHeaders): ContentHeaders {
   return Object.fromEntries(
     (["cacheControl", "contentDisposition", "contentLanguage"] as const).flatMap((name) =>
