@@ -1,4 +1,4 @@
-import type { PresignedPut } from "@stowage/core";
+import { isHeaderValue, type PresignedPut } from "@stowage/core";
 
 import { answerFor, refusal } from "./answers.ts";
 
@@ -51,14 +51,6 @@ export interface PresignUploadOptions {
 }
 
 /**
- * RFC 9110 5.5's `field-value` without `obs-text`: visible ASCII, with spaces and tabs
- * inside alone. A runtime's `fetch` trims the whitespace around a header value and sends
- * no character beyond ASCII as the UTF-8 a signer hashes, so a client would send a value
- * other than the one signed, and the provider would answer its `PUT` with `403`.
- */
-const headerValuePattern = /^[\x21-\x7E](?:[\x20-\x7E\t]*[\x21-\x7E])?$/u;
-
-/**
  * Answers with what `presignPut` returns, as JSON (spec 10.6). It takes no `Request`: the
  * caller names the key first, usually from the request body, and hands over the values the
  * client sent (ADR 0049).
@@ -77,7 +69,7 @@ export async function presignUpload(
   }
 
   if (contentLength > options.maxSize) return refusal(413);
-  if (typeof contentType !== "string" || !headerValuePattern.test(contentType)) return refusal(400);
+  if (typeof contentType !== "string" || !isHeaderValue(contentType)) return refusal(400);
 
   let presigned: PresignedPut;
 
