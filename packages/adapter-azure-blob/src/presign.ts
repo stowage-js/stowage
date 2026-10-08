@@ -201,6 +201,8 @@ async function signUnderDelegation(
   grant: UserDelegationSasGrant,
   operation: string,
 ): Promise<SignedSas> {
+  // ADR 0022: the stricter of Microsoft's two readings, a key spanning seven days at most, which
+  // no run has measured (spec 18).
   const adjustedGrant =
     grant.expiry.getTime() - grant.start.getTime() > longestLifetime * 1000
       ? { ...grant, start: new Date(grant.expiry.getTime() - longestLifetime * 1000) }

@@ -1579,13 +1579,14 @@ A URL is a SAS, and the credential of the call decides which kind (ADR 0022):
   Azure refuses a value that differs from the signed one or is missing is a promise of section 18.
 - Under an account key `presignPut` rejects before any request, because a service SAS binds no
   request header. Its message says that `presignPut` needs an access token.
-- Every SAS carries `sr=b`, `st` 15 minutes in the past and `se` `expiresIn` seconds from now, and
-  `spr=https`, or `https,http` where the endpoint is a loopback address; none carries `sip`. Under
-  an access token, where that `st` would lie more than 604800 seconds before `se`, `st` is `se` less
-  604800 seconds instead: above an `expiresIn` of 603900 the URL keeps less of the 15 minutes for
-  clock skew, and at 604800 `st` is the moment of signing (ADR 0022). An account with a SAS
-  expiration policy therefore measures `expiresIn + 900` seconds, and under an access token at
-  most 604800.
+- Every SAS carries `sr=b`, `st` 15 minutes in the past unless the next point moves it, `se`
+  `expiresIn` seconds from now, and `spr=https`, or `https,http` where the endpoint is a loopback
+  address; none carries `sip`. An account with a SAS expiration policy therefore measures
+  `expiresIn + 900` seconds.
+- Under an access token, where `st` 15 minutes in the past would lie more than 604800 seconds before
+  `se`, `st` is `se` less 604800 seconds instead, and a SAS expiration policy measures 604800:
+  above an `expiresIn` of 603900 the URL keeps less of the 15 minutes for clock skew, and at
+  604800 `st` is the moment of signing (ADR 0022).
 - Under an access token each call requests one user delegation key, valid from `st` until `se` or 15
   minutes from now, whichever is later, and keeps it nowhere; it is an ordinary request of the
   adapter under sections 8.3 and 8.5, and a refusal of it is `AccessDenied`. The principal needs the
@@ -3191,9 +3192,9 @@ What a run may add or loosen, in a minor release and without a withdrawal:
   change to this document. No test of the scheduled run sends either body yet.
 - `adapter-azure-blob`: whether `Get User Delegation Key` grants a key from 15 minutes in the past
   until seven days from now, and whether a user delegation SAS whose `st` precedes its `skt` admits
-  an upload. Microsoft's documentation disagrees on the first and is silent on the second. If both
-  hold, `st` stays 15 minutes in the past for every `expiresIn` under an access token (section
-  8.9). No test of the scheduled run requests such a key yet.
+  a request. Microsoft's documentation disagrees on the first and is silent on the second. If
+  either holds, `st` stays 15 minutes in the past for every `expiresIn` under an access token
+  (section 8.9). No test of the scheduled run requests such a key or sends such a SAS yet.
 - `adapter-azure-blob`: whether a key holding a character from `U+0080` to `U+009F` needs
   refusing. A refusal shown needless is loosened. The first run sent `U+0085` alone, which the
   account stored and listed as written; the scheduled run now sends each of the 32.
