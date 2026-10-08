@@ -21,13 +21,13 @@ export function describeResponse(
     etag: etagOf(response),
     contentType: response.headers.get("content-type") ?? defaultContentType,
     ...readContentHeaders(response.headers),
-    ...codingOf(response.headers),
+    ...readContentEncoding(response.headers),
     userMetadata: readUserMetadata(response.headers),
   };
 }
 
 /** The coding the blob is stored with, which `Accept-Encoding: identity` keeps on the answer. */
-function codingOf(headers: Headers): { readonly contentEncoding?: string } {
+function readContentEncoding(headers: Headers): { readonly contentEncoding?: string } {
   const contentEncoding = contentEncodingOf(headers.get("content-encoding"));
 
   return contentEncoding === undefined ? {} : { contentEncoding };

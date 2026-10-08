@@ -82,7 +82,7 @@ export function describeResource(
     contentType:
       typeof contentType === "string" && contentType !== "" ? contentType : defaultContentType,
     ...readContentHeaders(resource),
-    ...codingOf(resource),
+    ...readContentEncoding(resource),
     userMetadata: readUserMetadata(resource),
   };
 }
@@ -91,7 +91,7 @@ export function describeResource(
  * The resource's `contentEncoding`, the coding the object is stored with. The media download
  * is never asked (spec 9.4): GCS drops `Content-Encoding` there where it decoded gzip.
  */
-function codingOf(resource: unknown): { readonly contentEncoding?: string } {
+function readContentEncoding(resource: unknown): { readonly contentEncoding?: string } {
   const contentEncoding = contentEncodingOf(stringOf(fieldOf(resource, "contentEncoding")));
 
   return contentEncoding === undefined ? {} : { contentEncoding };
