@@ -153,9 +153,7 @@ export const serveCases: readonly HttpConformanceCase[] = [
 
       assertSameBytes(await expectStatus(response, 200, "`GET`"), bytes, "The body of the `GET`");
       assertHeaderOf(response, "content-type", stat.contentType, "`GET`");
-      // Spec 10.3: an object stored with a content coding may arrive decoded and longer
-      // than `size`, which a length would have the server cut short.
-      assertHeaderOf(response, "content-length", null, "`GET`");
+      assertHeaderOf(response, "content-length", String(stat.size), "`GET`");
     },
   },
   {
@@ -227,8 +225,7 @@ export const serveCases: readonly HttpConformanceCase[] = [
         }
 
         assertHeaderOf(head, "last-modified", lastModifiedFor(stat, head), what);
-
-        assertHeaderOf(head, "content-length", null, what);
+        assertHeaderOf(head, "content-length", String(stat.size), what);
       }
     },
   },

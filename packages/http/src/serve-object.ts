@@ -36,9 +36,10 @@ export interface ServeObjectOptions {
 /**
  * Answers `GET` with the object streamed from `get`, and `HEAD` from `stat` with the same
  * headers and no body (spec 10.3). Any other method is `405`. Where the storage declares
- * `rangeReads`, one range of `bytes` is `206`, or `416` where it is unsatisfiable; any other
- * `Range` is ignored. The preconditions of RFC 9110 13.2.2 answer `304` or `412` where one
- * fails, and `If-Range` sends the whole object for anything but the strong `ETag`.
+ * `rangeReads`, one range of `bytes` of an object without `contentEncoding` is `206`, or
+ * `416` where it is unsatisfiable; any other `Range` is ignored. The preconditions of
+ * RFC 9110 13.2.2 answer `304` or `412` where one fails, and `If-Range` sends the whole
+ * object for anything but the strong `ETag`.
  */
 export async function serveObject(
   storage: Storage,
@@ -68,7 +69,7 @@ export async function serveObject(
       const failed = failedPreconditionOf(preconditions, stat);
 
       return failed === undefined
-        ? new Response(null, { status: 200, headers: objectHeaders(serving, stat) })
+        ? new Response(null, { status: 200, headers: wholeHeaders(serving, stat) })
         : failedAnswer(serving, failed, stat);
     }
 
@@ -126,13 +127,15 @@ type Plan =
 /**
  * RFC 9110 13.2.2, the range last. Only a suffix needs the size; RFC 9110 14.1.2 makes an
  * empty suffix unsatisfiable, and any other suffix of an empty object the whole of it,
- * which no `Content-Range` can name.
+ * which no `Content-Range` can name. A coded object takes no range at all (ADR 0044), so
+ * its `Range` is ignored, an empty suffix included, and no ranged `get` is sent to fail.
  */
 function planOf({ preconditions, requested, ifRange }: Asked, stat: ObjectStat): Plan {
   const failed = failedPreconditionOf(preconditions, stat);
 
   if (failed !== undefined) return { status: failed };
-  if (requested === undefined || !rangeHolds(ifRange, stat)) return { status: 200 };
+  if (requested === undefined || stat.contentEncoding !== undefined) return { status: 200 };
+  if (!rangeHolds(ifRange, stat)) return { status: 200 };
   if (!("suffixLength" in requested)) return { status: 206, range: requested };
   if (requested.suffixLength === 0) return { status: 416 };
   if (stat.size === 0) return { status: 200 };
@@ -210,12 +213,9 @@ async function serveWhole(serving: ServeRequest, planning?: Planning): Promise<R
     return failedAnswer(serving, changed, object.stat);
   }
 
-  // No `Content-Length`: an object another tool stored with a content coding may arrive
-  // decoded and longer than `size`, and Node and Deno would cut such a body to `size`
-  // and end the response as complete.
   return new Response(object.stream(), {
     status: 200,
-    headers: objectHeaders(serving, object.stat),
+    headers: wholeHeaders(serving, object.stat),
   });
 }
 
@@ -272,7 +272,7 @@ async function serveRange(
   const headers = objectHeaders(serving, object.stat);
 
   // A ranged `get` never hands over an object stored with a content coding (ADR 0044),
-  // so the length holds here where a `200` could not carry one.
+  // so the length holds here for every object a `206` is sent for.
   headers.set("content-range", `bytes ${range.start}-${last}/${size}`);
   headers.set("content-length", String(last - range.start + 1));
 
@@ -291,6 +291,19 @@ async function discard(object: StoredObject): Promise<void> {
     .catch(() => {});
 }
 
+/**
+ * The headers of a `200` and of its `HEAD`. A coded object may arrive decoded and longer
+ * than `size`, which Node and Deno would cut to a declared length and end as complete
+ * (ADR 0062), so only an object without `contentEncoding` gets one.
+ */
+function wholeHeaders(serving: ServeRequest, stat: ObjectStat): Headers {
+  const headers = objectHeaders(serving, stat);
+
+  if (stat.contentEncoding === undefined) headers.set("content-length", String(stat.size));
+
+  return headers;
+}
+
 function objectHeaders(
   { storage, key, options, answeredAt }: ServeRequest,
   stat: ObjectStat,
@@ -307,7 +320,9 @@ function objectHeaders(
   // A storage that hands over no `etag`, `adapter-fs`, gets none derived for it: a tag
   // built from size and time would claim a strength the layer cannot vouch for.
   if (stat.etag !== undefined) headers.set("etag", `"${stat.etag}"`);
-  if (storage.capabilities.includes("rangeReads")) headers.set("accept-ranges", "bytes");
+  if (storage.capabilities.includes("rangeReads") && stat.contentEncoding === undefined) {
+    headers.set("accept-ranges", "bytes");
+  }
 
   return headers;
 }

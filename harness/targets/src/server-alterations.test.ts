@@ -9,9 +9,9 @@ type Context = undefined;
 const origin = "http://server.test";
 
 const alteration: ServerAlteration = {
-  case: "serve/head",
+  cases: ["serve/head", "serve/whole"],
   differs: "It answers a `HEAD` with `Content-Length: 0`",
-  restore: (method, answer) => {
+  restore: async (method, answer) => {
     if (method !== "HEAD" || answer.headers.get("content-length") !== "0") return undefined;
 
     const headers = new Headers(answer.headers);
@@ -62,7 +62,7 @@ describe("withServerAlterations", () => {
   });
 
   test("hands a case without an entry over as it is", () => {
-    const source = heading(() => {}, `${origin}/serve/a`, "serve/whole");
+    const source = heading(() => {}, `${origin}/serve/a`, "serve/headers");
 
     expect(withServerAlterations([source], server, origin)).toEqual([source]);
   });
@@ -75,6 +75,28 @@ describe("withServerAlterations", () => {
     await runOnly(
       withServerAlterations(
         [heading((answer) => void (length = answer.headers.get("content-length")))],
+        server,
+        origin,
+      ),
+    );
+
+    expect(length).toBeNull();
+  });
+
+  test("restores the answers of every case its entry names", async () => {
+    answeringWithLengthZero();
+
+    let length: string | null | undefined;
+
+    await runOnly(
+      withServerAlterations(
+        [
+          heading(
+            (answer) => void (length = answer.headers.get("content-length")),
+            `${origin}/serve/a`,
+            "serve/whole",
+          ),
+        ],
         server,
         origin,
       ),
@@ -114,16 +136,22 @@ describe("withServerAlterations", () => {
     expect(globalThis.fetch).toBe(stubbed);
   });
 
-  test("fails a case that met no altered answer, naming the server and the change", async () => {
+  test("fails a case that met no altered answer, naming the case, the server and the change", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn<typeof fetch>(async () => new Response(null)),
     );
 
     await expect(
-      runOnly(withServerAlterations([heading(() => {})], server, origin)),
+      runOnly(
+        withServerAlterations(
+          [heading(() => {}, `${origin}/serve/a`, "serve/whole")],
+          server,
+          origin,
+        ),
+      ),
     ).rejects.toThrow(
-      "`serve/head` ran on a server without meeting the change its alterations expect: It answers a `HEAD` with `Content-Length: 0`",
+      "`serve/whole` ran on a server without meeting the change its alterations expect: It answers a `HEAD` with `Content-Length: 0`",
     );
   });
 

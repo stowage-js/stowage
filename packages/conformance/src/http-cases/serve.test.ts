@@ -8,7 +8,7 @@ import { serveCases } from "./serve.ts";
 
 /** One way of answering that departs from spec 10.3, which exactly one case is after. */
 type Flaw =
-  | "content-length"
+  | "no-length"
   | "no-nosniff"
   | "unquoted-etag"
   | "raw-disposition"
@@ -149,7 +149,6 @@ async function answer(
   if (refused === 412) return new Response(null, { status: 412 });
 
   if (flaw === "no-nosniff") headers.delete("x-content-type-options");
-  if (flaw === "content-length") headers.set("content-length", String(bytes.byteLength));
 
   if (flaw === "range-honored" && request.headers.has("range")) {
     return new Response(bytes.subarray(0, 2), { status: 206, headers });
@@ -180,6 +179,9 @@ async function answer(
 
     return new Response(bytes.subarray(start, last + 1), { status: 206, headers });
   }
+
+  // Spec 10.3: a `304` carries no `Content-Length`, the `200` and its `HEAD` the size.
+  if (flaw !== "no-length") headers.set("content-length", String(bytes.byteLength));
 
   const sendsBody = request.method !== "HEAD" || flaw === "head-with-body";
 
@@ -326,12 +328,12 @@ test.each(serveCases.map((source) => source.name))(
 );
 
 test.each<[string, Flaw, string]>([
-  ["serve/whole", "content-length", "carries `content-length"],
+  ["serve/whole", "no-length", "content-length"],
   ["serve/headers", "no-nosniff", "x-content-type-options"],
   ["serve/headers", "unquoted-etag", "etag"],
   ["serve/disposition", "raw-disposition", "content-disposition"],
   ["serve/head", "head-with-body", "answers with a body"],
-  ["serve/head", "content-length", "content-length"],
+  ["serve/head", "no-length", "content-length"],
   ["serve/not-found", "invalid-key-400", "`a//b` answers 400"],
   ["serve/method-not-allowed", "post-served", "`POST` answers 200"],
   ["serve/ignored-range", "range-honored", "answers 206"],

@@ -50,8 +50,14 @@ describe("`GET`", () => {
     expect(await response.text()).toBe("the stored bytes");
   });
 
-  test("carries no `Content-Length`", async () => {
-    expect((await serve("GET")).headers.has("content-length")).toBe(false);
+  test("carries `Content-Length` as the `size` of the `stat` of `get`", async () => {
+    const storage = stubStorage({
+      get: async () => storedObject(statOf({ size: 16 }), streamOf("the stored bytes")),
+    });
+
+    const response = await serveObject(storage, "docs/report.pdf", request("GET"));
+
+    expect(response.headers.get("content-length")).toBe("16");
   });
 
   test("hands `request.signal` to `get`", async () => {
@@ -86,7 +92,7 @@ describe("`HEAD`", () => {
     expect(head.status).toBe(200);
     expect(head.body).toBeNull();
     expect([...head.headers]).toEqual([...get.headers]);
-    expect(head.headers.has("content-length")).toBe(false);
+    expect(head.headers.get("content-length")).toBe("4");
   });
 
   test("hands `request.signal` to `stat`", async () => {
@@ -236,15 +242,23 @@ describe("`Content-Disposition`", () => {
 
 const sixteenBytes = "0123456789abcdef";
 
+const headersBut = (response: Response, ...left: string[]): [string, string][] =>
+  [...response.headers].filter(([name]) => !left.includes(name));
+
 /**
  * A storage holding one 16-byte object and honoring `range` as spec 4.3 has it, which
- * records every call it receives in `calls`.
+ * records every call it receives in `calls`. With `contentEncoding`, spec 4.3 refuses
+ * every range of the object as a `ProviderError`.
  */
 const rangingStorage = (
-  fields: { capabilities?: Storage["capabilities"]; get?: Storage["get"] } = {},
+  fields: {
+    capabilities?: Storage["capabilities"];
+    get?: Storage["get"];
+    contentEncoding?: string;
+  } = {},
 ): { storage: Storage; calls: string[] } => {
   const calls: string[] = [];
-  const stat = statOf({ size: sixteenBytes.length });
+  const stat = statOf({ size: sixteenBytes.length, contentEncoding: fields.contentEncoding });
 
   const storage = stubStorage({
     capabilities: fields.capabilities ?? ["rangeReads"],
@@ -255,6 +269,7 @@ const rangingStorage = (
 
       if (fields.get !== undefined) return await fields.get(key, options);
       if (range === undefined) return storedObject(stat, streamOf(sixteenBytes));
+      if (stat.contentEncoding !== undefined) throw storageError({ code: "ProviderError" });
       if (range.start >= stat.size) throw storageError({ code: "InvalidRequest", key });
 
       const end = Math.min(range.end ?? stat.size - 1, stat.size - 1);
@@ -288,9 +303,11 @@ describe("a `Range` on a storage declaring `rangeReads`", () => {
 
   test("carries the headers of a `200` beside its own", async () => {
     const { storage } = rangingStorage();
-    const whole = [...(await serve("GET", {}, storage)).headers];
-    const partial = [...(await serveRanged(storage, "bytes=2-5")).headers].filter(
-      ([name]) => name !== "content-range" && name !== "content-length",
+    const whole = headersBut(await serve("GET", {}, storage), "content-length");
+    const partial = headersBut(
+      await serveRanged(storage, "bytes=2-5"),
+      "content-range",
+      "content-length",
     );
 
     expect(partial).toEqual(whole);
@@ -457,7 +474,6 @@ describe("a ranged `get` rejecting with a `ProviderError`", () => {
     expect(response.status).toBe(200);
     expect(await response.text()).toBe(sixteenBytes);
     expect(response.headers.has("content-range")).toBe(false);
-    expect(response.headers.has("content-length")).toBe(false);
     expect(calls).toEqual(["get 2-5", "get"]);
   });
 
@@ -494,6 +510,50 @@ describe("a ranged `get` rejecting with a `ProviderError`", () => {
   });
 });
 
+describe("an object stored with a content coding", () => {
+  test.each(["GET", "HEAD"])(
+    "is answered `200` to `%s` without `Content-Length`, `Content-Encoding` or `Accept-Ranges`",
+    async (method) => {
+      const response = await serve(method, {}, rangingStorage({ contentEncoding: "gzip" }).storage);
+
+      expect(response.status).toBe(200);
+      expect(response.headers.has("content-length")).toBe(false);
+      expect(response.headers.has("content-encoding")).toBe(false);
+      expect(response.headers.has("accept-ranges")).toBe(false);
+    },
+  );
+
+  test("has a range without a `stat` first followed by one whole `get`", async () => {
+    const { storage, calls } = rangingStorage({ contentEncoding: "gzip" });
+    const response = await serveRanged(storage, "bytes=2-5");
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(sixteenBytes);
+    expect(response.headers.has("content-length")).toBe(false);
+    expect(response.headers.has("accept-ranges")).toBe(false);
+    expect(calls).toEqual(["get 2-5", "get"]);
+  });
+
+  test.each([
+    ["a suffix", { range: "bytes=-3" }],
+    ["an empty suffix", { range: "bytes=-0" }],
+    ["a range beside a precondition that holds", { range: "bytes=2-5", "if-match": "*" }],
+    [
+      "a range beside the strong `ETag` as `If-Range`",
+      { range: "bytes=2-5", "if-range": '"0123abcd"' },
+    ],
+  ])("has %s ignored after the `stat`, answered `200` from one whole `get`", async (_, headers) => {
+    const { storage, calls } = rangingStorage({ contentEncoding: "gzip" });
+    const response = await serveConditional(headers, storage);
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(sixteenBytes);
+    expect(response.headers.has("content-range")).toBe(false);
+    expect(response.headers.has("content-length")).toBe(false);
+    expect(calls).toEqual(["stat", "get"]);
+  });
+});
+
 /** A `GET` of the object of `rangingStorage`, whose `etag` is `0123abcd`, with `headers`. */
 const serveConditional = async (
   headers: Record<string, string>,
@@ -502,14 +562,14 @@ const serveConditional = async (
 ): Promise<Response> => await serveObject(storage, "docs/report.pdf", request(method, { headers }));
 
 describe("`If-None-Match`", () => {
-  test("with the `ETag` is `304` with the headers of the `200`, from `stat` alone", async () => {
+  test("with the `ETag` is `304` with the headers of the `200` but `Content-Length`, from `stat` alone", async () => {
     const { storage, calls } = rangingStorage();
-    const whole = await serve("GET", {}, storage);
+    const whole = headersBut(await serve("GET", {}, storage), "content-length");
     const response = await serveConditional({ "if-none-match": '"0123abcd"' }, storage);
 
     expect(response.status).toBe(304);
     expect(await response.text()).toBe("");
-    expect([...response.headers]).toEqual([...whole.headers]);
+    expect([...response.headers]).toEqual(whole);
     expect(calls).toEqual(["get", "stat"]);
   });
 
@@ -1065,7 +1125,7 @@ describe("a ranged `get` rejecting with `InvalidRequest` after planning", () => 
     expect(response.status).toBe(200);
     expect(await response.text()).toBe(sixteenBytes.slice(0, size));
     expect(response.headers.has("content-range")).toBe(false);
-    expect(response.headers.has("content-length")).toBe(false);
+    expect(response.headers.get("content-length")).toBe(String(size));
     expect(storageErrorOf(response)).toBeUndefined();
     expect(calls).toEqual(["stat", range === "bytes=-3" ? "get 13-15" : "get 13-", "stat", "get"]);
   });

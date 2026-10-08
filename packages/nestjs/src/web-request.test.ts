@@ -149,7 +149,7 @@ describe.each(platforms)("on $name", (platform) => {
 
     expect(answer.status).toBe(200);
     expect(answer.headers.get("content-type")).toBe("text/plain");
-    expect(answer.headers.has("content-length")).toBe(false);
+    expect(answer.headers.get("content-length")).toBe("7");
     expect(await answer.text()).toBe("");
   });
 
