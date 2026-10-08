@@ -14,6 +14,7 @@ export const azureProbeNames = {
   expiredUrlCors: "the `403` for an expired presigned `PUT` carries the CORS headers of the rule",
   differingBlobContentType:
     "a presigned `PUT` whose `x-ms-blob-content-type` differs from the signed one is refused",
+  spaceRuns: "a value `srh` binds, signed or sent with a run of spaces",
   longNameOnHead: "a name above 1,024 characters is answered `InvalidKey` by `stat` and `exists`",
   copyAboveLimit: "`copy` of a source above 5,000 MiB",
   staleMarker: "a `marker` Azure does not continue from",
@@ -100,6 +101,13 @@ export const azureBlobFirstRunPoints: readonly FirstRunPoint[] = [
       conformanceCase("presign/put-rejects-content-headers"),
       probe(azureProbeNames.differingBlobContentType),
     ],
+    endpoints: account,
+    runtime: "node",
+  },
+  {
+    promise:
+      "Azure Blob, recorded: whether Azure collapses runs of spaces in a value `srh` binds, as SigV4 and GOOG4 do (ADR 0063)",
+    tests: [probe(azureProbeNames.spaceRuns)],
     endpoints: account,
     runtime: "node",
   },
