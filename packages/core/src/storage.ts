@@ -94,6 +94,13 @@ export interface ObjectStat extends ObjectEntry {
    * wherever the storage does not declare `contentHeaders`.
    */
   readonly contentLanguage?: string;
+  /**
+   * The content coding the object is stored with, as stored, such as `GZIP` or `gzip, br`;
+   * a caller lower-cases before comparing. Missing where the object holds no coding, an empty
+   * value or `identity`. It names how the object is stored, not which bytes `get` hands over,
+   * which may arrive decoded. `put` never reports one.
+   */
+  readonly contentEncoding?: string;
   readonly userMetadata: Readonly<Record<string, string>>;
 }
 

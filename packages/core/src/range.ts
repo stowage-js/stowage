@@ -78,14 +78,26 @@ export function contentCodingRefusal(
   contentEncoding: string | null | undefined,
   key: string,
 ): { readonly code: "ProviderError"; readonly message: string } | undefined {
-  const coding = contentEncoding ?? "";
+  const coding = contentEncodingOf(contentEncoding);
 
-  if (coding === "" || coding.toLowerCase() === "identity") return undefined;
+  if (coding === undefined) return undefined;
 
   return {
     code: "ProviderError",
     message: `The object under ${JSON.stringify(key)} is stored with the content coding ${JSON.stringify(coding)}, so no range of it can be read`,
   };
+}
+
+/**
+ * What `contentEncoding` of `ObjectStat` reports for a stored value: the value as stored, or
+ * `undefined` where it names no coding. `identity` names none in any case, as RFC 9110 makes
+ * the tokens case-insensitive, so the member is set exactly where `contentCodingRefusal`
+ * refuses a range (spec 4.4, ADR 0061).
+ */
+export function contentEncodingOf(contentEncoding: string | null | undefined): string | undefined {
+  const coding = contentEncoding ?? "";
+
+  return coding === "" || coding.toLowerCase() === "identity" ? undefined : coding;
 }
 
 function isOffset(value: number): boolean {
