@@ -65,7 +65,7 @@ rule would refuse what `adapter-memory` accepts today.
 ## Consequences
 
 - Spec 4.3 lists the three options and the order of the checks, 4.4 the three members and the empty
-  value, 4.11 has `copy` carry the headers, and 4.13 the refusal function an adapter calls, beside
+  value, 4.11 has `copy` carry the headers, and 4.13 the check an adapter calls, beside
   `rangeBoundsRefusal`.
 - Azure's `Put Blob From URL` turns a stored `de-AT, en` into `de-AT,en`, so a copy does not keep
   every `contentLanguage` byte for byte there. Where a provider differs on the content headers, and
@@ -73,8 +73,9 @@ rule would refuse what `adapter-memory` accepts today.
 - `presignUpload` in `@stowage/http` and the core share one header-value rule, whichever package
   ends up owning it.
 - Settled under "Write the v0.6 spec" (#376): spec 4.13 exports `isHeaderValue`, the form of the
-  rule, and `contentHeadersRefusal(headers, contentType, capabilities)`, which runs the checks of
-  spec 4.3 in their order over a `ContentHeaders` of the three. `@stowage/http` calls the first on
+  rule, and `checkContentHeaders(headers, contentType, capabilities)`, which runs the checks of
+  spec 4.3 in their order over a frozen snapshot of the three and returns it as `held`, or the
+  refusal, as `checkUserMetadata` does for user metadata (#398). `@stowage/http` calls the first on
   the content type of `presignUpload` and the second under `capabilityNames`, so that the form and
   the bounds alone decide there. The 2,048 bytes count the header names as AWS does, `Content-Type`,
   `Cache-Control`, `Content-Disposition` and `Content-Language`, beside their values. TSDoc is

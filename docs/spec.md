@@ -772,12 +772,14 @@ export interface ContentHeaders {
   readonly contentDisposition?: string;
   readonly contentLanguage?: string;
 }
-/** The first check of section 4.3 the content headers fail, in its order, else `undefined`. */
-export function contentHeadersRefusal(
+export type ContentHeadersCheck =
+  { readonly held: ContentHeaders } | { readonly refusal: Refusal };
+/** Runs the checks of section 4.3 in order on a frozen snapshot; `held` is what passed. */
+export function checkContentHeaders(
   headers: ContentHeaders,
   contentType: string | undefined,
   capabilities: readonly CapabilityName[],
-): Refusal | undefined;
+): ContentHeadersCheck;
 
 export type UserMetadataKeyRule = "token" | "identifier";
 export function isUserMetadataKey(name: string, rule: UserMetadataKeyRule): boolean;
@@ -888,13 +890,15 @@ export function readSubresponses(
   `contentEncodingOf`. `adapter-fs` and `adapter-memory` hold no content coding and call neither.
 - `adapter-memory`, `adapter-s3`, `adapter-azure-blob` and `adapter-gcs` run `checkUserMetadata`
   before a `put` writes or sends anything, raise its refusal with `attempts: 0`, and store `held`.
-- `contentHeadersRefusal` is the one definition of the checks of section 4.3 for the content
-  headers. Every adapter, `adapter-fs` included, runs it before a `put` writes or sends anything,
-  and every adapter that declares `presignedUrls` before `presignPut` signs, with the content type
-  the request carries, and raises its refusal with `attempts: 0`. `isHeaderValue` is the form that
-  check applies. `@stowage/http` checks the content type of `presignUpload` with `isHeaderValue`
-  and its content headers with `contentHeadersRefusal` under `capabilityNames`, so that the form
-  and the bounds alone decide there (section 10.6, ADR 0058, ADR 0063).
+- `checkContentHeaders` is the one definition of the checks of section 4.3 for the content headers.
+  It reads each of the three once into a frozen snapshot and checks that, so `held` is what an
+  adapter sends, with no member for a header given as `undefined`. Every adapter, `adapter-fs`
+  included, runs it before a `put` writes or sends anything, and every adapter that declares
+  `presignedUrls` before `presignPut` signs, with the content type the request carries; it raises
+  the refusal with `attempts: 0` and sends `held`. `isHeaderValue` is the form that check applies.
+  `@stowage/http` checks the content type of `presignUpload` with `isHeaderValue` and its content
+  headers with `checkContentHeaders` under `capabilityNames`, so that the form and the bounds alone
+  decide there (section 10.6, ADR 0058, ADR 0063).
 - What two adapters need on the wire is defined here once; what one adapter alone needs stays in
   that adapter, the signers among it (ADR 0019).
 - `parseXml` reads elements, attributes, text, comments, the five named entities and a numeric

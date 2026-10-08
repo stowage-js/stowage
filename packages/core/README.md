@@ -84,8 +84,8 @@ this package rather than writing it again
   runtime cannot read it.
 - `isUserMetadataKey`, `encodeUserMetadataValue`, `decodeUserMetadataValue` and
   `userMetadataByteLength` carry user metadata in headers, and measure the 2 KB of spec 4.3.
-- `isHeaderValue` is the form a header value takes, and `contentHeadersRefusal` the checks spec
-  4.3 makes on the content headers, in its order.
+- `isHeaderValue` is the form a header value takes, and `checkContentHeaders` runs the checks spec
+  4.3 makes on the content headers, in its order, and hands back what passed.
 - `PresignedPut` is what `presignPut` resolves with on every adapter that declares
   `presignedUrls`.
 
