@@ -323,10 +323,7 @@ function objectHeaders(
     "content-type": stat.contentType,
     "x-content-type-options": "nosniff",
     "content-disposition": contentDispositionOf(key, options, stat),
-    "cache-control":
-      (options.storedCacheControl === true ? stat.cacheControl : undefined) ??
-      options.cacheControl ??
-      "private, no-cache",
+    "cache-control": cacheControlOf(options, stat),
     "last-modified": lastModifiedOf(stat, answeredAt).toUTCString(),
   });
 
@@ -354,4 +351,10 @@ function contentDispositionOf(key: string, options: ServeObjectOptions, stat: Ob
   return !callerNamesOne && stored !== undefined && isAttachment(stored)
     ? stored
     : dispositionOf(key, options);
+}
+
+function cacheControlOf(options: ServeObjectOptions, stat: ObjectStat): string {
+  const stored = options.storedCacheControl === true ? stat.cacheControl : undefined;
+
+  return stored ?? options.cacheControl ?? "private, no-cache";
 }
