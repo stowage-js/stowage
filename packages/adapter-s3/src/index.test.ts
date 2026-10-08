@@ -816,6 +816,87 @@ test("an `Expired` answer costs one repeat under `forceRefresh` and no wait", as
   expect(delays).toEqual([]);
 });
 
+/** What R2 answers a temporary credential past its `exp`, and a wrong secret (ADR 0045). */
+function signatureRefused(): Response {
+  return refused(
+    403,
+    "SignatureDoesNotMatch",
+    "The request signature we calculated does not match the signature you provided.",
+  );
+}
+
+const temporaryCredentials = { ...credentials, sessionToken: "session" };
+
+test("a temporary credential refused as a wrong signature costs one refresh and no wait", async () => {
+  const delays = recordedDelays();
+  const responses = [signatureRefused()];
+  const sent = stubFetch(() => responses.shift() ?? storedResponse("stored"));
+  const tokens = ["stale", "fresh"];
+  const resolve = vi.fn<() => typeof temporaryCredentials>(() => ({
+    ...temporaryCredentials,
+    sessionToken: tokens.shift() ?? "fresh",
+  }));
+
+  await s3Storage(options({ credentials: resolve })).get("object.txt");
+
+  expect(sent).toHaveLength(2);
+  expect(resolve).toHaveBeenNthCalledWith(1, { forceRefresh: false });
+  expect(resolve).toHaveBeenNthCalledWith(2, { forceRefresh: true });
+  expect(sent[1]?.headers.get("x-amz-security-token")).toBe("fresh");
+  expect(delays).toEqual([]);
+});
+
+test("`retry: false` keeps the refresh, and a refreshed credential refused too is `InvalidCredentials`", async () => {
+  const sent = stubFetch(() => signatureRefused());
+
+  const failure = await rejection(async () =>
+    s3Storage(options({ credentials: temporaryCredentials, retry: false })).get("object.txt"),
+  );
+
+  expect(failure.code).toBe("InvalidCredentials");
+  expect(failure.attempts).toBe(2);
+  expect(failure.retryable).toBe(false);
+  expect(failure.status).toBe(403);
+  expect(failure.providerCode).toBe("SignatureDoesNotMatch");
+  expect(failure.message).toBe(
+    "The temporary credential expired or is not accepted, and so is the one the resolver refreshed: The request signature we calculated does not match the signature you provided.",
+  );
+  expect(sent).toHaveLength(2);
+});
+
+test("a key pair refused as a wrong signature is not refreshed", async () => {
+  const sent = stubFetch(() => signatureRefused());
+  const resolve = vi.fn<() => typeof credentials>(() => credentials);
+
+  const failure = await rejection(async () =>
+    s3Storage(options({ credentials: resolve })).get("object.txt"),
+  );
+
+  expect(failure.code).toBe("InvalidCredentials");
+  expect(failure.attempts).toBe(1);
+  expect(failure.message).toBe(
+    "The request signature we calculated does not match the signature you provided.",
+  );
+  expect(resolve).toHaveBeenCalledTimes(1);
+  expect(sent).toHaveLength(1);
+});
+
+// ADR 0065: a `HEAD` carries no provider code, so nothing says the credential was refused.
+test.each(["stat", "exists"] as const)(
+  "`%s` under a temporary credential answered `403` is `AccessDenied` without a refresh",
+  async (operation) => {
+    const sent = stubFetch(() => new Response(null, { status: 403 }));
+
+    const failure = await rejection(async () =>
+      s3Storage(options({ credentials: temporaryCredentials }))[operation]("object.txt"),
+    );
+
+    expect(failure.code).toBe("AccessDenied");
+    expect(failure.attempts).toBe(1);
+    expect(sent).toHaveLength(1);
+  },
+);
+
 test.each([
   ["put", async (): Promise<unknown> => await s3Storage(options()).put("ends-in-a-slash/", "body")],
   ["get", async (): Promise<unknown> => await s3Storage(options()).get("/leading-slash")],

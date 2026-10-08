@@ -151,15 +151,27 @@ function readFailure(request: S3Request, answer: RefusedAnswer): FailureReading 
     providerMessage: document.message,
     bucketRegion: answer.headers.get("x-amz-bucket-region") ?? undefined,
   });
+  const refusedTemporary = document.code === "SignatureDoesNotMatch" && carriedSessionToken(answer);
 
   return {
     code: failure.code,
-    message: failure.message,
+    message:
+      refusedTemporary && answer.refreshed
+        ? `The temporary credential expired or is not accepted, and so is the one the resolver refreshed: ${failure.message}`
+        : failure.message,
     // Spec 4.10: an unset `key` is what tells a missing bucket from a missing object, which
     // share the code `NotFound` (ADR 0043).
     key: document.code === "NoSuchBucket" ? undefined : request.key,
     providerCode: document.code,
     requestId: answer.headers.get("x-amz-request-id") ?? undefined,
-    refusedCredential: failure.code === "Expired",
+    refusedCredential: failure.code === "Expired" || refusedTemporary,
   };
+}
+
+/**
+ * ADR 0065: R2 answers a temporary credential past its `exp` as it answers a wrong secret,
+ * and the session token is the one sign that the credential refused may have expired.
+ */
+function carriedSessionToken(answer: RefusedAnswer): boolean {
+  return answer.sentHeaders.some(([name]) => name === "x-amz-security-token");
 }
