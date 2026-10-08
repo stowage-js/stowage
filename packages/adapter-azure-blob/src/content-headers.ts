@@ -1,4 +1,4 @@
-import { type CapabilityName, type ContentHeaders, contentHeadersRefusal } from "@stowage/core";
+import { type CapabilityName, checkContentHeaders, type ContentHeaders } from "@stowage/core";
 
 import type { HeaderField } from "./sign.ts";
 import { azureBlobError } from "./storage-error.ts";
@@ -37,9 +37,8 @@ export interface ContentHeaderFields {
 
 /**
  * The header fields the content headers travel in, refused before the request is signed in
- * the order of spec 4.3. The check reads a snapshot, so what it passed is what is sent.
- * Shared Key signs each value trimmed and otherwise as sent (spec 8.4), and the core lets no
- * value through that trimming changes.
+ * the order of spec 4.3. Shared Key signs each value trimmed and otherwise as sent (spec 8.4),
+ * and the core lets no value through that trimming changes.
  */
 export function contentHeaderFields(
   container: string,
@@ -49,17 +48,13 @@ export function contentHeaderFields(
   operation: "put" | "presignPut",
   capabilities: readonly CapabilityName[],
 ): ContentHeaderFields {
-  const { cacheControl, contentDisposition, contentLanguage } = headers;
-  const held: ContentHeaders = Object.freeze({
-    ...(cacheControl === undefined ? {} : { cacheControl }),
-    ...(contentDisposition === undefined ? {} : { contentDisposition }),
-    ...(contentLanguage === undefined ? {} : { contentLanguage }),
-  });
-  const refusal = contentHeadersRefusal(held, contentType, capabilities);
+  const check = checkContentHeaders(headers, contentType, capabilities);
 
-  if (refusal !== undefined) {
-    throw azureBlobError(container, { ...refusal, operation, key, attempts: 0 });
+  if ("refusal" in check) {
+    throw azureBlobError(container, { ...check.refusal, operation, key, attempts: 0 });
   }
+
+  const { held } = check;
 
   return {
     headers: contentHeaderOptions.flatMap((option): HeaderField[] => {

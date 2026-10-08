@@ -39,12 +39,32 @@ const defaultContentType = "application/octet-stream";
 
 const utf8 = new TextEncoder();
 
+export type ContentHeadersCheck = { readonly held: ContentHeaders } | { readonly refusal: Refusal };
+
 /**
- * The first check of spec 4.3 the content headers fail, in its order, else `undefined`. A
- * `put` carrying none of the three as a value other than `undefined` is not measured at all,
- * so a long `contentType` a storage accepted before stays accepted (ADR 0058).
+ * The content headers a storage holds, or the first check of spec 4.3 they fail, in its order.
+ * The checks run on a frozen snapshot, built by reading each option once, so what passed is
+ * what an adapter sends. A `put` carrying none of the three as a value other than `undefined`
+ * is not measured at all, so a long `contentType` a storage accepted before stays accepted
+ * (ADR 0058).
  */
-export function contentHeadersRefusal(
+export function checkContentHeaders(
+  headers: ContentHeaders,
+  contentType: string | undefined,
+  capabilities: readonly CapabilityName[],
+): ContentHeadersCheck {
+  const { cacheControl, contentDisposition, contentLanguage } = headers;
+  const held: ContentHeaders = Object.freeze({
+    ...(cacheControl === undefined ? {} : { cacheControl }),
+    ...(contentDisposition === undefined ? {} : { contentDisposition }),
+    ...(contentLanguage === undefined ? {} : { contentLanguage }),
+  });
+  const refusal = refusalOf(held, contentType, capabilities);
+
+  return refusal === undefined ? { held } : { refusal };
+}
+
+function refusalOf(
   headers: ContentHeaders,
   contentType: string | undefined,
   capabilities: readonly CapabilityName[],

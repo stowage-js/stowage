@@ -1,4 +1,4 @@
-import { type CapabilityName, type ContentHeaders, contentHeadersRefusal } from "@stowage/core";
+import { type CapabilityName, checkContentHeaders, type ContentHeaders } from "@stowage/core";
 
 import { memoryError } from "./storage-error.ts";
 
@@ -13,17 +13,11 @@ export function readContentHeaders(
   key: string,
   capabilities: readonly CapabilityName[],
 ): ContentHeaders {
-  const { cacheControl, contentDisposition, contentLanguage } = headers;
-  const snapshot = Object.freeze({
-    ...(cacheControl === undefined ? {} : { cacheControl }),
-    ...(contentDisposition === undefined ? {} : { contentDisposition }),
-    ...(contentLanguage === undefined ? {} : { contentLanguage }),
-  });
-  const refusal = contentHeadersRefusal(snapshot, contentType, capabilities);
+  const check = checkContentHeaders(headers, contentType, capabilities);
 
-  if (refusal !== undefined) {
-    throw memoryError({ ...refusal, operation: "put", key, attempts: 0 });
+  if ("refusal" in check) {
+    throw memoryError({ ...check.refusal, operation: "put", key, attempts: 0 });
   }
 
-  return snapshot;
+  return check.held;
 }

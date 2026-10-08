@@ -173,7 +173,7 @@ test("the README of @stowage/core covers the exports of spec 4.13", async () => 
     "decodeUserMetadataValue",
     "userMetadataByteLength",
     "isHeaderValue",
-    "contentHeadersRefusal",
+    "checkContentHeaders",
     "PresignedPut",
   ]) {
     expect(text).toContain(`\`${name}\``);

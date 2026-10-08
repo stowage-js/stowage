@@ -1,13 +1,24 @@
 import { expect, test } from "vitest";
 
 import type { CapabilityName } from "./capabilities.ts";
-import { type ContentHeaders, contentHeadersRefusal, isHeaderValue } from "./content-headers.ts";
+import { checkContentHeaders, type ContentHeaders, isHeaderValue } from "./content-headers.ts";
+import type { Refusal } from "./errors.ts";
 
 const declaring: readonly CapabilityName[] = ["contentHeaders"];
 
 /** `Content-Type` and `Content-Disposition`, which a padded disposition fills to the bound. */
 const headerNameBytes = "Content-Type".length + "Content-Disposition".length;
 const byteLimit = 2048;
+
+function refusalIn(
+  headers: ContentHeaders,
+  contentType: string | undefined,
+  capabilities: readonly CapabilityName[],
+): Refusal | undefined {
+  const check = checkContentHeaders(headers, contentType, capabilities);
+
+  return "refusal" in check ? check.refusal : undefined;
+}
 
 test.each([
   ["a single character", "x"],
@@ -34,8 +45,8 @@ test.each([
 });
 
 test("a put carrying none of the three passes, whatever its content type", () => {
-  expect(contentHeadersRefusal({}, "x".repeat(3 * byteLimit), declaring)).toBeUndefined();
-  expect(contentHeadersRefusal({}, undefined, [])).toBeUndefined();
+  expect(refusalIn({}, "x".repeat(3 * byteLimit), declaring)).toBeUndefined();
+  expect(refusalIn({}, undefined, [])).toBeUndefined();
 });
 
 test("a header given as `undefined` counts as not carried", () => {
@@ -45,7 +56,7 @@ test("a header given as `undefined` counts as not carried", () => {
     contentLanguage: undefined,
   };
 
-  expect(contentHeadersRefusal(headers, "x".repeat(3 * byteLimit), [])).toBeUndefined();
+  expect(refusalIn(headers, "x".repeat(3 * byteLimit), [])).toBeUndefined();
 });
 
 test("the three as written pass where the storage declares `contentHeaders`", () => {
@@ -55,13 +66,13 @@ test("the three as written pass where the storage declares `contentHeaders`", ()
     contentLanguage: "de-AT, en",
   };
 
-  expect(contentHeadersRefusal(headers, "text/plain", declaring)).toBeUndefined();
+  expect(refusalIn(headers, "text/plain", declaring)).toBeUndefined();
 });
 
 test.each(["cacheControl", "contentDisposition", "contentLanguage"] as const)(
   "`%s` is `Unsupported` naming `contentHeaders` where the storage does not declare it",
   (option) => {
-    expect(contentHeadersRefusal({ [option]: "x" }, undefined, ["rangeReads"])).toEqual({
+    expect(refusalIn({ [option]: "x" }, undefined, ["rangeReads"])).toEqual({
       code: "Unsupported",
       capability: "contentHeaders",
       message: expect.any(String),
@@ -70,7 +81,7 @@ test.each(["cacheControl", "contentDisposition", "contentLanguage"] as const)(
 );
 
 test("an empty value is `Unsupported` before its form is read", () => {
-  expect(contentHeadersRefusal({ cacheControl: "" }, undefined, [])).toMatchObject({
+  expect(refusalIn({ cacheControl: "" }, undefined, [])).toMatchObject({
     code: "Unsupported",
     capability: "contentHeaders",
   });
@@ -85,7 +96,7 @@ test.each([
   // A caller writing JavaScript may hand over what the declared type does not allow.
   // oxlint-disable-next-line no-unsafe-type-assertion -- the point of the test
   const headers = { contentDisposition: value } as ContentHeaders;
-  const refusal = contentHeadersRefusal(headers, undefined, declaring);
+  const refusal = refusalIn(headers, undefined, declaring);
 
   expect(refusal?.code).toBe("InvalidOption");
   expect(refusal?.message).toContain("`contentDisposition`");
@@ -93,14 +104,14 @@ test.each([
 });
 
 test("an empty value is `InvalidOption` where the storage declares `contentHeaders`", () => {
-  expect(contentHeadersRefusal({ cacheControl: "" }, undefined, declaring)).toEqual({
+  expect(refusalIn({ cacheControl: "" }, undefined, declaring)).toEqual({
     code: "InvalidOption",
     message: expect.stringContaining("`cacheControl`"),
   });
 });
 
 test("the form of every header comes before the bounds", () => {
-  const refusal = contentHeadersRefusal(
+  const refusal = refusalIn(
     { cacheControl: "x".repeat(3 * byteLimit), contentLanguage: "" },
     undefined,
     declaring,
@@ -114,14 +125,14 @@ test("2,048 bytes of names and values with `Content-Type` pass", () => {
   const contentType = "text/plain";
   const contentDisposition = "x".repeat(byteLimit - headerNameBytes - contentType.length);
 
-  expect(contentHeadersRefusal({ contentDisposition }, contentType, declaring)).toBeUndefined();
+  expect(refusalIn({ contentDisposition }, contentType, declaring)).toBeUndefined();
 });
 
 test("2,049 bytes of names and values with `Content-Type` are `InvalidRequest`", () => {
   const contentType = "text/plain";
   const contentDisposition = "x".repeat(byteLimit - headerNameBytes - contentType.length + 1);
 
-  expect(contentHeadersRefusal({ contentDisposition }, contentType, declaring)).toEqual({
+  expect(refusalIn({ contentDisposition }, contentType, declaring)).toEqual({
     code: "InvalidRequest",
     message: expect.any(String),
   });
@@ -132,9 +143,9 @@ test("an absent content type counts as `application/octet-stream`", () => {
     byteLimit - headerNameBytes - "application/octet-stream".length,
   );
 
-  expect(contentHeadersRefusal({ contentDisposition }, undefined, declaring)).toBeUndefined();
+  expect(refusalIn({ contentDisposition }, undefined, declaring)).toBeUndefined();
   expect(
-    contentHeadersRefusal({ contentDisposition: `${contentDisposition}x` }, undefined, declaring),
+    refusalIn({ contentDisposition: `${contentDisposition}x` }, undefined, declaring),
   ).toMatchObject({ code: "InvalidRequest" });
 });
 
@@ -143,7 +154,7 @@ test("the content type counts in UTF-8 bytes", () => {
   const contentType = "text/plain; title=ü";
   const contentDisposition = "x".repeat(byteLimit - headerNameBytes - contentType.length);
 
-  expect(contentHeadersRefusal({ contentDisposition }, contentType, declaring)).toMatchObject({
+  expect(refusalIn({ contentDisposition }, contentType, declaring)).toMatchObject({
     code: "InvalidRequest",
   });
 });
@@ -165,20 +176,54 @@ test("every header carried counts with its name", () => {
     "de".length;
   const padded = { ...headers, cacheControl: "x".repeat(byteLimit - carried + "no-store".length) };
 
-  expect(contentHeadersRefusal(padded, "text/plain", declaring)).toBeUndefined();
-  expect(
-    contentHeadersRefusal({ ...padded, contentLanguage: "de-" }, "text/plain", declaring),
-  ).toMatchObject({ code: "InvalidRequest" });
+  expect(refusalIn(padded, "text/plain", declaring)).toBeUndefined();
+  expect(refusalIn({ ...padded, contentLanguage: "de-" }, "text/plain", declaring)).toMatchObject({
+    code: "InvalidRequest",
+  });
+});
+
+test("2,048 bytes are measured before the 100 characters of `contentLanguage`", () => {
+  const contentLanguage = "x".repeat(byteLimit);
+
+  expect(refusalIn({ contentLanguage }, undefined, declaring)?.message).toContain("bytes");
 });
 
 test("100 characters of `contentLanguage` pass", () => {
-  expect(
-    contentHeadersRefusal({ contentLanguage: "x".repeat(100) }, undefined, declaring),
-  ).toBeUndefined();
+  expect(refusalIn({ contentLanguage: "x".repeat(100) }, undefined, declaring)).toBeUndefined();
 });
 
 test("101 characters of `contentLanguage` are `InvalidRequest`", () => {
-  expect(contentHeadersRefusal({ contentLanguage: "x".repeat(101) }, undefined, declaring)).toEqual(
-    { code: "InvalidRequest", message: expect.any(String) },
+  expect(refusalIn({ contentLanguage: "x".repeat(101) }, undefined, declaring)).toEqual({
+    code: "InvalidRequest",
+    message: expect.any(String),
+  });
+});
+
+test("what passes is held frozen, without a member for a header not carried", () => {
+  const check = checkContentHeaders(
+    { cacheControl: "no-store", contentDisposition: undefined },
+    "text/plain",
+    declaring,
   );
+
+  expect(check).toEqual({ held: { cacheControl: "no-store" } });
+  expect("held" in check && Object.isFrozen(check.held)).toBe(true);
+  expect("held" in check && Object.hasOwn(check.held, "contentDisposition")).toBe(false);
+});
+
+test("a put carrying none of the three holds none, also where the storage declares none", () => {
+  expect(checkContentHeaders({}, undefined, [])).toEqual({ held: {} });
+});
+
+test("each header is read once, so what passed is what is held", () => {
+  const values = ["inline", "attachment\nx-injected: 1"];
+  const headers: ContentHeaders = {
+    get contentDisposition() {
+      return values.shift();
+    },
+  };
+
+  expect(checkContentHeaders(headers, undefined, declaring)).toEqual({
+    held: { contentDisposition: "inline" },
+  });
 });

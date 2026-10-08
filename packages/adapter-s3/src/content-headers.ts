@@ -1,4 +1,4 @@
-import { type CapabilityName, type ContentHeaders, contentHeadersRefusal } from "@stowage/core";
+import { type CapabilityName, checkContentHeaders, type ContentHeaders } from "@stowage/core";
 
 import type { HeaderField } from "./canonical.ts";
 import { s3Error } from "./storage-error.ts";
@@ -27,8 +27,8 @@ export interface ContentHeaderFields {
 
 /**
  * The header fields the content headers travel in, refused before the request is signed in
- * the order of spec 4.3. The check reads a snapshot, so what it passed is what is sent. AWS
- * and R2 store each value as sent, so what was sent is what a later `stat` reports.
+ * the order of spec 4.3. AWS and R2 store each value as sent, so what was sent is what a later
+ * `stat` reports.
  */
 export function contentHeaderFields(
   bucket: string,
@@ -38,17 +38,13 @@ export function contentHeaderFields(
   operation: "put" | "presignPut",
   capabilities: readonly CapabilityName[],
 ): ContentHeaderFields {
-  const { cacheControl, contentDisposition, contentLanguage } = headers;
-  const held: ContentHeaders = Object.freeze({
-    ...(cacheControl === undefined ? {} : { cacheControl }),
-    ...(contentDisposition === undefined ? {} : { contentDisposition }),
-    ...(contentLanguage === undefined ? {} : { contentLanguage }),
-  });
-  const refusal = contentHeadersRefusal(held, contentType, capabilities);
+  const check = checkContentHeaders(headers, contentType, capabilities);
 
-  if (refusal !== undefined) {
-    throw s3Error(bucket, { ...refusal, operation, key, attempts: 0 });
+  if ("refusal" in check) {
+    throw s3Error(bucket, { ...check.refusal, operation, key, attempts: 0 });
   }
+
+  const { held } = check;
 
   return {
     headers: contentHeaderOptions.flatMap((option): HeaderField[] => {

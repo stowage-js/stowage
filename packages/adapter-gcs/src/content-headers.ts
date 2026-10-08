@@ -1,4 +1,4 @@
-import { type CapabilityName, type ContentHeaders, contentHeadersRefusal } from "@stowage/core";
+import { type CapabilityName, checkContentHeaders, type ContentHeaders } from "@stowage/core";
 
 import { fieldOf, stringOf } from "./json.ts";
 import type { HeaderField } from "./request.ts";
@@ -19,8 +19,7 @@ const signedNames = {
 
 /**
  * The content headers as `put` sends them in the object resource and `presignPut` signs them,
- * or the refusal of spec 4.3 before anything is sent. The check reads a snapshot, so what it
- * passed is what is sent.
+ * or the refusal of spec 4.3 before anything is sent.
  */
 export function heldContentHeaders(
   bucket: string,
@@ -30,19 +29,13 @@ export function heldContentHeaders(
   operation: "put" | "presignPut",
   capabilities: readonly CapabilityName[],
 ): ContentHeaders {
-  const { cacheControl, contentDisposition, contentLanguage } = headers;
-  const held: ContentHeaders = Object.freeze({
-    ...(cacheControl === undefined ? {} : { cacheControl }),
-    ...(contentDisposition === undefined ? {} : { contentDisposition }),
-    ...(contentLanguage === undefined ? {} : { contentLanguage }),
-  });
-  const refusal = contentHeadersRefusal(held, contentType, capabilities);
+  const check = checkContentHeaders(headers, contentType, capabilities);
 
-  if (refusal !== undefined) {
-    throw gcsError(bucket, { ...refusal, operation, key, attempts: 0 });
+  if ("refusal" in check) {
+    throw gcsError(bucket, { ...check.refusal, operation, key, attempts: 0 });
   }
 
-  return held;
+  return check.held;
 }
 
 /** The header fields a presigned `PUT` signs and hands back for what passed the check. */
