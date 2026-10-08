@@ -1,6 +1,5 @@
 import {
   type CapabilityName,
-  contentHeadersRefusal,
   type DeleteReport,
   type GetOptions,
   isStorageError,
@@ -17,6 +16,7 @@ import {
 } from "@stowage/core";
 
 import { readConfiguration, type S3AdapterOptions, type S3Configuration } from "./configuration.ts";
+import { contentHeaderFields } from "./content-headers.ts";
 import { copyObject } from "./copy.ts";
 import { deleteBelow, deleteKeys } from "./delete.ts";
 import { defaultContentType, describeResponse } from "./description.ts";
@@ -78,6 +78,7 @@ export function s3Storage(options: S3AdapterOptions): S3Storage {
 
 /** Spec 7.1, in the order `capabilityNames` of spec 4.9 lists the names. */
 const s3Capabilities: readonly CapabilityName[] = Object.freeze([
+  "contentHeaders",
   "presignedUrls",
   "rangeReads",
   "userMetadata",
@@ -116,14 +117,20 @@ class SimpleStorageServiceStorage implements S3Storage {
     requireKey(this.bucket, key, "writable", "put");
     requireKnownOptions(this.bucket, options, putOptionKeys, "put");
 
+    const contentType = this.#readContentType(options?.contentType);
     const write: ObjectWrite = {
       key,
       userMetadata: userMetadataHeaders(this.bucket, options?.userMetadata, key, this.capabilities),
-      contentType: this.#readContentType(options?.contentType),
+      contentType,
+      contentHeaders: contentHeaderFields(
+        this.bucket,
+        options ?? {},
+        contentType,
+        key,
+        this.capabilities,
+      ),
       signal: options?.signal,
     };
-
-    this.#requireContentHeaders(options, write.contentType, key);
 
     // Spec 4.3: a signal that already fired rejects before the request goes out.
     options?.signal?.throwIfAborted();
@@ -282,18 +289,6 @@ class SimpleStorageServiceStorage implements S3Storage {
       key: from,
       attempts: 0,
     });
-  }
-
-  /**
-   * Spec 4.3, before anything is sent. The adapter declares no `contentHeaders` yet, so any of
-   * the three is refused as `Unsupported` rather than as an option it does not know.
-   */
-  #requireContentHeaders(options: PutOptions | undefined, contentType: string, key: string): void {
-    const refusal = contentHeadersRefusal(options ?? {}, contentType, this.capabilities);
-
-    if (refusal === undefined) return;
-
-    throw s3Error(this.bucket, { ...refusal, operation: "put", key, attempts: 0 });
   }
 
   #readContentType(contentType: string | undefined): string {
