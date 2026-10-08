@@ -214,23 +214,26 @@ describe("a content header the client sent", () => {
     expect(await refusalOf({ [option]: value })).toEqual(refused(400));
   });
 
-  // `Content-Type`, `application/pdf` and `Content-Disposition` count 46 of the 2,048 bytes.
+  const dispositionAtByteLimit = "a".repeat(
+    2048 - "Content-Type".length - "application/pdf".length - "Content-Disposition".length,
+  );
+
   test("past 2,048 header bytes with `Content-Type` answers `400`", async () => {
-    expect(await refusalOf({ contentDisposition: "a".repeat(2003) })).toEqual(refused(400));
+    expect(await refusalOf({ contentDisposition: `${dispositionAtByteLimit}a` })).toEqual(
+      refused(400),
+    );
   });
 
   test("at exactly 2,048 header bytes with `Content-Type` is signed", async () => {
     const storage = signing();
-    const contentDisposition = "a".repeat(2002);
-
     const response = await presignUpload(
       storage,
       "uploads/report.pdf",
-      options({ contentDisposition }),
+      options({ contentDisposition: dispositionAtByteLimit }),
     );
 
     expect(response.status).toBe(200);
-    expect(storage.calls[0]?.[1].contentDisposition).toBe(contentDisposition);
+    expect(storage.calls[0]?.[1].contentDisposition).toBe(dispositionAtByteLimit);
   });
 
   test("a `contentLanguage` of 101 characters answers `400`", async () => {
