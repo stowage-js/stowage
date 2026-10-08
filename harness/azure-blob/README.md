@@ -129,8 +129,8 @@ az storage account management-policy create --account-name stowageconformance \
   "name": "delete-after-one-day", "type": "Lifecycle", "definition": {"filters":
   {"blobTypes": ["blockBlob"]}, "actions": {"baseBlob": {"delete":
   {"daysAfterModificationGreaterThan": 1}}}}}]}'
-az storage cors clear --account-name stowageconformance --services b --auth-mode key
-az storage cors add --account-name stowageconformance --services b --auth-mode key \
+az storage cors clear --account-name stowageconformance --services b
+az storage cors add --account-name stowageconformance --services b \
   --origins https://conformance.stowage.invalid --methods GET PUT \
   --allowed-headers content-type x-ms-blob-type x-ms-blob-content-type --max-age 0
 ```
