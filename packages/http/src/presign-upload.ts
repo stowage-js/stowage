@@ -10,7 +10,14 @@ import { answerFor, refusal } from "./answers.ts";
 export interface PresignsPut {
   presignPut(
     key: string,
-    options: { expiresIn: number; contentType: string; contentLength: number },
+    options: {
+      expiresIn: number;
+      contentType: string;
+      contentLength: number;
+      cacheControl?: string;
+      contentDisposition?: string;
+      contentLanguage?: string;
+    },
   ): Promise<PresignedPut>;
 }
 
@@ -32,6 +39,15 @@ export interface PresignUploadOptions {
    * integer is `400` before signing.
    */
   contentLength: number;
+  /**
+   * The `Cache-Control` the signature binds, passed to `presignPut` where given. The layer
+   * never reads it from a request.
+   */
+  cacheControl?: string;
+  /** The `Content-Disposition` the signature binds, passed to `presignPut` where given. */
+  contentDisposition?: string;
+  /** The `Content-Language` the signature binds, passed to `presignPut` where given. */
+  contentLanguage?: string;
 }
 
 /**
@@ -70,6 +86,9 @@ export async function presignUpload(
       expiresIn: options.expiresIn,
       contentType,
       contentLength,
+      cacheControl: options.cacheControl,
+      contentDisposition: options.contentDisposition,
+      contentLanguage: options.contentLanguage,
     });
   } catch (thrown) {
     return answerFor(thrown);

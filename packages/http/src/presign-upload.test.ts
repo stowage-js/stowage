@@ -52,6 +52,34 @@ describe("a signed upload", () => {
     ]);
   });
 
+  test("the content headers given are passed on unchanged", async () => {
+    const storage = signing();
+
+    await presignUpload(
+      storage,
+      "uploads/report.pdf",
+      options({
+        cacheControl: "public, max-age=60, immutable",
+        contentDisposition: 'attachment; filename="report.pdf"',
+        contentLanguage: "de-AT, en",
+      }),
+    );
+
+    expect(storage.calls).toEqual([
+      [
+        "uploads/report.pdf",
+        {
+          expiresIn: 60,
+          contentType: "application/pdf",
+          contentLength: 11,
+          cacheControl: "public, max-age=60, immutable",
+          contentDisposition: 'attachment; filename="report.pdf"',
+          contentLanguage: "de-AT, en",
+        },
+      ],
+    ]);
+  });
+
   test("the answer's headers are the caller's to change", async () => {
     const response = await presignUpload(signing(), "uploads/report.pdf", options());
 
