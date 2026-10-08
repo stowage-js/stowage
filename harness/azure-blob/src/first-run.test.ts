@@ -180,7 +180,9 @@ describe.skipIf(!scheduled)(firstRunSuite, () => {
 
     await differing.arrayBuffer();
 
-    task.meta.observed = `${differing.status} \`${differing.headers.get("x-ms-error-code") ?? ""}\``;
+    const refusal = `${differing.status} \`${differing.headers.get("x-ms-error-code") ?? ""}\``;
+
+    task.meta.observed = refusal;
 
     expect({ status: differing.status, stored: await storage().exists(key) }).toEqual({
       status: 403,
@@ -190,6 +192,10 @@ describe.skipIf(!scheduled)(firstRunSuite, () => {
     const signed = await fetch(url, { method: "PUT", headers, body });
 
     await signed.arrayBuffer();
+
+    // A failure of this upload alone would otherwise read as a disproved refusal beside the
+    // refusal it observed.
+    task.meta.observed = `${refusal}, then ${signed.status} for the headers as signed`;
 
     expect(signed.status).toBe(201);
     expect((await storage().stat(key)).contentType).toBe("text/plain");
