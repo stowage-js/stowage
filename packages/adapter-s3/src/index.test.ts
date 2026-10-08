@@ -3,7 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 
 import { sha256Hex } from "./hash.ts";
 import { md5Base64 } from "./md5.ts";
-import { type S3AdapterOptions, s3Storage } from "./index.ts";
+import { type S3AdapterOptions, type S3Storage, s3Storage } from "./index.ts";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -165,6 +165,7 @@ test("it names the provider, the bucket and what it declares", () => {
   expect(storage.provider).toBe("s3");
   expect(storage.bucket).toBe("stowage");
   expect(storage.capabilities).toEqual([
+    "contentHeaders",
     "presignedUrls",
     "rangeReads",
     "userMetadata",
@@ -1166,31 +1167,117 @@ test("an unknown option is refused by name before any request", async () => {
   expect(sent).toHaveLength(0);
 });
 
-// Until the adapter declares `contentHeaders`, spec 4.3 refuses the three before any check
-// of their form, `""` included.
-test.each([
-  ["cacheControl", "public, max-age=60"],
-  ["contentDisposition", "attachment"],
-  ["contentLanguage", "de-AT"],
-  ["cacheControl", ""],
-])(
-  "`%s` as %j is `Unsupported` naming `contentHeaders` before any request",
-  async (option, value) => {
-    const sent = stubFetch(accepted);
-    const failure = await rejection(
-      async () => await s3Storage(options()).put("object.txt", "body", { [option]: value }),
-    );
+const contentHeaders = {
+  cacheControl: "public, max-age=60, immutable",
+  contentDisposition: 'attachment;\tfilename="conformance  report.pdf"',
+  contentLanguage: "de-AT, en",
+};
 
-    expect(failure).toMatchObject({
-      code: "Unsupported",
-      capability: "contentHeaders",
-      operation: "put",
-      key: "object.txt",
-      attempts: 0,
-    });
-    expect(sent).toHaveLength(0);
+const contentHeaderMembers = Object.keys(contentHeaders);
+
+test("`put` sends the content headers as written, signed, and reports them", async () => {
+  const sent = stubFetch(accepted);
+
+  const written = await s3Storage(options()).put("object.txt", "body", contentHeaders);
+
+  expect(sent[0]?.headers.get("cache-control")).toBe(contentHeaders.cacheControl);
+  expect(sent[0]?.headers.get("content-disposition")).toBe(contentHeaders.contentDisposition);
+  expect(sent[0]?.headers.get("content-language")).toBe(contentHeaders.contentLanguage);
+  expect(sent[0]?.headers.get("authorization")).toContain(
+    "SignedHeaders=cache-control;content-disposition;content-language;content-type;",
+  );
+  expect(written).toMatchObject(contentHeaders);
+});
+
+test("`put` without content headers sends none and reports none", async () => {
+  const sent = stubFetch(accepted);
+
+  const written = await s3Storage(options()).put("object.txt", "body", {
+    cacheControl: undefined,
+  });
+
+  for (const name of ["cache-control", "content-disposition", "content-language"]) {
+    expect(sent[0]?.headers.has(name)).toBe(false);
+  }
+  for (const member of contentHeaderMembers) {
+    expect(member in written).toBe(false);
+  }
+});
+
+test.each([
+  ["cacheControl", ""],
+  ["contentDisposition", " attachment"],
+  ["contentLanguage", "de-AT\nx-injected: 1"],
+  ["cacheControl", 60],
+])("`%s` as %j is `InvalidOption` naming it before any request", async (option, value) => {
+  const sent = stubFetch(accepted);
+  const failure = await rejection(
+    async () => await s3Storage(options()).put("object.txt", "body", { [option]: value }),
+  );
+
+  expect(failure).toMatchObject({
+    code: "InvalidOption",
+    operation: "put",
+    key: "object.txt",
+    attempts: 0,
+  });
+  expect(failure.message).toContain(option);
+  expect(sent).toHaveLength(0);
+});
+
+test("content headers over the bound are `InvalidRequest` before any request", async () => {
+  const sent = stubFetch(accepted);
+  const failure = await rejection(
+    async () =>
+      await s3Storage(options()).put("object.txt", "body", { contentLanguage: "x".repeat(101) }),
+  );
+
+  expect(failure).toMatchObject({ code: "InvalidRequest", attempts: 0 });
+  expect(sent).toHaveLength(0);
+});
+
+const storedContentHeaders = {
+  "cache-control": contentHeaders.cacheControl,
+  "content-disposition": contentHeaders.contentDisposition,
+  "content-language": contentHeaders.contentLanguage,
+};
+
+const describingOperations = [
+  ["stat", async (storage: S3Storage) => await storage.stat("object.txt")],
+  ["get", async (storage: S3Storage) => (await storage.get("object.txt")).stat],
+] as const;
+
+test.each(describingOperations)(
+  "`%s` reads the content headers from the answer",
+  async (_operation, describe) => {
+    stubFetch(() => storedResponse("body", storedContentHeaders));
+
+    expect(await describe(s3Storage(options()))).toMatchObject(contentHeaders);
   },
 );
+
+// Spec 4.4: AWS stores an empty `Cache-Control:` where R2 stores none, and both read as none.
+test.each(describingOperations)(
+  "`%s` reads an empty or absent content header as none",
+  async (_operation, describe) => {
+    stubFetch(() => storedResponse("body", { "cache-control": "", "content-language": "" }));
+
+    const described = await describe(s3Storage(options()));
+
+    for (const member of contentHeaderMembers) {
+      expect(member in described).toBe(false);
+    }
+  },
+);
+
+// Spec 4.4 reads what another tool stored outside the rule of `put`, decoded in no way.
+test("`stat` reports a content header another tool stored outside the rule as read", async () => {
+  const raw = "attachment; filename=gr\u00fc\u00dfe.txt";
+
+  stubFetch(() => storedResponse("body", { "content-disposition": raw }));
+
+  expect((await s3Storage(options()).stat("object.txt")).contentDisposition).toBe(raw);
+});
 
 test("the session token travels as a signed header", async () => {
   const sent = stubFetch(accepted);
@@ -2164,6 +2251,46 @@ test("`move` copies, describes the destination and then deletes the source", asy
   expect(sent.map((request) => request.method)).toEqual(["PUT", "HEAD", "DELETE"]);
   expect(sent[2]?.url).toBe("https://stowage.s3.eu-central-1.amazonaws.com/from.txt");
   expect(written).toMatchObject({ key: "to.txt", size: 13 });
+});
+
+test.each(["copy", "move"] as const)(
+  "`%s` reads the content headers from the `HEAD` of the destination",
+  async (operation) => {
+    stubFetch((request) => {
+      if (request.method !== "HEAD") return copyingProvider(request);
+
+      const answer = copiedStat();
+
+      for (const [name, value] of Object.entries(storedContentHeaders)) {
+        answer.headers.set(name, value);
+      }
+
+      return answer;
+    });
+
+    expect(await s3Storage(options())[operation]("from.txt", "to.txt")).toMatchObject(
+      contentHeaders,
+    );
+  },
+);
+
+// Spec 7.4 and ADR 0061: AWS reports an override in place of the stored value, so a request
+// whose answer feeds an `ObjectStat` carries no query at all.
+test("no request whose answer describes an object carries a response override", async () => {
+  const sent = stubFetch((request) =>
+    request.method === "GET" ? storedResponse("body") : copyingProvider(request),
+  );
+  const storage = s3Storage(options());
+
+  await storage.stat("object.txt");
+  await (await storage.get("object.txt")).text();
+  await storage.copy("from.txt", "to.txt");
+  await storage.move("from.txt", "to.txt");
+
+  const describing = sent.filter((request) => ["GET", "HEAD"].includes(request.method));
+
+  expect(describing).toHaveLength(4);
+  expect(describing.map((request) => new URL(request.url).search)).toEqual(["", "", "", ""]);
 });
 
 test("`move` of a key onto itself is `InvalidRequest` and deletes nothing", async () => {

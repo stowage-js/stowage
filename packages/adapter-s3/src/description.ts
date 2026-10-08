@@ -1,5 +1,6 @@
 import { type ObjectStat, type StorageError, wholeSizeOf } from "@stowage/core";
 
+import { readContentHeaders } from "./content-headers.ts";
 import { partialContent } from "./range.ts";
 import { s3Error } from "./storage-error.ts";
 import { readUserMetadata } from "./user-metadata.ts";
@@ -19,38 +20,34 @@ export function describeResponse(
     lastModified: lastModifiedOf(bucket, key, operation, response),
     etag: etagOf(response),
     contentType: response.headers.get("content-type") ?? defaultContentType,
+    ...readContentHeaders(response.headers),
     userMetadata: readUserMetadata(response.headers),
   };
 }
 
+/** What `put` knows of the object it wrote before the provider answered. */
+export type WrittenObject = Omit<ObjectStat, "lastModified" | "etag">;
+
 /**
  * What `put` wrote, described from what it sent: a `PutObject` answer carries the entity
- * tag and the time the provider accepted the object, and neither length nor type. Spec
- * 4.4 has that time come from the provider, so an answer without one is reported rather
- * than dated from this clock. `CompleteMultipartUpload` carries its entity tag in the
- * body instead, and hands it in as `etag`.
+ * tag and the time the provider accepted the object, and neither length, type nor content
+ * headers. Spec 4.4 has that time come from the provider, so an answer without one is
+ * reported rather than dated from this clock. `CompleteMultipartUpload` carries its entity
+ * tag in the body instead, and hands it in as `etag`.
  */
 export function describeWrite(
   bucket: string,
-  key: string,
-  size: number,
-  contentType: string,
-  userMetadata: Readonly<Record<string, string>>,
+  written: WrittenObject,
   response: Response,
   etag: string | undefined = etagOf(response),
 ): ObjectStat {
   const accepted = Date.parse(response.headers.get("date") ?? "");
 
-  if (Number.isNaN(accepted)) throw incomplete(bucket, key, "put", "no time it was accepted");
+  if (Number.isNaN(accepted)) {
+    throw incomplete(bucket, written.key, "put", "no time it was accepted");
+  }
 
-  return {
-    key,
-    size,
-    lastModified: new Date(accepted),
-    etag,
-    contentType,
-    userMetadata,
-  };
+  return { ...written, lastModified: new Date(accepted), etag };
 }
 
 function etagOf(response: Response): string | undefined {

@@ -308,6 +308,39 @@ test("a stream that fills more than one part becomes a multipart upload", async 
   });
 });
 
+/** The content headers a request carried, `null` for each it did not. */
+function contentHeadersOf(request: SentRequest | undefined): (string | null)[] {
+  return ["cache-control", "content-disposition", "content-language"].map(
+    (name) => request?.headers.get(name) ?? null,
+  );
+}
+
+// Spec 7.4: `CreateMultipartUpload` stores them for the object the commit creates, and the
+// parts and the commit carry none.
+test("a multipart upload sends the content headers with the request that creates it", async () => {
+  const sent = stubFetch(multipartProvider());
+  const contentHeaders = {
+    cacheControl: "no-store",
+    contentDisposition: 'attachment; filename="report.pdf"',
+    contentLanguage: "de-AT",
+  };
+
+  const written = await s3Storage(options({ multipart: { partSize: smallestPart } })).put(
+    "object.bin",
+    streamOf(patternOf(smallestPart + 1), mebibyte),
+    contentHeaders,
+  );
+
+  expect(sent.map(stepOf).at(0)).toBe("create");
+  expect(contentHeadersOf(sent[0])).toEqual([
+    "no-store",
+    'attachment; filename="report.pdf"',
+    "de-AT",
+  ]);
+  expect(sent.slice(1).map(contentHeadersOf)).toEqual(sent.slice(1).map(() => [null, null, null]));
+  expect(written).toMatchObject(contentHeaders);
+});
+
 // ADR 0027: S3 writes a key character XML 1.0 cannot carry into an answer as a reference,
 // and a commit it answered that way is the success it reports, not an unreadable answer.
 test("a multipart upload of a key holding U+FFFE reads both answers spelling it `&#xfffe;`", async () => {

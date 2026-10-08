@@ -10,7 +10,8 @@ import {
 import { type AnsweredRequest, readAnswerDocument, textOf } from "./answer-document.ts";
 import type { HeaderField } from "./canonical.ts";
 import type { S3Configuration } from "./configuration.ts";
-import { describeWrite, unquotedEtag } from "./description.ts";
+import type { ContentHeaderFields } from "./content-headers.ts";
+import { describeWrite, unquotedEtag, type WrittenObject } from "./description.ts";
 import { send } from "./request.ts";
 import { s3Error } from "./storage-error.ts";
 import type { UserMetadataHeaders } from "./user-metadata.ts";
@@ -20,13 +21,29 @@ import { escapeXml } from "./xml.ts";
 export interface ObjectWrite {
   readonly key: string;
   readonly contentType: string;
+  readonly contentHeaders: ContentHeaderFields;
   readonly userMetadata: UserMetadataHeaders;
   readonly signal?: AbortSignal;
 }
 
 /** The object's own headers, which a multipart upload sends with the request that starts it. */
 function objectHeaders(write: ObjectWrite): HeaderField[] {
-  return [["content-type", write.contentType], ...write.userMetadata.headers];
+  return [
+    ["content-type", write.contentType],
+    ...write.contentHeaders.headers,
+    ...write.userMetadata.headers,
+  ];
+}
+
+/** The object `write` holds once `size` bytes of it are stored. */
+function writtenObject(write: ObjectWrite, size: number): WrittenObject {
+  return {
+    key: write.key,
+    size,
+    contentType: write.contentType,
+    ...write.contentHeaders.held,
+    userMetadata: write.userMetadata.held,
+  };
 }
 
 /** Spec 7.6: bytes the adapter holds go as one `PUT`, which it never splits. */
@@ -46,14 +63,7 @@ export async function putObject(
 
   await response.body?.cancel();
 
-  return describeWrite(
-    configuration.bucket,
-    write.key,
-    bytes.byteLength,
-    write.contentType,
-    write.userMetadata.held,
-    response,
-  );
+  return describeWrite(configuration.bucket, writtenObject(write, bytes.byteLength), response);
 }
 
 /**
@@ -211,10 +221,7 @@ async function completeUpload(
 
   return describeWrite(
     configuration.bucket,
-    write.key,
-    size,
-    write.contentType,
-    write.userMetadata.held,
+    writtenObject(write, size),
     response,
     etag === undefined ? undefined : unquotedEtag(etag),
   );
