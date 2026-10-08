@@ -581,9 +581,9 @@ describe("`Content-Language`", () => {
   });
 });
 
-const keyDisposition = `attachment; filename="report.pdf"; filename*=UTF-8''report.pdf`;
+const defaultDisposition = `attachment; filename="report.pdf"; filename*=UTF-8''report.pdf`;
 
-const storedDisposition = async (
+const servedDispositionOf = async (
   contentDisposition: string,
   options?: ServeObjectOptions,
   method = "GET",
@@ -600,8 +600,8 @@ describe("a stored `contentDisposition`", () => {
     'attachment ; filename="stored.pdf"',
     "attachment",
   ])("of the type `attachment` is sent as stored: `%s`", async (stored) => {
-    expect(await storedDisposition(stored)).toBe(stored);
-    expect(await storedDisposition(stored, {}, "HEAD")).toBe(stored);
+    expect(await servedDispositionOf(stored)).toBe(stored);
+    expect(await servedDispositionOf(stored, {}, "HEAD")).toBe(stored);
   });
 
   test.each([
@@ -611,12 +611,12 @@ describe("a stored `contentDisposition`", () => {
     'form-data; name="x"',
     'filename="x.html"; attachment',
   ])("of any other type gives way to the default: `%s`", async (stored) => {
-    expect(await storedDisposition(stored)).toBe(keyDisposition);
+    expect(await servedDispositionOf(stored)).toBe(defaultDisposition);
   });
 
   test("gives way to `filename`", async () => {
     expect(
-      await storedDisposition('attachment; filename="stored.pdf"', { filename: "Q3.pdf" }),
+      await servedDispositionOf('attachment; filename="stored.pdf"', { filename: "Q3.pdf" }),
     ).toBe(`attachment; filename="Q3.pdf"; filename*=UTF-8''Q3.pdf`);
   });
 
@@ -624,7 +624,7 @@ describe("a stored `contentDisposition`", () => {
     "gives way to the `disposition` `%s`",
     async (type) => {
       expect(
-        await storedDisposition('attachment; filename="stored.pdf"', { disposition: type }),
+        await servedDispositionOf('attachment; filename="stored.pdf"', { disposition: type }),
       ).toBe(`${type}; filename="report.pdf"; filename*=UTF-8''report.pdf`);
     },
   );
