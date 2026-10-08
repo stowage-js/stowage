@@ -1,9 +1,17 @@
 import { randomUUID } from "node:crypto";
+import { gzipSync } from "node:zlib";
 
 import { afterAll, describe, expect, test } from "vitest";
 
-import type { GcsSigningStorage } from "../../../packages/adapter-gcs/src/index.ts";
-import { bucketOrFail, bucketStorage, scheduledBucket } from "./environment.ts";
+import { readConfiguration } from "../../../packages/adapter-gcs/src/configuration.ts";
+import {
+  type GcsSigningStorage,
+  type GcsStorage,
+  gcsStorage,
+} from "../../../packages/adapter-gcs/src/index.ts";
+import { send, uploadPath } from "../../../packages/adapter-gcs/src/request.ts";
+import type { GcsEndpoint } from "./configuration.ts";
+import { bucketOrFail, bucketStorage, configuredEndpoint, scheduledBucket } from "./environment.ts";
 
 // Spec 14.4: promises of `adapter-gcs` that the suite does not assert and only the real
 // bucket shows. fake-gcs-server honors no response override, carries no CORS rule and checks
@@ -135,4 +143,71 @@ describe.skipIf(scheduled === undefined)("adapter-gcs against the bucket", () =>
 
 function storage(): GcsSigningStorage {
   return bucketStorage(bucketOrFail(scheduled));
+}
+
+// Spec 14.4: what fake-gcs-server shows on every commit and the real bucket in the scheduled
+// job, as the harnesses of `adapter-s3` and `adapter-azure-blob` hold it against both.
+const endpoint = configuredEndpoint();
+const everyCommitOrScheduled =
+  endpoint?.kind === "emulator" || scheduled !== undefined ? endpoint : undefined;
+
+describe.skipIf(everyCommitOrScheduled === undefined)("adapter-gcs against the endpoint", () => {
+  afterAll(async () => {
+    const report = await endpointStorage().deleteAll(prefix);
+
+    if (report.failed.length > 0) {
+      throw new AggregateError(report.failed, "Failed to clean up GCS test objects");
+    }
+  });
+
+  // Spec 4.3, ADR 0044 and ADR 0061: stowage cannot write such an object, so the harness
+  // uploads it itself. How long the whole body reads depends on whether GCS and the runtime's
+  // `fetch` decode it.
+  test("a content-coded object names its coding, takes no range and is read whole", async () => {
+    const key = `${prefix}stored-gzipped.txt`;
+    const stored = gzipSync("x".repeat(1000));
+    const configuration = readConfiguration(endpointOrFail().options);
+
+    await send(configuration, {
+      method: "POST",
+      operation: "put",
+      key,
+      path: uploadPath(configuration),
+      query: [
+        ["uploadType", "media"],
+        ["name", key],
+        ["contentEncoding", "gzip"],
+      ],
+      headers: [["content-type", "text/plain"]],
+      body: new Uint8Array(stored),
+    });
+
+    await expect(endpointStorage().stat(key)).resolves.toMatchObject({
+      size: stored.length,
+      contentEncoding: "gzip",
+    });
+    await expect(endpointStorage().copy(key, `${key}.copy`)).resolves.toMatchObject({
+      contentEncoding: "gzip",
+    });
+
+    const whole = await endpointStorage().get(key);
+
+    expect(whole.stat).toMatchObject({ size: stored.length, contentEncoding: "gzip" });
+    await expect(whole.bytes()).resolves.toBeInstanceOf(Uint8Array);
+    await expect(endpointStorage().get(key, { range: { start: 2, end: 5 } })).rejects.toMatchObject(
+      { code: "ProviderError", message: expect.stringContaining('"gzip"') },
+    );
+  });
+});
+
+function endpointOrFail(): GcsEndpoint {
+  if (everyCommitOrScheduled === undefined) {
+    throw new Error("No GCS endpoint is configured; see `harness/gcs/README.md`");
+  }
+
+  return everyCommitOrScheduled;
+}
+
+function endpointStorage(): GcsStorage {
+  return gcsStorage(endpointOrFail().options);
 }
