@@ -64,7 +64,10 @@ const signedHeaders: Required<ContentHeaders> = {
   contentLanguage: "de-AT, en",
 };
 
-/** What a differing upload sends in place of each signed value. */
+/**
+ * Each is a value the rule of spec 4.3 admits and close to the signed one, so that a refusal
+ * is the binding's and not that of a malformed header.
+ */
 const differingHeaders: Required<ContentHeaders> = {
   cacheControl: "public, max-age=61, immutable",
   contentDisposition: 'attachment; filename="another report.pdf"',
