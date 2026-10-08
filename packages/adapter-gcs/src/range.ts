@@ -54,7 +54,7 @@ export function reportedDownloadFailure(
 
   const changedBetweenRequests = { code: "InvalidRequest" as const, message: failure.message };
   const reported =
-    contentCodingRefusal(contentEncodingOf(described), key) ??
+    contentCodingRefusal(storedCodingOf(described), key) ??
     rangeStartRefusal(range, described.stat.size, key) ??
     changedBetweenRequests;
 
@@ -93,7 +93,7 @@ export function answeredRangeRefusal(
     status: response.status,
     requestId: response.headers.get(requestIdHeader) ?? undefined,
   };
-  const codingRefusal = contentCodingRefusal(contentEncodingOf(described, response), key);
+  const codingRefusal = contentCodingRefusal(storedCodingOf(described, response), key);
 
   if (codingRefusal !== undefined) return gcsError(bucket, { ...codingRefusal, ...answered });
 
@@ -116,9 +116,9 @@ export function answeredRangeRefusal(
  * The value naming the object's stored content coding, off its resource or its media download.
  * GCS sends `identity` on the download of an object stored without one.
  */
-function contentEncodingOf(
+function storedCodingOf(
   described: DescribedObject,
   response?: Response,
 ): string | null | undefined {
-  return described.contentEncoding ?? response?.headers.get(storedCodingHeader);
+  return described.stat.contentEncoding ?? response?.headers.get(storedCodingHeader);
 }

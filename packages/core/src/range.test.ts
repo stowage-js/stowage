@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 
 import {
   contentCodingRefusal,
+  contentEncodingOf,
   lastByteOf,
   rangeBoundsRefusal,
   rangeCoversWhole,
@@ -111,16 +112,26 @@ test.each([
   ["`identity` in another case", "IDENTITY"],
 ])("%s names no content coding", (_name, contentEncoding) => {
   expect(contentCodingRefusal(contentEncoding, "a.txt")).toBeUndefined();
+  expect(contentEncodingOf(contentEncoding)).toBeUndefined();
 });
 
 test.each([
   ["gzip", "gzip"],
   ["gzip in another case", "GZip"],
   ["br", "br"],
+  ["a list of codings", "gzip, br"],
   ["an unknown coding", "x-unheard-of"],
 ])("%s names a content coding that refuses every range", (_name, contentEncoding) => {
   expect(contentCodingRefusal(contentEncoding, "a.txt")).toEqual({
     code: "ProviderError",
     message: `The object under "a.txt" is stored with the content coding ${JSON.stringify(contentEncoding)}, so no range of it can be read`,
   });
+});
+
+test.each([
+  ["gzip in another case", "GZIP"],
+  ["a list of codings", "gzip, br"],
+  ["a value with whitespace inside", "gzip,  br"],
+])("%s is reported as stored", (_name, contentEncoding) => {
+  expect(contentEncodingOf(contentEncoding)).toBe(contentEncoding);
 });

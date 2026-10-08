@@ -1,4 +1,4 @@
-import { type ObjectStat, type StorageError, wholeSizeOf } from "@stowage/core";
+import { contentEncodingOf, type ObjectStat, type StorageError, wholeSizeOf } from "@stowage/core";
 
 import { readContentHeaders } from "./content-headers.ts";
 import { partialContent } from "./range.ts";
@@ -21,8 +21,16 @@ export function describeResponse(
     etag: etagOf(response),
     contentType: response.headers.get("content-type") ?? defaultContentType,
     ...readContentHeaders(response.headers),
+    ...readContentEncoding(response.headers),
     userMetadata: readUserMetadata(response.headers),
   };
+}
+
+/** The coding the blob is stored with, which `Accept-Encoding: identity` keeps on the answer. */
+function readContentEncoding(headers: Headers): { readonly contentEncoding?: string } {
+  const contentEncoding = contentEncodingOf(headers.get("content-encoding"));
+
+  return contentEncoding === undefined ? {} : { contentEncoding };
 }
 
 /** What `put` knows of the object it wrote before the service answered. */

@@ -630,6 +630,62 @@ test("`stat` reports a content header another tool stored outside the rule as re
   expect((await storage().stat("object")).contentDisposition).toBe(raw);
 });
 
+// The stored content coding on a description (spec 4.4, ADR 0061)
+
+const codingOperations = [
+  ...describingOperations,
+  ["copy", async () => await storage().copy("from.txt", "object")],
+  ["move", async () => await storage().move("from.txt", "object")],
+] as const;
+
+/** A service holding a blob another tool stored under `coding`, which copies carry along. */
+function codedService(coding: string): (request: SentRequest) => Response {
+  return (request) => {
+    if (request.method === "PUT") return created();
+    if (request.method === "DELETE") return new Response(null, { status: 202 });
+
+    return storedBlob({ "content-encoding": coding })(request);
+  };
+}
+
+test.each(codingOperations)(
+  "`%s` reports the stored coding as stored",
+  async (_operation, describe) => {
+    stubFetch(codedService("GZIP"));
+
+    expect((await describe()).contentEncoding).toBe("GZIP");
+  },
+);
+
+test.each(
+  codingOperations.flatMap(([operation, describe]) =>
+    ["identity", ""].map((coding) => [operation, coding, describe] as const),
+  ),
+)("`%s` reads %j as no coding", async (_operation, coding, describe) => {
+  stubFetch(codedService(coding));
+
+  expect("contentEncoding" in (await describe())).toBe(false);
+});
+
+// A response override such as `rsce` has the service report it in place of the stored value.
+test.each(codingOperations)("`%s` asks for no response override", async (_operation, describe) => {
+  const sent = stubFetch(codedService("gzip"));
+
+  await describe();
+
+  const overrides = sent.flatMap((request) =>
+    [...new URL(request.url).searchParams.keys()].filter((name) => name.startsWith("rsc")),
+  );
+
+  expect(overrides).toEqual([]);
+});
+
+test("`put` reports no coding", async () => {
+  stubFetch(() => created());
+
+  expect("contentEncoding" in (await storage().put("object", "body"))).toBe(false);
+});
+
 test("an empty user metadata set sends no `x-ms-meta-` field", async () => {
   const sent = stubFetch(() => created());
 

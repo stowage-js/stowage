@@ -652,6 +652,66 @@ test("`stat` reports a content header another tool stored outside the rule as re
   expect((await storage().stat("object")).contentDisposition).toBe(raw);
 });
 
+// The stored content coding on a description (spec 4.4, ADR 0061)
+
+const codingOperations = [
+  ...describingOperations,
+  ["copy", async () => await storage().copy("from/a.txt", "to/b.txt")],
+  ["move", async () => await storage().move("from/a.txt", "to/b.txt")],
+] as const;
+
+/** A bucket holding an object another tool stored under `coding`, which copies carry along. */
+function codedBucket(coding: string) {
+  return (request: SentRequest): Response => {
+    if (request.url.includes("/rewriteTo/")) return rewriteDone({ contentEncoding: coding });
+    if (request.url.includes("/moveTo/")) return moved({ contentEncoding: coding });
+
+    return stored("hello", { contentEncoding: coding })(request);
+  };
+}
+
+test.each(codingOperations)(
+  "`%s` reports the stored coding as stored",
+  async (_operation, describe) => {
+    stubFetch(codedBucket("GZIP"));
+
+    expect((await describe()).contentEncoding).toBe("GZIP");
+  },
+);
+
+test.each(
+  codingOperations.flatMap(([operation, describe]) =>
+    ["identity", ""].map((coding) => [operation, coding, describe] as const),
+  ),
+)("`%s` reads %j as no coding", async (_operation, coding, describe) => {
+  stubFetch(codedBucket(coding));
+
+  expect("contentEncoding" in (await describe())).toBe(false);
+});
+
+// GCS drops `Content-Encoding` from a media download it decoded, so only the resource names
+// the coding an object is stored with.
+test("`get` reads no coding off the media download", async () => {
+  stubFetch((request) =>
+    request.url.includes("alt=media")
+      ? new Response("hello", {
+          headers: {
+            "x-goog-generation": "1790665923456000",
+            "x-goog-stored-content-encoding": "gzip",
+          },
+        })
+      : resource(),
+  );
+
+  expect("contentEncoding" in (await storage().get("object")).stat).toBe(false);
+});
+
+test("`put` reports no coding", async () => {
+  stubFetch(() => resource());
+
+  expect("contentEncoding" in (await storage().put("object", "hello"))).toBe(false);
+});
+
 test("a signal that already fired rejects `put` with `AbortError` before any request", async () => {
   const sent = stubFetch(() => resource());
 

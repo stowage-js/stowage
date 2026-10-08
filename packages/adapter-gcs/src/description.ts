@@ -1,4 +1,4 @@
-import type { ObjectStat } from "@stowage/core";
+import { contentEncodingOf, type ObjectStat } from "@stowage/core";
 
 import { type AnsweredRequest, malformedAnswer, readAnswerJson } from "./answer.ts";
 import type { GcsConfiguration } from "./configuration.ts";
@@ -16,8 +16,6 @@ const decimalSize = /^(?:0|[1-9]\d*)$/u;
 export interface DescribedObject {
   readonly stat: ObjectStat;
   readonly generation?: string;
-  /** The content coding another tool stored the object with; stowage never writes one. */
-  readonly contentEncoding?: string;
 }
 
 /**
@@ -43,7 +41,6 @@ export async function readDescription(
   return {
     stat: describeResource(configuration.bucket, key, operation, response, resource),
     generation: stringOf(fieldOf(resource, "generation")),
-    contentEncoding: stringOf(fieldOf(resource, "contentEncoding")),
   };
 }
 
@@ -59,8 +56,8 @@ export async function readResource(
 
 /**
  * Spec 4.4 out of the object resource: `size`, the time of `updated`, the `etag`, the
- * content headers and the user metadata. The key is the one the call named, which the
- * resource's `name` repeats byte for byte.
+ * content headers, the content coding and the user metadata. The key is the one the call
+ * named, which the resource's `name` repeats byte for byte.
  */
 export function describeResource(
   bucket: string,
@@ -85,8 +82,19 @@ export function describeResource(
     contentType:
       typeof contentType === "string" && contentType !== "" ? contentType : defaultContentType,
     ...readContentHeaders(resource),
+    ...readContentEncoding(resource),
     userMetadata: readUserMetadata(resource),
   };
+}
+
+/**
+ * The resource's `contentEncoding`, the coding the object is stored with. The media download
+ * is never asked (spec 9.4): GCS drops `Content-Encoding` there where it decoded gzip.
+ */
+function readContentEncoding(resource: unknown): { readonly contentEncoding?: string } {
+  const contentEncoding = contentEncodingOf(stringOf(fieldOf(resource, "contentEncoding")));
+
+  return contentEncoding === undefined ? {} : { contentEncoding };
 }
 
 /** The resource's `size`, where it holds a count of bytes. */

@@ -65,6 +65,29 @@ function skipWithoutPutBlobFromUrl(ctx: TestContext, failure: unknown): void {
 }
 
 /**
+ * Stores a gzipped body under `key` with a `Put Blob` of the harness's own, as another tool
+ * would, since stowage writes no coding. It names the coding in `x-ms-blob-content-encoding`,
+ * as the Azure SDKs do: Azurite 3.37.0 stores no coding a `Content-Encoding` on `Put Blob`
+ * names.
+ */
+async function storeGzipped(key: string): Promise<Buffer> {
+  const stored = gzipSync("x".repeat(1000));
+
+  await send(readConfiguration(endpointOrFail(underAccessToken)), {
+    method: "PUT",
+    operation: "put",
+    key,
+    headers: [
+      ["x-ms-blob-type", "BlockBlob"],
+      ["x-ms-blob-content-encoding", "gzip"],
+    ],
+    body: new Uint8Array(stored),
+  });
+
+  return stored;
+}
+
+/**
  * `size` bytes, one mebibyte at a time, each mebibyte filled with its index, so that the bytes
  * on either side of a block boundary show the blocks committed in order.
  */
@@ -302,32 +325,22 @@ describe.skipIf(underAccountKey === undefined || underAccessToken === undefined)
       expect(await (await storage.get(to)).text()).toBe("moved under the account key");
     });
 
-    // Spec 4.3 and ADR 0044: stowage cannot write such an object, so the harness sends a
-    // `Put Blob` of its own. It names the coding in `x-ms-blob-content-encoding`, as the Azure
-    // SDKs do: Azurite 3.37.0 stores no coding a `Content-Encoding` on `Put Blob` names. How
-    // long the whole body reads depends on whether the runtime's `fetch` decodes it.
-    test("a content-coded object takes no range and is read whole", async () => {
-      const configuration = readConfiguration(endpointOrFail(underAccessToken));
+    // Spec 4.3, ADR 0044 and ADR 0061: stowage cannot write such an object, so the harness
+    // stores it itself. How long the whole body reads depends on whether the runtime's `fetch`
+    // decodes it.
+    test("a content-coded object names its coding, takes no range and is read whole", async () => {
       const storage = azureBlobStorage(endpointOrFail(underAccessToken));
       const key = `${prefix}stored-gzipped.txt`;
-      const stored = gzipSync("x".repeat(1000));
+      const stored = await storeGzipped(key);
 
-      await send(configuration, {
-        method: "PUT",
-        operation: "put",
-        key,
-        headers: [
-          ["x-ms-blob-type", "BlockBlob"],
-          ["x-ms-blob-content-encoding", "gzip"],
-        ],
-        body: new Uint8Array(stored),
+      await expect(storage.stat(key)).resolves.toMatchObject({
+        size: stored.length,
+        contentEncoding: "gzip",
       });
-
-      await expect(storage.stat(key)).resolves.toMatchObject({ size: stored.length });
 
       const whole = await storage.get(key);
 
-      expect(whole.stat.size).toBe(stored.length);
+      expect(whole.stat).toMatchObject({ size: stored.length, contentEncoding: "gzip" });
       await expect(whole.bytes()).resolves.toBeInstanceOf(Uint8Array);
 
       await Promise.all(
@@ -348,6 +361,18 @@ describe.skipIf(underAccountKey === undefined || underAccessToken === undefined)
           });
         }),
       );
+    });
+
+    test("a copy of a content-coded object names the source's coding", async (ctx) => {
+      const storage = azureBlobStorage(endpointOrFail(underAccessToken));
+      const key = `${prefix}copied-gzipped.txt`;
+
+      await storeGzipped(key);
+
+      const copied = await storage.copy(key, `${key}.copy`).catch((failure: unknown) => failure);
+
+      skipWithoutPutBlobFromUrl(ctx, copied);
+      expect(copied).toMatchObject({ contentEncoding: "gzip" });
     });
 
     // ADR 0023: the presign cases run under the token, so the service SAS an account key

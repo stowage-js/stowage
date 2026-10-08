@@ -232,9 +232,9 @@ describe.skipIf(configured === undefined)("adapter-s3 against the endpoint", () 
     await expect((await storage().get(long)).text()).resolves.toBe("written elsewhere");
   });
 
-  // Spec 4.3 and ADR 0044: stowage cannot write such an object, so the SDK stores it. How
-  // long the whole body reads depends on whether the runtime's `fetch` decodes it.
-  test("a content-coded object takes no range and is read whole", async () => {
+  // Spec 4.3, ADR 0044 and ADR 0061: stowage cannot write such an object, so the SDK stores
+  // it. How long the whole body reads depends on whether the runtime's `fetch` decodes it.
+  test("a content-coded object names its coding, takes no range and is read whole", async () => {
     const key = `${prefix}stored-gzipped.txt`;
     const stored = gzipSync("x".repeat(1000));
 
@@ -247,11 +247,17 @@ describe.skipIf(configured === undefined)("adapter-s3 against the endpoint", () 
       }),
     );
 
-    await expect(storage().stat(key)).resolves.toMatchObject({ size: stored.length });
+    await expect(storage().stat(key)).resolves.toMatchObject({
+      size: stored.length,
+      contentEncoding: "gzip",
+    });
+    await expect(storage().copy(key, `${key}.copy`)).resolves.toMatchObject({
+      contentEncoding: "gzip",
+    });
 
     const whole = await storage().get(key);
 
-    expect(whole.stat.size).toBe(stored.length);
+    expect(whole.stat).toMatchObject({ size: stored.length, contentEncoding: "gzip" });
     await expect(whole.bytes()).resolves.toBeInstanceOf(Uint8Array);
 
     await Promise.all(

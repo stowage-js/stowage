@@ -22,6 +22,7 @@ export { invalidKeyReason, type KeyRule } from "./keys.ts";
 export type { PresignedPut } from "./presigned-put.ts";
 export {
   contentCodingRefusal,
+  contentEncodingOf,
   lastByteOf,
   rangeBoundsRefusal,
   rangeCoversWhole,
