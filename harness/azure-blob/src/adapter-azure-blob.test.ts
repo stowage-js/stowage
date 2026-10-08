@@ -198,8 +198,9 @@ describe.skipIf(underAccountKey === undefined || underAccessToken === undefined)
         });
         const key = `${encodedPrefix}content-headers.bin`;
 
-        await storage.put(key, sourceStream(partSize + 1), contentHeaders);
-
+        expect(await storage.put(key, sourceStream(partSize + 1), contentHeaders)).toMatchObject(
+          contentHeaders,
+        );
         expect(await storage.stat(key)).toMatchObject(contentHeaders);
       },
       uploadTimeout,
