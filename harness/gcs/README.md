@@ -41,9 +41,10 @@ prints the environment the run reads:
 ## The credential
 
 Against fake-gcs-server every case runs under the fixed token `fake-gcs-server`, which the
-adapter sends as the bearer of every request and the emulator never reads. The target supplies none of
-`createStorageWithBadCredentials`, `createStorageWithDeniedCredentials` and
-`createStorageWithStaleCredentials`, so the three cases report themselves skipped, and the `Expired` case is skipped against every GCS endpoint (ADR 0033).
+adapter sends as the bearer of every request and the emulator never reads. The target supplies
+none of `createStorageWithBadCredentials`, `createStorageWithDeniedCredentials` and
+`createStorageWithStaleCredentials`, so the three cases report themselves skipped, and the
+`Expired` case is skipped against every GCS endpoint (ADR 0033).
 
 There the storage signs its URLs with a `privateKey`: an RSA `CryptoKey` the target generates in Web
 Crypto once per run, on every runtime, under a service account that does not exist. The URLs point

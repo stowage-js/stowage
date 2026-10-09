@@ -111,8 +111,8 @@ with `AuthorizationPermissionMismatch` on a write, and `errors/denied-credential
 `createStorageWithBadCredentials` hands over a token that is not a JWT on both endpoints.
 `createStorageWithStaleCredentials` does the same until the adapter refreshes, and the configured
 token from then on. The account answers that token with `401 InvalidAuthenticationInfo`, which
-refreshes; Azurite answers `403 AuthenticationFailed`, which does not, and `errors/stale-credentials`
-fails there as a divergence the account settles (ADR 0067).
+refreshes; Azurite answers `403 AuthenticationFailed`, which does not, and
+`errors/stale-credentials` fails there as a divergence the account settles (ADR 0067).
 `createStorageWithMissingBucket` binds the configured account to a container named at random, and
 both endpoints name it `ContainerNotFound`, on a `HEAD` and in every subresponse of a Blob Batch,
 which is `NotFound` without `key` (ADR 0043).
