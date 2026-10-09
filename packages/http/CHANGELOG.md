@@ -1,5 +1,23 @@
 # @stowage/http
 
+## 0.6.0
+
+### Minor Changes
+
+- bf62a4c: **Breaking:** `serveObject` sends `Accept-Ranges: bytes` only where the storage declares `rangeReads` and the object has no `contentEncoding`, since no range of a coded object can be served (spec 4.3). It followed `rangeReads` alone in v0.5. A client that read `Accept-Ranges` off one answer as a promise for every object of a storage no longer finds it on a coded one. This narrows what spec 10.3 promised, a conflict with ADR 0017 (spec 10.3, ADR 0062).
+- bf62a4c: `serveObject` answers a `200` and a `HEAD` with `Content-Length: size` where the object has no `contentEncoding`, so a client sees a total and its progress. A content-coded object is answered without `Content-Length` and without `Content-Encoding`, as before, since its bytes may arrive decoded and longer than `size`; a `304` carries no `Content-Length`. Where a precondition or a suffix range has the layer call `stat` first, the `Range` of a coded object is ignored, `bytes=-0` included, and the object is answered `200` without the ranged `get` that would fail; without that `stat`, the whole `get` after a ranged `ProviderError` stays. `Bun.serve` and `workerd` may still drop the length of a streamed `200` on the way to the socket (spec 2, 10.3, ADR 0062).
+- 5ddc2c3: The HTTP layer promises the answer it hands back, not its delivery: a client still sending a body the layer answered without reading, or refused while it streamed, may meet a reset connection instead of the answer, as the runtime decides (spec 10.2, 10.5, ADR 0056). `workerd` drops the connection once a refused body still arrives after it discarded 64 KiB of it or waited one second, and `fetch` may then reject before it reads the `413` already sent.
+- 4d46b94: `serveObject` answers a `200`, a `206`, a `HEAD` and a `304` with the `Content-Language` an object is stored with, and with none where none is stored. `ServeObjectOptions` takes `storedCacheControl`: where it is `true` and the object stores a `cacheControl`, that value is the answer's `Cache-Control`, ahead of `cacheControl` and of `private, no-cache`. A stored `Cache-Control` is never sent without it, since a client that uploaded through a presigned URL, or another tool, may have stored a `public` that would let a shared cache hand one user's object to everyone. Every stored header comes from the `stat` that describes the bytes sent (spec 10.3, ADR 0062).
+- 4d46b94: **Breaking:** `serveObject` answers an object stored with a `contentDisposition` of the type `attachment` with that stored value, where the caller passes neither `filename` nor `disposition`, so that a download is saved under the name stored at `put`. The type is the token before the first `;`, compared without case; a stored `inline`, or a value of any other type, is not sent, and the default stands in its place. In v0.5 the download was always named `filename` or the key's last segment; a caller who wants that name passes `filename`. This narrows what spec 10.3 promised, a conflict with ADR 0017 (spec 10.3, ADR 0062).
+- 8bcbfc9: `acceptUpload` and `presignUpload` take `cacheControl`, `contentDisposition` and `contentLanguage` as optional options, and `PresignsPut` names them as optional members of the options it passes. `acceptUpload` hands the three to `put` as given and reads none of them from the request's headers, so a request's `Cache-Control`, `Content-Disposition` or `Content-Language` reaches no stored object; a value `put` refuses is the caller's and answers `500`, as for `contentType`. `presignUpload` hands the three to `presignPut` where given, and before signing answers `400` for a value outside the header-value rule, past 2,048 bytes of header names and values with `Content-Type`, or a `contentLanguage` past 100 characters, so that a client's value never reaches `presignPut` as an `InvalidOption` answered `500`. A storage that does not declare `contentHeaders` refuses the three in `presignPut`, answered `500` (spec 10.5, 10.6, ADR 0063).
+
+### Patch Changes
+
+- Updated dependencies [bbe946a]
+- Updated dependencies [966aa6c]
+- Updated dependencies [cc305a2]
+  - @stowage/core@0.6.0
+
 ## 0.5.0
 
 ### Minor Changes

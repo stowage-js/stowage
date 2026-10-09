@@ -1,5 +1,24 @@
 # @stowage/adapter-azure-blob
 
+## 0.6.0
+
+### Minor Changes
+
+- bbe946a: `stat`, `get`, `copy` and `move` report `contentEncoding`, the content coding a blob is stored with, from the `HEAD` or `GET` they already send, the `HEAD` of the destination for `copy` and `move`; `identity` and an empty value read as none. `put` reports none (ADR 0061).
+- 6fe5349: `adapter-azure-blob` declares `contentHeaders`. `put` sends `cacheControl`, `contentDisposition` and `contentLanguage` as `x-ms-blob-cache-control`, `x-ms-blob-content-disposition` and `x-ms-blob-content-language` on `Put Blob` and on the `Put Block List` of a block upload, and `put`, `stat`, `get`, `copy` and `move` report them as stored; an empty stored value reads as none. `copy` and `move` keep all three byte for byte. A value the checks of spec 4.3 refuse is refused before anything is sent, with `attempts: 0`, where it was `Unsupported` before (ADR 0058, ADR 0059, ADR 0068).
+- 73d7d85: **Breaking:** `presignPut` on `adapter-azure-blob` binds `x-ms-blob-content-type` as well. Its SAS carries `srh=content-type,content-length,x-ms-blob-type,x-ms-blob-content-type`, and `headers` gains `x-ms-blob-content-type`, the content type again. `Put Blob` stores an `x-ms-blob-content-type` in place of `Content-Type`, so a client outside a browser could store another type than the one the URL bound by sending one unsigned. A browser sends `headers` as they come, so its upload is preflighted with the new header: a deployed CORS rule must allow `x-ms-blob-content-type` beside `content-type` and `x-ms-blob-type`, or the browser refuses the upload. This narrows what flow 2 promised on `adapter-azure-blob`, a conflict with ADR 0017, under which taking a promise out of the spec takes it from the caller whether or not a line of code moves (spec 3, 8.9, ADR 0063).
+- 7aaa81f: `presignPut` takes `cacheControl`, `contentDisposition` and `contentLanguage` as optional options. Each one given is checked as `put` checks it, the content type counted in the 2,048 bytes, before the user delegation key is requested, with `attempts: 0`; named in `srh` as `x-ms-blob-cache-control`, `x-ms-blob-content-disposition` or `x-ms-blob-content-language`, appended after `x-ms-blob-content-type` in that order; and returned in `headers` under that name, so the browser still sends `headers` as they come. `Put Blob` stores no standard `Content-Disposition` and lets an `x-ms-blob-*` header override the standard one, so the standard names would bind nothing. A content header left out is not bound: whoever holds the URL may send it, and Azure stores it. Where the options are used, the account's CORS rule has to allow the headers they bind. Azure refuses an upload whose value differs from the signed one or is missing (spec 8.9, ADR 0063).
+- 7aaa81f: **Breaking:** the binding of `presignPut` is exact up to runs of spaces, the content type's included. SigV4 and GOOG4 collapse a run of spaces in a signed value before comparing, so a URL signed for `public, max-age=60` admits `public,  max-age=60`, and AWS, R2 and GCS store the two spaces as sent; the same holds for `Content-Type`. Flow 2 stated the binding as exact, which was never true of a value's whitespace. A client still reaches no other type, length, disposition, cache directive or language than the one signed. This narrows what flow 2 promised, a conflict with ADR 0017, and is withdrawn in a minor release as a measurement disproving a promise is (spec 3, 7.10, 8.9, 9.9, ADR 0063).
+
+### Patch Changes
+
+- 425227d: `copy` and `move` keep the source's `contentType` and stored content coding byte for byte. Up to v0.5, `Put Blob From URL` rewrote both when it copied them itself: `text/plain;charset=utf-8` arrived as `text/plain; charset=utf-8`, and `gzip, br` as `gzip,br`. `copy` now reads the source with a `HEAD`, which costs one request more. It restates both properties and the content headers on a copy pinned to the source's entity tag through `x-ms-source-if-match`. A source replaced between the two requests is read and copied again, three times at most. After that the copy rejects with a `ProviderError` that is `retryable`, its `attempts` counting every copy sent (ADR 0068).
+- 891225f: `adapter-azure-blob` signs every `x-ms-` header value under Shared Key trimmed and otherwise as sent, a tab and a run of spaces included. It folded each run of whitespace to one space, which Azure refuses with `403 AuthenticationFailed`: a streamed `put` of more than one part whose `contentType` held two spaces failed under an account key (ADR 0059).
+- Updated dependencies [bbe946a]
+- Updated dependencies [966aa6c]
+- Updated dependencies [cc305a2]
+  - @stowage/core@0.6.0
+
 ## 0.5.0
 
 ### Patch Changes

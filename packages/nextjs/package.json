@@ -1,6 +1,6 @@
 {
   "name": "@stowage/nextjs",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "The Next.js integration of stowage: builds a storage on its first use, so that next build constructs none, for route handlers that answer through @stowage/http.",
   "keywords": [
     "next",
