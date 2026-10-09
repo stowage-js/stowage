@@ -1583,7 +1583,9 @@ A URL is a SAS, and the credential of the call decides which kind (ADR 0022):
 
 - `expiresIn` and `contentLength` take what section 7.10 has them take, and are checked before
   anything is sent. `contentLength` is not checked against the 5,000 MiB of a single `Put Blob`.
-  The binding is exact up to runs of spaces, as section 7.10 states it.
+  The binding is exact up to runs of spaces, as section 7.10 states it. Azure collapses none, so a
+  URL signed for `public, max-age=60` refuses `public,  max-age=60`; the binding stays promised up
+  to runs of spaces, so that flow 2 reads the same on every provider.
 - `presignGet` signs `sp=r` on an addressable key. The three response overrides are sent as `rsct`,
   `rscd` and `rscc` and are answered as the corresponding response headers. Azure has no override
   for `Expires`.
@@ -1601,8 +1603,9 @@ A URL is a SAS, and the credential of the call decides which kind (ADR 0022):
   is requested. Each one given is signed as `x-ms-blob-cache-control`,
   `x-ms-blob-content-disposition` or `x-ms-blob-content-language`, appended to `srh` in that order,
   and returned in `headers` under that name; `Put Blob` stores no standard `Content-Disposition`. A
-  content header left out is not bound: whoever holds the URL may send it, and Azure stores it. That
-  Azure refuses a value that differs from the signed one or is missing is a promise of section 18.
+  content header left out is not bound: whoever holds the URL may send it, and Azure stores it.
+  Azure refuses an upload whose value differs from the signed one or is missing, and stores the
+  signed one as sent.
 - Under an account key `presignPut` rejects before any request, because a service SAS binds no
   request header. Its message says that `presignPut` needs an access token.
 - Every SAS carries `sr=b`, `st` 15 minutes in the past unless the next point moves it, `se`
@@ -1772,7 +1775,8 @@ reached through `adapter-s3` over the XML API is an S3-compatible endpoint like 
 - The content headers travel as the members `cacheControl`, `contentDisposition` and
   `contentLanguage` of the object resource, as written, and are read from the resource, never from
   the media download; so is the coding, from its `contentEncoding`. An empty value is read as none
-  (ADR 0061).
+  (ADR 0061). The resource returns the three as sent, a tab and a run of spaces included, after
+  `uploadType=multipart`, a resumable upload, `rewriteTo` without a body and `objects.move`.
 - An object stored with a content coding is read as `fetch` hands it over: GCS decodes gzip, and
   the runtime decodes a coding GCS serves as stored where it knows it, which Deno does for `gzip`
   and `br` alone. `size` stays the stored size, so the body may be longer. Every `range` on such an
@@ -3210,27 +3214,15 @@ disproves is withdrawn in a minor release, and 1.0 waits until the first list be
 first run against the GCS bucket, each on Node and `workerd`, disproved none of the points they
 settled; those are stated in the sections they belong to. The one promise no run could provoke,
 that R2 answers `ExpiredRequest` for an expired credential, a probe of its own disproved, and it is
-withdrawn (section 7.2, ADR 0045). Each point left here names why no run has answered it.
+withdrawn (section 7.2, ADR 0045). The scheduled run against the Azure account and the GCS bucket
+answered the two promises of v0.6, the user delegation SAS binding the `x-ms-blob-*` headers and
+the JSON resource returning the content headers as sent, and disproved neither; they are stated in
+sections 8.9 and 9.4, as is the answer to whether Azure collapses runs of spaces in a value `srh`
+binds. Each point left here names why no run has answered it.
 
-Promises:
-
-- `adapter-gcs`: the JSON resource returns `cacheControl`, `contentDisposition` and
-  `contentLanguage` as sent, a tab and a run of spaces included, after `uploadType=multipart`, a
-  resumable upload, `rewriteTo` without a body and `moveTo`. The measurements behind ADR 0059 ran
-  against the XML API, whose documentation differs from the JSON API's on `Cache-Control`. The
-  scheduled run's `put/content-headers`, `put/content-headers-multipart`, `copy/content-headers`
-  and `move/content-headers` against the bucket answer it.
-- `adapter-azure-blob`: a user delegation SAS naming the `x-ms-blob-*` headers in `srh` admits an
-  upload carrying the signed values and refuses one whose value differs or that lacks one,
-  `x-ms-blob-content-type` among them (section 8.9). No signature of a real key over them has been
-  measured, since `Get User Delegation Key` needs an Entra token; the scheduled run on `main`, whose
-  token can, answers it through `presign/put-content-headers`,
-  `presign/put-rejects-content-headers` and the repository test of section 14.4 (ADR 0063).
+Promises: none.
 
 Recorded only, since this document already states what follows from any answer:
-
-- `adapter-azure-blob`: whether Azure collapses runs of spaces in a value `srh` binds, as SigV4
-  and GOOG4 do. Section 8.9 states the binding exact up to runs of spaces either way.
 
 - `adapter-s3`: how the multipart answers and `<Deleted><Key>` spell a key holding `U+FFFE`, how
   R2 encodes a space under `encoding-type=url`, and whether R2's continuation token is ASCII. No
