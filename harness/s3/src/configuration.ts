@@ -1,4 +1,5 @@
-import type { S3AdapterOptions } from "../../../packages/adapter-s3/src/index.ts";
+import type { S3AdapterOptions, S3Credentials } from "../../../packages/adapter-s3/src/index.ts";
+import { expiredR2Credentials } from "./r2-temporary-credential.ts";
 
 /**
  * The variables `start.sh` prints. A runtime hands over its own: Node, Bun and Deno their
@@ -117,8 +118,8 @@ export function servesBehindAServer(variables: Variables): boolean {
 }
 
 export interface ExpiredCredentials {
-  readonly options: S3AdapterOptions;
-  /** The expiration STS returned with the token, after which the provider refuses it. */
+  readonly credentials: S3Credentials;
+  /** The expiration the credential carries, after which the provider refuses it. */
   readonly expiresAt: Date;
 }
 
@@ -127,10 +128,7 @@ export interface ExpiredCredentials {
  * 900-second STS token at its start and record the expiration; an endpoint without such
  * a token leaves the case skipped, as R2 does, where the case cannot pass (ADR 0045).
  */
-export function storageWithExpiredCredentials(
-  configured: S3AdapterOptions,
-  variables: Variables,
-): ExpiredCredentials | undefined {
+export function expiredCredentialsFrom(variables: Variables): ExpiredCredentials | undefined {
   const accessKeyId = filled(variables["STOWAGE_S3_EXPIRED_ACCESS_KEY_ID"]);
   const secretAccessKey = filled(variables["STOWAGE_S3_EXPIRED_SECRET_ACCESS_KEY"]);
   const sessionToken = filled(variables["STOWAGE_S3_EXPIRED_SESSION_TOKEN"]);
@@ -145,10 +143,33 @@ export function storageWithExpiredCredentials(
     throw new Error(`STOWAGE_S3_EXPIRED_AT holds ${JSON.stringify(expiration)}, which is no time`);
   }
 
-  return {
-    options: { ...configured, credentials: { accessKeyId, secretAccessKey, sessionToken } },
-    expiresAt,
-  };
+  return { credentials: { accessKeyId, secretAccessKey, sessionToken }, expiresAt };
+}
+
+/**
+ * Spec 14.3: where a stale credential comes from, which `createStorageWithStaleCredentials`
+ * waits out. ADR 0067: R2 has the harness sign one that is expired already, AWS has the STS
+ * token of the `Expired` case, and an endpoint without either supplies none.
+ */
+export function staleCredentialsFrom(
+  configured: S3AdapterOptions,
+  variables: Variables,
+): (() => Promise<ExpiredCredentials>) | undefined {
+  if (endpointNameFrom(variables) === "r2") {
+    const { credentials, endpoint, bucket } = configured;
+
+    if (endpoint === undefined) throw new Error("R2's endpoint names the account it signs for");
+
+    return async () => {
+      const parent = typeof credentials === "function" ? await credentials() : credentials;
+
+      return await expiredR2Credentials(parent, endpoint, bucket, new Date());
+    };
+  }
+
+  const expired = expiredCredentialsFrom(variables);
+
+  return expired === undefined ? undefined : async () => expired;
 }
 
 function filled(value: string | null | undefined): string | undefined {

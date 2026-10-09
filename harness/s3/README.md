@@ -101,6 +101,13 @@ The `Expired` case reports itself skipped there, because it cannot pass: R2 answ
 credential with `403 SignatureDoesNotMatch`, which `adapter-s3` reads as `InvalidCredentials`,
 after a refresh under a session token (ADR 0045, ADR 0065).
 
+`createStorageWithStaleCredentials` refuses the first request on both and refreshes to the
+configured key pair. On AWS the stale credential is the same STS token, handed over once it
+expired. On R2 the harness signs a temporary credential from the configured key pair as
+Cloudflare documents it, with an `exp` five minutes before the signing, so nothing waits; its
+scope is `object-read-write`, since R2 refuses a write the scope does not allow as `AccessDenied`
+before it looks at the expiry (ADR 0067). Against SeaweedFS the case reports itself skipped.
+
 `errors/missing-bucket` runs against a bucket named at random on both. AWS names it `NoSuchBucket`,
 which is `NotFound` without `key`. R2 answers the token scoped to the CI bucket with
 `403 AccessDenied` for any other bucket, missing or not, and the case accepts that code

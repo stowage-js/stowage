@@ -3,10 +3,11 @@ import { describe, expect, test } from "vitest";
 import type { S3AdapterOptions } from "../../../packages/adapter-s3/src/index.ts";
 import {
   endpointNameFrom,
+  expiredCredentialsFrom,
   servesBehindAServer,
   storageWithBadCredentials,
   storageWithDeniedCredentials,
-  storageWithExpiredCredentials,
+  staleCredentialsFrom,
   storageWithMissingBucket,
 } from "./configuration.ts";
 
@@ -24,32 +25,26 @@ const expiredToken = {
   STOWAGE_S3_EXPIRED_AT: "2026-09-24T06:15:00+00:00",
 };
 
-describe("storageWithExpiredCredentials", () => {
-  test("signs with the session token STS handed out, and says when it expires", () => {
-    expect(storageWithExpiredCredentials(configured, expiredToken)).toEqual({
-      options: {
-        ...configured,
-        credentials: {
-          accessKeyId: "ASIA-SESSION",
-          secretAccessKey: "session-secret",
-          sessionToken: "session-token",
-        },
+describe("expiredCredentialsFrom", () => {
+  test("is the session token STS handed out, and says when it expires", () => {
+    expect(expiredCredentialsFrom(expiredToken)).toEqual({
+      credentials: {
+        accessKeyId: "ASIA-SESSION",
+        secretAccessKey: "session-secret",
+        sessionToken: "session-token",
       },
       expiresAt: new Date("2026-09-24T06:15:00Z"),
     });
   });
 
   test.each(Object.keys(expiredToken))("supplies nothing without %s", (name) => {
-    expect(storageWithExpiredCredentials(configured, { ...expiredToken, [name]: "" })).toBe(
-      undefined,
-    );
+    expect(expiredCredentialsFrom({ ...expiredToken, [name]: "" })).toBe(undefined);
   });
 
   // `workerd` hands a binding whose variable is unset over as `null`.
   test("supplies nothing where the bindings are unset", () => {
     expect(
-      storageWithExpiredCredentials(
-        configured,
+      expiredCredentialsFrom(
         Object.fromEntries(Object.keys(expiredToken).map((name) => [name, null])),
       ),
     ).toBe(undefined);
@@ -57,8 +52,37 @@ describe("storageWithExpiredCredentials", () => {
 
   test("refuses an expiration that is no time", () => {
     expect(() =>
-      storageWithExpiredCredentials(configured, { ...expiredToken, STOWAGE_S3_EXPIRED_AT: "soon" }),
+      expiredCredentialsFrom({ ...expiredToken, STOWAGE_S3_EXPIRED_AT: "soon" }),
     ).toThrow("STOWAGE_S3_EXPIRED_AT");
+  });
+});
+
+describe("staleCredentialsFrom", () => {
+  const r2 = {
+    ...configured,
+    endpoint: "https://0123456789abcdef.r2.cloudflarestorage.com",
+    region: "auto",
+  };
+
+  // ADR 0067: R2 refuses an expired temporary credential as `SignatureDoesNotMatch` (ADR 0045).
+  test("against R2 is a temporary credential the harness signed, expired already", async () => {
+    const stale = await staleCredentialsFrom(r2, { STOWAGE_S3_ENDPOINT_NAME: "r2" })?.();
+
+    expect(stale?.credentials.accessKeyId).toBe("long-lived");
+    expect(stale?.credentials.sessionToken).toMatch(/^and0L/u);
+    expect(stale?.expiresAt.getTime()).toBeLessThan(Date.now());
+  });
+
+  test("against AWS is the expired STS token", async () => {
+    await expect(
+      staleCredentialsFrom(configured, { STOWAGE_S3_ENDPOINT_NAME: "aws-s3", ...expiredToken })?.(),
+    ).resolves.toEqual(expiredCredentialsFrom(expiredToken));
+  });
+
+  test("is none where no temporary credential can be had", () => {
+    expect(staleCredentialsFrom(configured, { STOWAGE_S3_ENDPOINT_NAME: "seaweedfs" })).toBe(
+      undefined,
+    );
   });
 });
 

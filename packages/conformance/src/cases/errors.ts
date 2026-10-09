@@ -1,7 +1,8 @@
-import type { Storage, StorageError } from "@stowage/core";
+import { isStorageError, type Storage, type StorageError } from "@stowage/core";
 
 import {
   assert,
+  assertSameBytes,
   expectAnyStorageError,
   expectRuntimeError,
   expectStorageError,
@@ -162,6 +163,47 @@ export const errorCases: readonly ConformanceCaseSource[] = [
     },
   },
   {
+    name: "errors/stale-credentials",
+    requires: [],
+    cost: "fast",
+    factory: "createStorageWithStaleCredentials",
+    async run(ctx) {
+      const prefix = prefixFor(ctx, "errors/stale-credentials");
+      const key = `${prefix}object`;
+      const written = patternOf(16);
+
+      await ctx.storage.put(key, written);
+
+      // Spec 7.3 has the refresh follow each refused request, so every operation meets the
+      // stale credential on a storage of its own: a storage that refreshed holds the fresh
+      // credential for whatever it sends next.
+      const read = await underStaleCredential(
+        ctx,
+        "`get`",
+        async (storage) => await (await storage.get(key)).bytes(),
+      );
+
+      assertSameBytes(read, written, "The object `get` read under a stale credential");
+
+      const described = await underStaleCredential(
+        ctx,
+        "`stat`",
+        async (storage) => await storage.stat(key),
+      );
+
+      assert(
+        described.size === written.byteLength,
+        `\`stat\` under a stale credential reports \`size: ${described.size}\`, and not the ${written.byteLength} bytes written`,
+      );
+
+      await underStaleCredential(
+        ctx,
+        "`put`",
+        async (storage) => await storage.put(`${prefix}written`, patternOf(16, 1)),
+      );
+    },
+  },
+  {
     name: "errors/missing-bucket",
     requires: [],
     cost: "fast",
@@ -309,11 +351,55 @@ function assertField(
 /** The storage of a factory of spec 14.3, which spec 14.2 has kept the case out of a run without. */
 async function storageFrom(
   ctx: ConformanceContext,
-  factory: ConformanceFactoryName,
+  factory: Exclude<ConformanceFactoryName, "createStorageWithStaleCredentials">,
 ): Promise<Storage> {
   const create = ctx.target[factory];
 
   assert(create !== undefined, `The target supplies no \`${factory}\``);
 
   return await create.call(ctx.target);
+}
+
+/**
+ * `operate` on a fresh storage of `createStorageWithStaleCredentials`, which spec 14.3 has
+ * succeed after the one refresh. The resolver is the caller's own, so how often it was asked
+ * to refresh is what a caller observes, and a success without one shows nothing.
+ */
+async function underStaleCredential<Result>(
+  ctx: ConformanceContext,
+  what: string,
+  operate: (storage: Storage) => Promise<Result>,
+): Promise<Result> {
+  const { target } = ctx;
+
+  assert(
+    target.createStorageWithStaleCredentials !== undefined,
+    "The target supplies no `createStorageWithStaleCredentials`",
+  );
+
+  let refreshes = 0;
+  const storage = await target.createStorageWithStaleCredentials(() => {
+    refreshes += 1;
+  });
+  const result = await operate(storage).catch((thrown: unknown) => {
+    if (!isStorageError(thrown)) throw thrown;
+
+    throw new Error(
+      `${what} under a stale credential rejected with \`${thrown.code}\` and \`attempts: ${thrown.attempts}\` after ${refreshesInWords(refreshes)}`,
+    );
+  });
+
+  assert(
+    refreshes === 1,
+    `${what} under a stale credential succeeded with ${refreshesInWords(refreshes)}, and not with one`,
+  );
+
+  return result;
+}
+
+function refreshesInWords(refreshes: number): string {
+  if (refreshes === 0) return "no refresh";
+  if (refreshes === 1) return "one refresh";
+
+  return `${refreshes} refreshes`;
 }

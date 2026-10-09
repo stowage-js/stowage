@@ -139,6 +139,7 @@ test("`describeConformance` maps the suite's own `fast` cases onto the framework
       createStorageWithDeniedCredentials: createStorage,
       createStorageWithExpiredCredentials: createStorage,
       createStorageWithMissingBucket: createStorage,
+      createStorageWithStaleCredentials: createStorage,
     }),
     recorded.framework,
   );

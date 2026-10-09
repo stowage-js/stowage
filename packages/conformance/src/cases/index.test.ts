@@ -81,6 +81,7 @@ const specified: readonly SpecifiedCase[] = [
   ["errors/bad-credentials", [], "fast"],
   ["errors/denied-credentials", [], "fast"],
   ["errors/expired-credentials", [], "slow"],
+  ["errors/stale-credentials", [], "fast"],
   ["errors/missing-bucket", [], "fast"],
   ["presign/get", ["presignedUrls"], "fast"],
   ["presign/put", ["presignedUrls"], "fast"],
@@ -122,6 +123,7 @@ test("the cases hanging on a factory of spec 14.3 name the one their row marks",
     ["errors/bad-credentials", "createStorageWithBadCredentials"],
     ["errors/denied-credentials", "createStorageWithDeniedCredentials"],
     ["errors/expired-credentials", "createStorageWithExpiredCredentials"],
+    ["errors/stale-credentials", "createStorageWithStaleCredentials"],
     ["errors/missing-bucket", "createStorageWithMissingBucket"],
   ]);
 });

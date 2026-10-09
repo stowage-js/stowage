@@ -38,6 +38,13 @@ test("no endpoint supplies an expired credential", () => {
   expect(targetFor(scheduled)).not.toHaveProperty("createStorageWithExpiredCredentials");
 });
 
+// ADR 0067: the account answers a token it cannot read with the `401` that refreshes, and
+// Azurite's other answer is a divergence rather than a reason to leave the case out.
+test("every endpoint supplies a stale credential", () => {
+  expect(targetFor(printed)).toHaveProperty("createStorageWithStaleCredentials");
+  expect(targetFor(scheduled)).toHaveProperty("createStorageWithStaleCredentials");
+});
+
 // ADR 0012: the divergences of the emulator are what the real account settles, so the
 // account runs every case of the suite as the suite states it (ADR 0026).
 test("the real account runs the whole suite as the suite states it", () => {
@@ -64,4 +71,11 @@ test("Azurite runs the whole suite but its unrun case, its divergences as expect
       .filter((name) => name !== "list/noncharacter-key"),
   );
   expect(copyRoundTrip(asRun)).not.toEqual(copyRoundTrip(selectedCases(options)));
+  expect(staleCredentials(asRun)).not.toEqual(staleCredentials(selectedCases(options)));
 });
+
+function staleCredentials(
+  sources: readonly ConformanceCaseSource[],
+): ConformanceCaseSource | undefined {
+  return sources.find((source) => source.name === "errors/stale-credentials");
+}
