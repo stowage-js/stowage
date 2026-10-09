@@ -59,8 +59,8 @@ jobs:
         run: ./harness/gcs/start.sh | sed 's/^export //' >> "$GITHUB_ENV"
 
       # Spec 2: `test` holds the Node column. Bun, Deno and `workerd` are columns of their
-      # own, in the job below.
-      - run: pnpm run test --coverage
+      # own, in the job below. Only Node 24 measures coverage, for the `sonar` job.
+      - run: pnpm run test ${{ matrix.node == '24' && '--coverage' || '' }}
 
       - if: matrix.node == '24'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -68,7 +68,9 @@ jobs:
           name: coverage
           path: coverage/lcov.info
           if-no-files-found: error
-          retention-days: 1
+          # A re-run of the run's failed jobs, days later, still finds the report.
+          retention-days: 7
+          overwrite: true
 
       # Spec 2: `test` runs the Hono, NestJS and Next.js cells at the newest release of each
       # framework's major, and this runs them again at the floor of each integration's peer
