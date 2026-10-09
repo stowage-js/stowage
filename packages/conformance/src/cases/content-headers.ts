@@ -305,8 +305,29 @@ function assertHoldsCarriedHeaders(described: ObjectStat, where: string): void {
   });
 }
 
+/**
+ * The value without the spaces and tabs around its commas, and nothing else: `trim` would also
+ * drop the blanks at either end and other whitespace, which a copy has to keep. A regex for
+ * the blanks around a comma backtracks quadratically on a long run of them.
+ */
 function listOf(value: string | undefined): string | undefined {
-  return value?.replaceAll(/[ \t]*,[ \t]*/gu, ",");
+  const items = value?.split(",");
+
+  return items
+    ?.map((item, index) => {
+      let start = 0;
+      let end = item.length;
+
+      if (index > 0) while (isBlank(item[start])) start += 1;
+      if (index < items.length - 1) while (end > start && isBlank(item[end - 1])) end -= 1;
+
+      return item.slice(start, end);
+    })
+    .join(",");
+}
+
+function isBlank(character: string | undefined): boolean {
+  return character === " " || character === "\t";
 }
 
 /** Spec 4.4: a member the object holds no value for is missing, not present as `undefined`. */
