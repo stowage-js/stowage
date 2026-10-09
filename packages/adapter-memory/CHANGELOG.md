@@ -1,5 +1,18 @@
 # @stowage/adapter-memory
 
+## 0.6.0
+
+### Minor Changes
+
+- 966aa6c: `adapter-memory` declares `contentHeaders`. `put` stores `cacheControl`, `contentDisposition` and `contentLanguage`, and `put`, `stat`, `get`, `copy` and `move` report them byte for byte. A value the checks of spec 4.3 refuse is refused before anything is written, with `attempts: 0` (ADR 0060).
+
+### Patch Changes
+
+- Updated dependencies [bbe946a]
+- Updated dependencies [966aa6c]
+- Updated dependencies [cc305a2]
+  - @stowage/core@0.6.0
+
 ## 0.5.0
 
 ### Patch Changes

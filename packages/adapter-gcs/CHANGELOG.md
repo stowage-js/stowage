@@ -1,5 +1,21 @@
 # @stowage/adapter-gcs
 
+## 0.6.0
+
+### Minor Changes
+
+- bbe946a: `stat`, `get`, `copy` and `move` report `contentEncoding`, the content coding an object is stored with, from the object resource they already read, never from the media download; `identity` and an empty value read as none. `put` reports none (ADR 0061).
+- f200e6c: `adapter-gcs` declares `contentHeaders`. `put` sends `cacheControl`, `contentDisposition` and `contentLanguage` as members of the object resource, in the body of `uploadType=multipart` and of the start of a resumable session, and `put`, `stat`, `get`, `copy` and `move` report them as the resource holds them; an empty value reads as none. `get` reads them from the resource it already fetches, never from the media download. `copy` and `move` keep them through `rewriteTo` and `objects.move`. A value the checks of spec 4.3 refuse is refused before anything is sent, with `attempts: 0`, where it was `Unsupported` before (ADR 0058, ADR 0059).
+- 7aaa81f: `presignPut` takes `cacheControl`, `contentDisposition` and `contentLanguage` as optional options. Each one given is checked as `put` checks it, the content type counted in the 2,048 bytes, before anything is sent, with `attempts: 0`; added to the signed headers as `cache-control`, `content-disposition` or `content-language`; and returned in `headers` under that name, so the browser still sends `headers` as they come. GCS refuses an upload whose value differs from the signed one with `403 SignatureDoesNotMatch` and one that leaves it out with `400 MalformedSecurityHeader`. A content header left out is not bound: whoever holds the URL may send it, and GCS stores it. Where the options are used, the bucket's CORS rule has to allow the headers they bind. A caller who passes none signs what it signed before (spec 9.9, ADR 0063).
+- 7aaa81f: **Breaking:** the binding of `presignPut` is exact up to runs of spaces, the content type's included. SigV4 and GOOG4 collapse a run of spaces in a signed value before comparing, so a URL signed for `public, max-age=60` admits `public,  max-age=60`, and AWS, R2 and GCS store the two spaces as sent; the same holds for `Content-Type`. Flow 2 stated the binding as exact, which was never true of a value's whitespace. A client still reaches no other type, length, disposition, cache directive or language than the one signed. This narrows what flow 2 promised, a conflict with ADR 0017, and is withdrawn in a minor release as a measurement disproving a promise is (spec 3, 7.10, 8.9, 9.9, ADR 0063).
+
+### Patch Changes
+
+- Updated dependencies [bbe946a]
+- Updated dependencies [966aa6c]
+- Updated dependencies [cc305a2]
+  - @stowage/core@0.6.0
+
 ## 0.5.0
 
 ### Patch Changes

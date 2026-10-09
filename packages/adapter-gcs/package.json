@@ -1,6 +1,6 @@
 {
   "name": "@stowage/adapter-gcs",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "stowage adapter for one bucket of Google Cloud Storage, speaking the JSON API without an SDK.",
   "keywords": [
     "adapter",

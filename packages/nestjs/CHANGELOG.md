@@ -1,5 +1,21 @@
 # @stowage/nestjs
 
+## 0.6.0
+
+### Patch Changes
+
+- Updated dependencies [bbe946a]
+- Updated dependencies [966aa6c]
+- Updated dependencies [cc305a2]
+- Updated dependencies [bf62a4c]
+- Updated dependencies [bf62a4c]
+- Updated dependencies [5ddc2c3]
+- Updated dependencies [4d46b94]
+- Updated dependencies [4d46b94]
+- Updated dependencies [8bcbfc9]
+  - @stowage/core@0.6.0
+  - @stowage/http@0.6.0
+
 ## 0.5.0
 
 ### Minor Changes

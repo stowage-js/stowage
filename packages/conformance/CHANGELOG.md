@@ -1,5 +1,26 @@
 # @stowage/conformance
 
+## 0.6.0
+
+### Minor Changes
+
+- 966aa6c: The suite gains `put/content-headers`, `put/content-headers-multipart`, `put/content-headers-refused`, `copy/content-headers` and `move/content-headers`, each requiring `contentHeaders`. A storage declaring it keeps `cacheControl`, `contentDisposition` and `contentLanguage` byte for byte, and through `copy` and `move` a `contentType` with a parameter too, refuses what the checks of spec 4.3 refuse and keeps what meets their bounds exactly; a storage without it refuses any of the three as `Unsupported` naming `contentHeaders`, `""` included, and reports none. Every description these cases read carries no `contentEncoding`. A third-party adapter that refuses the three as unknown options fails the cases until it handles them (ADR 0058, ADR 0060, ADR 0064, ADR 0068).
+- 7aaa81f: The suite gains `presign/put-content-headers` (`fast`) and `presign/put-rejects-content-headers` (`slow`), each requiring `presignedUrls` and `contentHeaders`. The first signs `cacheControl`, `contentDisposition` and `contentLanguage`, uploads with the returned `headers` and has `stat` report the three byte for byte and no `contentEncoding`; the second has an upload sending one of them with another value, and one leaving it out, each answer `4xx`. A storage declaring `presignedUrls` without `contentHeaders` refuses a `presignPut` carrying any of the three as `Unsupported` naming `contentHeaders`, with `attempts: 0`, and signs one carrying none. A third-party adapter declaring both that refuses the three as unknown options fails the cases until it handles them (spec 14.5, ADR 0063, ADR 0064).
+- 4d46b94: The HTTP suite gains `serve/content-language`, `serve/stored-disposition` and `serve/stored-cache-control`, each requiring `contentHeaders` and seeding its object through `put`. A stored `de-AT` is answered as `Content-Language` to `GET`, to `HEAD` and on a `304`; a stored `attachment; filename="stored.pdf"` is answered as stored, and a stored `inline; filename="x.html"` as `attachment` with the key's last segment; a stored `public, max-age=60` leaves the `serve` route's `private, no-cache` as it is. Without `contentHeaders`, an object written without the three is answered without `Content-Language` and with the defaults (spec 14.9, ADR 0064).
+- bf62a4c: **Breaking:** `serve/whole` and `serve/head` assert `Content-Length` equal to the size, where v0.5 asserted none. A server that drops the length of a `200` or of its `HEAD` fails them now: a third-party server on `workerd`, which sends every stream body chunked, or one on `Bun.serve` whose body still streams when the headers go out, passed them before and has no list of server alterations to undo the change with. This asserts more of a target than v0.5 did, a conflict with ADR 0017 (spec 14.9, ADR 0064).
+- 0598cdd: The suite gains `errors/stale-credentials`, which runs where a target supplies the new optional factory `createStorageWithStaleCredentials(onRefresh)`: a storage whose resolver answers a credential the provider refuses until it is asked with `forceRefresh: true`, a fresh one from then on, and calls `onRefresh` on each refresh. `get`, `stat` and `put`, each on a storage of its own, succeed after at least one refresh, and the same operation repeated on the recovered storage asks for no further one (spec 14.5, ADR 0067).
+- b8f641f: **Breaking:** `errors/bad-credentials` asserts that `stat` rejects with `InvalidCredentials`, `retryable: false` and `attempts` of `1` or `2`, as `get` does, and `errors/expired-credentials` that `stat` rejects with `Expired` and `attempts: 2`. An adapter that reads a refused `HEAD` by its status alone and reports `AccessDenied` no longer passes them (spec 14.5, ADR 0066).
+- 5ddc2c3: The HTTP conformance case `upload/max-size` accepts, for its `PUT` of 1048577 bytes with a `Content-Length`, a `413` or a `fetch` rejected as a network error, since a client still writing past a refusal may meet a reset connection (spec 10.2, ADR 0056). It still requires the `413` for the same bytes sent as a stream, and asserts the stored object unchanged after both (spec 14.9). A server that passed the case still passes it.
+
+### Patch Changes
+
+- 48dc3c0: A case that reads back the bytes it wrote compares them without building a failure message for every byte. The comparison of the 17 MiB of `put/multipart-round-trip` takes some 30 ms instead of half a second, and a failure still names the first byte that differs.
+- 5ddc2c3: An HTTP upload case whose `fetch` rejects as a network error now fails with an error naming the request, such as "`PUT` of a stream of 1048577 bytes without a length fails as a network error", and carries the rejection as its `cause`. Before, the case failed with `fetch`'s own `TypeError`, which does not say which request it belongs to (#346).
+- Updated dependencies [bbe946a]
+- Updated dependencies [966aa6c]
+- Updated dependencies [cc305a2]
+  - @stowage/core@0.6.0
+
 ## 0.5.0
 
 ### Minor Changes

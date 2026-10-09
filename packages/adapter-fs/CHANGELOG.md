@@ -1,5 +1,18 @@
 # @stowage/adapter-fs
 
+## 0.6.0
+
+### Minor Changes
+
+- 966aa6c: `adapter-fs` refuses `cacheControl`, `contentDisposition` and `contentLanguage` as `Unsupported` naming `contentHeaders`, `""` included, with `attempts: 0` and before anything is written, where it refused them as unknown options before. It has nowhere to keep them and declares no `contentHeaders`; `stat` and `get` report none (ADR 0060).
+
+### Patch Changes
+
+- Updated dependencies [bbe946a]
+- Updated dependencies [966aa6c]
+- Updated dependencies [cc305a2]
+  - @stowage/core@0.6.0
+
 ## 0.5.0
 
 ### Patch Changes
