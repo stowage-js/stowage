@@ -484,10 +484,13 @@ test.each<[string, (storage: ReturnType<typeof s3Storage>) => Promise<unknown>]>
   expect(failure.key).toBeUndefined();
 });
 
-/** A `HEAD` answered `404` without a body, as S3 answers it for a missing key and bucket alike. */
-function answeringHeadWith404(followUp: () => Response): (request: SentRequest) => Response {
+/** A `HEAD` refused with `status` and no body, as AWS and R2 refuse one (ADR 0043, ADR 0066). */
+function answeringHeadWith(
+  status: number,
+  followUp: (request: SentRequest) => Response,
+): (request: SentRequest) => Response {
   return (request) =>
-    request.method === "HEAD" ? new Response(null, { status: 404 }) : followUp();
+    request.method === "HEAD" ? new Response(null, { status }) : followUp(request);
 }
 
 // Spec 7.9: a `HEAD` carries no body to name the bucket, so a `404` to it is asked again as
@@ -495,7 +498,7 @@ function answeringHeadWith404(followUp: () => Response): (request: SentRequest) 
 test.each(["stat", "exists"] as const)(
   "a `404` to the `HEAD` of `%s` is followed by one `GET` of the same key and its first byte",
   async (operation) => {
-    const sent = stubFetch(answeringHeadWith404(() => refused(404, "NoSuchKey", "No such key")));
+    const sent = stubFetch(answeringHeadWith(404, () => refused(404, "NoSuchKey", "No such key")));
 
     const storage = s3Storage(options());
 
@@ -513,7 +516,7 @@ test.each(["stat", "exists"] as const)(
 test.each(["stat", "exists"] as const)(
   "`NoSuchBucket` answered to the `GET` after the `HEAD` of `%s` is `NotFound` without `key`",
   async (operation) => {
-    stubFetch(answeringHeadWith404(missingBucket));
+    stubFetch(answeringHeadWith(404, missingBucket));
 
     const failure = await rejection(
       async () => await s3Storage(options())[operation]("object.txt"),
@@ -533,7 +536,7 @@ test.each(["stat", "exists"] as const)(
 // Spec 7.9: the `GET` names the code the `HEAD` could not, so its failure is the call's.
 test("`NoSuchKey` answered to the `GET` after the `HEAD` of `stat` is its `NotFound`", async () => {
   stubFetch(
-    answeringHeadWith404(() =>
+    answeringHeadWith(404, () =>
       refused(404, "NoSuchKey", "The specified key does not exist.", {
         "x-amz-request-id": "get-request",
       }),
@@ -555,7 +558,7 @@ test("`NoSuchKey` answered to the `GET` after the `HEAD` of `stat` is its `NotFo
 
 test("`NoSuchKey` answered to the `GET` after the `HEAD` of `exists` leaves it `false`", async () => {
   stubFetch(
-    answeringHeadWith404(() => refused(404, "NoSuchKey", "The specified key does not exist.")),
+    answeringHeadWith(404, () => refused(404, "NoSuchKey", "The specified key does not exist.")),
   );
 
   expect(await s3Storage(options()).exists("object.txt")).toBe(false);
@@ -584,7 +587,7 @@ const followUpsLeavingTheHead: readonly [string, () => Response][] = [
 test.each(followUpsLeavingTheHead)(
   "%s answered to the `GET` after the `HEAD` of `stat` leaves the `HEAD`'s `NotFound`",
   async (_answer, followUp) => {
-    stubFetch(answeringHeadWith404(followUp));
+    stubFetch(answeringHeadWith(404, followUp));
 
     const failure = await rejection(async () => await s3Storage(options()).stat("object.txt"));
 
@@ -602,7 +605,7 @@ test.each(followUpsLeavingTheHead)(
 test.each(followUpsLeavingTheHead)(
   "%s answered to the `GET` after the `HEAD` of `exists` leaves it `false`",
   async (_answer, followUp) => {
-    stubFetch(answeringHeadWith404(followUp));
+    stubFetch(answeringHeadWith(404, followUp));
 
     expect(await s3Storage(options()).exists("object.txt")).toBe(false);
   },
@@ -613,7 +616,8 @@ test.each(["stat", "exists"] as const)(
   async (operation) => {
     const controller = new AbortController();
     stubFetch(
-      answeringHeadWith404(
+      answeringHeadWith(
+        404,
         () =>
           new Response(
             new ReadableStream({
@@ -757,15 +761,6 @@ test("an error document that breaks otherwise leaves the status to decide", asyn
   expect(failure.providerCode).toBeUndefined();
   expect(failure.status).toBe(403);
 });
-
-/** A `HEAD` refused with `status` and no body, as AWS and R2 refuse one (ADR 0066). */
-function answeringHeadWith(
-  status: number,
-  followUp: (request: SentRequest) => Response,
-): (request: SentRequest) => Response {
-  return (request) =>
-    request.method === "HEAD" ? new Response(null, { status }) : followUp(request);
-}
 
 // Spec 7.9: a `HEAD` carries no body to name the code, so a refusal is asked again as a
 // `GET` of one byte, whose body does (ADR 0066).
@@ -1075,10 +1070,11 @@ test("a resolver that refreshes into an invalid credential fails `stat` with its
 // Spec 7.9: no `GET` follows the second `HEAD`, whatever it is answered.
 test("a second `HEAD` refused after the refreshed `GET` passed is read by its status", async () => {
   const getAnswers = [signatureRefused()];
-  const sent = stubFetch((request) =>
-    request.method === "HEAD"
-      ? new Response(null, { status: 403 })
-      : (getAnswers.shift() ?? storedResponse("b", { "content-range": "bytes 0-0/4" })),
+  const sent = stubFetch(
+    answeringHeadWith(
+      403,
+      () => getAnswers.shift() ?? storedResponse("b", { "content-range": "bytes 0-0/4" }),
+    ),
   );
 
   const failure = await rejection(
@@ -2515,12 +2511,13 @@ test("`copy` sends `CopyObject` naming the source and describes the destination"
 test.each(["copy", "move"] as const)(
   "the describing `HEAD` of `%s` refused `403` reports the code of the `GET` after it",
   async (operation) => {
-    const sent = stubFetch((request) => {
-      if (request.method === "HEAD") return new Response(null, { status: 403 });
-      if (request.method === "GET") return refused(403, "AccessDenied", "Access Denied");
-
-      return copyingProvider(request);
-    });
+    const sent = stubFetch(
+      answeringHeadWith(403, (request) =>
+        request.method === "GET"
+          ? refused(403, "AccessDenied", "Access Denied")
+          : copyingProvider(request),
+      ),
+    );
 
     const failure = await rejection(
       async () => await s3Storage(options())[operation]("from.txt", "to.txt"),
