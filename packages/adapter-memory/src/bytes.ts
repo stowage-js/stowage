@@ -15,7 +15,9 @@ export async function readBody(
 
 /** Spec 4.2 leaves a stream at its end or canceled once `put` settled, read or not. */
 export async function cancelBody(body: PutBody, reason: unknown): Promise<void> {
-  if (isStream(body)) await body.cancel(reason);
+  // The caller rethrows the refusal that called for the cancel, which a failed cancel
+  // must not replace.
+  if (isStream(body)) await body.cancel(reason).catch(() => {});
 }
 
 function isStream(body: PutBody): body is ReadableStream<Uint8Array> {

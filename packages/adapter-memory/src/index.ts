@@ -109,12 +109,9 @@ class InMemoryStorage implements MemoryStorage {
         contentHeaders: readContentHeaders(options ?? {}, contentType, key, this.capabilities),
       };
     } catch (refusal) {
-      try {
-        await cancelBody(body, refusal);
-      } finally {
-        // oxlint-disable-next-line no-unsafe-finally -- The original refusal wins over a cancel failure.
-        throw refusal;
-      }
+      await cancelBody(body, refusal);
+
+      throw refusal;
     }
   }
 
