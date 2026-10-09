@@ -385,19 +385,19 @@ async function underStaleCredential<Result>(
     if (!isStorageError(thrown)) throw thrown;
 
     throw new Error(
-      `${what} under a stale credential rejected with \`${thrown.code}\` and \`attempts: ${thrown.attempts}\` after ${refreshCount(refreshes)}`,
+      `${what} under a stale credential rejected with \`${thrown.code}\` and \`attempts: ${thrown.attempts}\` after ${refreshesInWords(refreshes)}`,
     );
   });
 
   assert(
     refreshes === 1,
-    `${what} under a stale credential succeeded with ${refreshCount(refreshes)}, and not with one`,
+    `${what} under a stale credential succeeded with ${refreshesInWords(refreshes)}, and not with one`,
   );
 
   return result;
 }
 
-function refreshCount(refreshes: number): string {
+function refreshesInWords(refreshes: number): string {
   if (refreshes === 0) return "no refresh";
   if (refreshes === 1) return "one refresh";
 

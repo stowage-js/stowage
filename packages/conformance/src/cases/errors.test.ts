@@ -351,21 +351,13 @@ test("`errors/missing-bucket` refuses a `delete` that returns a report", async (
   ).rejects.toThrow("`delete` in a missing bucket, and the call resolved");
 });
 
-const stored = (key: string): ObjectStat => ({
-  key,
-  size: 0,
-  lastModified: new Date(),
-  contentType: "application/octet-stream",
-  userMetadata: {},
-});
-
 test("`errors/shape` refuses an error naming another bucket than the storage", async () => {
   const misreporting = stubStorage({
     ...refusingFields("NotFound", 1),
     // The case writes one object before it provokes the failures, and the refused key is
     // the one write that has to fail: it is where this storage names the wrong bucket.
     put: async (key) => {
-      if (!key.includes("..")) return stored(key);
+      if (!key.includes("..")) return described(key, 0);
 
       throw new StorageError({
         code: "InvalidKey",
