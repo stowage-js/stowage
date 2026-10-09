@@ -116,3 +116,14 @@ this repository happens to test against and nothing about the API a third-party 
 - ADR 0034 carries this over to GCS, with fake-gcs-server per commit and a real bucket in the
   `slow` tier, and names an exception: no GCS emulator checks a credential or a signature, so those
   cases run against the real bucket alone.
+- SeaweedFS deletes an object logically and frees its space in the volume only when it vacuums,
+  by default every 15 minutes, while a run of the suite writes some 3 GB. On a developer machine
+  the tmpfs filled with deleted data and writes failed. `harness/s3/master.toml` has the master
+  vacuum every minute each volume whose garbage passes 10%, and `-master.volumeSizeLimitMB=256`
+  splits the store into volumes of 256 MB, so a volume that filled before the vacuum reached it
+  leaves others to write to. The image digest stays as it is.
+- With room for more volumes, SeaweedFS created the missing bucket of `errors/missing-bucket` on
+  `PutObject`; its `500 InternalError` before had been the lack of a volume slot. `s3.json` scopes
+  both identities to the CI bucket, so the emulator refuses any other bucket with
+  `403 AccessDenied`, as the token scoped to the R2 bucket does, and the case leaves the divergence
+  list.

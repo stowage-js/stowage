@@ -1,7 +1,7 @@
 import { StorageError } from "@stowage/core";
 import { expect, test } from "vitest";
 
-import { expectUnsupported } from "./assertions.ts";
+import { assertSameBytes, expectUnsupported } from "./assertions.ts";
 
 const unsupported = (capability: "rangeReads" | "userMetadata"): StorageError =>
   new StorageError({
@@ -53,4 +53,22 @@ test("refuses `Unsupported` naming another capability", async () => {
   await expect(
     expectUnsupported(rejecting(unsupported("userMetadata")), "rangeReads"),
   ).rejects.toThrow("naming `userMetadata`");
+});
+
+test("passes the bytes that were written", () => {
+  expect(() =>
+    assertSameBytes(new Uint8Array([1, 2, 3]), new Uint8Array([1, 2, 3]), "the body"),
+  ).not.toThrow();
+});
+
+test("names the length of a body that is shorter or longer", () => {
+  expect(() =>
+    assertSameBytes(new Uint8Array([1, 2]), new Uint8Array([1, 2, 3]), "the body"),
+  ).toThrow("the body is 2 bytes, and not the 3 that were written");
+});
+
+test("names the first byte that differs, not the body", () => {
+  expect(() =>
+    assertSameBytes(new Uint8Array([1, 9, 8]), new Uint8Array([1, 2, 3]), "the body"),
+  ).toThrow("the body holds 9 at byte 1, and not the 2 that was written");
 });

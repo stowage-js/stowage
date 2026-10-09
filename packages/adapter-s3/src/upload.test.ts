@@ -378,12 +378,16 @@ interface HeldParts {
 }
 
 /**
- * Part requests held open until `concurrency` of them are waiting, so an upload that
- * sends them one by one shows as a single request in flight rather than as a race. A
- * request that finds fewer beside it goes on after a moment, which is the last parts.
+ * Part requests held open until `concurrency` of them are waiting, or as many as are left
+ * of the upload's `parts`, so that the most in flight reads the upload's pace and not a race.
+ * A request goes on alone after half a second, which a loaded runner needs to deliver the rest
+ * of a round (20 ms was not enough). An upload that sends them one by one still ends within
+ * the test's timeout and fails on `mostInFlight`, and one that stops sending shows its own
+ * rejection.
  */
-function heldParts(concurrency: number, pulled: () => number): HeldParts {
+function heldParts(concurrency: number, parts: number, pulled: () => number): HeldParts {
   let waiting: (() => void)[] = [];
+  let released = 0;
   let inFlight = 0;
   let mostInFlight = 0;
   let answered = 0;
@@ -401,13 +405,20 @@ function heldParts(concurrency: number, pulled: () => number): HeldParts {
       heldAtEachPart.push(pulled() - answered);
 
       await new Promise<void>((resolve) => {
-        waiting.push(resolve);
+        let alone: ReturnType<typeof setTimeout> | undefined;
+        const release = (): void => {
+          clearTimeout(alone);
+          waiting = waiting.filter((each) => each !== release);
+          released += 1;
+          resolve();
+        };
 
-        if (waiting.length >= concurrency) {
-          for (const release of waiting) release();
-          waiting = [];
+        waiting.push(release);
+
+        if (waiting.length >= Math.min(concurrency, parts - released)) {
+          for (const each of waiting) each();
         } else {
-          setTimeout(resolve, 20);
+          alone = setTimeout(release, 500);
         }
       });
 
@@ -421,9 +432,9 @@ function heldParts(concurrency: number, pulled: () => number): HeldParts {
 
 test("parts go `concurrency` at a time, and the upload holds no more of the stream", async () => {
   let pulled = 0;
-  const held = heldParts(2, () => pulled);
-  const sent = stubFetch(held.answer);
   const bytes = patternOf(6 * smallestPart + 1);
+  const held = heldParts(2, Math.ceil(bytes.byteLength / smallestPart), () => pulled);
+  const sent = stubFetch(held.answer);
   const storage = s3Storage(options({ multipart: { partSize: smallestPart, concurrency: 2 } }));
 
   await storage.put(
@@ -442,9 +453,9 @@ test("parts go `concurrency` at a time, and the upload holds no more of the stre
 
 test("parts are 8 MiB and go four at a time by default", async () => {
   let pulled = 0;
-  const held = heldParts(4, () => pulled);
-  const sent = stubFetch(held.answer);
   const bytes = patternOf(5 * 8 * mebibyte + 1);
+  const held = heldParts(4, Math.ceil(bytes.byteLength / (8 * mebibyte)), () => pulled);
+  const sent = stubFetch(held.answer);
 
   await s3Storage(options()).put(
     "object.bin",

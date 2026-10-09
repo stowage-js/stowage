@@ -8,7 +8,13 @@
           "secretKey": "stowage-secret"
         }
       ],
-      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+      "actions": [
+        "Admin:stowage-conformance",
+        "Read:stowage-conformance",
+        "Write:stowage-conformance",
+        "List:stowage-conformance",
+        "Tagging:stowage-conformance"
+      ]
     },
     {
       "name": "stowage-readonly",
@@ -18,7 +24,7 @@
           "secretKey": "stowage-readonly-secret"
         }
       ],
-      "actions": ["Read", "List"]
+      "actions": ["Read:stowage-conformance", "List:stowage-conformance"]
     }
   ]
 }

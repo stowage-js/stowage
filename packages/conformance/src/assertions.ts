@@ -23,11 +23,15 @@ export function assertSameBytes(actual: Uint8Array, expected: Uint8Array, what: 
     `${what} is ${actual.byteLength} bytes, and not the ${expected.byteLength} that were written`,
   );
 
+  // The message is built for the byte that differs alone: built for every byte, it cost half
+  // a second for the 17 MiB of a multipart case, and a loaded CI runner several times that.
   for (let index = 0; index < expected.byteLength; index += 1) {
-    assert(
-      actual[index] === expected[index],
-      `${what} holds ${actual[index]} at byte ${index}, and not the ${expected[index]} that was written`,
-    );
+    if (actual[index] !== expected[index]) {
+      assert(
+        false,
+        `${what} holds ${actual[index]} at byte ${index}, and not the ${expected[index]} that was written`,
+      );
+    }
   }
 }
 

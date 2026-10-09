@@ -1,0 +1,10 @@
+# ADR 0012: SeaweedFS frees a deleted object's space only when it vacuums the volume, which
+# it does every 15 minutes by default. A run writes more than the tmpfs holds in that time,
+# so the master vacuums every minute.
+[master.maintenance]
+scripts = """
+  lock
+  volume.vacuum -garbageThreshold=0.1
+  unlock
+"""
+sleep_minutes = 1

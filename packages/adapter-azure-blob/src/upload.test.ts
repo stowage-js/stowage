@@ -593,12 +593,16 @@ interface HeldBlocks {
 }
 
 /**
- * `Put Block` requests held open until `concurrency` of them are waiting, so an upload
- * that sends them one by one shows as a single request in flight rather than as a race. A
- * request that finds fewer beside it goes on after a moment, which is the last blocks.
+ * `Put Block` requests held open until `concurrency` of them are waiting, or as many as are left
+ * of the upload's `blocks`, so that the most in flight reads the upload's pace and not a race.
+ * A request goes on alone after half a second, which a loaded runner needs to deliver the rest
+ * of a round (20 ms was not enough). An upload that sends them one by one still ends within
+ * the test's timeout and fails on `mostInFlight`, and one that stops sending shows its own
+ * rejection.
  */
-function heldBlocks(concurrency: number, pulled: () => number): HeldBlocks {
+function heldBlocks(concurrency: number, blocks: number, pulled: () => number): HeldBlocks {
   let waiting: (() => void)[] = [];
+  let released = 0;
   let inFlight = 0;
   let mostInFlight = 0;
   let answered = 0;
@@ -616,13 +620,20 @@ function heldBlocks(concurrency: number, pulled: () => number): HeldBlocks {
       heldAtEachBlock.push(pulled() - answered);
 
       await new Promise<void>((resolve) => {
-        waiting.push(resolve);
+        let alone: ReturnType<typeof setTimeout> | undefined;
+        const release = (): void => {
+          clearTimeout(alone);
+          waiting = waiting.filter((each) => each !== release);
+          released += 1;
+          resolve();
+        };
 
-        if (waiting.length >= concurrency) {
-          for (const release of waiting) release();
-          waiting = [];
+        waiting.push(release);
+
+        if (waiting.length >= Math.min(concurrency, blocks - released)) {
+          for (const each of waiting) each();
         } else {
-          setTimeout(resolve, 20);
+          alone = setTimeout(release, 500);
         }
       });
 
@@ -636,9 +647,9 @@ function heldBlocks(concurrency: number, pulled: () => number): HeldBlocks {
 
 test("blocks go `concurrency` at a time, and the upload holds no more of the stream", async () => {
   let pulled = 0;
-  const held = heldBlocks(2, () => pulled);
-  const sent = stubFetch(held.answer);
   const bytes = patternOf(6 * smallestPart + 1);
+  const held = heldBlocks(2, Math.ceil(bytes.byteLength / smallestPart), () => pulled);
+  const sent = stubFetch(held.answer);
   const upload = storage({ multipart: { partSize: smallestPart, concurrency: 2 } });
 
   await upload.put(
@@ -657,9 +668,9 @@ test("blocks go `concurrency` at a time, and the upload holds no more of the str
 
 test("parts are 8 MiB and go four at a time by default", async () => {
   let pulled = 0;
-  const held = heldBlocks(4, () => pulled);
-  const sent = stubFetch(held.answer);
   const bytes = patternOf(5 * 8 * mebibyte + 1);
+  const held = heldBlocks(4, Math.ceil(bytes.byteLength / (8 * mebibyte)), () => pulled);
+  const sent = stubFetch(held.answer);
 
   await storage().put(
     "object.bin",
@@ -708,6 +719,8 @@ function stubCountingFetch(): { steps: string[]; commitBody: () => string | unde
   return { steps, commitBody: () => commitBody };
 }
 
+// 50,000 requests take some 4 s on their own and many times that on a CI runner that runs
+// the rest of the suite and three emulators beside them.
 test("a stream of exactly 50,000 parts is committed", async () => {
   const { steps, commitBody } = stubCountingFetch();
   const chunk = new Uint8Array(smallestPart);
@@ -731,7 +744,7 @@ test("a stream of exactly 50,000 parts is committed", async () => {
   expect(steps.filter((step) => step.startsWith("block "))).toHaveLength(maxParts);
   expect(steps.at(-1)).toBe("commit");
   expect(commitBody()?.match(/<Latest>/gu)).toHaveLength(maxParts);
-}, 30_000);
+}, 120_000);
 
 test("a stream that needs more than 50,000 parts rejects naming `partSize` and the way past it", async () => {
   const { steps } = stubCountingFetch();
@@ -758,7 +771,7 @@ test("a stream that needs more than 50,000 parts rejects naming `partSize` and t
   expect(steps.filter((step) => step.startsWith("block "))).toHaveLength(49_999);
   expect(steps).not.toContain("commit");
   expect(canceled).toBe(true);
-}, 30_000);
+}, 120_000);
 
 // ADR 0024: the blocks the commit named are gone once another writer committed, so a
 // repeat cannot help, and the adapter's requests are valid by construction.

@@ -6,6 +6,9 @@ services:
     command:
       - server
       - -dir=/data
+      # Volumes of 256 MB rather than 1 GB: the tmpfs then holds more of them, and one that
+      # filled before the vacuum reached it leaves the others to write to.
+      - -master.volumeSizeLimitMB=256
       - -s3
       - -s3.port=8333
       - -s3.config=/etc/seaweedfs/s3.json
@@ -15,6 +18,7 @@ services:
       - "127.0.0.1:9333:9333"
     volumes:
       - ./s3.json:/etc/seaweedfs/s3.json:ro
+      - ./master.toml:/etc/seaweedfs/master.toml:ro
     # The suite writes below a prefix of its own and a run starts from an empty store, so
     # nothing here outlives the container.
     tmpfs:

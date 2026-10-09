@@ -19,7 +19,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ["24", "26"]
+        include:
+          - node: "24"
+            version: "24"
+          # Since Node 26.11.0 a `Request` pulls once from an async-iterable body before anyone
+          # reads it. Next.js hands `next start`'s `IncomingMessage` over as that body, which
+          # then keeps Node from draining what a route answered without reading, and the
+          # keep-alive connection stalls: `upload/content-encoding` hangs after
+          # `upload/max-size`. Back to "26" once nodejs/undici#5988 is fixed in a Node 26
+          # release. The job keeps its name, which `main` requires.
+          - node: "26"
+            version: "26.10.0"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -27,7 +37,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: ${{ matrix.node }}
+          node-version: ${{ matrix.version }}
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
@@ -59,8 +69,18 @@ jobs:
         run: ./harness/gcs/start.sh | sed 's/^export //' >> "$GITHUB_ENV"
 
       # Spec 2: `test` holds the Node column. Bun, Deno and `workerd` are columns of their
-      # own, in the job below.
-      - run: pnpm run test
+      # own, in the job below. Only Node 24 measures coverage, for the `sonar` job.
+      - run: pnpm run test ${{ matrix.node == '24' && '--coverage' || '' }}
+
+      - if: matrix.node == '24'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage
+          path: coverage/lcov.info
+          if-no-files-found: error
+          # A re-run of the run's failed jobs, days later, still finds the report.
+          retention-days: 7
+          overwrite: true
 
       # Spec 2: `test` runs the Hono, NestJS and Next.js cells at the newest release of each
       # framework's major, and this runs them again at the floor of each integration's peer
@@ -78,6 +98,30 @@ jobs:
       - name: Stop the GCS endpoint
         if: always()
         run: ./harness/gcs/stop.sh
+
+  # SonarQube Cloud's automatic analysis reads no coverage report, so the scan runs here, on
+  # the report of the Node 24 run. A pull request from a fork gets no `SONAR_TOKEN`, so it
+  # gets no scan either.
+  sonar:
+    name: SonarQube Cloud
+    needs: checks
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # SonarQube Cloud tells new code from old by the history and the blame.
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: coverage
+          path: coverage
+
+      - uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
   runtimes:
     name: ${{ matrix.name }}

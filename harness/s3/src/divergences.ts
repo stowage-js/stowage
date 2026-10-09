@@ -41,18 +41,7 @@ interface Unrun {
 
 // Kept in the private harness and never in `@stowage/conformance`: it describes an
 // endpoint this repository happens to test against, not the API an adapter implements.
-export const divergences: readonly Divergence[] = [
-  // ADR 0043: the case fails at `get`, the first call SeaweedFS answers as for a missing
-  // object; its `put` rejects with a `ProviderError` the case accepts.
-  {
-    case: "errors/missing-bucket",
-    endpoint: "seaweedfs",
-    differs:
-      "SeaweedFS 4.47 answers a missing bucket with `500 InternalError` to `PutObject`, `404 NoSuchKey` to `GetObject`, an empty `DeleteResult` to `DeleteObjects` and an empty page to `ListObjectsV2`, never with `NoSuchBucket`",
-    failureMessagePart: "`get` in a missing bucket is `NotFound` naming the key",
-    settledBy: "aws-s3",
-  },
-];
+export const divergences: readonly Divergence[] = [];
 
 /**
  * The cases as a run against `endpoint` performs them: a case with an entry for that
