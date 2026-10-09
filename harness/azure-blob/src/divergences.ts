@@ -25,8 +25,6 @@ const copyUnimplemented = {
   upstream: "https://github.com/Azure/Azurite/pull/2749",
 } as const;
 
-// ADR 0068: the `HEAD` in front of the copy finds a missing source before Azurite meets the
-// copy, so `copy/missing-source` and `move/missing-source` pass against it.
 const notImplemented = "Current API is not implemented yet";
 
 /**
@@ -63,6 +61,8 @@ export const azureBlobDivergences: readonly Divergence<AzureBlobEmulator, AzureB
     },
     { case: "copy/round-trip", failureMessagePart: notImplemented, ...copyUnimplemented },
     { case: "copy/overwrites", failureMessagePart: notImplemented, ...copyUnimplemented },
+    // ADR 0068: `copy/missing-source` and `move/missing-source` are not here, since the `HEAD` in
+    // front of the copy finds a missing source before Azurite meets the copy.
     { case: "copy/user-metadata", failureMessagePart: notImplemented, ...copyUnimplemented },
     { case: "copy/content-headers", failureMessagePart: notImplemented, ...copyUnimplemented },
     { case: "move/round-trip", failureMessagePart: notImplemented, ...copyUnimplemented },
