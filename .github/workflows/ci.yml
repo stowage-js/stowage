@@ -19,7 +19,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ["24", "26"]
+        include:
+          - node: "24"
+            version: "24"
+          # Since Node 26.11.0 a `Request` pulls once from an async-iterable body before anyone
+          # reads it. Next.js hands `next start`'s `IncomingMessage` over as that body, which
+          # then keeps Node from draining what a route answered without reading, and the
+          # keep-alive connection stalls: `upload/content-encoding` hangs after
+          # `upload/max-size`. The job keeps its name, which `main` requires.
+          - node: "26"
+            version: "26.10.0"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -27,7 +36,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: ${{ matrix.node }}
+          node-version: ${{ matrix.version }}
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
