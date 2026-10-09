@@ -15,6 +15,7 @@ test.each([
   ["InvalidAccessKeyId", 403, "InvalidCredentials"],
   ["SignatureDoesNotMatch", 403, "InvalidCredentials"],
   ["Unauthorized", 401, "InvalidCredentials"],
+  ["InvalidToken", 400, "InvalidCredentials"],
   ["ExpiredToken", 403, "Expired"],
   ["ExpiredRequest", 403, "Expired"],
   ["RequestTimeTooSkewed", 403, "InvalidRequest"],
@@ -76,6 +77,39 @@ test("`InvalidArgument` names `cursor` where a continued listing asked and not e
   expect(answered({ providerCode: "InvalidArgument", status: 400, operation: "put" }).code).toBe(
     "InvalidRequest",
   );
+});
+
+// Spec 7.9: R2 answers a session token it cannot parse with `InvalidArgument` and the
+// header's name as the message, on a continued listing as on any other request.
+test.each([
+  ["get", false],
+  ["list", true],
+])(
+  "`InvalidArgument` naming the session token header is `InvalidCredentials` to `%s`",
+  (operation, hasContinuationToken) => {
+    const failure = answered({
+      providerCode: "InvalidArgument",
+      providerMessage: "X-Amz-Security-Token",
+      status: 400,
+      operation,
+      hasContinuationToken,
+    });
+
+    expect(failure).toEqual({
+      code: "InvalidCredentials",
+      message: "The session token is not one the provider accepts: X-Amz-Security-Token",
+    });
+  },
+);
+
+test("`InvalidArgument` with another message stays `InvalidRequest`", () => {
+  expect(
+    answered({
+      providerCode: "InvalidArgument",
+      providerMessage: "Invalid argument X-Amz-Security-Token-Extra",
+      status: 400,
+    }).code,
+  ).toBe("InvalidRequest");
 });
 
 // Spec 7.1: a `HEAD` that meets the redirect carries no body to read the code out of.
