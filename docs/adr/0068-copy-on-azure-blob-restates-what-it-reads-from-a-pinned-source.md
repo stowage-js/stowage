@@ -54,9 +54,10 @@ stays as it was. ADR 0013 does not repeat a `412`, and a request with the same E
 again, so the adapter repeats the `HEAD` and the copy itself. A copy that reads any whole version of
 the source keeps section 4.11, and a caller should not meet a failure that S3 and GCS never give
 only because another writer is replacing `from`. Three attempts in all, the budget of ADR 0013,
-bound it. After the third, the copy rejects with `ProviderError`, `retryable: true` and
-`code: "CannotVerifyCopySource"`, since a later attempt may meet a quiet source. Rejecting on the
-first `412` was the alternative, and would hand the caller a retry the adapter can make.
+bound it. After the third, the copy rejects with `ProviderError`,
+`providerCode: "CannotVerifyCopySource"`, `retryable: true` and `attempts` counting every copy it
+sent, since a later call may meet a quiet source. Rejecting on the first `412` was the alternative,
+and would hand the caller a retry the adapter can make.
 
 The `HEAD` also turns a missing source into `NotFound` before anything is written (`404
 BlobNotFound`). The mapping of `CannotVerifyCopySource` by the source's status that ADR 0025 set
@@ -74,9 +75,10 @@ up stays, for a source deleted between the `HEAD` and the copy.
 - The shared `cacheControl` of the content-header cases becomes `max-age=60,\tpublic, immutable`,
   which is valid under RFC 9111 and section 4.3, and which the service would rewrite to
   `public, max-age=60, immutable`. `copy/content-headers` and `move/content-headers` also write
-  `contentType: "text/plain;charset=utf-8"` in both halves, and compare every value byte for byte;
-  the comparison of `contentLanguage` as a list goes. Both cases are new in v0.6, so the change
-  carries no `**Breaking:**` line.
+  `contentType: "text/plain;charset=utf-8"` in the half with `contentHeaders`, and compare every
+  value byte for byte; the comparison of `contentLanguage` as a list goes. The half without the
+  capability asserts no type, since `adapter-fs` derives it from the key (spec 6). Both cases are
+  new in v0.6, so the change carries no `**Breaking:**` line.
 - The harness test of `adapter-azure-blob` that asserts a content-coded object's coding as written
   (ADR 0064) copies an object stored with `gzip, br` and expects `gzip, br` back.
 - The repeat after a stale pin is tested against a stubbed `fetch`, as ADR 0016's refusal above
