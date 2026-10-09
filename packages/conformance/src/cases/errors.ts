@@ -103,6 +103,18 @@ export const errorCases: readonly ConformanceCaseSource[] = [
         refused.attempts === 1 || refused.attempts === 2,
         `Expected \`InvalidCredentials\` from \`get\`, and the error carries \`attempts: ${refused.attempts}\` rather than 1 or 2`,
       );
+      // ADR 0066: a `HEAD` is refused without a code, and an adapter that reads it by its
+      // status alone tells the caller the credential was fine.
+      const statRefused = await expectStorageError(
+        () => storage.stat(`${prefix}object`),
+        { code: "InvalidCredentials", retryable: false },
+        "`stat`",
+      );
+
+      assert(
+        statRefused.attempts === 1 || statRefused.attempts === 2,
+        `Expected \`InvalidCredentials\` from \`stat\`, and the error carries \`attempts: ${statRefused.attempts}\` rather than 1 or 2`,
+      );
       // Spec 4.10 has `exists` answer `false` for `NotFound` alone and rethrow every
       // other failure, so a refused credential reaches the caller rather than reading as
       // an object that is not there.
@@ -146,6 +158,7 @@ export const errorCases: readonly ConformanceCaseSource[] = [
       // Spec 7.3 has the adapter resolve the credential again once the provider answered
       // `Expired`, so the failure the caller sees cost the two attempts.
       await expectStorageError(() => storage.get(key), { code: "Expired", attempts: 2 });
+      await expectStorageError(() => storage.stat(key), { code: "Expired", attempts: 2 }, "`stat`");
     },
   },
   {
