@@ -35,6 +35,11 @@ The optional members widen the run:
 - `createStorageWithBadCredentials`, `createStorageWithExpiredCredentials` and
   `createStorageWithDeniedCredentials` return storages whose credential the provider refuses, has
   expired, or accepts for reading alone.
+- `createStorageWithStaleCredentials(onRefresh)` returns a storage whose credential the provider
+  refuses and a fresh one passes. Its resolver answers the stale credential until it is asked with
+  `forceRefresh: true` and the fresh one from then on, and calls `onRefresh` on every refresh, so
+  that `errors/stale-credentials` can tell a refresh that recovered from a credential that was
+  never refused.
 - `createStorageWithMissingBucket` returns a storage bound to a bucket, container or root that
   does not exist and is otherwise configured as the one `createStorage` returns. An adapter with
   no bucket to miss leaves it out.

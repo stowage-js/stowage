@@ -41,9 +41,9 @@ prints the environment the run reads:
 ## The credential
 
 Against fake-gcs-server every case runs under the fixed token `fake-gcs-server`, which the
-adapter sends as the bearer of every request and the emulator never reads. The target supplies neither
-`createStorageWithBadCredentials` nor `createStorageWithDeniedCredentials`, so both cases report
-themselves skipped, and the `Expired` case is skipped against every GCS endpoint (ADR 0033).
+adapter sends as the bearer of every request and the emulator never reads. The target supplies none of
+`createStorageWithBadCredentials`, `createStorageWithDeniedCredentials` and
+`createStorageWithStaleCredentials`, so the three cases report themselves skipped, and the `Expired` case is skipped against every GCS endpoint (ADR 0033).
 
 There the storage signs its URLs with a `privateKey`: an RSA `CryptoKey` the target generates in Web
 Crypto once per run, on every runtime, under a service account that does not exist. The URLs point
@@ -89,7 +89,9 @@ provider, both service accounts, `ACTIONS_ID_TOKEN_REQUEST_URL` and
 answers with `403` on a write, and `errors/denied-credentials` reads that as `AccessDenied`.
 `createStorageWithBadCredentials` hands over a resolver that answers `not-a-google-token` on every
 call, `forceRefresh` included, which ends in `InvalidCredentials` after the one repeat (ADR 0033).
-Against fake-gcs-server the target supplies neither.
+`createStorageWithStaleCredentials` answers the same token until the adapter refreshes, and the
+service account's from then on, which `errors/stale-credentials` reads as the recovery (ADR 0067).
+Against fake-gcs-server the target supplies none of the three.
 
 A lifecycle rule deletes an object a day after it was written, which removes what a run that died
 before its cleanup left, and a resumable session a run left open expires a week after it started.

@@ -2462,6 +2462,7 @@ export interface ConformanceTarget {
   createStorageWithBadCredentials?(): Storage | Promise<Storage>;
   createStorageWithExpiredCredentials?(): Storage | Promise<Storage>;
   createStorageWithDeniedCredentials?(): Storage | Promise<Storage>;
+  createStorageWithStaleCredentials?(onRefresh: () => void): Storage | Promise<Storage>;
   createStorageWithMissingBucket?(): Storage | Promise<Storage>;
 }
 
