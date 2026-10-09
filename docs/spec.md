@@ -1724,12 +1724,12 @@ reached through `adapter-s3` over the XML API is an S3-compatible endpoint like 
   0036).
 - A function is called with `{ forceRefresh: false }`, and with `{ forceRefresh: true }` once after
   the provider answered `401` with `error=invalid_token` in `WWW-Authenticate`, which GCS answers
-  alike to an expired, a revoked and a malformed token: a token past its expiry is answered as a
-  made-up one is, with the provider code `authError`. That repeat has no delay and is not switched
-  off by `retry: false`. Where the repeat is refused too, the failure is `InvalidCredentials` with
-  `attempts: 2`, and its message says that the token expired or is not accepted. Any other `401` is
-  `InvalidCredentials` and not repeated. The adapter never reports `Expired`, since no answer tells
-  an expired token apart (ADR 0033).
+  alike to an expired, a revoked and a made-up token that starts with `ya29.`, as its access tokens
+  do: a token past its expiry is answered as such a made-up one is, with the provider code
+  `authError`. That repeat has no delay and is not switched off by `retry: false`. Where the repeat
+  is refused too, the failure is `InvalidCredentials` with `attempts: 2`, and its message says that
+  the token expired or is not accepted. Any other `401` is `InvalidCredentials` and not repeated.
+  The adapter never reports `Expired`, since no answer tells an expired token apart (ADR 0033).
 - Before a request goes out with it, the resolved object is checked to hold `accessToken` as a
   non-empty string and no other field; a violation is `InvalidCredentials` naming the field, with
   `attempts: 0`.

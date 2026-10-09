@@ -34,6 +34,16 @@ therefore reads the header, the one signal alike on all three paths, and repeats
 ADR 0021 does on Azure after `401 InvalidAuthenticationInfo`. Reading the body would have needed
 two parsers for the same refusal and left `HEAD` without one.
 
+Measured again on 2026-10-09, after the first scheduled run of `errors/stale-credentials` saw no
+refresh (ADR 0067): GCS now gives `error=invalid_token` only to a token that starts as its access
+tokens do, with `ya29.`, case-sensitively. `ya29.not-a-google-token` and `ya29.` alone get it on
+the JSON API, a media download, an upload and the XML API's `HEAD`, which quotes the value. The
+made-up token of the first measurement, `not-a-google-token`, a random hex string and
+`Ya29.not-a-google-token` get `401` with `WWW-Authenticate: Bearer
+realm="https://accounts.google.com/"` and no `error`, which the adapter does not repeat. A token
+past its expiry starts with `ya29.` as well, so the decision stands; the harness's made-up tokens
+take the prefix.
+
 ## Consequences
 
 - The resolved credential is checked before the first request, and each violation is

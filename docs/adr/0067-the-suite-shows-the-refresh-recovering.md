@@ -46,9 +46,11 @@ Where the stale credential comes from was measured on 2026-10-09:
   refused a `put` as `AccessDenied` before R2 looks at its expiry, which does not refresh, so the
   harness signs it `object-read-write`. The signing is Web Crypto, so `workerd` runs it too.
 - Azure answers a token that is not a JWT with `401 InvalidAuthenticationInfo`, which refreshes as
-  an expired token does, and GCS answers a made-up token as it answers one past its expiry (ADR
-  0033). Both hand over a made-up token as the stale credential and the configured one as the fresh
-  credential.
+  an expired token does, and GCS answers a made-up token that starts with `ya29.` as it answers one
+  past its expiry (ADR 0033). Both hand over a made-up token as the stale credential and the
+  configured one as the fresh credential. GCS's first stale credential, `not-a-google-token`, lacked
+  the prefix, and the first scheduled run saw `get` end in `InvalidCredentials` with `attempts: 1`
+  and no refresh.
 - Azurite 3.37.0 answers a token that is not a JWT, and an unsigned JWT past its `exp`, with
   `403 AuthenticationFailed`, which does not refresh: `get` ends in `InvalidCredentials` with
   `attempts: 1`. `errors/bad-credentials` cannot tell, since both answers read as

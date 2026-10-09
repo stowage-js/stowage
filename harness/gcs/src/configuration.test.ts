@@ -174,9 +174,9 @@ test("the bad credential is a token Google refuses, on every call", async () => 
 
   const credentials = endpoint.badCredentials;
 
-  await expect(resolve(credentials)).resolves.toEqual({ accessToken: "not-a-google-token" });
+  await expect(resolve(credentials)).resolves.toEqual({ accessToken: "ya29.not-a-google-token" });
   await expect(resolve(credentials, { forceRefresh: true })).resolves.toEqual({
-    accessToken: "not-a-google-token",
+    accessToken: "ya29.not-a-google-token",
   });
 });
 
@@ -196,7 +196,7 @@ test("the stale credential is a token Google refuses until the refresh, and the 
     accessToken: `${serviceAccount} https://www.googleapis.com/auth/devstorage.read_write 3600s`,
   };
 
-  await expect(resolve(credentials)).resolves.toEqual({ accessToken: "not-a-google-token" });
+  await expect(resolve(credentials)).resolves.toEqual({ accessToken: "ya29.not-a-google-token" });
   await expect(resolve(credentials, { forceRefresh: true })).resolves.toEqual(fresh);
   await expect(resolve(credentials, { forceRefresh: false })).resolves.toEqual(fresh);
   expect(refreshes).toBe(1);
