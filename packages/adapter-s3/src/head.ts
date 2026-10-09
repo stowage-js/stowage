@@ -5,8 +5,8 @@ import { type S3Request, send } from "./request.ts";
 
 export type HeadRequest = Pick<S3Request, "operation" | "signal"> & { readonly key: string };
 
-const forbidden = 403;
-const notFound = 404;
+const badRequest = 400;
+const lastClientError = 499;
 /** The answer to the first byte of an empty object, which exists. */
 const rangeNotSatisfiable = 416;
 
@@ -30,7 +30,9 @@ export async function sendHead(
 }
 
 function isReadByAGet(failure: StorageError): boolean {
-  return failure.status === notFound || failure.status === forbidden;
+  const status = failure.status ?? 0;
+
+  return status >= badRequest && status <= lastClientError;
 }
 
 /**

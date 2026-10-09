@@ -937,6 +937,32 @@ test("a key pair refused as a wrong signature is not refreshed", async () => {
   expect(sent).toHaveLength(1);
 });
 
+// ADR 0066: AWS answers an expired session token to a `HEAD` with a bare `400`.
+test.each(["stat", "exists"] as const)(
+  "an expired session token refused `400` at the `HEAD` of `%s` is `Expired` after one refresh",
+  async (operation) => {
+    const sent = stubFetch(
+      answeringHeadWith(400, () => refused(400, "ExpiredToken", "The provided token has expired.")),
+    );
+    const resolve = vi.fn<() => typeof temporaryCredentials>(() => temporaryCredentials);
+
+    const failure = await rejection(
+      async () => await s3Storage(options({ credentials: resolve }))[operation]("object.txt"),
+    );
+
+    expect(failure).toMatchObject({
+      code: "Expired",
+      operation,
+      key: "object.txt",
+      status: 400,
+      providerCode: "ExpiredToken",
+      attempts: 2,
+    });
+    expect(sent.map((request) => request.method)).toEqual(["HEAD", "GET", "GET"]);
+    expect(resolve).toHaveBeenLastCalledWith({ forceRefresh: true });
+  },
+);
+
 test.each(["stat", "exists"] as const)(
   "a key denied at the `HEAD` of `%s` is `AccessDenied` from the `GET` after it",
   async (operation) => {
