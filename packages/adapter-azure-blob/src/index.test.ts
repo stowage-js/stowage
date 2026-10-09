@@ -1666,6 +1666,7 @@ test("a source replaced under three copies in a row is a `ProviderError` worth r
     retryable: true,
     operation: "copy",
     key: "from.txt",
+    attempts: 3,
   });
   expect(sent.map((request) => request.method)).toEqual([
     "HEAD",

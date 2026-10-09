@@ -36,7 +36,9 @@ export async function copyBlob(
 ): Promise<ObjectStat> {
   signal?.throwIfAborted();
 
-  for (let attempt = 1; ; attempt += 1) {
+  let attempts = 0;
+
+  for (let copy = 1; ; copy += 1) {
     try {
       // oxlint-disable-next-line no-await-in-loop -- a repeat reads the source the last one missed
       await copyPinned(configuration, from, to, operation, signal);
@@ -45,8 +47,10 @@ export async function copyBlob(
     } catch (failure) {
       if (!isReplacedSource(failure)) throw failure;
 
+      attempts += failure.attempts;
+
       // ADR 0068: a later copy may meet a source that stays put between its two requests.
-      if (attempt === copyAttempts) throw asRetryable(failure, configuration.container);
+      if (copy === copyAttempts) throw asRetryable(failure, configuration.container, attempts);
     }
   }
 
@@ -89,7 +93,9 @@ async function copyPinned(
 
 /**
  * ADR 0068: a source replaced between the `HEAD` and the copy fails the pin, which the
- * service answers as a failure on the source with the status of the failed condition.
+ * service answers as a failure on the source with the status of the failed condition. The
+ * copy carries no condition on the destination, so a `412` has no other cause, and the
+ * source's own status, which no `StorageError` carries, need not be read.
  */
 function isReplacedSource(failure: unknown): failure is StorageError {
   return (

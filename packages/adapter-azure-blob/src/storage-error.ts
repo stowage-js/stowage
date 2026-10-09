@@ -24,9 +24,16 @@ export function inStorage(
   return azureBlobError(container, { ...fieldsOf(failure), operation, key: key ?? failure.key });
 }
 
-/** The same failure, told as one that a later call of the whole operation may not meet. */
-export function asRetryable(failure: StorageError, container: string): StorageError {
-  return azureBlobError(container, { ...fieldsOf(failure), retryable: true });
+/**
+ * The same failure of a step the adapter repeated itself, told with every attempt the step
+ * made and as one that a later call of the whole operation may not meet.
+ */
+export function asRetryable(
+  failure: StorageError,
+  container: string,
+  attempts: number,
+): StorageError {
+  return azureBlobError(container, { ...fieldsOf(failure), attempts, retryable: true });
 }
 
 /**
