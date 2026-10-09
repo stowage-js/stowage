@@ -1,4 +1,9 @@
-import { isStorageError, type StorageError, type StoredObject } from "@stowage/core";
+import {
+  isStorageError,
+  type ResolverOptions,
+  type StorageError,
+  type StoredObject,
+} from "@stowage/core";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { sha256Hex } from "./hash.ts";
@@ -559,7 +564,7 @@ test("`NoSuchKey` answered to the `GET` after the `HEAD` of `exists` leaves it `
 // Spec 7.9: an object a writer created in between, and a compatible endpoint that names no
 // code, keep the answer the `HEAD` gave.
 const followUpsLeavingTheHead: readonly [string, () => Response][] = [
-  ["a success",() => storedResponse("b", { "content-range": "bytes 0-0/4" })],
+  ["a success", () => storedResponse("b", { "content-range": "bytes 0-0/4" })],
   [
     "a success with an already-errored body",
     () =>
@@ -979,6 +984,73 @@ test.each(["stat", "exists"] as const)(
     expect(resolve).toHaveBeenLastCalledWith({ forceRefresh: true });
   },
 );
+
+/**
+ * R2 refusing a stale session token as a wrong signature at the `HEAD` and the `GET`, and
+ * answering both under the fresh one the resolver hands out after `forceRefresh` (ADR 0066).
+ */
+function answeringTheFreshTokenAlone(): (request: SentRequest) => Response {
+  return (request) => {
+    if (request.headers.get("x-amz-security-token") === "fresh") {
+      return storedResponse("b", { "content-range": "bytes 0-0/4" });
+    }
+
+    return request.method === "HEAD" ? new Response(null, { status: 403 }) : signatureRefused();
+  };
+}
+
+/** A resolver that hands out `stale` until it is asked to refresh, and `fresh` from then on. */
+function refreshingResolver(): (options?: ResolverOptions) => typeof temporaryCredentials {
+  let sessionToken = "stale";
+
+  return (resolverOptions) => {
+    if (resolverOptions?.forceRefresh === true) sessionToken = "fresh";
+
+    return { ...temporaryCredentials, sessionToken };
+  };
+}
+
+test("a stale session token refused at the `HEAD` of `stat` is refreshed, and the `HEAD` sent again", async () => {
+  const sent = stubFetch(answeringTheFreshTokenAlone());
+
+  const stat = await s3Storage(options({ credentials: refreshingResolver() })).stat("object.txt");
+
+  expect(stat.key).toBe("object.txt");
+  expect(
+    sent.map((request) => [request.method, request.headers.get("x-amz-security-token")]),
+  ).toEqual([
+    ["HEAD", "stale"],
+    ["GET", "stale"],
+    ["GET", "fresh"],
+    ["HEAD", "fresh"],
+  ]);
+});
+
+// Spec 7.9: no request follows the second `HEAD`, whatever it is answered.
+test("a second `HEAD` refused after the refreshed `GET` passed is read by its status", async () => {
+  const getAnswers = [signatureRefused()];
+  const sent = stubFetch((request) =>
+    request.method === "HEAD"
+      ? new Response(null, { status: 403 })
+      : (getAnswers.shift() ?? storedResponse("b", { "content-range": "bytes 0-0/4" })),
+  );
+
+  const failure = await rejection(
+    async () => await s3Storage(options({ credentials: temporaryCredentials })).stat("object.txt"),
+  );
+
+  expect(failure).toMatchObject({ code: "AccessDenied", status: 403, attempts: 1 });
+  expect(failure.providerCode).toBeUndefined();
+  expect(sent.map((request) => request.method)).toEqual(["HEAD", "GET", "GET", "HEAD"]);
+});
+
+test("`exists` answers `true` once the refreshed session token reads the key", async () => {
+  stubFetch(answeringTheFreshTokenAlone());
+
+  expect(await s3Storage(options({ credentials: refreshingResolver() })).exists("object.txt")).toBe(
+    true,
+  );
+});
 
 test.each(["stat", "exists"] as const)(
   "a key denied at the `HEAD` of `%s` is `AccessDenied` from the `GET` after it",

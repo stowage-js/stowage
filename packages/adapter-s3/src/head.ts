@@ -20,12 +20,21 @@ export async function sendHead(
   configuration: S3Configuration,
   request: HeadRequest,
 ): Promise<Response> {
+  const head: S3Request = { method: "HEAD", ...request };
+
   try {
-    return await send(configuration, { method: "HEAD", ...request });
+    return await send(configuration, head);
   } catch (failure) {
     if (!isStorageError(failure) || !isReadByAGet(failure)) throw failure;
 
-    throw (await readRefusal(configuration, request)) ?? failure;
+    const reading = await readRefusal(configuration, request);
+
+    if (reading.kind === "refused") throw reading.failure;
+    if (reading.kind === "standing") throw failure;
+
+    // Spec 7.9: one `HEAD` more under the credential the `GET` refreshed, and none after
+    // it, so a resolver that hands back the refused credential costs four requests at most.
+    return await send(configuration, head);
   }
 }
 
@@ -42,21 +51,33 @@ function isReadByAGet(failure: StorageError): boolean {
 }
 
 /**
- * The `GET`'s failure where it names a code. A success or a `416` means a writer created
- * the object in between, and a compatible endpoint may name no code at all, so either
- * leaves the `HEAD`'s answer standing. A `GET` that received no response is no answer,
- * and rejects the call with its `NetworkError`, which `exists` rethrows rather than
- * answering `false`.
+ * What the `GET` says of the refused `HEAD`: `refused` with the failure that names its
+ * code, `refreshed` where it was answered under a credential refreshed after a refusal of
+ * its own, and `standing` where it leaves the `HEAD`'s answer as it is.
  */
-async function readRefusal(
-  configuration: S3Configuration,
-  request: HeadRequest,
-): Promise<StorageError | undefined> {
+type Reading =
+  | { readonly kind: "refused"; readonly failure: StorageError }
+  | { readonly kind: "refreshed" }
+  | { readonly kind: "standing" };
+
+/**
+ * A success or a `416` without a refresh means a writer created the object in between, and
+ * a compatible endpoint may name no code at all, so either leaves the `HEAD`'s answer
+ * standing. A `GET` that received no response is no answer, and rejects the call with its
+ * `NetworkError`, which `exists` rethrows rather than answering `false`.
+ */
+async function readRefusal(configuration: S3Configuration, request: HeadRequest): Promise<Reading> {
+  let refreshed = false;
+  const standing: Reading = { kind: "standing" };
+
   try {
     const response = await send(configuration, {
       ...request,
       method: "GET",
       headers: [["range", "bytes=0-0"]],
+      onRefresh: () => {
+        refreshed = true;
+      },
     });
 
     try {
@@ -65,15 +86,16 @@ async function readRefusal(
       // Cleanup cannot replace the HEAD's answer, but the caller's abort still travels on.
       request.signal?.throwIfAborted();
     }
-
-    return undefined;
   } catch (failure) {
     // Spec 4.10: the caller's abort travels on as the runtime's `AbortError`.
     if (!isStorageError(failure)) throw failure;
-    if (failure.status === rangeNotSatisfiable) return undefined;
 
-    return failure.providerCode !== undefined || failure.code === "NetworkError"
-      ? failure
-      : undefined;
+    if (failure.status !== rangeNotSatisfiable) {
+      return failure.providerCode !== undefined || failure.code === "NetworkError"
+        ? { kind: "refused", failure }
+        : standing;
+    }
   }
+
+  return refreshed ? { kind: "refreshed" } : standing;
 }
