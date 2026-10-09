@@ -42,9 +42,21 @@ const signedHeadersUnbound = {
   settledBy: "azure-blob",
 } as const;
 
+// ADR 0067: the case fails at `get`, its first operation under the stale credential.
+const staleTokenUnrefreshed = {
+  case: "errors/stale-credentials",
+  endpoint: "azurite",
+  differs:
+    "Azurite 3.37.0 answers a token it cannot read, and one past its `exp`, with `403 AuthenticationFailed` where the account answers `401 InvalidAuthenticationInfo`, so no refresh follows",
+  failureMessagePart:
+    "`get` under a stale credential rejected with `InvalidCredentials` and `attempts: 1` after no refresh",
+  settledBy: "azure-blob",
+} as const;
+
 // Kept in the private harness and never in `@stowage/conformance` (ADR 0012).
 export const azureBlobDivergences: readonly Divergence<AzureBlobEmulator, AzureBlobRealEndpoint>[] =
   [
+    staleTokenUnrefreshed,
     { case: "copy/round-trip", failureMessagePart: notImplemented, ...copyUnimplemented },
     { case: "copy/overwrites", failureMessagePart: notImplemented, ...copyUnimplemented },
     { case: "copy/missing-source", failureMessagePart: missingSourceUnread, ...copyUnimplemented },

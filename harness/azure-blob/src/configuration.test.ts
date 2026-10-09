@@ -9,6 +9,7 @@ import {
   storageOptionsFrom,
   storageWithDeniedCredentials,
   storageWithMissingContainer,
+  storageWithStaleCredentials,
 } from "./configuration.ts";
 
 const azurite = {
@@ -129,6 +130,31 @@ test("without the reader identity no denied credential is supplied", () => {
   const configured = storageOptionsFrom(azurite, accessTokenFrom(azurite));
 
   expect(configured && storageWithDeniedCredentials(configured, azurite)).toBeUndefined();
+});
+
+test("the stale credential is no JWT until the refresh, and the identity's token from then on", async () => {
+  stubEntra();
+
+  const configured = storageOptionsFrom(account, accessTokenFrom(account));
+
+  if (configured === undefined) throw new Error("The account is configured above");
+
+  let refreshes = 0;
+  const stale = storageWithStaleCredentials(configured, () => {
+    refreshes += 1;
+  });
+  const credentials = stale.credentials;
+
+  if (typeof credentials !== "function") throw new Error("The stale credential is a resolver");
+
+  await expect(credentials({ forceRefresh: false })).resolves.toEqual({ accessToken: "not-a-jwt" });
+  await expect(credentials({ forceRefresh: true })).resolves.toEqual({
+    accessToken: `token-for-${account.STOWAGE_AZURE_BLOB_CLIENT_ID}`,
+  });
+  await expect(credentials({ forceRefresh: false })).resolves.toEqual({
+    accessToken: `token-for-${account.STOWAGE_AZURE_BLOB_CLIENT_ID}`,
+  });
+  expect(refreshes).toBe(1);
 });
 
 test("the missing container is another one of the configured account, named anew on every call", () => {

@@ -2,6 +2,7 @@ import type { AzureBlobAdapterOptions } from "../../../packages/adapter-azure-bl
 import type { Variables } from "../../s3/src/configuration.ts";
 import { unsetVariablesResolver } from "../../targets/src/federation.ts";
 import { runOptionsFrom } from "../../targets/src/run-options.ts";
+import { staleResolver } from "../../targets/src/stale-credentials.ts";
 import { azureBlobAccount } from "./divergences.ts";
 import { federatedAccessToken } from "./federated-token.ts";
 import { mintAccessToken } from "./token.ts";
@@ -99,7 +100,21 @@ function federatedTokenFor(
 export function storageWithBadCredentials(
   configured: AzureBlobAdapterOptions,
 ): AzureBlobAdapterOptions {
-  return { ...configured, credentials: { accessToken: "not-a-jwt" } };
+  return { ...configured, credentials: notAJwt };
+}
+
+const notAJwt = { accessToken: "not-a-jwt" };
+
+/**
+ * Spec 14.3: a stale credential. The account answers a token that is not a JWT with
+ * `401 InvalidAuthenticationInfo`, which refreshes as an expired one does (ADR 0021), so the
+ * stale credential needs no token to expire; the fresh one is the configured token.
+ */
+export function storageWithStaleCredentials(
+  configured: AzureBlobAdapterOptions,
+  onRefresh: () => void,
+): AzureBlobAdapterOptions {
+  return { ...configured, credentials: staleResolver(notAJwt, configured.credentials, onRefresh) };
 }
 
 /**
