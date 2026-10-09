@@ -38,7 +38,7 @@ test("the JWT names the bucket, the account and the parent, and expired before i
 
   expect(decoded(payload)).toEqual({
     bucket: "stowage-conformance",
-    scope: "object-read-only",
+    scope: "object-read-write",
     sub: "0123456789abcdef",
     iss: "parent-access-key-id",
     aud: "0123456789abcdef.r2.cloudflarestorage.com",

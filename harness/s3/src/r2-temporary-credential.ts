@@ -23,8 +23,9 @@ export async function expiredR2Credentials(
   const payload = base64Url(
     JSON.stringify({
       bucket,
-      // The scope is never reached: R2 refuses the credential before it reads one.
-      scope: "object-read-only",
+      // R2 refuses a write the scope does not allow as `AccessDenied` before it looks at the
+      // expiry, which is no refusal a refresh follows. The run's parent may write.
+      scope: "object-read-write",
       sub: accountId,
       iss: parent.accessKeyId,
       aud: host,
