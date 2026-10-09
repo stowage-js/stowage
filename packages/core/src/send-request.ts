@@ -20,6 +20,8 @@ export interface RefusedAnswer {
   readonly body: string | undefined;
   /** Whether the attempt went out under a credential refreshed after a refusal. */
   readonly refreshed: boolean;
+  /** What the attempt sent, which tells the credential it carried apart (ADR 0065). */
+  readonly sentHeaders: PreparedAttempt["headers"];
 }
 
 /** What the provider's refusal says, which `sendRequest` raises with the request's context. */
@@ -105,6 +107,7 @@ async function attempt(request: RequestToSend, forceRefresh: boolean): Promise<R
     headers: response.headers,
     body: await readBody(request.method, response),
     refreshed,
+    sentHeaders: prepared.headers,
   });
 
   if (!forceRefresh && prepared.refreshable && reading.refusedCredential === true) {
