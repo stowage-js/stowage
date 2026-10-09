@@ -26,7 +26,8 @@ jobs:
           # reads it. Next.js hands `next start`'s `IncomingMessage` over as that body, which
           # then keeps Node from draining what a route answered without reading, and the
           # keep-alive connection stalls: `upload/content-encoding` hangs after
-          # `upload/max-size`. The job keeps its name, which `main` requires.
+          # `upload/max-size`. Back to "26" once nodejs/undici#5988 is fixed in a Node 26
+          # release. The job keeps its name, which `main` requires.
           - node: "26"
             version: "26.10.0"
     steps:
