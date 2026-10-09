@@ -9,6 +9,9 @@ import { textContentType } from "./objects.ts";
 
 type ContentHeaderOption = keyof ContentHeaders;
 
+/** ADR 0068: a parameter without a space before it, which a copy on Azure left to itself adds. */
+const carriedContentType = "text/plain;charset=utf-8";
+
 const contentHeaderOptions: readonly ContentHeaderOption[] = [
   "cacheControl",
   "contentDisposition",
@@ -18,10 +21,11 @@ const contentHeaderOptions: readonly ContentHeaderOption[] = [
 /**
  * ADR 0064: a tab and a run of spaces in `contentDisposition`, which the folding of a Shared
  * Key signer turned into `403`; a `cacheControl` SeaweedFS parses; and a `contentLanguage`
- * whose whitespace around its comma a copy on Azure removes.
+ * with a space after its comma. ADR 0068: none of the three is in the form Azure rewrites a
+ * value into when it copies the value itself, so a copy that leaves them to it shows.
  */
 const writtenHeaders: Required<ContentHeaders> = {
-  cacheControl: "public, max-age=60, immutable",
+  cacheControl: "max-age=60,\tpublic, immutable",
   contentDisposition: 'attachment;\tfilename="conformance  report.pdf"',
   contentLanguage: "de-AT, en",
 };
@@ -236,14 +240,19 @@ async function assertKeptThrough(
   const to = `${prefix}destination.txt`;
 
   await ctx.storage.put(from, "the body to carry", {
-    contentType: textContentType,
+    contentType: carriedContentType,
     ...writtenHeaders,
   });
 
   const carried = await ctx.storage[operation](from, to);
 
-  assertHoldsCarriedHeaders(carried, `\`${operation}\``);
-  assertHoldsCarriedHeaders(await ctx.storage.stat(to), `\`stat\` after \`${operation}\``);
+  for (const [described, where] of [
+    [carried, `\`${operation}\``],
+    [await ctx.storage.stat(to), `\`stat\` after \`${operation}\``],
+  ] as const) {
+    assertHoldsHeaders(described, where);
+    assertCarriedContentType(described, where);
+  }
 
   if (operation === "move") await assertSourceGone(ctx, from);
 }
@@ -295,39 +304,14 @@ function assertHoldsHeaders(
 }
 
 /**
- * Spec 4.11: a copy keeps `cacheControl` and `contentDisposition` byte for byte, and
- * `contentLanguage` as the same list, since Azure removes the whitespace around its commas.
+ * Spec 4.11: a copy keeps the content type of its source byte for byte. Only the half with
+ * `contentHeaders` asserts it, since `adapter-fs` derives the type from the key (spec 6).
  */
-function assertHoldsCarriedHeaders(described: ObjectStat, where: string): void {
-  assertHoldsHeaders({ ...described, contentLanguage: listOf(described.contentLanguage) }, where, {
-    ...writtenHeaders,
-    contentLanguage: listOf(writtenHeaders.contentLanguage),
-  });
-}
-
-/**
- * The value without the spaces and tabs around its commas, and nothing else: `trim` would also
- * drop the blanks at either end and other whitespace, which a copy has to keep. A regex for
- * the blanks around a comma backtracks quadratically on a long run of them.
- */
-function listOf(value: string | undefined): string | undefined {
-  const items = value?.split(",");
-
-  return items
-    ?.map((item, index) => {
-      let start = 0;
-      let end = item.length;
-
-      if (index > 0) while (isBlank(item[start])) start += 1;
-      if (index < items.length - 1) while (end > start && isBlank(item[end - 1])) end -= 1;
-
-      return item.slice(start, end);
-    })
-    .join(",");
-}
-
-function isBlank(character: string | undefined): boolean {
-  return character === " " || character === "\t";
+function assertCarriedContentType(described: ObjectStat, where: string): void {
+  assert(
+    described.contentType === carriedContentType,
+    `${where} reports \`contentType\` as ${JSON.stringify(described.contentType)} and not as ${JSON.stringify(carriedContentType)}`,
+  );
 }
 
 /** Spec 4.4: a member the object holds no value for is missing, not present as `undefined`. */
