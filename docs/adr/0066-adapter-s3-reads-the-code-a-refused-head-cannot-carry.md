@@ -75,7 +75,9 @@ fourth request matter. Leaving the gap stated in spec 7.3 was the third.
   `retryable: false` and `attempts` of `1` or `2`, as `get` does. `adapter-azure-blob` reads the
   code of a `HEAD` off `x-ms-error-code` and `adapter-gcs` describes an object with a `GET`, so both
   are expected to hold it already; their runs show it. `errors/expired-credentials` asserts that
-  `stat` rejects with `Expired` and `attempts: 2`. A tighter case is a minor (ADR 0017).
+  `stat` rejects with `Expired` and `attempts: 2`. A third-party adapter that passed them may fail
+  them now, which narrows what `@stowage/conformance` promised a target, so its changeset carries a
+  `**Breaking:**` line of its own, as ADR 0064 has it for `serve/whole` and `serve/head`.
 - Spec 14.4 lists a test against a stubbed `fetch`: a key pair refused at the `HEAD` and the `GET`
   as `InvalidCredentials` with `attempts: 1`; a session token refused as `SignatureDoesNotMatch`,
   then one resolver call with `forceRefresh: true` and the `HEAD` again, which succeeds, or
