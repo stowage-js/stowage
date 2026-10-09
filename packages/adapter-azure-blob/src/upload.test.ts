@@ -710,6 +710,8 @@ function stubCountingFetch(): { steps: string[]; commitBody: () => string | unde
   return { steps, commitBody: () => commitBody };
 }
 
+// 50,000 requests take some 4 s on their own and many times that on a CI runner that runs
+// the rest of the suite and three emulators beside them.
 test("a stream of exactly 50,000 parts is committed", async () => {
   const { steps, commitBody } = stubCountingFetch();
   const chunk = new Uint8Array(smallestPart);
@@ -733,7 +735,7 @@ test("a stream of exactly 50,000 parts is committed", async () => {
   expect(steps.filter((step) => step.startsWith("block "))).toHaveLength(maxParts);
   expect(steps.at(-1)).toBe("commit");
   expect(commitBody()?.match(/<Latest>/gu)).toHaveLength(maxParts);
-}, 30_000);
+}, 120_000);
 
 test("a stream that needs more than 50,000 parts rejects naming `partSize` and the way past it", async () => {
   const { steps } = stubCountingFetch();
@@ -760,7 +762,7 @@ test("a stream that needs more than 50,000 parts rejects naming `partSize` and t
   expect(steps.filter((step) => step.startsWith("block "))).toHaveLength(49_999);
   expect(steps).not.toContain("commit");
   expect(canceled).toBe(true);
-}, 30_000);
+}, 120_000);
 
 // ADR 0024: the blocks the commit named are gone once another writer committed, so a
 // repeat cannot help, and the adapter's requests are valid by construction.
