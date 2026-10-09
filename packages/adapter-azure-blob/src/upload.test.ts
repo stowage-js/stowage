@@ -593,12 +593,15 @@ interface HeldBlocks {
 }
 
 /**
- * `Put Block` requests held open until `concurrency` of them are waiting, so an upload
- * that sends them one by one shows as a single request in flight rather than as a race. A
- * request that finds fewer beside it goes on after a moment, which is the last blocks.
+ * `Put Block` requests held open until `concurrency` of them are waiting, or as many as are
+ * left of the upload's `blocks`, so an upload that sends them one by one never fills a round
+ * and runs into the test's timeout. No timer lets a request go on alone: on a loaded machine
+ * the next one takes longer to arrive than any short delay waits, and the round reads as
+ * smaller.
  */
-function heldBlocks(concurrency: number, pulled: () => number): HeldBlocks {
+function heldBlocks(concurrency: number, blocks: number, pulled: () => number): HeldBlocks {
   let waiting: (() => void)[] = [];
+  let released = 0;
   let inFlight = 0;
   let mostInFlight = 0;
   let answered = 0;
@@ -618,11 +621,10 @@ function heldBlocks(concurrency: number, pulled: () => number): HeldBlocks {
       await new Promise<void>((resolve) => {
         waiting.push(resolve);
 
-        if (waiting.length >= concurrency) {
+        if (waiting.length >= Math.min(concurrency, blocks - released)) {
+          released += waiting.length;
           for (const release of waiting) release();
           waiting = [];
-        } else {
-          setTimeout(resolve, 20);
         }
       });
 
@@ -636,7 +638,7 @@ function heldBlocks(concurrency: number, pulled: () => number): HeldBlocks {
 
 test("blocks go `concurrency` at a time, and the upload holds no more of the stream", async () => {
   let pulled = 0;
-  const held = heldBlocks(2, () => pulled);
+  const held = heldBlocks(2, 7, () => pulled);
   const sent = stubFetch(held.answer);
   const bytes = patternOf(6 * smallestPart + 1);
   const upload = storage({ multipart: { partSize: smallestPart, concurrency: 2 } });
@@ -657,7 +659,7 @@ test("blocks go `concurrency` at a time, and the upload holds no more of the str
 
 test("parts are 8 MiB and go four at a time by default", async () => {
   let pulled = 0;
-  const held = heldBlocks(4, () => pulled);
+  const held = heldBlocks(4, 6, () => pulled);
   const sent = stubFetch(held.answer);
   const bytes = patternOf(5 * 8 * mebibyte + 1);
 
