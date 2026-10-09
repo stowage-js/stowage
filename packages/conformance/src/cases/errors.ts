@@ -362,8 +362,11 @@ async function storageFrom(
 
 /**
  * `operate` on a fresh storage of `createStorageWithStaleCredentials`, which spec 14.3 has
- * succeed after the one refresh. The resolver is the caller's own, so how often it was asked
- * to refresh is what a caller observes, and a success without one shows nothing.
+ * succeed after a refresh. The resolver is the caller's own, so whether it was asked to
+ * refresh is what a caller observes, and a success without one shows nothing. ADR 0067: an
+ * operation refreshes once for each request it has in flight when the provider refuses the
+ * stale credential, a number the adapter chooses, so the case bounds the refreshes after the
+ * recovery instead: `operate` once more on the same storage asks for none.
  */
 async function underStaleCredential<Result>(
   ctx: ConformanceContext,
@@ -389,9 +392,15 @@ async function underStaleCredential<Result>(
     );
   });
 
+  assert(refreshes > 0, `${what} under a stale credential succeeded without a refresh`);
+
+  const recovered = refreshes;
+
+  await operate(storage);
+
   assert(
-    refreshes === 1,
-    `${what} under a stale credential succeeded with ${refreshesInWords(refreshes)}, and not with one`,
+    refreshes === recovered,
+    `${what} on the storage that recovered asked for ${refreshesInWords(refreshes - recovered)} more`,
   );
 
   return result;

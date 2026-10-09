@@ -2784,15 +2784,15 @@ A case marked with a factory is skipped where the target does not supply it.
 
 **Errors**
 
-| Case                         | Requires | Cost   | Asserts                                                                                                                                                                                                       |
-| ---------------------------- | -------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `errors/shape`               |          | `fast` | Every error the run provokes passes `isStorageError`, has a `code` out of the union, `operation`, `bucket` and `provider` matching the storage, a boolean `retryable` and an integer `attempts`               |
-| `errors/not-a-storage-error` |          | `fast` | `AbortError` and `SyntaxError` from the cases above fail `isStorageError`                                                                                                                                     |
-| `errors/bad-credentials`     |          | `fast` | Factory `createStorageWithBadCredentials`: `get` and `stat` reject with `InvalidCredentials`, `retryable: false` and `attempts` of `1` or `2`; `exists` rejects rather than answering `false`; `list` rejects |
-| `errors/denied-credentials`  |          | `fast` | Factory `createStorageWithDeniedCredentials`: `put` rejects with `AccessDenied`, `retryable: false`, `attempts: 1`                                                                                            |
-| `errors/expired-credentials` |          | `slow` | Factory `createStorageWithExpiredCredentials`: `get` and `stat` reject with `Expired` and `attempts: 2`                                                                                                       |
-| `errors/stale-credentials`   |          | `fast` | Factory `createStorageWithStaleCredentials`: `get`, `stat` and `put`, each on a storage of its own, succeed, and each storage's resolver was asked to refresh exactly once                                    |
-| `errors/missing-bucket`      |          | `fast` | Factory `createStorageWithMissingBucket`: `put`, `get`, `stat`, `exists`, `delete` and the first page of `list` reject; where the code is `NotFound`, `key` is unset                                          |
+| Case                         | Requires | Cost   | Asserts                                                                                                                                                                                                                     |
+| ---------------------------- | -------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `errors/shape`               |          | `fast` | Every error the run provokes passes `isStorageError`, has a `code` out of the union, `operation`, `bucket` and `provider` matching the storage, a boolean `retryable` and an integer `attempts`                             |
+| `errors/not-a-storage-error` |          | `fast` | `AbortError` and `SyntaxError` from the cases above fail `isStorageError`                                                                                                                                                   |
+| `errors/bad-credentials`     |          | `fast` | Factory `createStorageWithBadCredentials`: `get` and `stat` reject with `InvalidCredentials`, `retryable: false` and `attempts` of `1` or `2`; `exists` rejects rather than answering `false`; `list` rejects               |
+| `errors/denied-credentials`  |          | `fast` | Factory `createStorageWithDeniedCredentials`: `put` rejects with `AccessDenied`, `retryable: false`, `attempts: 1`                                                                                                          |
+| `errors/expired-credentials` |          | `slow` | Factory `createStorageWithExpiredCredentials`: `get` and `stat` reject with `Expired` and `attempts: 2`                                                                                                                     |
+| `errors/stale-credentials`   |          | `fast` | Factory `createStorageWithStaleCredentials`: `get`, `stat` and `put`, each on a storage of its own, succeed, each storage's resolver was asked to refresh at least once, and not again when the operation is repeated on it |
+| `errors/missing-bucket`      |          | `fast` | Factory `createStorageWithMissingBucket`: `put`, `get`, `stat`, `exists`, `delete` and the first page of `list` reject; where the code is `NotFound`, `key` is unset                                                        |
 
 **Presigned URLs**
 
