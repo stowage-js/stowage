@@ -89,7 +89,8 @@ describe.skipIf(scheduled === undefined)(firstRunSuite, () => {
       const answer = await answerPastExpiry(key, expiring);
 
       task.meta.observed = answer.observed;
-      // Spec 9.3: answered as a made-up token is, so nothing tells the expiry apart.
+      // Spec 9.3: answered as a made-up token with the prefix `ya29.` is, so nothing tells the
+      // expiry apart.
       expect({
         status: answer.status,
         refusedToken: answer.refusedToken,

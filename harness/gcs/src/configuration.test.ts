@@ -39,6 +39,9 @@ const scheduled = {
 /** What `conformance-full.yml` sets for every job it runs. */
 const includeSlow = { STOWAGE_CONFORMANCE_INCLUDE_SLOW: "true" };
 
+/** ADR 0033: without the prefix GCS refuses the token with a `401` that does not refresh. */
+const madeUpAccessToken = { accessToken: expect.stringMatching(/^ya29\./u) };
+
 /**
  * The Actions runtime, STS and IAM Credentials, where IAM Credentials names the service
  * account, the scope and the lifetime of each token it issues.
@@ -174,13 +177,12 @@ test("the bad credential is a token Google refuses, on every call", async () => 
 
   const credentials = endpoint.badCredentials;
 
-  await expect(resolve(credentials)).resolves.toEqual({ accessToken: "ya29.not-a-google-token" });
-  await expect(resolve(credentials, { forceRefresh: true })).resolves.toEqual({
-    accessToken: "ya29.not-a-google-token",
-  });
+  await expect(resolve(credentials)).resolves.toEqual(madeUpAccessToken);
+  await expect(resolve(credentials, { forceRefresh: true })).resolves.toEqual(madeUpAccessToken);
 });
 
-// ADR 0067: a refused token refreshes on GCS whether it expired or was made up (ADR 0033).
+// ADR 0067: a refused token refreshes on GCS whether it expired or was made up with the prefix
+// of an access token (ADR 0033).
 test("the stale credential is a token Google refuses until the refresh, and the service account's from then on", async () => {
   stubFederation();
 
@@ -196,7 +198,7 @@ test("the stale credential is a token Google refuses until the refresh, and the 
     accessToken: `${serviceAccount} https://www.googleapis.com/auth/devstorage.read_write 3600s`,
   };
 
-  await expect(resolve(credentials)).resolves.toEqual({ accessToken: "ya29.not-a-google-token" });
+  await expect(resolve(credentials)).resolves.toEqual(madeUpAccessToken);
   await expect(resolve(credentials, { forceRefresh: true })).resolves.toEqual(fresh);
   await expect(resolve(credentials, { forceRefresh: false })).resolves.toEqual(fresh);
   expect(refreshes).toBe(1);
