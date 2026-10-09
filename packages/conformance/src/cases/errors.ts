@@ -362,8 +362,10 @@ async function storageFrom(
 
 /**
  * `operate` on a fresh storage of `createStorageWithStaleCredentials`, which spec 14.3 has
- * succeed after the one refresh. The resolver is the caller's own, so how often it was asked
- * to refresh is what a caller observes, and a success without one shows nothing.
+ * succeed after a refresh. The resolver is the caller's own, so whether it was asked to
+ * refresh is what a caller observes, and a success without one shows nothing. ADR 0067: an
+ * operation whose requests go out side by side refreshes once for each of them, so the count
+ * has no upper bound.
  */
 async function underStaleCredential<Result>(
   ctx: ConformanceContext,
@@ -389,10 +391,7 @@ async function underStaleCredential<Result>(
     );
   });
 
-  assert(
-    refreshes === 1,
-    `${what} under a stale credential succeeded with ${refreshesInWords(refreshes)}, and not with one`,
-  );
+  assert(refreshes > 0, `${what} under a stale credential succeeded without a refresh`);
 
   return result;
 }

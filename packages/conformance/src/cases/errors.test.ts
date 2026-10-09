@@ -267,14 +267,13 @@ test("`errors/stale-credentials` holds against an adapter that refreshes once an
 // the case would show nothing.
 test("`errors/stale-credentials` refuses a success that cost no refresh", async () => {
   await expect(runStale({ refreshes: 0, recovers: true })).rejects.toThrow(
-    "`get` under a stale credential succeeded with no refresh, and not with one",
+    "`get` under a stale credential succeeded without a refresh",
   );
 });
 
-test("`errors/stale-credentials` refuses a success that cost a second refresh", async () => {
-  await expect(runStale({ refreshes: 2, recovers: true })).rejects.toThrow(
-    "`get` under a stale credential succeeded with 2 refreshes, and not with one",
-  );
+// ADR 0067: `get` on GCS sends two requests side by side, and each meets the stale credential.
+test("`errors/stale-credentials` holds against an adapter whose requests each refresh", async () => {
+  await expect(runStale({ refreshes: 2, recovers: true })).resolves.toBe("declared");
 });
 
 test("`errors/stale-credentials` names the refusal of an adapter that never refreshes", async () => {
