@@ -25,7 +25,7 @@ export async function sendHead(
   try {
     return await send(configuration, head);
   } catch (failure) {
-    if (!isStorageError(failure) || !isReadByAGet(failure)) throw failure;
+    if (!isStorageError(failure) || !isRefusalWithoutCode(failure)) throw failure;
 
     const reading = await readRefusal(configuration, request);
 
@@ -43,10 +43,10 @@ export async function sendHead(
  * A refusal whose condition the status leaves open. A transient one is the retry budget's,
  * and spec 7.9 already reads the `400` to a key above 1024 bytes as `InvalidKey`.
  */
-function isReadByAGet(failure: StorageError): boolean {
-  const status = failure.status ?? 0;
-
+function isRefusalWithoutCode(failure: StorageError): boolean {
   if (failure.retryable || failure.code === "InvalidKey") return false;
+
+  const status = failure.status ?? 0;
 
   return status >= badRequest && status <= lastClientError;
 }
@@ -70,7 +70,6 @@ type Reading =
  */
 async function readRefusal(configuration: S3Configuration, request: HeadRequest): Promise<Reading> {
   let refreshed = false;
-  const standing: Reading = { kind: "standing" };
 
   try {
     const response = await send(configuration, {
@@ -95,9 +94,9 @@ async function readRefusal(configuration: S3Configuration, request: HeadRequest)
     if (failure.status !== rangeNotSatisfiable) {
       return failure.providerCode !== undefined || failure.status === undefined
         ? { kind: "refused", failure }
-        : standing;
+        : { kind: "standing" };
     }
   }
 
-  return refreshed ? { kind: "refreshed" } : standing;
+  return { kind: refreshed ? "refreshed" : "standing" };
 }
