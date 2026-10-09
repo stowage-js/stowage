@@ -20,9 +20,9 @@ import { contentHeaderFields } from "./content-headers.ts";
 import { copyObject } from "./copy.ts";
 import { deleteBelow, deleteKeys } from "./delete.ts";
 import { defaultContentType, describeResponse } from "./description.ts";
+import { sendHead } from "./head.ts";
 import { requireKey } from "./key.ts";
 import { createListing } from "./listing.ts";
-import { sendHead } from "./head.ts";
 import {
   presignGet,
   presignPut,
