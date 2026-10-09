@@ -1372,7 +1372,7 @@ test.each(["copy", "move"] as const)(
   },
 );
 
-/** What Azure answers the `HEAD` of the source, `Put Blob From URL` and the `HEAD` of the destination with. */
+/** What Azure answers the `HEAD` of the source, the copy and the `HEAD` of the destination with. */
 function copied(headers: Record<string, string> = {}) {
   return copyAnswered(created, headers);
 }
