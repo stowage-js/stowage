@@ -2465,6 +2465,32 @@ test("`copy` sends `CopyObject` naming the source and describes the destination"
   });
 });
 
+// Spec 7.9: the `HEAD` that describes the destination is read as `stat`'s is (ADR 0066).
+test.each(["copy", "move"] as const)(
+  "the describing `HEAD` of `%s` refused `403` reports the code of the `GET` after it",
+  async (operation) => {
+    const sent = stubFetch((request) => {
+      if (request.method === "HEAD") return new Response(null, { status: 403 });
+      if (request.method === "GET") return refused(403, "AccessDenied", "Access Denied");
+
+      return copyingProvider(request);
+    });
+
+    const failure = await rejection(
+      async () => await s3Storage(options())[operation]("from.txt", "to.txt"),
+    );
+
+    expect(failure).toMatchObject({
+      code: "AccessDenied",
+      operation,
+      key: "to.txt",
+      providerCode: "AccessDenied",
+    });
+    expect(sent.map((request) => request.method)).toEqual(["PUT", "HEAD", "GET"]);
+    expect(sent[2]?.url).toBe("https://stowage.s3.eu-central-1.amazonaws.com/to.txt");
+  },
+);
+
 test("the source is percent-encoded segment by segment in `x-amz-copy-source`", async () => {
   const sent = stubFetch(copyingProvider);
 

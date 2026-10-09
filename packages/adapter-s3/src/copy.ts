@@ -4,6 +4,7 @@ import { readAnswerDocument } from "./answer-document.ts";
 import { encodePath } from "./canonical.ts";
 import type { S3Configuration } from "./configuration.ts";
 import { describeResponse } from "./description.ts";
+import { sendHead } from "./head.ts";
 import { send } from "./request.ts";
 import { inStorage } from "./storage-error.ts";
 
@@ -48,7 +49,7 @@ export async function copyObject(
     "CopyObjectResult",
   );
 
-  const described = await send(configuration, { method: "HEAD", operation, key: to, signal });
+  const described = await sendHead(configuration, { operation, key: to, signal });
 
   return describeResponse(bucket, to, operation, described);
 }
