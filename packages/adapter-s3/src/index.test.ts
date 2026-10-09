@@ -525,11 +525,41 @@ test.each(["stat", "exists"] as const)(
   },
 );
 
+// Spec 7.9: the `GET` names the code the `HEAD` could not, so its failure is the call's.
+test("`NoSuchKey` answered to the `GET` after the `HEAD` of `stat` is its `NotFound`", async () => {
+  stubFetch(
+    answeringHeadWith404(() =>
+      refused(404, "NoSuchKey", "The specified key does not exist.", {
+        "x-amz-request-id": "get-request",
+      }),
+    ),
+  );
+
+  const failure = await rejection(async () => await s3Storage(options()).stat("object.txt"));
+
+  expect(failure).toMatchObject({
+    code: "NotFound",
+    operation: "stat",
+    key: "object.txt",
+    status: 404,
+    providerCode: "NoSuchKey",
+    requestId: "get-request",
+    attempts: 1,
+  });
+});
+
+test("`NoSuchKey` answered to the `GET` after the `HEAD` of `exists` leaves it `false`", async () => {
+  stubFetch(
+    answeringHeadWith404(() => refused(404, "NoSuchKey", "The specified key does not exist.")),
+  );
+
+  expect(await s3Storage(options()).exists("object.txt")).toBe(false);
+});
+
 // Spec 7.9: an object a writer created in between, and a compatible endpoint that names no
 // code, keep the answer the `HEAD` gave.
 const followUpsLeavingTheHead: readonly [string, () => Response][] = [
-  ["`NoSuchKey`", () => refused(404, "NoSuchKey", "The specified key does not exist.")],
-  ["a success", () => storedResponse("b", { "content-range": "bytes 0-0/4" })],
+  ["a success",() => storedResponse("b", { "content-range": "bytes 0-0/4" })],
   [
     "a success with an already-errored body",
     () =>
@@ -723,16 +753,39 @@ test("an error document that breaks otherwise leaves the status to decide", asyn
   expect(failure.status).toBe(403);
 });
 
-// Spec 7.9: `HEAD` carries no body, so `stat` and `exists` report the status alone.
-test("`stat` reports the status of a `HEAD` without a provider code", async () => {
-  stubFetch(() => refused(403, "AccessDenied", "Access Denied"));
+/** A `HEAD` refused with `status` and no body, as AWS and R2 refuse one (ADR 0066). */
+function answeringHeadWith(
+  status: number,
+  followUp: (request: SentRequest) => Response,
+): (request: SentRequest) => Response {
+  return (request) =>
+    request.method === "HEAD" ? new Response(null, { status }) : followUp(request);
+}
 
-  const failure = await rejection(async () => await s3Storage(options()).stat("object.txt"));
+// Spec 7.9: a `HEAD` carries no body to name the code, so a refusal is asked again as a
+// `GET` of one byte, whose body does (ADR 0066).
+test.each(["stat", "exists"] as const)(
+  "a key pair refused at the `HEAD` of `%s` is `InvalidCredentials` from the `GET` after it",
+  async (operation) => {
+    const sent = stubFetch(answeringHeadWith(403, signatureRefused));
 
-  expect(failure.code).toBe("AccessDenied");
-  expect(failure.providerCode).toBeUndefined();
-  expect(failure.message).toContain("403");
-});
+    const failure = await rejection(
+      async () => await s3Storage(options())[operation]("object.txt"),
+    );
+
+    expect(failure).toMatchObject({
+      code: "InvalidCredentials",
+      operation,
+      key: "object.txt",
+      status: 403,
+      providerCode: "SignatureDoesNotMatch",
+      attempts: 1,
+      retryable: false,
+    });
+    expect(sent.map((request) => request.method)).toEqual(["HEAD", "GET"]);
+    expect(sent[1]?.headers.get("range")).toBe("bytes=0-0");
+  },
+);
 
 // Spec 7.9: 513 characters and 1026 bytes, so the limit is counted in UTF-8 bytes.
 const tooLongKey = "ü".repeat(513);
@@ -884,20 +937,27 @@ test("a key pair refused as a wrong signature is not refreshed", async () => {
   expect(sent).toHaveLength(1);
 });
 
-// ADR 0065: a `HEAD` carries no provider code, so nothing says the credential was refused.
 test.each(["stat", "exists"] as const)(
-  "`%s` under a temporary credential answered `403` is `AccessDenied` without a refresh",
+  "a key denied at the `HEAD` of `%s` is `AccessDenied` from the `GET` after it",
   async (operation) => {
-    const sent = stubFetch(() => new Response(null, { status: 403 }));
+    const sent = stubFetch(
+      answeringHeadWith(403, () =>
+        refused(403, "AccessDenied", "Access Denied", { "x-amz-request-id": "get-request" }),
+      ),
+    );
 
     const failure = await rejection(
       async () =>
         await s3Storage(options({ credentials: temporaryCredentials }))[operation]("object.txt"),
     );
 
-    expect(failure.code).toBe("AccessDenied");
-    expect(failure.attempts).toBe(1);
-    expect(sent).toHaveLength(1);
+    expect(failure).toMatchObject({
+      code: "AccessDenied",
+      providerCode: "AccessDenied",
+      requestId: "get-request",
+      attempts: 1,
+    });
+    expect(sent.map((request) => request.method)).toEqual(["HEAD", "GET"]);
   },
 );
 
