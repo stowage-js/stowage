@@ -32,8 +32,9 @@ export async function sendHead(
     if (reading.kind === "refused") throw reading.failure;
     if (reading.kind === "standing") throw failure;
 
-    // Spec 7.9: one `HEAD` more under the credential the `GET` refreshed, and none after
-    // it, so a resolver that hands back the refused credential costs four requests at most.
+    // Spec 7.9: one `HEAD` more under the credential the `GET` refreshed, and no `GET` after
+    // it, so a resolver that hands back the refused credential meets the status reading
+    // rather than a second refresh.
     return await send(configuration, head);
   }
 }
