@@ -56,14 +56,16 @@ export function contentHeaderFields(
 
   const { held } = check;
 
-  return {
-    headers: contentHeaderOptions.flatMap((option): HeaderField[] => {
-      const value = held[option];
+  return { headers: sentContentHeaders(held), held };
+}
 
-      return value === undefined ? [] : [[sentNames[option], value]];
-    }),
-    held,
-  };
+/** The `x-ms-blob-*` fields that carry the content headers, one for each held. */
+export function sentContentHeaders(held: ContentHeaders): HeaderField[] {
+  return contentHeaderOptions.flatMap((option): HeaderField[] => {
+    const value = held[option];
+
+    return value === undefined ? [] : [[sentNames[option], value]];
+  });
 }
 
 /** The content headers a `Get Blob` or a `Get Blob Properties` response carries (spec 8.4). */

@@ -24,6 +24,11 @@ export function inStorage(
   return azureBlobError(container, { ...fieldsOf(failure), operation, key: key ?? failure.key });
 }
 
+/** The same failure, told as one that a later call of the whole operation may not meet. */
+export function asRetryable(failure: StorageError, container: string): StorageError {
+  return azureBlobError(container, { ...fieldsOf(failure), retryable: true });
+}
+
 /**
  * Every field of `StorageErrorFields` is named below, so a field added to that type has
  * to be added here too or it is dropped on the way through.

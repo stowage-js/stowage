@@ -1372,30 +1372,45 @@ test.each(["copy", "move"] as const)(
   },
 );
 
-/** What Azure answers `Put Blob From URL` and then the `HEAD` of the destination with. */
+/** What Azure answers the `HEAD` of the source, `Put Blob From URL` and the `HEAD` of the destination with. */
 function copied(headers: Record<string, string> = {}) {
-  return (request: SentRequest): Response =>
-    request.method === "HEAD" ? described(headers) : created();
+  return copyAnswered(created, headers);
 }
 
-test("`copy` sends one `Put Blob From URL` and describes the destination with a `HEAD`", async () => {
-  const sent = stubFetch(copied({ "x-ms-meta-writtenby": "stowage" }));
+/** Answers `Put Blob From URL` with `answer`, and every `HEAD` with the blob described. */
+function copyAnswered(answer: () => Response, headers: Record<string, string> = {}) {
+  return (request: SentRequest): Response =>
+    request.method === "HEAD" ? described(headers) : answer();
+}
+
+/** The `Put Blob From URL` requests among those sent. */
+function copyRequests(sent: readonly SentRequest[]): SentRequest[] {
+  return sent.filter((request) => request.method === "PUT");
+}
+
+test("`copy` reads the source with a `HEAD`, copies it pinned to that entity tag, and describes the destination", async () => {
+  const sent = stubFetch((request) =>
+    request.method === "HEAD" && request.url.endsWith("/from%20%231.txt")
+      ? described({ etag: '"0x8DCSOURCE"' })
+      : copied({ "x-ms-meta-writtenby": "stowage" })(request),
+  );
 
   const written = await storage().copy("from #1.txt", "to.txt");
 
-  expect(sent.map((request) => request.method)).toEqual(["PUT", "HEAD"]);
-  expect(sent[0]?.url).toBe("https://stowage.blob.core.windows.net/conformance/to.txt");
-  expect(sent[0]?.headers.get("x-ms-blob-type")).toBe("BlockBlob");
-  expect(sent[0]?.headers.get("x-ms-copy-source")).toBe(
+  expect(sent.map((request) => request.method)).toEqual(["HEAD", "PUT", "HEAD"]);
+  expect(sent[0]?.url).toBe("https://stowage.blob.core.windows.net/conformance/from%20%231.txt");
+  expect(sent[1]?.url).toBe("https://stowage.blob.core.windows.net/conformance/to.txt");
+  expect(sent[1]?.headers.get("x-ms-blob-type")).toBe("BlockBlob");
+  expect(sent[1]?.headers.get("x-ms-copy-source")).toBe(
     "https://stowage.blob.core.windows.net/conformance/from%20%231.txt",
   );
-  // The service copies the content type and the user metadata of the source (ADR 0025).
-  expect(sent[0]?.headers.has("content-type")).toBe(false);
-  expect([...(sent[0]?.headers.keys() ?? [])].some((name) => name.startsWith("x-ms-meta-"))).toBe(
+  expect(sent[1]?.headers.get("x-ms-source-if-match")).toBe('"0x8DCSOURCE"');
+  // The service copies the user metadata of the source (ADR 0025).
+  expect([...(sent[1]?.headers.keys() ?? [])].some((name) => name.startsWith("x-ms-meta-"))).toBe(
     false,
   );
-  expect(sent[0]?.body).toEqual(new Uint8Array(0));
-  expect(sent[1]?.url).toBe("https://stowage.blob.core.windows.net/conformance/to.txt");
+  expect(sent[1]?.body).toEqual(new Uint8Array(0));
+  expect(sent[2]?.url).toBe("https://stowage.blob.core.windows.net/conformance/to.txt");
   expect(written).toEqual({
     key: "to.txt",
     size: 11,
@@ -1411,13 +1426,15 @@ test("under an access token the source is authorized by the token of the request
 
   await storage().copy("from.txt", "to.txt");
 
-  expect(sent[0]?.headers.get("authorization")).toBe(`Bearer ${accessToken}`);
-  expect(sent[0]?.headers.get("x-ms-copy-source-authorization")).toBe(`Bearer ${accessToken}`);
+  const [copy] = copyRequests(sent);
+
+  expect(copy?.headers.get("authorization")).toBe(`Bearer ${accessToken}`);
+  expect(copy?.headers.get("x-ms-copy-source-authorization")).toBe(`Bearer ${accessToken}`);
 });
 
 test("the repeat after a refused token renews the authorization of the source too", async () => {
   const responses = [tokenRefused()];
-  const sent = stubFetch((request) => responses.shift() ?? copied()(request));
+  const sent = stubFetch(copyAnswered(() => responses.shift() ?? created()));
   const tokens = ["stale", "fresh"];
 
   await storage({ credentials: () => ({ accessToken: tokens.shift() ?? "fresh" }) }).copy(
@@ -1425,8 +1442,10 @@ test("the repeat after a refused token renews the authorization of the source to
     "to.txt",
   );
 
-  expect(sent[1]?.headers.get("authorization")).toBe("Bearer fresh");
-  expect(sent[1]?.headers.get("x-ms-copy-source-authorization")).toBe("Bearer fresh");
+  const repeated = copyRequests(sent)[1];
+
+  expect(repeated?.headers.get("authorization")).toBe("Bearer fresh");
+  expect(repeated?.headers.get("x-ms-copy-source-authorization")).toBe("Bearer fresh");
 });
 
 test("under an account key the source carries a service SAS reading it for the next hour", async () => {
@@ -1439,7 +1458,8 @@ test("under an account key the source carries a service SAS reading it for the n
     vi.useRealTimers();
   }
 
-  const source = new URL(sent[0]?.headers.get("x-ms-copy-source") ?? "");
+  const [copy] = copyRequests(sent);
+  const source = new URL(copy?.headers.get("x-ms-copy-source") ?? "");
 
   expect(`${source.origin}${source.pathname}`).toBe(
     "https://stowage.blob.core.windows.net/conformance/from%20%231.txt",
@@ -1453,14 +1473,14 @@ test("under an account key the source carries a service SAS reading it for the n
     sp: "r",
   });
   expect(source.searchParams.get("sig")).toMatch(/^[A-Za-z0-9+/]{43}=$/u);
-  expect(sent[0]?.headers.has("x-ms-copy-source-authorization")).toBe(false);
-  expect(sent[0]?.headers.get("authorization")).toMatch(/^SharedKey stowage:/u);
+  expect(copy?.headers.has("x-ms-copy-source-authorization")).toBe(false);
+  expect(copy?.headers.get("authorization")).toMatch(/^SharedKey stowage:/u);
 });
 
 test("each attempt signs the SAS of the source with the key it resolved", async () => {
   recordedDelays();
   const responses = [refused(503, "ServerBusy", "The server is busy.")];
-  const sent = stubFetch((request) => responses.shift() ?? copied()(request));
+  const sent = stubFetch(copyAnswered(() => responses.shift() ?? created()));
   const keys = [accountKey, "b3RoZXIta2V5"];
 
   await storage({ credentials: () => ({ accountKey: keys.shift() ?? accountKey }) }).copy(
@@ -1468,11 +1488,9 @@ test("each attempt signs the SAS of the source with the key it resolved", async 
     "to.txt",
   );
 
-  const signatures = sent
-    .filter((request) => request.method === "PUT")
-    .map((request) =>
-      new URL(request.headers.get("x-ms-copy-source") ?? "").searchParams.get("sig"),
-    );
+  const signatures = copyRequests(sent).map((request) =>
+    new URL(request.headers.get("x-ms-copy-source") ?? "").searchParams.get("sig"),
+  );
 
   expect(signatures).toHaveLength(2);
   expect(signatures[0]).not.toBe(signatures[1]);
@@ -1499,7 +1517,7 @@ test.each([
 ])(
   "`CannotVerifyCopySource` is told by %s, against the source key",
   async (_label, answer, code, status) => {
-    stubFetch(() => answer);
+    stubFetch(copyAnswered(() => answer));
 
     const failure = await failureOf(() => storage().copy("from.txt", "to.txt"));
 
@@ -1516,12 +1534,12 @@ test.each([
 
 test("a source the service could not verify in time is repeated as transient", async () => {
   recordedDelays();
-  const sent = stubFetch(() => sourceUnverified(500));
+  const sent = stubFetch(copyAnswered(() => sourceUnverified(500)));
 
   const failure = await failureOf(() => storage().copy("from.txt", "to.txt"));
 
   expect(failure).toMatchObject({ code: "ProviderError", retryable: true, attempts: 3 });
-  expect(sent).toHaveLength(3);
+  expect(copyRequests(sent)).toHaveLength(3);
 });
 
 test.each([
@@ -1543,18 +1561,20 @@ test.each([
 ])(
   "a `409` with %s is `InvalidRequest` naming the 5,000 MiB, without a fallback",
   async (_label, answer) => {
-    const sent = stubFetch(() => answer);
+    const sent = stubFetch(copyAnswered(() => answer));
 
     const failure = await failureOf(() => storage().copy("from.txt", "to.txt"));
 
     expect(failure).toMatchObject({ code: "InvalidRequest", status: 409, key: "to.txt" });
     expect(failure.message).toContain("5,000 MiB");
-    expect(sent).toHaveLength(1);
+    expect(copyRequests(sent)).toHaveLength(1);
   },
 );
 
 test("a `409` whose code the table names is told by the table", async () => {
-  stubFetch(() => refused(409, "PendingCopyOperation", "There is currently a pending copy."));
+  stubFetch(
+    copyAnswered(() => refused(409, "PendingCopyOperation", "There is currently a pending copy.")),
+  );
 
   const failure = await failureOf(() => storage().copy("from.txt", "to.txt"));
 
@@ -1576,22 +1596,98 @@ test("`copy` rejects a signal that already fired before any request", async () =
   expect(sent).toHaveLength(0);
 });
 
-// Spec 8.7: the service copies the source's content headers, so the request names none.
+// ADR 0068: the service rewrites each of the five it copies on its own into a canonical form.
 test.each(["copy", "move"] as const)(
-  "`%s` sends no content header and reads them from the `HEAD` of the destination",
+  "`%s` restates the source's type, coding and content headers byte for byte",
   async (operation) => {
     const sent = stubFetch((request) =>
       request.method === "DELETE"
         ? new Response(null, { status: 202 })
-        : copied(storedContentHeaders)(request),
+        : copied({
+            ...storedContentHeaders,
+            "content-type": "text/plain;charset=utf-8",
+            "content-encoding": "gzip, br",
+          })(request),
     );
 
     const written = await storage()[operation]("from.txt", "to.txt");
+    const [copy] = copyRequests(sent);
 
-    expect(contentHeadersOf(sent[0])).toEqual([null, null, null]);
+    expect(contentHeadersOf(copy)).toEqual(Object.values(contentHeaders));
+    expect(copy?.headers.get("x-ms-blob-content-type")).toBe("text/plain;charset=utf-8");
+    expect(copy?.headers.get("x-ms-blob-content-encoding")).toBe("gzip, br");
     expect(written).toMatchObject(contentHeaders);
   },
 );
+
+test("a missing source is `NotFound` against the source key before anything is written", async () => {
+  const sent = stubFetch(() => headRefused(404, "BlobNotFound"));
+
+  expect(await failureOf(() => storage().copy("from.txt", "to.txt"))).toMatchObject({
+    code: "NotFound",
+    operation: "copy",
+    key: "from.txt",
+  });
+  expect(sent.map((request) => request.method)).toEqual(["HEAD"]);
+});
+
+/** What Azure answered a copy pinned to an entity tag the source no longer carried. */
+function sourceReplaced(): Response {
+  return sourceUnverified(412, 412);
+}
+
+test("a source replaced after its `HEAD` is read and copied again, under the new entity tag", async () => {
+  const etags = ['"0x8DCFIRST"', '"0x8DCSECOND"'];
+  const copies = [sourceReplaced()];
+  const sent = stubFetch((request) => {
+    if (request.method === "PUT") return copies.shift() ?? created();
+    if (request.url.endsWith("/from.txt")) return described({ etag: etags.shift() ?? "" });
+
+    return described();
+  });
+
+  const written = await storage().copy("from.txt", "to.txt");
+
+  expect(sent.map((request) => request.method)).toEqual(["HEAD", "PUT", "HEAD", "PUT", "HEAD"]);
+  expect(copyRequests(sent).map((request) => request.headers.get("x-ms-source-if-match"))).toEqual([
+    '"0x8DCFIRST"',
+    '"0x8DCSECOND"',
+  ]);
+  expect(written.key).toBe("to.txt");
+});
+
+test("a source replaced under three copies in a row is a `ProviderError` worth repeating later", async () => {
+  const sent = stubFetch(copyAnswered(sourceReplaced));
+
+  expect(await failureOf(() => storage().copy("from.txt", "to.txt"))).toMatchObject({
+    code: "ProviderError",
+    providerCode: "CannotVerifyCopySource",
+    status: 412,
+    retryable: true,
+    operation: "copy",
+    key: "from.txt",
+  });
+  expect(sent.map((request) => request.method)).toEqual([
+    "HEAD",
+    "PUT",
+    "HEAD",
+    "PUT",
+    "HEAD",
+    "PUT",
+  ]);
+});
+
+test("`copy` restates nothing the source does not hold", async () => {
+  const sent = stubFetch(copied());
+
+  await storage().copy("from.txt", "to.txt");
+
+  const [copy] = copyRequests(sent);
+
+  expect(contentHeadersOf(copy)).toEqual([null, null, null]);
+  expect(copy?.headers.has("x-ms-blob-content-encoding")).toBe(false);
+  expect(copy?.headers.get("x-ms-blob-content-type")).toBe("text/plain");
+});
 
 // Spec 8.4 and ADR 0061: a response override would be reported in place of the stored value,
 // so a request whose answer feeds an `ObjectStat` carries no query at all.
@@ -1609,8 +1705,10 @@ test("no request whose answer describes an object carries a response override", 
 
   const describing = sent.filter((request) => ["GET", "HEAD"].includes(request.method));
 
-  expect(describing).toHaveLength(4);
-  expect(describing.map((request) => new URL(request.url).search)).toEqual(["", "", "", ""]);
+  expect(describing).toHaveLength(6);
+  expect(describing.map((request) => new URL(request.url).search)).toEqual(
+    Array.from(describing, () => ""),
+  );
 });
 
 test("`move` copies, then deletes the source without a condition, and describes the destination", async () => {
@@ -1620,9 +1718,9 @@ test("`move` copies, then deletes the source without a condition, and describes 
 
   const moved = await storage().move("from.txt", "to.txt");
 
-  expect(sent.map((request) => request.method)).toEqual(["PUT", "HEAD", "DELETE"]);
-  expect(sent[2]?.url).toBe("https://stowage.blob.core.windows.net/conformance/from.txt");
-  expect(sent[2]?.headers.has("if-match")).toBe(false);
+  expect(sent.map((request) => request.method)).toEqual(["HEAD", "PUT", "HEAD", "DELETE"]);
+  expect(sent[3]?.url).toBe("https://stowage.blob.core.windows.net/conformance/from.txt");
+  expect(sent[3]?.headers.has("if-match")).toBe(false);
   expect(moved.key).toBe("to.txt");
 });
 
@@ -1635,14 +1733,14 @@ test("a source already gone when `move` deletes it is deleted", async () => {
 });
 
 test("`move` rejects with the error of the step that failed, named as `move`", async () => {
-  const copyRefused = stubFetch(() => sourceUnverified(404, 404));
+  const copyRefused = stubFetch(copyAnswered(() => sourceUnverified(404, 404)));
 
   expect(await failureOf(() => storage().move("from.txt", "to.txt"))).toMatchObject({
     code: "NotFound",
     operation: "move",
     key: "from.txt",
   });
-  expect(copyRefused).toHaveLength(1);
+  expect(copyRefused.map((request) => request.method)).toEqual(["HEAD", "PUT"]);
 
   stubFetch((request) =>
     request.method === "DELETE"
