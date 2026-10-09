@@ -25,6 +25,10 @@ const answeredNames = {
   contentLanguage: "content-language",
 } as const satisfies Readonly<Record<keyof ContentHeaders, string>>;
 
+/** Each content header as a response names it and as a request sends it. */
+export const contentHeaderNames: readonly (readonly [answered: string, sent: string])[] =
+  contentHeaderOptions.map((option) => [answeredNames[option], sentNames[option]]);
+
 export interface ContentHeaderFields {
   /**
    * What `Put Blob` and `Put Block List` carry the content headers in, and what the SAS of
@@ -56,16 +60,14 @@ export function contentHeaderFields(
 
   const { held } = check;
 
-  return { headers: sentContentHeaders(held), held };
-}
+  return {
+    headers: contentHeaderOptions.flatMap((option): HeaderField[] => {
+      const value = held[option];
 
-/** The `x-ms-blob-*` fields that carry the content headers, one for each held. */
-export function sentContentHeaders(held: ContentHeaders): HeaderField[] {
-  return contentHeaderOptions.flatMap((option): HeaderField[] => {
-    const value = held[option];
-
-    return value === undefined ? [] : [[sentNames[option], value]];
-  });
+      return value === undefined ? [] : [[sentNames[option], value]];
+    }),
+    held,
+  };
 }
 
 /** The content headers a `Get Blob` or a `Get Blob Properties` response carries (spec 8.4). */

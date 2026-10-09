@@ -2,7 +2,7 @@ import { isStorageError, type ObjectStat, type StorageError } from "@stowage/cor
 
 import type { AzureBlobConfiguration } from "./configuration.ts";
 import type { AzureBlobCredentials } from "./credentials.ts";
-import { readContentHeaders, sentContentHeaders } from "./content-headers.ts";
+import { contentHeaderNames } from "./content-headers.ts";
 import { describeResponse } from "./description.ts";
 import { blobUrl, send } from "./request.ts";
 import { sasWindow, signServiceSas } from "./sas.ts";
@@ -55,7 +55,7 @@ export async function copyBlob(
   return describeResponse(configuration.container, to, operation, described);
 }
 
-/** ADR 0068: the properties the copy restates and the pin both come from one `HEAD`. */
+/** ADR 0068: the blob properties the copy restates and the pin both come from one `HEAD`. */
 async function copyPinned(
   configuration: AzureBlobConfiguration,
   from: string,
@@ -76,7 +76,7 @@ async function copyPinned(
     headers: async (credentials) => [
       ["x-ms-blob-type", "BlockBlob"],
       ["x-ms-source-if-match", pin],
-      ...restatedProperties(source.headers),
+      ...restatedFields(source.headers),
       ...(await sourceAuthorization(configuration, from, credentials)),
     ],
     // Azure requires `Content-Length: 0`, which `fetch` sends for an empty body alone.
@@ -100,21 +100,27 @@ function isReplacedSource(failure: unknown): failure is StorageError {
 }
 
 /**
- * ADR 0068: the service rewrites each of these it copies on its own into a canonical form
- * its documentation does not describe, and stores one restated on the copy as sent. All five
- * the source holds are restated, so that no rewrite the service may add later reaches them.
+ * ADR 0068: the blob properties the service rewrites into a canonical form when it copies them
+ * itself, and stores as sent when the copy restates them, as each response names it and as the
+ * copy restates it.
  */
-function restatedProperties(source: Headers): HeaderField[] {
-  const contentType = source.get("content-type");
-  const contentEncoding = source.get("content-encoding");
+const restatedNames: readonly (readonly [answered: string, restated: string])[] = [
+  ["content-type", "x-ms-blob-content-type"],
+  ["content-encoding", "x-ms-blob-content-encoding"],
+  ...contentHeaderNames,
+];
 
-  return [
-    ...(contentType === null ? [] : [["x-ms-blob-content-type", contentType] as const]),
-    ...(contentEncoding === null || contentEncoding === ""
-      ? []
-      : [["x-ms-blob-content-encoding", contentEncoding] as const]),
-    ...sentContentHeaders(readContentHeaders(source)),
-  ];
+/**
+ * Each of the five the source holds, as stored: a coding of `identity` too, which a
+ * description reads as none. Restating all of them keeps a rewrite the service may add later
+ * away from them.
+ */
+function restatedFields(source: Headers): HeaderField[] {
+  return restatedNames.flatMap(([answered, restated]): HeaderField[] => {
+    const value = source.get(answered);
+
+    return value === null || value === "" ? [] : [[restated, value]];
+  });
 }
 
 /**
