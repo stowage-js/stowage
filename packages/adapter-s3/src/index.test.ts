@@ -1012,10 +1012,17 @@ function refreshingResolver(): (options?: ResolverOptions) => typeof temporaryCr
 
 test("a stale session token refused at the `HEAD` of `stat` is refreshed, and the `HEAD` sent again", async () => {
   const sent = stubFetch(answeringTheFreshTokenAlone());
+  const resolve = vi.fn(refreshingResolver());
 
-  const stat = await s3Storage(options({ credentials: refreshingResolver() })).stat("object.txt");
+  const stat = await s3Storage(options({ credentials: resolve })).stat("object.txt");
 
   expect(stat.key).toBe("object.txt");
+  expect(resolve.mock.calls).toEqual([
+    [{ forceRefresh: false }],
+    [{ forceRefresh: false }],
+    [{ forceRefresh: true }],
+    [{ forceRefresh: false }],
+  ]);
   expect(
     sent.map((request) => [request.method, request.headers.get("x-amz-security-token")]),
   ).toEqual([
@@ -1025,6 +1032,27 @@ test("a stale session token refused at the `HEAD` of `stat` is refreshed, and th
     ["HEAD", "fresh"],
   ]);
 });
+
+test.each(["stat", "exists"] as const)(
+  "a session token refused at the `HEAD` of `%s` and refused again once refreshed is `InvalidCredentials`",
+  async (operation) => {
+    const sent = stubFetch(answeringHeadWith(403, signatureRefused));
+
+    const failure = await rejection(
+      async () =>
+        await s3Storage(options({ credentials: temporaryCredentials }))[operation]("object.txt"),
+    );
+
+    expect(failure).toMatchObject({
+      code: "InvalidCredentials",
+      operation,
+      providerCode: "SignatureDoesNotMatch",
+      attempts: 2,
+    });
+    expect(failure.message).toContain("and so is the one the resolver refreshed");
+    expect(sent.map((request) => request.method)).toEqual(["HEAD", "GET", "GET"]);
+  },
+);
 
 // Spec 7.3: a refreshed credential the adapter refuses before signing fails the call, as it
 // fails `get`, rather than leaving the `HEAD`'s status to say the credential was fine.
