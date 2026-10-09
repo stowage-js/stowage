@@ -32,18 +32,20 @@ function targetFor(variables: Record<string, string>): ReturnType<typeof gcsTarg
 
 // Spec 14.2: a case whose factory the target does not supply reports itself skipped, and
 // ADR 0034 has both credential cases skipped against the emulator, which checks neither.
-test("against fake-gcs-server the target supplies no bad and no denied credential", () => {
+test("against fake-gcs-server the target supplies no bad, no denied and no stale credential", () => {
   const target = targetFor(printed);
 
   expect(target).not.toHaveProperty("createStorageWithBadCredentials");
   expect(target).not.toHaveProperty("createStorageWithDeniedCredentials");
+  expect(target).not.toHaveProperty("createStorageWithStaleCredentials");
 });
 
-test("against the real bucket the target supplies a bad and a denied credential", () => {
+test("against the real bucket the target supplies a bad, a denied and a stale credential", () => {
   const target = targetFor(scheduled);
 
   expect(target).toHaveProperty("createStorageWithBadCredentials");
   expect(target).toHaveProperty("createStorageWithDeniedCredentials");
+  expect(target).toHaveProperty("createStorageWithStaleCredentials");
 });
 
 // ADR 0033: GCS has no answer that means only that a token expired.

@@ -180,6 +180,28 @@ test("the bad credential is a token Google refuses, on every call", async () => 
   });
 });
 
+// ADR 0067: a refused token refreshes on GCS whether it expired or was made up (ADR 0033).
+test("the stale credential is a token Google refuses until the refresh, and the service account's from then on", async () => {
+  stubFederation();
+
+  const endpoint = gcsEndpointFrom(scheduled);
+
+  if (endpoint?.kind !== "bucket") throw new Error("The scheduled job names no real bucket");
+
+  let refreshes = 0;
+  const credentials = endpoint.staleCredentials(() => {
+    refreshes += 1;
+  });
+  const fresh = {
+    accessToken: `${serviceAccount} https://www.googleapis.com/auth/devstorage.read_write 3600s`,
+  };
+
+  await expect(resolve(credentials)).resolves.toEqual({ accessToken: "not-a-google-token" });
+  await expect(resolve(credentials, { forceRefresh: true })).resolves.toEqual(fresh);
+  await expect(resolve(credentials, { forceRefresh: false })).resolves.toEqual(fresh);
+  expect(refreshes).toBe(1);
+});
+
 // Spec 18: the probe asks the bucket with a token of the account the suite runs as.
 test("the expiring token is the service account's with the storage scope, for the lifetime asked", async () => {
   stubFederation();
