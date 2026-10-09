@@ -1050,17 +1050,20 @@ test.each(["stat", "exists"] as const)(
   },
 );
 
+/** A resolver whose refresh hands back a credential the adapter refuses before signing. */
+function refreshingIntoAnEmptyKey(resolverOptions?: ResolverOptions): typeof temporaryCredentials {
+  return resolverOptions?.forceRefresh === true
+    ? { ...temporaryCredentials, accessKeyId: "" }
+    : temporaryCredentials;
+}
+
 // Spec 7.3: a refreshed credential the adapter refuses before signing fails the call, as it
 // fails `get`, rather than leaving the `HEAD`'s status to say the credential was fine.
 test("a resolver that refreshes into an invalid credential fails `stat` with its `InvalidCredentials`", async () => {
   const sent = stubFetch(answeringHeadWith(403, signatureRefused));
-  const resolve = (resolverOptions?: ResolverOptions): typeof temporaryCredentials =>
-    resolverOptions?.forceRefresh === true
-      ? { ...temporaryCredentials, accessKeyId: "" }
-      : temporaryCredentials;
-
   const failure = await rejection(
-    async () => await s3Storage(options({ credentials: resolve })).stat("object.txt"),
+    async () =>
+      await s3Storage(options({ credentials: refreshingIntoAnEmptyKey })).stat("object.txt"),
   );
 
   expect(failure).toMatchObject({ code: "InvalidCredentials", operation: "stat", attempts: 0 });
