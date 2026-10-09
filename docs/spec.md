@@ -1512,7 +1512,7 @@ another endpoint that speaks the Blob wire protocol can be configured and are no
   `Content-Language` the `HEAD` returned as its `x-ms-blob-*` form; the service copies the user
   metadata. Left to itself, the service rewrites those five into a canonical form, such as
   `text/plain;charset=utf-8` into `text/plain; charset=utf-8` (ADR 0068). The destination is
-  replaced once the copy succeeded, and a failure leaves it as it was.
+  replaced once the copy succeeded, and a failed copy leaves it as it was.
 - A source replaced between the `HEAD` and the copy fails the pin, which the service answers
   with `412 CannotVerifyCopySource`. `copy` then sends the `HEAD` and the copy again, three times
   in all, and after the third rejects with `ProviderError`, `retryable: true`, `key` set to
