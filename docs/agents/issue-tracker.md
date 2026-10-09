@@ -36,6 +36,11 @@ back to `issue_read`.
 Opening a PR (`mcp__github__create_pull_request`) is allowed. Pushing branch content is not —
 no `push_files`, `create_or_update_file`, `edit_files`, `delete_file`, or `create_branch`.
 
+A PR is squash-merged, and its title alone becomes the commit on `main`: write it as a
+conventional commit, `<type>(<scope>): <subject>`, which the `Pull request title` workflow
+checks. The scope names the one package a change belongs to, and is left out when there is
+none: `ci: …`. The description stays on the PR.
+
 ## When a skill says "publish to the issue tracker"
 
 Create a GitHub issue.

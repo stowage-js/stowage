@@ -74,6 +74,8 @@ jobs:
       - uses: changesets/action/version@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
         with:
           script: pnpm run version-packages
+          commit-message: "chore(release): version packages"
+          pr-title: "chore(release): version packages"
 
   # Spec 2: the `slow` tier runs before every release, and a release waits for it to pass.
   slow-tier:
