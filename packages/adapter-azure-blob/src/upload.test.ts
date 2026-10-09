@@ -593,11 +593,12 @@ interface HeldBlocks {
 }
 
 /**
- * `Put Block` requests held open until `concurrency` of them are waiting, or as many as are
- * left of the upload's `blocks`, so an upload that sends them one by one never fills a round
- * and runs into the test's timeout. No timer lets a request go on alone: on a loaded machine
- * the next one takes longer to arrive than any short delay waits, and the round reads as
- * smaller.
+ * `Put Block` requests held open until `concurrency` of them are waiting, or as many as are left
+ * of the upload's `blocks`, so that the most in flight reads the upload's pace and not a race.
+ * A request goes on alone after half a second, which a loaded runner needs to deliver the rest
+ * of a round (20 ms was not enough). An upload that sends them one by one still ends within
+ * the test's timeout and fails on `mostInFlight`, and one that stops sending shows its own
+ * rejection.
  */
 function heldBlocks(concurrency: number, blocks: number, pulled: () => number): HeldBlocks {
   let waiting: (() => void)[] = [];
@@ -619,12 +620,20 @@ function heldBlocks(concurrency: number, blocks: number, pulled: () => number): 
       heldAtEachBlock.push(pulled() - answered);
 
       await new Promise<void>((resolve) => {
-        waiting.push(resolve);
+        let alone: ReturnType<typeof setTimeout> | undefined;
+        const release = (): void => {
+          clearTimeout(alone);
+          waiting = waiting.filter((each) => each !== release);
+          released += 1;
+          resolve();
+        };
+
+        waiting.push(release);
 
         if (waiting.length >= Math.min(concurrency, blocks - released)) {
-          released += waiting.length;
-          for (const release of waiting) release();
-          waiting = [];
+          for (const each of waiting) each();
+        } else {
+          alone = setTimeout(release, 500);
         }
       });
 
@@ -638,9 +647,9 @@ function heldBlocks(concurrency: number, blocks: number, pulled: () => number): 
 
 test("blocks go `concurrency` at a time, and the upload holds no more of the stream", async () => {
   let pulled = 0;
-  const held = heldBlocks(2, 7, () => pulled);
-  const sent = stubFetch(held.answer);
   const bytes = patternOf(6 * smallestPart + 1);
+  const held = heldBlocks(2, Math.ceil(bytes.byteLength / smallestPart), () => pulled);
+  const sent = stubFetch(held.answer);
   const upload = storage({ multipart: { partSize: smallestPart, concurrency: 2 } });
 
   await upload.put(
@@ -659,9 +668,9 @@ test("blocks go `concurrency` at a time, and the upload holds no more of the str
 
 test("parts are 8 MiB and go four at a time by default", async () => {
   let pulled = 0;
-  const held = heldBlocks(4, 6, () => pulled);
-  const sent = stubFetch(held.answer);
   const bytes = patternOf(5 * 8 * mebibyte + 1);
+  const held = heldBlocks(4, Math.ceil(bytes.byteLength / (8 * mebibyte)), () => pulled);
+  const sent = stubFetch(held.answer);
 
   await storage().put(
     "object.bin",
