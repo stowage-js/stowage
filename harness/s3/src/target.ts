@@ -26,7 +26,7 @@ const expiryMargin = 60_000;
 export function s3Target(configured: S3AdapterOptions, variables: Variables): ConformanceTarget {
   const denied = storageWithDeniedCredentials(configured, variables);
   const expired = expiredCredentialsFrom(variables);
-  const stale = staleCredentialsFrom(configured, variables);
+  const obtainStale = staleCredentialsFrom(configured, variables);
 
   return {
     name: "@stowage/adapter-s3",
@@ -50,15 +50,15 @@ export function s3Target(configured: S3AdapterOptions, variables: Variables): Co
             s3Storage({ ...configured, credentials: await onceExpired(expired) }),
         }),
 
-    ...(stale === undefined
+    ...(obtainStale === undefined
       ? {}
       : {
           createStorageWithStaleCredentials: async (onRefresh) => {
-            const refused = await onceExpired(await stale());
+            const stale = await onceExpired(await obtainStale());
 
             return s3Storage({
               ...configured,
-              credentials: staleResolver(refused, configured.credentials, onRefresh),
+              credentials: staleResolver(stale, configured.credentials, onRefresh),
             });
           },
         }),

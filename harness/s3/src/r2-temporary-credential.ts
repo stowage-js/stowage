@@ -1,14 +1,16 @@
 import type { S3Credentials } from "../../../packages/adapter-s3/src/index.ts";
 import type { ExpiredCredentials } from "./configuration.ts";
 
-/** How long before the signing the credential expired, and how long before that it was issued. */
-const expiredFor = 300;
-const livedFor = 300;
+// Longer ago than the margin `onceExpired` in `target.ts` adds to an expiry, so the storage is
+// handed out without a wait.
+const expiredSecondsBeforeSigning = 300;
+const livedSeconds = 300;
 
 /**
  * ADR 0067: an R2 temporary credential the harness signs itself, already expired, from the
  * key pair the run is configured with. R2 accepts a JWT signed with the parent's secret
- * (ADR 0045), so no Cloudflare API token is involved and nothing waits for the expiry. Web Crypto rather than `node:crypto`, since `workerd` runs the same target.
+ * (ADR 0045), so no Cloudflare API token is involved and nothing waits for the expiry. Web
+ * Crypto rather than `node:crypto`, since `workerd` runs the same target.
  */
 export async function expiredR2Credentials(
   parent: S3Credentials,
@@ -18,7 +20,7 @@ export async function expiredR2Credentials(
 ): Promise<ExpiredCredentials> {
   const host = new URL(endpoint).host;
   const [accountId = ""] = host.split(".");
-  const expiry = Math.floor(now.getTime() / 1000) - expiredFor;
+  const expiry = Math.floor(now.getTime() / 1000) - expiredSecondsBeforeSigning;
   const header = base64Url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
   const payload = base64Url(
     JSON.stringify({
@@ -29,7 +31,7 @@ export async function expiredR2Credentials(
       sub: accountId,
       iss: parent.accessKeyId,
       aud: host,
-      iat: expiry - livedFor,
+      iat: expiry - livedSeconds,
       exp: expiry,
     }),
   );

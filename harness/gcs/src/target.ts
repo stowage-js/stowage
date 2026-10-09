@@ -33,8 +33,8 @@ const emulatorServiceAccount = "fake-gcs-server@stowage.invalid";
 
 /**
  * `adapter-gcs` against the endpoint of ADR 0034. fake-gcs-server checks no credential, so
- * there is no factory for a bad, a denied or a stale one, and it takes a key generated for the run to
- * sign with, so that the presigning cases and flow 2 run on every commit.
+ * there is no factory for a bad, a denied or a stale one, and it takes a key generated for the
+ * run to sign with, so that the presigning cases and flow 2 run on every commit.
  */
 export function gcsTarget(endpoint: GcsEndpoint): ConformanceTarget {
   const name = "@stowage/adapter-gcs";

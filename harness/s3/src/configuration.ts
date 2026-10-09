@@ -156,11 +156,14 @@ export function staleCredentialsFrom(
   variables: Variables,
 ): (() => Promise<ExpiredCredentials>) | undefined {
   if (endpointNameFrom(variables) === "r2") {
+    const { credentials, endpoint, bucket } = configured;
+
+    if (endpoint === undefined) throw new Error("R2's endpoint names the account it signs for");
+
     return async () => {
-      const { credentials, endpoint = "" } = configured;
       const parent = typeof credentials === "function" ? await credentials() : credentials;
 
-      return await expiredR2Credentials(parent, endpoint, configured.bucket, new Date());
+      return await expiredR2Credentials(parent, endpoint, bucket, new Date());
     };
   }
 
