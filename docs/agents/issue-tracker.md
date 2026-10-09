@@ -38,7 +38,8 @@ no `push_files`, `create_or_update_file`, `edit_files`, `delete_file`, or `creat
 
 A PR is squash-merged, and its title alone becomes the commit on `main`: write it as a
 conventional commit, `<type>(<scope>): <subject>`, which the `Pull request title` workflow
-checks. The description stays on the PR.
+checks. The scope names the one package a change belongs to, and is left out when there is
+none: `ci: …`. The description stays on the PR.
 
 ## When a skill says "publish to the issue tracker"
 
