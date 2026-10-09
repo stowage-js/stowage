@@ -1110,7 +1110,8 @@ Google Cloud Storage's XML API among them (ADR 0031).
   `InvalidCredentials` whose message says that the temporary credential expired or is not accepted.
   A key pair answered `SignatureDoesNotMatch` gets no refresh. A `HEAD` is refused without a
   provider code, so `stat`, `exists` and the `HEAD` that describes the destination of `copy` and
-  `move` reach the refresh through the `GET` that follows the refusal (section 7.9, ADR 0066).
+  `move` reach the refresh only through the `GET` that follows the refusal, and on the same
+  conditions (section 7.9, ADR 0066).
   Caching and rotation are the function's job.
 - Before signing, `accessKeyId` and `secretAccessKey` are checked to be non-empty strings and every
   key of the resolved object to be one of the three; a violation is `InvalidCredentials` naming the
