@@ -1,0 +1,23 @@
+name: Pull request title
+
+# Squash merges take the pull request title as the commit subject on `main`.
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions: {}
+
+jobs:
+  conventional-commit:
+    name: Conventional commit title
+    runs-on: ubuntu-latest
+    steps:
+      # The title goes through the environment: interpolated into the script, it could run as shell.
+      - env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          pattern='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([a-z0-9-]+\))?!?: [^ ]'
+          if [[ ! "$TITLE" =~ $pattern ]]; then
+            echo "::error::The title must read '<type>(<scope>): <subject>', as the squashed commit on main will: $TITLE"
+            exit 1
+          fi
