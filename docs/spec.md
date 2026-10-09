@@ -2559,6 +2559,8 @@ export type ConformanceResult =
 - A case whose `requires` are all declared runs `run`; a case missing one runs `runWithout`. The
   result says which half ran in `mode`. A case that needs an optional factory the target does not
   supply reports `skipped` with the factory's name as `reason`.
+- A case's cost is what the case spends. What a target spends to obtain a credential before its
+  factory returns, such as waiting out a token, does not count towards it.
 - `runAll` normalizes a thrown value to `name` and `message`, adds `stack` where present and `code`
   where the value is a `StorageError`. It never exposes `cause`.
 - `expectUnsupported(call, capability)` runs `call` and asserts a `StorageError` with
@@ -2570,6 +2572,10 @@ export type ConformanceResult =
   outside the adapter. What it supports the suite reads from the storage.
 - `createStorageWithBadCredentials()` returns a storage whose credential the provider refuses.
 - `createStorageWithExpiredCredentials()` returns a storage whose credential has already expired.
+- `createStorageWithStaleCredentials(onRefresh)` returns a storage whose credential is stale: the
+  provider refuses it and passes a fresh one. Its resolver answers the stale credential until it
+  is asked with `forceRefresh: true`, and the fresh one from then on, under `forceRefresh: false`
+  too. It calls `onRefresh` each time it is asked to refresh.
 - `createStorageWithDeniedCredentials()` returns a storage whose credential the provider accepts
   and that may read the bucket and not write to it.
 - `createStorageWithMissingBucket()` returns a storage bound to a bucket, container or root that
@@ -2770,6 +2776,7 @@ A case marked with a factory is skipped where the target does not supply it.
 | `errors/bad-credentials`     |          | `fast` | Factory `createStorageWithBadCredentials`: `get` and `stat` reject with `InvalidCredentials`, `retryable: false` and `attempts` of `1` or `2`; `exists` rejects rather than answering `false`; `list` rejects |
 | `errors/denied-credentials`  |          | `fast` | Factory `createStorageWithDeniedCredentials`: `put` rejects with `AccessDenied`, `retryable: false`, `attempts: 1`                                                                                            |
 | `errors/expired-credentials` |          | `slow` | Factory `createStorageWithExpiredCredentials`: `get` and `stat` reject with `Expired` and `attempts: 2`                                                                                                       |
+| `errors/stale-credentials`   |          | `fast` | Factory `createStorageWithStaleCredentials`: `get`, `stat` and `put`, each on a storage of its own, succeed, and each storage's resolver was asked to refresh exactly once                                    |
 | `errors/missing-bucket`      |          | `fast` | Factory `createStorageWithMissingBucket`: `put`, `get`, `stat`, `exists`, `delete` and the first page of `list` reject; where the code is `NotFound`, `key` is unset                                          |
 
 **Presigned URLs**

@@ -4,12 +4,13 @@ import {
   type Storage,
   StorageError,
   type StorageErrorCode,
+  type StoredObject,
 } from "@stowage/core";
 import { expect, test } from "vitest";
 
 import { createKeyPrefix, selectHalf, startRun } from "../run.ts";
 import { caseNamed, type StubStorageFields, stubStorage, stubTarget } from "../stubs.ts";
-import type { ConformanceFactoryName } from "../target.ts";
+import type { ConformanceFactoryName, ConformanceTarget } from "../target.ts";
 
 /**
  * A storage that refuses every request the way a provider refuses a credential, which is
@@ -162,6 +163,130 @@ test("the `errors/expired-credentials` case refuses a `stat` that reports the re
       statReadByStatus(refusingFields("Expired", 2)),
     ),
   ).rejects.toThrow('`code: "Expired"` for `stat`');
+});
+
+interface StaleCredential {
+  /** How often the adapter asks for a fresh credential before its first answer. */
+  readonly refreshes: number;
+  /** Whether that answer is the operation's, or the refusal of a credential still stale. */
+  readonly recovers: boolean;
+}
+
+/**
+ * A bucket that `createStorage` writes to and the stale factory reads from, each of whose
+ * storages meets the refusal on its first request alone, as an adapter whose resolver keeps
+ * what it was last asked to refresh does.
+ */
+const staleTarget = ({ refreshes, recovers }: StaleCredential): ConformanceTarget => {
+  const held = new Map<string, Uint8Array>();
+
+  const storageOver = (beforeEachRequest: (operation: string) => void): Storage =>
+    stubStorage({
+      put: async (key, body) => {
+        beforeEachRequest("put");
+        if (!(body instanceof Uint8Array)) throw new Error("The case hands `put` bytes");
+        held.set(key, body);
+
+        return described(key, body.byteLength);
+      },
+      get: async (key) => {
+        beforeEachRequest("get");
+
+        return storedObject(described(key, held.get(key)?.byteLength ?? 0), held.get(key));
+      },
+      stat: async (key) => {
+        beforeEachRequest("stat");
+
+        return described(key, held.get(key)?.byteLength ?? 0);
+      },
+    });
+
+  return stubTarget({
+    createStorage: () => storageOver(() => undefined),
+    createStorageWithStaleCredentials: (onRefresh) => {
+      let stale = true;
+
+      return storageOver((operation) => {
+        if (!stale) return;
+
+        for (let refresh = 0; refresh < refreshes; refresh += 1) onRefresh();
+        if (!recovers) throw refusal("InvalidCredentials", operation, 1 + refreshes);
+        stale = false;
+      });
+    },
+  });
+};
+
+const refusal = (code: StorageErrorCode, operation: string, attempts: number): StorageError =>
+  new StorageError({
+    code,
+    message: "The provider refused the credential",
+    operation,
+    bucket: "stub",
+    provider: "stub",
+    retryable: false,
+    attempts,
+  });
+
+const described = (key: string, size: number): ObjectStat => ({
+  key,
+  size,
+  lastModified: new Date(),
+  contentType: "application/octet-stream",
+  userMetadata: {},
+});
+
+const unread = (): never => {
+  throw new Error("The stored object of this stub reads as bytes alone");
+};
+
+const storedObject = (stat: ObjectStat, bytes: Uint8Array = new Uint8Array(0)): StoredObject => ({
+  stat,
+  stream: unread,
+  bytes: async () => bytes,
+  text: unread,
+  json: unread,
+});
+
+const runStale = async (credential: StaleCredential): Promise<string> => {
+  const half = selectHalf(
+    caseNamed("errors/stale-credentials"),
+    await startRun(staleTarget(credential), createKeyPrefix()),
+  );
+
+  await half.run();
+
+  return half.mode;
+};
+
+test("`errors/stale-credentials` holds against an adapter that refreshes once and recovers", async () => {
+  await expect(runStale({ refreshes: 1, recovers: true })).resolves.toBe("declared");
+});
+
+// Against a server that checks no credential the operation succeeds without a refresh, and
+// the case would show nothing.
+test("`errors/stale-credentials` refuses a success that cost no refresh", async () => {
+  await expect(runStale({ refreshes: 0, recovers: true })).rejects.toThrow(
+    "`get` under a stale credential succeeded with no refresh, and not with one",
+  );
+});
+
+test("`errors/stale-credentials` refuses a success that cost a second refresh", async () => {
+  await expect(runStale({ refreshes: 2, recovers: true })).rejects.toThrow(
+    "`get` under a stale credential succeeded with 2 refreshes, and not with one",
+  );
+});
+
+test("`errors/stale-credentials` names the refusal of an adapter that never refreshes", async () => {
+  await expect(runStale({ refreshes: 0, recovers: false })).rejects.toThrow(
+    "`get` under a stale credential rejected with `InvalidCredentials` and `attempts: 1` after no refresh",
+  );
+});
+
+test("`errors/stale-credentials` names the refusal of the refreshed credential", async () => {
+  await expect(runStale({ refreshes: 1, recovers: false })).rejects.toThrow(
+    "`get` under a stale credential rejected with `InvalidCredentials` and `attempts: 2` after one refresh",
+  );
 });
 
 test("`errors/missing-bucket` holds against a provider that names the bucket as missing", async () => {
