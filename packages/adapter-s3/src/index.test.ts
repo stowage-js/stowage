@@ -980,6 +980,34 @@ test.each(["stat", "exists"] as const)(
   },
 );
 
+// Spec 7.3: AWS and R2 each refuse a session token they cannot parse with a code of their
+// own, which the `GET` after the bare `400` to the `HEAD` names, and no refresh follows.
+test.each([
+  ["InvalidToken", "The provided token is malformed or otherwise invalid."],
+  ["InvalidArgument", "X-Amz-Security-Token"],
+])(
+  "a session token refused as `%s` at the `HEAD` of `stat` is `InvalidCredentials` without a refresh",
+  async (providerCode, message) => {
+    const sent = stubFetch(answeringHeadWith(400, () => refused(400, providerCode, message)));
+    const resolve = vi.fn<() => typeof temporaryCredentials>(() => temporaryCredentials);
+
+    const failure = await rejection(
+      async () => await s3Storage(options({ credentials: resolve })).stat("object.txt"),
+    );
+
+    expect(failure).toMatchObject({
+      code: "InvalidCredentials",
+      key: "object.txt",
+      status: 400,
+      providerCode,
+      retryable: false,
+      attempts: 1,
+    });
+    expect(sent.map((request) => request.method)).toEqual(["HEAD", "GET"]);
+    expect(resolve).not.toHaveBeenCalledWith({ forceRefresh: true });
+  },
+);
+
 /**
  * R2 refusing a stale session token as a wrong signature at the `HEAD` and the `GET`, and
  * answering both under the fresh one the resolver hands out after `forceRefresh` (ADR 0066).

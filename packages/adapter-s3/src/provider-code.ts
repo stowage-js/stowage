@@ -15,6 +15,8 @@ const providerCodes: ReadonlyMap<string, StorageErrorCode> = new Map([
   ["SignatureDoesNotMatch", "InvalidCredentials"],
   // R2's, answered at `401`.
   ["Unauthorized", "InvalidCredentials"],
+  // AWS's, answered at `400` to a session token it cannot parse, which no refresh replaces.
+  ["InvalidToken", "InvalidCredentials"],
   ["ExpiredToken", "Expired"],
   // R2's, sent for an expired presigned URL and not for an expired credential (ADR 0045).
   ["ExpiredRequest", "Expired"],
@@ -83,11 +85,14 @@ const longestHeldKey = 1024;
 
 const utf8 = new TextEncoder();
 
+const r2UnparsableSessionTokenMessage = "X-Amz-Security-Token";
+
 /**
  * What the provider's answer means, decided by its own code where the table recognizes
  * one and by the status where it does not. The message is the provider's word for word
  * (spec 4.10), except where spec 7.9 has the failure name the option that is wrong: a
- * caller can act on `region` and on `cursor`, and cannot on a message about either.
+ * caller can act on `region` and on `cursor`, and cannot on a message about either. R2's
+ * refusal of a session token names nothing but a header, so its message says what was refused.
  */
 export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
   // Spec 4.10: where the provider sent no message, the status is the whole of what there
@@ -117,6 +122,18 @@ export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
     return {
       code: "InvalidKey",
       message: `The key is longer than the ${longestHeldKey} bytes the provider holds: ${said}`,
+    };
+  }
+
+  // Spec 7.9: R2 refuses a session token it cannot parse with `InvalidArgument`, and refuses it
+  // before the cursor, so a continued listing meets this rule ahead of the next one.
+  if (
+    answer.providerCode === "InvalidArgument" &&
+    answer.providerMessage === r2UnparsableSessionTokenMessage
+  ) {
+    return {
+      code: "InvalidCredentials",
+      message: `The session token is not one the provider accepts: ${said}`,
     };
   }
 
