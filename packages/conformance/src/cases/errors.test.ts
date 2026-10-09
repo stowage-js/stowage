@@ -170,6 +170,8 @@ interface StaleCredential {
   readonly refreshes: number;
   /** Whether that answer is the operation's, or the refusal of a credential still stale. */
   readonly recovers: boolean;
+  /** How often it asks for a fresh credential before each request once it recovered. */
+  readonly refreshesAfterRecovery?: number;
 }
 
 /**
@@ -177,7 +179,11 @@ interface StaleCredential {
  * storages meets the refusal on its first request alone, as an adapter whose resolver keeps
  * what it was last asked to refresh does.
  */
-const staleTarget = ({ refreshes, recovers }: StaleCredential): ConformanceTarget => {
+const staleTarget = ({
+  refreshes,
+  recovers,
+  refreshesAfterRecovery = 0,
+}: StaleCredential): ConformanceTarget => {
   const held = new Map<string, Uint8Array>();
 
   const storageOver = (beforeEachRequest: (operation: string) => void): Storage =>
@@ -207,9 +213,10 @@ const staleTarget = ({ refreshes, recovers }: StaleCredential): ConformanceTarge
       let stale = true;
 
       return storageOver((operation) => {
-        if (!stale) return;
+        const asked = stale ? refreshes : refreshesAfterRecovery;
 
-        for (let refresh = 0; refresh < refreshes; refresh += 1) onRefresh();
+        for (let refresh = 0; refresh < asked; refresh += 1) onRefresh();
+        if (!stale) return;
         if (!recovers) throw refusal("InvalidCredentials", operation, 1 + refreshes);
         stale = false;
       });
@@ -274,6 +281,13 @@ test("`errors/stale-credentials` refuses a success that cost no refresh", async 
 // ADR 0067: `get` on GCS sends two requests side by side, and each meets the stale credential.
 test("`errors/stale-credentials` holds against an adapter whose requests each refresh", async () => {
   await expect(runStale({ refreshes: 2, recovers: true })).resolves.toBe("declared");
+});
+
+// ADR 0067: the refreshes of one operation have no bound, and the ones after it recovered do.
+test("`errors/stale-credentials` refuses an adapter that refreshes before every request", async () => {
+  await expect(
+    runStale({ refreshes: 1, recovers: true, refreshesAfterRecovery: 1 }),
+  ).rejects.toThrow("`get` on the storage that recovered asked for one refresh more");
 });
 
 test("`errors/stale-credentials` names the refusal of an adapter that never refreshes", async () => {

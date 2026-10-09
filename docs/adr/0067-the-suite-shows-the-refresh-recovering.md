@@ -1,17 +1,18 @@
 # The suite shows the refresh recovering
 
-Every cloud adapter refreshes once after the provider refused a credential that a fresh one may
-pass: `adapter-s3` after `Expired`, and after `SignatureDoesNotMatch` under a session token (ADR
-0065); `adapter-azure-blob` after `401 InvalidAuthenticationInfo` under an access token (ADR 0021);
-`adapter-gcs` after `401` with `error=invalid_token` (ADR 0033). Until now the suite showed none of
-it. `errors/expired-credentials` runs against AWS alone and asserts the failure that follows a
+Every cloud adapter refreshes once after each request whose credential the provider refused and a
+fresh one may pass: `adapter-s3` after `Expired`, and after `SignatureDoesNotMatch` under a session
+token (ADR 0065); `adapter-azure-blob` after `401 InvalidAuthenticationInfo` under an access token
+(ADR 0021); `adapter-gcs` after `401` with `error=invalid_token` (ADR 0033). Until now the suite
+showed none of it. `errors/expired-credentials` runs against AWS alone and asserts the failure that follows a
 second refusal, and the recovery was asserted against a stubbed `fetch` and, on GCS, by one probe
 outside the suite. ADR 0065 left a case for the recovery to #415, and this decision adds it.
 
 `errors/stale-credentials` takes a storage from a new optional factory,
 `createStorageWithStaleCredentials(onRefresh)`, for each of `get`, `stat` and a `put` of bytes in
-hand, and asserts that each operation succeeds and that the storage's resolver was asked with
-`forceRefresh: true` at least once. The resolver answers the stale credential until it is asked to
+hand, and asserts that each operation succeeds, that the storage's resolver was asked with
+`forceRefresh: true` at least once, and that the same operation repeated on the recovered storage
+asks for no further refresh. The resolver answers the stale credential until it is asked to
 refresh, and the fresh one from then on, under `forceRefresh: false` too, because a recovered `stat`
 on S3 resolves again for its second `HEAD` (ADR 0066) and would meet the stale credential from a
 resolver that answers by the option alone. It calls `onRefresh` on each refresh. Each operation gets
@@ -32,9 +33,13 @@ as well as one that never does. Its first scheduled run with a stale credential 
 `get` on GCS refresh twice: the resource request and the media download go out side by side
 (spec 9.4), each resolves the credential before it is sent (spec 9.3), and each meets the stale one. The
 count is the number of requests an operation has in flight when the provider refuses them, which is
-the adapter's to choose, so the case asserts at least one refresh. Sharing one refresh among
-concurrent requests was the other way out; it would cache a credential between requests, which
-spec 7.3, 8.3 and 9.3 leave to the resolver.
+the adapter's to choose, so the case asserts at least one refresh. An adapter that refreshes before
+every request is ruled out by the repeat instead: the recovered storage's resolver answers the fresh
+credential, which the provider passes, so the repeat costs no refresh whatever an operation sends.
+Bounding the count by the requests an operation has in flight was rejected, since the suite would
+have to know them for each adapter. Sharing one refresh among concurrent requests was the other way
+out; it would cache a credential between requests, which spec 7.3, 8.3 and 9.3 leave to the
+resolver.
 
 The case is `fast`. What it spends is three operations; what a target spends to obtain a stale
 credential before its factory returns, such as waiting out a token, is not the case's cost, and
