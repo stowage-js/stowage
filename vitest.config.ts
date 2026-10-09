@@ -18,7 +18,7 @@ const config: ViteUserConfig = defineConfig({
       provider: "v8",
       include: ["packages/*/src/**/*.ts"],
       exclude: ["**/*.test.ts", "packages/*/src/stubs.ts"],
-      reporter: ["text-summary", "lcov"],
+      reporter: ["text-summary", "lcovonly"],
     },
   },
 });
