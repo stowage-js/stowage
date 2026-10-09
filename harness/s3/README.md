@@ -65,10 +65,10 @@ that names, in place of the message, why running the case would leave the emulat
 to finish the run keeps the case unrun against that endpoint. Nothing then shows an upstream
 fix, so an update of the image has to look for one by hand.
 
-`errors/missing-bucket` is on it because SeaweedFS never names a missing bucket as AWS does with
-`NoSuchBucket`. It answers `PutObject` with `500 InternalError`, `GetObject` with `404 NoSuchKey`,
-`DeleteObjects` with an empty `DeleteResult` and `ListObjectsV2` with an empty page, so the adapter
-reads a missing object and `exists` answers `false` (ADR 0043).
+`errors/missing-bucket` is not on it. SeaweedFS creates a missing bucket on `PutObject`, so
+`s3.json` scopes both identities to `stowage-conformance`, and SeaweedFS answers any other bucket
+with `403 AccessDenied`, as R2 does for the CI token below (ADR 0043). A run against a bucket of
+another name needs that name in `s3.json` as well.
 
 ## The real endpoints
 

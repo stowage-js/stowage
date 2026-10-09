@@ -121,6 +121,9 @@ this repository happens to test against and nothing about the API a third-party 
   the tmpfs filled with deleted data and writes failed. `harness/s3/master.toml` has the master
   vacuum every minute each volume whose garbage passes 10%, and `-master.volumeSizeLimitMB=256`
   splits the store into volumes of 256 MB, so a volume that filled before the vacuum reached it
-  leaves others to write to. Each `put` of `errors/missing-bucket` has the master grow empty volumes
-  for the missing bucket, which took every slot after one run, so the master deletes an empty
-  volume once it has been idle for a minute. The image digest stays as it is.
+  leaves others to write to. The image digest stays as it is.
+- With room for more volumes, SeaweedFS created the missing bucket of `errors/missing-bucket` on
+  `PutObject`; its `500 InternalError` before had been the lack of a volume slot. `s3.json` scopes
+  both identities to the CI bucket, so the emulator refuses any other bucket with
+  `403 AccessDenied`, as the token scoped to the R2 bucket does, and the case leaves the divergence
+  list.

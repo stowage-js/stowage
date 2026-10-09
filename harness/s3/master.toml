@@ -1,13 +1,10 @@
 # ADR 0012: SeaweedFS frees a deleted object's space only when it vacuums the volume, which
 # it does every 15 minutes by default. A run writes more than the tmpfs holds in that time,
-# so the master vacuums every minute. Each `put` into the missing bucket of
-# `errors/missing-bucket` makes the master grow volumes for that bucket, which hold nothing
-# and take the slots the suite's bucket grows into, so empty volumes are deleted as well.
+# so the master vacuums every minute.
 [master.maintenance]
 scripts = """
   lock
   volume.vacuum -garbageThreshold=0.1
-  volume.deleteEmpty -quietFor=1m -force
   unlock
 """
 sleep_minutes = 1
