@@ -1,0 +1,5 @@
+---
+"@stowage/adapter-s3": minor
+---
+
+**Breaking:** `stat`, `exists` and the `HEAD` that describes the destination of `copy` and `move` follow a `HEAD` refused with a status from `400` to `499`, other than `408`, `429` and the `400` for a key above 1024 bytes, with a `GET` of the same key with `Range: bytes=0-0`, whose body names the code the `HEAD` cannot carry. Where that `GET` is refused with a code, the call rejects with its failure: a refused credential is `InvalidCredentials` or `Expired` as for `get`, where it was `AccessDenied` for a `403` and `ProviderError` for the `400` AWS answers an expired session token with. The `GET` is refreshed as any request is, and where it passes after its refresh the `HEAD` is sent once more, so an expired temporary credential the resolver renews now recovers on `stat` and `exists`. A hit still costs one request; an absent or denied key and a refused key pair cost two, a recovered expiry four. The `GET` that followed a `404` alone is now this rule, and where it names `NoSuchKey` the `NotFound` carries its `requestId`. This withdraws `AccessDenied` from these calls for a refused credential (spec 7.3, 7.9, ADR 0066).
