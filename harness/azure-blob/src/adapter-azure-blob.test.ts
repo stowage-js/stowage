@@ -70,7 +70,7 @@ function skipWithoutPutBlobFromUrl(ctx: TestContext, failure: unknown): void {
  * as the Azure SDKs do: Azurite 3.37.0 stores no coding a `Content-Encoding` on `Put Blob`
  * names.
  */
-async function storeGzipped(key: string): Promise<Buffer> {
+async function storeGzipped(key: string, coding = "gzip"): Promise<Buffer> {
   const stored = gzipSync("x".repeat(1000));
 
   await send(readConfiguration(endpointOrFail(underAccessToken)), {
@@ -79,7 +79,7 @@ async function storeGzipped(key: string): Promise<Buffer> {
     key,
     headers: [
       ["x-ms-blob-type", "BlockBlob"],
-      ["x-ms-blob-content-encoding", "gzip"],
+      ["x-ms-blob-content-encoding", coding],
     ],
     body: new Uint8Array(stored),
   });
@@ -363,16 +363,17 @@ describe.skipIf(underAccountKey === undefined || underAccessToken === undefined)
       );
     });
 
-    test("a copy of a content-coded object names the source's coding", async (ctx) => {
+    // ADR 0068: left to itself, the copy drops the space after the comma of a list.
+    test("a copy of a content-coded object names the source's coding as stored", async (ctx) => {
       const storage = azureBlobStorage(endpointOrFail(underAccessToken));
       const key = `${prefix}copied-gzipped.txt`;
 
-      await storeGzipped(key);
+      await storeGzipped(key, "gzip, br");
 
       const copied = await storage.copy(key, `${key}.copy`).catch((failure: unknown) => failure);
 
       skipWithoutPutBlobFromUrl(ctx, copied);
-      expect(copied).toMatchObject({ contentEncoding: "gzip" });
+      expect(copied).toMatchObject({ contentEncoding: "gzip, br" });
     });
 
     // ADR 0023: the presign cases run under the token, so the service SAS an account key

@@ -25,6 +25,10 @@ const answeredNames = {
   contentLanguage: "content-language",
 } as const satisfies Readonly<Record<keyof ContentHeaders, string>>;
 
+/** Each content header as a response names it and as a request sends it. */
+export const contentHeaderNames: readonly (readonly [answered: string, sent: string])[] =
+  contentHeaderOptions.map((option) => [answeredNames[option], sentNames[option]]);
+
 export interface ContentHeaderFields {
   /**
    * What `Put Blob` and `Put Block List` carry the content headers in, and what the SAS of

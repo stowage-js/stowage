@@ -25,6 +25,18 @@ export function inStorage(
 }
 
 /**
+ * The same failure of a step the adapter repeated itself, told with every attempt the step
+ * made and as one that a later call of the whole operation may not meet.
+ */
+export function asRetryable(
+  failure: StorageError,
+  container: string,
+  attempts: number,
+): StorageError {
+  return azureBlobError(container, { ...fieldsOf(failure), attempts, retryable: true });
+}
+
+/**
  * Every field of `StorageErrorFields` is named below, so a field added to that type has
  * to be added here too or it is dropped on the way through.
  */

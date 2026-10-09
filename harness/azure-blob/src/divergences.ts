@@ -25,10 +25,7 @@ const copyUnimplemented = {
   upstream: "https://github.com/Azure/Azurite/pull/2749",
 } as const;
 
-// The two cases whose source is missing expect `NotFound`, and meet Azurite's `501` as a
-// `ProviderError` before any message of Azurite's reaches their failure.
 const notImplemented = "Current API is not implemented yet";
-const missingSourceUnread = 'carries `code: "ProviderError"` rather than "NotFound"';
 
 /**
  * ADR 0022: Azurite takes `srh` on a user delegation SAS and leaves the headers it names
@@ -64,11 +61,11 @@ export const azureBlobDivergences: readonly Divergence<AzureBlobEmulator, AzureB
     },
     { case: "copy/round-trip", failureMessagePart: notImplemented, ...copyUnimplemented },
     { case: "copy/overwrites", failureMessagePart: notImplemented, ...copyUnimplemented },
-    { case: "copy/missing-source", failureMessagePart: missingSourceUnread, ...copyUnimplemented },
+    // ADR 0068: `copy/missing-source` and `move/missing-source` are not here, since the `HEAD` in
+    // front of the copy finds a missing source before Azurite meets the copy.
     { case: "copy/user-metadata", failureMessagePart: notImplemented, ...copyUnimplemented },
     { case: "copy/content-headers", failureMessagePart: notImplemented, ...copyUnimplemented },
     { case: "move/round-trip", failureMessagePart: notImplemented, ...copyUnimplemented },
-    { case: "move/missing-source", failureMessagePart: missingSourceUnread, ...copyUnimplemented },
     { case: "move/content-headers", failureMessagePart: notImplemented, ...copyUnimplemented },
     {
       case: "presign/put",
