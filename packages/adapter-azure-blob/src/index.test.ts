@@ -1432,18 +1432,24 @@ test("under an access token the source is authorized by the token of the request
   expect(copy?.headers.get("x-ms-copy-source-authorization")).toBe(`Bearer ${accessToken}`);
 });
 
+/**
+ * Answers by the option rather than in turn, since the `HEAD` of the source resolves before
+ * the copy does.
+ */
+function staleUntilRefreshed(options?: ResolverOptions): AzureBlobCredentials {
+  return { accessToken: options?.forceRefresh === true ? "fresh" : "stale" };
+}
+
 test("the repeat after a refused token renews the authorization of the source too", async () => {
   const responses = [tokenRefused()];
   const sent = stubFetch(copyAnswered(() => responses.shift() ?? created()));
-  const tokens = ["stale", "fresh"];
 
-  await storage({ credentials: () => ({ accessToken: tokens.shift() ?? "fresh" }) }).copy(
-    "from.txt",
-    "to.txt",
-  );
+  await storage({ credentials: staleUntilRefreshed }).copy("from.txt", "to.txt");
 
-  const repeated = copyRequests(sent)[1];
+  const [refusedCopy, repeated] = copyRequests(sent);
 
+  expect(refusedCopy?.headers.get("authorization")).toBe("Bearer stale");
+  expect(refusedCopy?.headers.get("x-ms-copy-source-authorization")).toBe("Bearer stale");
   expect(repeated?.headers.get("authorization")).toBe("Bearer fresh");
   expect(repeated?.headers.get("x-ms-copy-source-authorization")).toBe("Bearer fresh");
 });
