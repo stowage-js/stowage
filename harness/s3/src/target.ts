@@ -1,12 +1,12 @@
-import type { S3AdapterOptions, S3Storage } from "../../../packages/adapter-s3/src/index.ts";
+import type { S3AdapterOptions, S3Credentials } from "../../../packages/adapter-s3/src/index.ts";
 import { s3Storage } from "../../../packages/adapter-s3/src/index.ts";
 import type { ConformanceFramework } from "../../../packages/conformance/src/describe.ts";
 import type { ConformanceTarget } from "../../../packages/conformance/src/target.ts";
 import {
   type ExpiredCredentials,
+  expiredCredentialsFrom,
   storageWithBadCredentials,
   storageWithDeniedCredentials,
-  storageWithExpiredCredentials,
   storageWithMissingBucket,
   type Variables,
 } from "./configuration.ts";
@@ -23,7 +23,7 @@ const expiryMargin = 60_000;
  */
 export function s3Target(configured: S3AdapterOptions, variables: Variables): ConformanceTarget {
   const denied = storageWithDeniedCredentials(configured, variables);
-  const expired = storageWithExpiredCredentials(configured, variables);
+  const expired = expiredCredentialsFrom(variables);
 
   return {
     name: "@stowage/adapter-s3",
@@ -42,21 +42,24 @@ export function s3Target(configured: S3AdapterOptions, variables: Variables): Co
 
     ...(expired === undefined
       ? {}
-      : { createStorageWithExpiredCredentials: async () => await onceExpired(expired) }),
+      : {
+          createStorageWithExpiredCredentials: async () =>
+            s3Storage({ ...configured, credentials: await onceExpired(expired) }),
+        }),
   };
 }
 
 /**
  * ADR 0012: the `Expired` case starts from a credential that has already expired rather
- * than from one the rest of the suite happened to outlast, so the storage is handed out
+ * than from one the rest of the suite happened to outlast, so the credential is handed out
  * once the expiration and the margin have passed.
  */
-async function onceExpired(expired: ExpiredCredentials): Promise<S3Storage> {
+async function onceExpired(expired: ExpiredCredentials): Promise<S3Credentials> {
   const remaining = expired.expiresAt.getTime() + expiryMargin - Date.now();
 
   if (remaining > 0) await new Promise<void>((resolve) => void setTimeout(resolve, remaining));
 
-  return s3Storage(expired.options);
+  return expired.credentials;
 }
 
 export const endpointMissing = "No S3 endpoint is configured; see `harness/s3/README.md`";
