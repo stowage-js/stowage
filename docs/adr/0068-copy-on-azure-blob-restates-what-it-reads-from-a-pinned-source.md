@@ -84,4 +84,6 @@ up stays, for a source deleted between the `HEAD` and the copy.
 - The changeset of `adapter-azure-blob` names the repaired `contentType` as a fix of v0.5's
   `copy` and `move`, beside the content headers.
 - The cases that send a copy stay divergent on Azurite for the reasons of ADR 0025, so the scheduled
-  run remains the only check of the restated properties under an access token.
+  run remains the only check of the restated properties under an access token. `copy/missing-source`
+  and `move/missing-source` leave the divergence list: the `HEAD` answers them before Azurite meets
+  the copy, so they now run on every commit.
