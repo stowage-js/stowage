@@ -29,6 +29,8 @@ export interface S3Request {
    * for any other request: the provider answered, so it did not commit.
    */
   readonly repeatWithoutResponse?: boolean;
+  /** Told when an attempt is signed under a credential resolved with `forceRefresh: true`. */
+  readonly onRefresh?: () => void;
 }
 
 const emptyBody: Uint8Array<ArrayBuffer> = new Uint8Array(0);
@@ -81,6 +83,9 @@ async function prepare(
   const path = pathOf(configuration, request.key);
   const query = request.query ?? [];
   const credentials = await resolveCredentials(configuration.credentials, { forceRefresh });
+
+  if (forceRefresh) request.onRefresh?.();
+
   const signed = await signRequest({
     method: request.method,
     host: configuration.host,

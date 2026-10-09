@@ -20,9 +20,9 @@ import { contentHeaderFields } from "./content-headers.ts";
 import { copyObject } from "./copy.ts";
 import { deleteBelow, deleteKeys } from "./delete.ts";
 import { defaultContentType, describeResponse } from "./description.ts";
+import { sendHead } from "./head.ts";
 import { requireKey } from "./key.ts";
 import { createListing } from "./listing.ts";
-import { type HeadRequest, probeMissingBucket } from "./missing-bucket.ts";
 import {
   presignGet,
   presignPut,
@@ -86,8 +86,6 @@ const s3Capabilities: readonly CapabilityName[] = Object.freeze([
 ]);
 
 const utf8 = new TextEncoder();
-
-const notFound = 404;
 
 class SimpleStorageServiceStorage implements S3Storage {
   readonly provider = "s3" as const;
@@ -253,17 +251,7 @@ class SimpleStorageServiceStorage implements S3Storage {
 
     options?.signal?.throwIfAborted();
 
-    const request: HeadRequest = { operation, key, signal: options?.signal };
-
-    try {
-      return await send(this.#configuration, { method: "HEAD", ...request });
-    } catch (failure) {
-      if (isStorageError(failure) && failure.status === notFound) {
-        throw (await probeMissingBucket(this.#configuration, request)) ?? failure;
-      }
-
-      throw failure;
-    }
+    return await sendHead(this.#configuration, { operation, key, signal: options?.signal });
   }
 
   /**

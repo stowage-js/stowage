@@ -1,4 +1,9 @@
-import { isStorageError, type StorageError, type StoredObject } from "@stowage/core";
+import {
+  isStorageError,
+  type ResolverOptions,
+  type StorageError,
+  type StoredObject,
+} from "@stowage/core";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { sha256Hex } from "./hash.ts";
@@ -479,10 +484,13 @@ test.each<[string, (storage: ReturnType<typeof s3Storage>) => Promise<unknown>]>
   expect(failure.key).toBeUndefined();
 });
 
-/** A `HEAD` answered `404` without a body, as S3 answers it for a missing key and bucket alike. */
-function answeringHeadWith404(followUp: () => Response): (request: SentRequest) => Response {
+/** A `HEAD` refused with `status` and no body, as AWS and R2 refuse one (ADR 0043, ADR 0066). */
+function answeringHeadWith(
+  status: number,
+  followUp: (request: SentRequest) => Response,
+): (request: SentRequest) => Response {
   return (request) =>
-    request.method === "HEAD" ? new Response(null, { status: 404 }) : followUp();
+    request.method === "HEAD" ? new Response(null, { status }) : followUp(request);
 }
 
 // Spec 7.9: a `HEAD` carries no body to name the bucket, so a `404` to it is asked again as
@@ -490,7 +498,7 @@ function answeringHeadWith404(followUp: () => Response): (request: SentRequest) 
 test.each(["stat", "exists"] as const)(
   "a `404` to the `HEAD` of `%s` is followed by one `GET` of the same key and its first byte",
   async (operation) => {
-    const sent = stubFetch(answeringHeadWith404(() => refused(404, "NoSuchKey", "No such key")));
+    const sent = stubFetch(answeringHeadWith(404, () => refused(404, "NoSuchKey", "No such key")));
 
     const storage = s3Storage(options());
 
@@ -508,7 +516,7 @@ test.each(["stat", "exists"] as const)(
 test.each(["stat", "exists"] as const)(
   "`NoSuchBucket` answered to the `GET` after the `HEAD` of `%s` is `NotFound` without `key`",
   async (operation) => {
-    stubFetch(answeringHeadWith404(missingBucket));
+    stubFetch(answeringHeadWith(404, missingBucket));
 
     const failure = await rejection(
       async () => await s3Storage(options())[operation]("object.txt"),
@@ -525,10 +533,40 @@ test.each(["stat", "exists"] as const)(
   },
 );
 
+// Spec 7.9: the `GET` names the code the `HEAD` could not, so its failure is the call's.
+test("`NoSuchKey` answered to the `GET` after the `HEAD` of `stat` is its `NotFound`", async () => {
+  stubFetch(
+    answeringHeadWith(404, () =>
+      refused(404, "NoSuchKey", "The specified key does not exist.", {
+        "x-amz-request-id": "get-request",
+      }),
+    ),
+  );
+
+  const failure = await rejection(async () => await s3Storage(options()).stat("object.txt"));
+
+  expect(failure).toMatchObject({
+    code: "NotFound",
+    operation: "stat",
+    key: "object.txt",
+    status: 404,
+    providerCode: "NoSuchKey",
+    requestId: "get-request",
+    attempts: 1,
+  });
+});
+
+test("`NoSuchKey` answered to the `GET` after the `HEAD` of `exists` leaves it `false`", async () => {
+  stubFetch(
+    answeringHeadWith(404, () => refused(404, "NoSuchKey", "The specified key does not exist.")),
+  );
+
+  expect(await s3Storage(options()).exists("object.txt")).toBe(false);
+});
+
 // Spec 7.9: an object a writer created in between, and a compatible endpoint that names no
 // code, keep the answer the `HEAD` gave.
 const followUpsLeavingTheHead: readonly [string, () => Response][] = [
-  ["`NoSuchKey`", () => refused(404, "NoSuchKey", "The specified key does not exist.")],
   ["a success", () => storedResponse("b", { "content-range": "bytes 0-0/4" })],
   [
     "a success with an already-errored body",
@@ -549,7 +587,7 @@ const followUpsLeavingTheHead: readonly [string, () => Response][] = [
 test.each(followUpsLeavingTheHead)(
   "%s answered to the `GET` after the `HEAD` of `stat` leaves the `HEAD`'s `NotFound`",
   async (_answer, followUp) => {
-    stubFetch(answeringHeadWith404(followUp));
+    stubFetch(answeringHeadWith(404, followUp));
 
     const failure = await rejection(async () => await s3Storage(options()).stat("object.txt"));
 
@@ -567,7 +605,7 @@ test.each(followUpsLeavingTheHead)(
 test.each(followUpsLeavingTheHead)(
   "%s answered to the `GET` after the `HEAD` of `exists` leaves it `false`",
   async (_answer, followUp) => {
-    stubFetch(answeringHeadWith404(followUp));
+    stubFetch(answeringHeadWith(404, followUp));
 
     expect(await s3Storage(options()).exists("object.txt")).toBe(false);
   },
@@ -578,7 +616,8 @@ test.each(["stat", "exists"] as const)(
   async (operation) => {
     const controller = new AbortController();
     stubFetch(
-      answeringHeadWith404(
+      answeringHeadWith(
+        404,
         () =>
           new Response(
             new ReadableStream({
@@ -723,27 +762,58 @@ test("an error document that breaks otherwise leaves the status to decide", asyn
   expect(failure.status).toBe(403);
 });
 
-// Spec 7.9: `HEAD` carries no body, so `stat` and `exists` report the status alone.
-test("`stat` reports the status of a `HEAD` without a provider code", async () => {
-  stubFetch(() => refused(403, "AccessDenied", "Access Denied"));
+// Spec 7.9: a `HEAD` carries no body to name the code, so a refusal is asked again as a
+// `GET` of one byte, whose body does (ADR 0066).
+test.each(["stat", "exists"] as const)(
+  "a key pair refused at the `HEAD` of `%s` is `InvalidCredentials` from the `GET` after it",
+  async (operation) => {
+    const sent = stubFetch(answeringHeadWith(403, signatureRefused));
 
-  const failure = await rejection(async () => await s3Storage(options()).stat("object.txt"));
+    const failure = await rejection(
+      async () => await s3Storage(options())[operation]("object.txt"),
+    );
 
-  expect(failure.code).toBe("AccessDenied");
-  expect(failure.providerCode).toBeUndefined();
-  expect(failure.message).toContain("403");
-});
+    expect(failure).toMatchObject({
+      code: "InvalidCredentials",
+      operation,
+      key: "object.txt",
+      status: 403,
+      providerCode: "SignatureDoesNotMatch",
+      attempts: 1,
+      retryable: false,
+    });
+    expect(sent.map((request) => request.method)).toEqual(["HEAD", "GET"]);
+    expect(sent[1]?.headers.get("range")).toBe("bytes=0-0");
+  },
+);
 
 // Spec 7.9: 513 characters and 1026 bytes, so the limit is counted in UTF-8 bytes.
 const tooLongKey = "ü".repeat(513);
 
-test("`stat` of a key above 1024 bytes answered `400` is `InvalidKey`", async () => {
-  stubFetch(() => new Response(null, { status: 400 }));
+test("`stat` of a key above 1024 bytes answered `400` is `InvalidKey` without a `GET`", async () => {
+  const sent = stubFetch(() => new Response(null, { status: 400 }));
 
   const failure = await rejection(async () => await s3Storage(options()).stat(tooLongKey));
 
   expect(failure).toMatchObject({ code: "InvalidKey", key: tooLongKey, status: 400, attempts: 1 });
+  expect(sent.map((request) => request.method)).toEqual(["HEAD"]);
 });
+
+// Spec 7.9: a transient status names its condition already, and the budget of spec 7.5 is
+// what answers it.
+test.each([408, 429])(
+  "a `HEAD` of `stat` answered a transient `%i` is followed by no `GET`",
+  async (status) => {
+    const sent = stubFetch(() => new Response(null, { status }));
+
+    const failure = await rejection(
+      async () => await s3Storage(options({ retry: false })).stat("object.txt"),
+    );
+
+    expect(failure).toMatchObject({ code: "ProviderError", status, retryable: true });
+    expect(sent.map((request) => request.method)).toEqual(["HEAD"]);
+  },
+);
 
 test("`exists` of a key above 1024 bytes answered `400` rejects with `InvalidKey`", async () => {
   stubFetch(() => new Response(null, { status: 400 }));
@@ -884,20 +954,171 @@ test("a key pair refused as a wrong signature is not refreshed", async () => {
   expect(sent).toHaveLength(1);
 });
 
-// ADR 0065: a `HEAD` carries no provider code, so nothing says the credential was refused.
+// ADR 0066: AWS answers an expired session token to a `HEAD` with a bare `400`.
 test.each(["stat", "exists"] as const)(
-  "`%s` under a temporary credential answered `403` is `AccessDenied` without a refresh",
+  "an expired session token refused `400` at the `HEAD` of `%s` is `Expired` after one refresh",
   async (operation) => {
-    const sent = stubFetch(() => new Response(null, { status: 403 }));
+    const sent = stubFetch(
+      answeringHeadWith(400, () => refused(400, "ExpiredToken", "The provided token has expired.")),
+    );
+    const resolve = vi.fn<() => typeof temporaryCredentials>(() => temporaryCredentials);
+
+    const failure = await rejection(
+      async () => await s3Storage(options({ credentials: resolve }))[operation]("object.txt"),
+    );
+
+    expect(failure).toMatchObject({
+      code: "Expired",
+      operation,
+      key: "object.txt",
+      status: 400,
+      providerCode: "ExpiredToken",
+      attempts: 2,
+    });
+    expect(sent.map((request) => request.method)).toEqual(["HEAD", "GET", "GET"]);
+    expect(resolve).toHaveBeenLastCalledWith({ forceRefresh: true });
+  },
+);
+
+/**
+ * R2 refusing a stale session token as a wrong signature at the `HEAD` and the `GET`, and
+ * answering both under the fresh one the resolver hands out after `forceRefresh` (ADR 0066).
+ */
+function answeringTheFreshTokenAlone(): (request: SentRequest) => Response {
+  return (request) => {
+    if (request.headers.get("x-amz-security-token") === "fresh") {
+      return storedResponse("b", { "content-range": "bytes 0-0/4" });
+    }
+
+    return request.method === "HEAD" ? new Response(null, { status: 403 }) : signatureRefused();
+  };
+}
+
+/** A resolver that hands out `stale` until it is asked to refresh, and `fresh` from then on. */
+function refreshingResolver(): (options?: ResolverOptions) => typeof temporaryCredentials {
+  let sessionToken = "stale";
+
+  return (resolverOptions) => {
+    if (resolverOptions?.forceRefresh === true) sessionToken = "fresh";
+
+    return { ...temporaryCredentials, sessionToken };
+  };
+}
+
+test("a stale session token refused at the `HEAD` of `stat` is refreshed, and the `HEAD` sent again", async () => {
+  const sent = stubFetch(answeringTheFreshTokenAlone());
+  const resolve =
+    vi.fn<(options?: ResolverOptions) => typeof temporaryCredentials>(refreshingResolver());
+
+  const stat = await s3Storage(options({ credentials: resolve })).stat("object.txt");
+
+  expect(stat.key).toBe("object.txt");
+  expect(resolve.mock.calls).toEqual([
+    [{ forceRefresh: false }],
+    [{ forceRefresh: false }],
+    [{ forceRefresh: true }],
+    [{ forceRefresh: false }],
+  ]);
+  expect(
+    sent.map((request) => [request.method, request.headers.get("x-amz-security-token")]),
+  ).toEqual([
+    ["HEAD", "stale"],
+    ["GET", "stale"],
+    ["GET", "fresh"],
+    ["HEAD", "fresh"],
+  ]);
+});
+
+test.each(["stat", "exists"] as const)(
+  "a session token refused at the `HEAD` of `%s` and refused again once refreshed is `InvalidCredentials`",
+  async (operation) => {
+    const sent = stubFetch(answeringHeadWith(403, signatureRefused));
 
     const failure = await rejection(
       async () =>
         await s3Storage(options({ credentials: temporaryCredentials }))[operation]("object.txt"),
     );
 
-    expect(failure.code).toBe("AccessDenied");
-    expect(failure.attempts).toBe(1);
-    expect(sent).toHaveLength(1);
+    expect(failure).toMatchObject({
+      code: "InvalidCredentials",
+      operation,
+      providerCode: "SignatureDoesNotMatch",
+      attempts: 2,
+    });
+    expect(failure.message).toContain("and so is the one the resolver refreshed");
+    expect(sent.map((request) => request.method)).toEqual(["HEAD", "GET", "GET"]);
+  },
+);
+
+/** A resolver whose refresh hands back a credential the adapter refuses before signing. */
+function refreshingIntoAnEmptyKey(resolverOptions?: ResolverOptions): typeof temporaryCredentials {
+  return resolverOptions?.forceRefresh === true
+    ? { ...temporaryCredentials, accessKeyId: "" }
+    : temporaryCredentials;
+}
+
+// Spec 7.3: a refreshed credential the adapter refuses before signing fails the call, as it
+// fails `get`, rather than leaving the `HEAD`'s status to say the credential was fine.
+test("a resolver that refreshes into an invalid credential fails `stat` with its `InvalidCredentials`", async () => {
+  const sent = stubFetch(answeringHeadWith(403, signatureRefused));
+  const failure = await rejection(
+    async () =>
+      await s3Storage(options({ credentials: refreshingIntoAnEmptyKey })).stat("object.txt"),
+  );
+
+  expect(failure).toMatchObject({ code: "InvalidCredentials", operation: "stat", attempts: 0 });
+  expect(failure.message).toContain("accessKeyId");
+  expect(sent.map((request) => request.method)).toEqual(["HEAD", "GET"]);
+});
+
+// Spec 7.9: no `GET` follows the second `HEAD`, whatever it is answered.
+test("a second `HEAD` refused after the refreshed `GET` passed is read by its status", async () => {
+  const getAnswers = [signatureRefused()];
+  const sent = stubFetch(
+    answeringHeadWith(
+      403,
+      () => getAnswers.shift() ?? storedResponse("b", { "content-range": "bytes 0-0/4" }),
+    ),
+  );
+
+  const failure = await rejection(
+    async () => await s3Storage(options({ credentials: temporaryCredentials })).stat("object.txt"),
+  );
+
+  expect(failure).toMatchObject({ code: "AccessDenied", status: 403, attempts: 1 });
+  expect(failure.providerCode).toBeUndefined();
+  expect(sent.map((request) => request.method)).toEqual(["HEAD", "GET", "GET", "HEAD"]);
+});
+
+test("`exists` answers `true` once the refreshed session token reads the key", async () => {
+  stubFetch(answeringTheFreshTokenAlone());
+
+  expect(await s3Storage(options({ credentials: refreshingResolver() })).exists("object.txt")).toBe(
+    true,
+  );
+});
+
+test.each(["stat", "exists"] as const)(
+  "a key denied at the `HEAD` of `%s` is `AccessDenied` from the `GET` after it",
+  async (operation) => {
+    const sent = stubFetch(
+      answeringHeadWith(403, () =>
+        refused(403, "AccessDenied", "Access Denied", { "x-amz-request-id": "get-request" }),
+      ),
+    );
+
+    const failure = await rejection(
+      async () =>
+        await s3Storage(options({ credentials: temporaryCredentials }))[operation]("object.txt"),
+    );
+
+    expect(failure).toMatchObject({
+      code: "AccessDenied",
+      providerCode: "AccessDenied",
+      requestId: "get-request",
+      attempts: 1,
+    });
+    expect(sent.map((request) => request.method)).toEqual(["HEAD", "GET"]);
   },
 );
 
@@ -2289,6 +2510,33 @@ test("`copy` sends `CopyObject` naming the source and describes the destination"
     userMetadata: { "written-by": "stowage" },
   });
 });
+
+// Spec 7.9: the `HEAD` that describes the destination is read as `stat`'s is (ADR 0066).
+test.each(["copy", "move"] as const)(
+  "the describing `HEAD` of `%s` refused `403` reports the code of the `GET` after it",
+  async (operation) => {
+    const sent = stubFetch(
+      answeringHeadWith(403, (request) =>
+        request.method === "GET"
+          ? refused(403, "AccessDenied", "Access Denied")
+          : copyingProvider(request),
+      ),
+    );
+
+    const failure = await rejection(
+      async () => await s3Storage(options())[operation]("from.txt", "to.txt"),
+    );
+
+    expect(failure).toMatchObject({
+      code: "AccessDenied",
+      operation,
+      key: "to.txt",
+      providerCode: "AccessDenied",
+    });
+    expect(sent.map((request) => request.method)).toEqual(["PUT", "HEAD", "GET"]);
+    expect(sent[2]?.url).toBe("https://stowage.s3.eu-central-1.amazonaws.com/to.txt");
+  },
+);
 
 test("the source is percent-encoded segment by segment in `x-amz-copy-source`", async () => {
   const sent = stubFetch(copyingProvider);

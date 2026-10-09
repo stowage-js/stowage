@@ -99,6 +99,33 @@ test("the `errors/bad-credentials` case refuses an `exists` that answers rather 
   ).rejects.toThrow("and the call resolved");
 });
 
+/** A refusal `stat` reports by the status of its `HEAD` alone, as `adapter-s3` did before ADR 0066. */
+const statReadByStatus = (fields: StubStorageFields): Storage =>
+  stubStorage({
+    ...fields,
+    stat: async () => {
+      throw new StorageError({
+        code: "AccessDenied",
+        message: "The provider answered 403 to `HEAD`",
+        operation: "stat",
+        bucket: "stub",
+        provider: "stub",
+        retryable: false,
+        attempts: 1,
+      });
+    },
+  });
+
+test("the `errors/bad-credentials` case refuses a `stat` that reports the refusal as `AccessDenied`", async () => {
+  await expect(
+    runAgainst(
+      "errors/bad-credentials",
+      "createStorageWithBadCredentials",
+      statReadByStatus(refusingFields("InvalidCredentials", 1)),
+    ),
+  ).rejects.toThrow('`code: "InvalidCredentials"` for `stat`');
+});
+
 test("`errors/denied-credentials` holds against a credential the provider refuses the write to", async () => {
   await expect(
     runAgainst(
@@ -125,6 +152,16 @@ test("`errors/expired-credentials` reads the second attempt spec 7.3 has the ref
       stubStorage(refusingFields("Expired", 1)),
     ),
   ).rejects.toThrow("`attempts: 1` rather than 2");
+});
+
+test("the `errors/expired-credentials` case refuses a `stat` that reports the refusal as `AccessDenied`", async () => {
+  await expect(
+    runAgainst(
+      "errors/expired-credentials",
+      "createStorageWithExpiredCredentials",
+      statReadByStatus(refusingFields("Expired", 2)),
+    ),
+  ).rejects.toThrow('`code: "Expired"` for `stat`');
 });
 
 test("`errors/missing-bucket` holds against a provider that names the bucket as missing", async () => {

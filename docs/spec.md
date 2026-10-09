@@ -1108,8 +1108,10 @@ Google Cloud Storage's XML API among them (ADR 0031).
   The refresh has no delay and is not switched off by `retry: false`. Where the fresh credential is
   refused too, the failure carries `attempts: 2`, and after `SignatureDoesNotMatch` it is
   `InvalidCredentials` whose message says that the temporary credential expired or is not accepted.
-  A key pair answered `SignatureDoesNotMatch` gets no refresh. Nor do `stat` and `exists`: their
-  `HEAD` is answered `403` without a provider code, which is `AccessDenied` (section 7.9, ADR 0065).
+  A key pair answered `SignatureDoesNotMatch` gets no refresh. A `HEAD` is refused without a
+  provider code, so `stat`, `exists` and the `HEAD` that describes the destination of `copy` and
+  `move` reach the refresh only through the `GET` that follows the refusal, and on the same
+  conditions (section 7.9, ADR 0066).
   Caching and rotation are the function's job.
 - Before signing, `accessKeyId` and `secretAccessKey` are checked to be non-empty strings and every
   key of the resolved object to be one of the three; a violation is `InvalidCredentials` naming the
@@ -1241,15 +1243,24 @@ endpoint's string where it names a condition one of them names otherwise and was
 | `NoSuchUpload`, `SlowDown`, `TooManyRequests`, `ServiceUnavailable`, `InternalError`, `RequestTimeout`                                                                                                                             | `ProviderError`      | The last five are transient by status                                                                                                                                                         |
 
 `status`, `providerCode`, `requestId` (from `x-amz-request-id`) and the provider's message are set
-on every error that carries a response. `HEAD` carries no body, so `stat` and `exists` report the
-status alone, with one exception: a `404` to their `HEAD` is followed by a `GET` of the same key
-with `Range: bytes=0-0`, and where its body names `NoSuchBucket` the call rejects with that failure,
-`NotFound` without `key`. Any other answer to that `GET`, a success, a `416` and a body without a
-code included, leaves the `HEAD`'s answer standing, so an absent key costs two requests (ADR 0043).
-A `GET` that receives no response is no answer: the call rejects with its `NetworkError`, which
-`exists` rethrows.
-A `400` for a key above 1024 bytes is `InvalidKey`, the `KeyTooLongError` the body would have
-named.
+on every error that carries a response. `HEAD` carries no body, so the `HEAD` of `stat` and
+`exists`, and the one that describes the destination of `copy` and `move`, is refused without a
+code. A refusal with a status from `400` to `499` other than `408` and `429` is followed by a `GET`
+of the same key with `Range: bytes=0-0`, sent like any other request and so refreshed where section
+7.3 refreshes (ADR 0066):
+
+- Where the `GET` is refused with a provider code, the call rejects with its failure: `NoSuchBucket`
+  is `NotFound` without `key`, `NoSuchKey` is `NotFound` with it, and a refused credential is
+  `InvalidCredentials` or `Expired` as for `get`.
+- Where the `GET` is answered after its refresh, `206` or `416`, the `HEAD` is sent once more, and
+  its answer stands as its status reads it, with no request after it.
+- Any other answer, one without a refresh or a body without a code, leaves the `HEAD`'s answer
+  standing. A `GET` that receives no response is no answer: the call rejects with its
+  `NetworkError`, which `exists` rethrows.
+
+A hit costs one request, an absent key, a denied one and a refused key pair two, and an expired
+credential the refresh recovers four. A `400` for a key above 1024 bytes is `InvalidKey`, the
+`KeyTooLongError` the body would have named, and is followed by no `GET`.
 
 ### 7.10 Presigned URLs
 
@@ -2592,6 +2603,11 @@ From URL`. Against Azurite on every commit and the account in the `slow` tier.
   against a stubbed `fetch`: one resolver call with `forceRefresh: true`, then success, or
   `InvalidCredentials` with `attempts: 2` after a second one; one attempt for the same answer to a
   key pair.
+- The `GET` that reads a refused `HEAD` of `adapter-s3` (section 7.9), against a stubbed `fetch`: a
+  key pair refused as `InvalidCredentials` with `attempts: 1` in two requests; a session token
+  refused as `SignatureDoesNotMatch`, then one resolver call with `forceRefresh: true` and the `HEAD`
+  sent again, which succeeds, or `InvalidCredentials` with `attempts: 2` where the refreshed `GET`
+  is refused too; `AccessDenied` in two requests; and the describing `HEAD` of `copy`.
 - The repeat after `401 InvalidAuthenticationInfo` under an access token (section 8.3), against a
   stubbed `fetch`: one resolver call with `forceRefresh: true`, then success, or
   `InvalidCredentials` after a second `401`.
@@ -2747,14 +2763,14 @@ A case marked with a factory is skipped where the target does not supply it.
 
 **Errors**
 
-| Case                         | Requires | Cost   | Asserts                                                                                                                                                                                             |
-| ---------------------------- | -------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `errors/shape`               |          | `fast` | Every error the run provokes passes `isStorageError`, has a `code` out of the union, `operation`, `bucket` and `provider` matching the storage, a boolean `retryable` and an integer `attempts`     |
-| `errors/not-a-storage-error` |          | `fast` | `AbortError` and `SyntaxError` from the cases above fail `isStorageError`                                                                                                                           |
-| `errors/bad-credentials`     |          | `fast` | Factory `createStorageWithBadCredentials`: `get` rejects with `InvalidCredentials`, `retryable: false` and `attempts` of `1` or `2`; `exists` rejects rather than answering `false`; `list` rejects |
-| `errors/denied-credentials`  |          | `fast` | Factory `createStorageWithDeniedCredentials`: `put` rejects with `AccessDenied`, `retryable: false`, `attempts: 1`                                                                                  |
-| `errors/expired-credentials` |          | `slow` | Factory `createStorageWithExpiredCredentials`: `get` rejects with `Expired` and `attempts: 2`                                                                                                       |
-| `errors/missing-bucket`      |          | `fast` | Factory `createStorageWithMissingBucket`: `put`, `get`, `stat`, `exists`, `delete` and the first page of `list` reject; where the code is `NotFound`, `key` is unset                                |
+| Case                         | Requires | Cost   | Asserts                                                                                                                                                                                                       |
+| ---------------------------- | -------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `errors/shape`               |          | `fast` | Every error the run provokes passes `isStorageError`, has a `code` out of the union, `operation`, `bucket` and `provider` matching the storage, a boolean `retryable` and an integer `attempts`               |
+| `errors/not-a-storage-error` |          | `fast` | `AbortError` and `SyntaxError` from the cases above fail `isStorageError`                                                                                                                                     |
+| `errors/bad-credentials`     |          | `fast` | Factory `createStorageWithBadCredentials`: `get` and `stat` reject with `InvalidCredentials`, `retryable: false` and `attempts` of `1` or `2`; `exists` rejects rather than answering `false`; `list` rejects |
+| `errors/denied-credentials`  |          | `fast` | Factory `createStorageWithDeniedCredentials`: `put` rejects with `AccessDenied`, `retryable: false`, `attempts: 1`                                                                                            |
+| `errors/expired-credentials` |          | `slow` | Factory `createStorageWithExpiredCredentials`: `get` and `stat` reject with `Expired` and `attempts: 2`                                                                                                       |
+| `errors/missing-bucket`      |          | `fast` | Factory `createStorageWithMissingBucket`: `put`, `get`, `stat`, `exists`, `delete` and the first page of `list` reject; where the code is `NotFound`, `key` is unset                                          |
 
 **Presigned URLs**
 
