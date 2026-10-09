@@ -142,7 +142,7 @@ test("a writer refused before it read its body does not hold the other one back"
   const { storage } = concurrentStorage([{ ends: "refusedUnread" }, {}]);
 
   await expect(runAgainst(storage)).resolves.toBeUndefined();
-}, 1000);
+});
 
 test("a writer whose commit the other one discarded may reject", async () => {
   const { storage } = concurrentStorage([{}, { ends: "lostCommit" }]);
