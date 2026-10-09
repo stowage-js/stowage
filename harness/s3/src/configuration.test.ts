@@ -7,6 +7,7 @@ import {
   servesBehindAServer,
   storageWithBadCredentials,
   storageWithDeniedCredentials,
+  staleCredentialsFrom,
   storageWithMissingBucket,
 } from "./configuration.ts";
 
@@ -53,6 +54,35 @@ describe("expiredCredentialsFrom", () => {
     expect(() =>
       expiredCredentialsFrom({ ...expiredToken, STOWAGE_S3_EXPIRED_AT: "soon" }),
     ).toThrow("STOWAGE_S3_EXPIRED_AT");
+  });
+});
+
+describe("staleCredentialsFrom", () => {
+  const r2 = {
+    ...configured,
+    endpoint: "https://0123456789abcdef.r2.cloudflarestorage.com",
+    region: "auto",
+  };
+
+  // ADR 0067: R2 refuses an expired temporary credential as `SignatureDoesNotMatch` (ADR 0045).
+  test("against R2 is a temporary credential the harness signed, expired already", async () => {
+    const stale = await staleCredentialsFrom(r2, { STOWAGE_S3_ENDPOINT_NAME: "r2" })?.();
+
+    expect(stale?.credentials.accessKeyId).toBe("long-lived");
+    expect(stale?.credentials.sessionToken).toMatch(/^and0L/u);
+    expect(stale?.expiresAt.getTime()).toBeLessThan(Date.now());
+  });
+
+  test("against AWS is the expired STS token", async () => {
+    await expect(
+      staleCredentialsFrom(configured, { STOWAGE_S3_ENDPOINT_NAME: "aws-s3", ...expiredToken })?.(),
+    ).resolves.toEqual(expiredCredentialsFrom(expiredToken));
+  });
+
+  test("is none where no temporary credential can be had", () => {
+    expect(staleCredentialsFrom(configured, { STOWAGE_S3_ENDPOINT_NAME: "seaweedfs" })).toBe(
+      undefined,
+    );
   });
 });
 

@@ -2,9 +2,11 @@ import type { S3AdapterOptions, S3Credentials } from "../../../packages/adapter-
 import { s3Storage } from "../../../packages/adapter-s3/src/index.ts";
 import type { ConformanceFramework } from "../../../packages/conformance/src/describe.ts";
 import type { ConformanceTarget } from "../../../packages/conformance/src/target.ts";
+import { staleResolver } from "../../targets/src/stale-credentials.ts";
 import {
   type ExpiredCredentials,
   expiredCredentialsFrom,
+  staleCredentialsFrom,
   storageWithBadCredentials,
   storageWithDeniedCredentials,
   storageWithMissingBucket,
@@ -24,6 +26,7 @@ const expiryMargin = 60_000;
 export function s3Target(configured: S3AdapterOptions, variables: Variables): ConformanceTarget {
   const denied = storageWithDeniedCredentials(configured, variables);
   const expired = expiredCredentialsFrom(variables);
+  const stale = staleCredentialsFrom(configured, variables);
 
   return {
     name: "@stowage/adapter-s3",
@@ -45,6 +48,19 @@ export function s3Target(configured: S3AdapterOptions, variables: Variables): Co
       : {
           createStorageWithExpiredCredentials: async () =>
             s3Storage({ ...configured, credentials: await onceExpired(expired) }),
+        }),
+
+    ...(stale === undefined
+      ? {}
+      : {
+          createStorageWithStaleCredentials: async (onRefresh) => {
+            const refused = await onceExpired(await stale());
+
+            return s3Storage({
+              ...configured,
+              credentials: staleResolver(refused, configured.credentials, onRefresh),
+            });
+          },
         }),
   };
 }

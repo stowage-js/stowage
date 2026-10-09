@@ -1,4 +1,5 @@
 import type { S3AdapterOptions, S3Credentials } from "../../../packages/adapter-s3/src/index.ts";
+import { expiredR2Credentials } from "./r2-temporary-credential.ts";
 
 /**
  * The variables `start.sh` prints. A runtime hands over its own: Node, Bun and Deno their
@@ -143,6 +144,29 @@ export function expiredCredentialsFrom(variables: Variables): ExpiredCredentials
   }
 
   return { credentials: { accessKeyId, secretAccessKey, sessionToken }, expiresAt };
+}
+
+/**
+ * Spec 14.3: where a stale credential comes from, which `createStorageWithStaleCredentials`
+ * waits out. ADR 0067: R2 has the harness sign one that is expired already, AWS has the STS
+ * token of the `Expired` case, and an endpoint without either supplies none.
+ */
+export function staleCredentialsFrom(
+  configured: S3AdapterOptions,
+  variables: Variables,
+): (() => Promise<ExpiredCredentials>) | undefined {
+  if (endpointNameFrom(variables) === "r2") {
+    return async () => {
+      const { credentials, endpoint = "" } = configured;
+      const parent = typeof credentials === "function" ? await credentials() : credentials;
+
+      return await expiredR2Credentials(parent, endpoint, configured.bucket, new Date());
+    };
+  }
+
+  const expired = expiredCredentialsFrom(variables);
+
+  return expired === undefined ? undefined : async () => expired;
 }
 
 function filled(value: string | null | undefined): string | undefined {
