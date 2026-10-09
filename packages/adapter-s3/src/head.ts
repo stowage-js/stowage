@@ -63,8 +63,9 @@ type Reading =
 /**
  * A success or a `416` without a refresh means a writer created the object in between, and
  * a compatible endpoint may name no code at all, so either leaves the `HEAD`'s answer
- * standing. A `GET` that received no response is no answer, and rejects the call with its
- * `NetworkError`, which `exists` rethrows rather than answering `false`.
+ * standing. A `GET` that received no response is no answer: the call rejects with its
+ * `NetworkError`, or with what the resolver threw for its refresh, which `exists` rethrows
+ * rather than answering `false`.
  */
 async function readRefusal(configuration: S3Configuration, request: HeadRequest): Promise<Reading> {
   let refreshed = false;
@@ -91,7 +92,7 @@ async function readRefusal(configuration: S3Configuration, request: HeadRequest)
     if (!isStorageError(failure)) throw failure;
 
     if (failure.status !== rangeNotSatisfiable) {
-      return failure.providerCode !== undefined || failure.code === "NetworkError"
+      return failure.providerCode !== undefined || failure.status === undefined
         ? { kind: "refused", failure }
         : standing;
     }

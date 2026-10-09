@@ -1026,7 +1026,25 @@ test("a stale session token refused at the `HEAD` of `stat` is refreshed, and th
   ]);
 });
 
-// Spec 7.9: no request follows the second `HEAD`, whatever it is answered.
+// Spec 7.3: a refreshed credential the adapter refuses before signing fails the call, as it
+// fails `get`, rather than leaving the `HEAD`'s status to say the credential was fine.
+test("a resolver that refreshes into an invalid credential fails `stat` with its `InvalidCredentials`", async () => {
+  const sent = stubFetch(answeringHeadWith(403, signatureRefused));
+  const resolve = (resolverOptions?: ResolverOptions): typeof temporaryCredentials =>
+    resolverOptions?.forceRefresh === true
+      ? { ...temporaryCredentials, accessKeyId: "" }
+      : temporaryCredentials;
+
+  const failure = await rejection(
+    async () => await s3Storage(options({ credentials: resolve })).stat("object.txt"),
+  );
+
+  expect(failure).toMatchObject({ code: "InvalidCredentials", operation: "stat", attempts: 0 });
+  expect(failure.message).toContain("accessKeyId");
+  expect(sent.map((request) => request.method)).toEqual(["HEAD", "GET"]);
+});
+
+// Spec 7.9: no `GET` follows the second `HEAD`, whatever it is answered.
 test("a second `HEAD` refused after the refreshed `GET` passed is read by its status", async () => {
   const getAnswers = [signatureRefused()];
   const sent = stubFetch((request) =>
