@@ -68,7 +68,7 @@ async function copyPinned(
   signal: AbortSignal | undefined,
 ): Promise<void> {
   const source = await send(configuration, { method: "HEAD", operation, key: from, signal });
-  const pin = source.headers.get("etag") ?? "";
+  const etag = source.headers.get("etag");
 
   await source.body?.cancel();
 
@@ -79,7 +79,9 @@ async function copyPinned(
     copySource: from,
     headers: async (credentials) => [
       ["x-ms-blob-type", "BlockBlob"],
-      ["x-ms-source-if-match", pin],
+      // Azure describes every blob with an entity tag; an endpoint that does not gets the copy
+      // unpinned rather than refused for an empty condition.
+      ...(etag === null ? [] : [["x-ms-source-if-match", etag] as const]),
       ...restatedFields(source.headers),
       ...(await sourceAuthorization(configuration, from, credentials)),
     ],

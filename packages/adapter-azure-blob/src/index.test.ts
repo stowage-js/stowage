@@ -1678,6 +1678,22 @@ test("a source replaced under three copies in a row is a `ProviderError` worth r
   ]);
 });
 
+test("a source described without an entity tag is copied unpinned", async () => {
+  const sent = stubFetch((request) => {
+    if (request.method === "PUT") return created();
+
+    const answer = described();
+
+    answer.headers.delete("etag");
+
+    return answer;
+  });
+
+  await storage().copy("from.txt", "to.txt");
+
+  expect(copyRequests(sent)[0]?.headers.has("x-ms-source-if-match")).toBe(false);
+});
+
 test("`copy` restates nothing the source does not hold", async () => {
   const sent = stubFetch(copied());
 
