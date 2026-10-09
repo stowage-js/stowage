@@ -29,8 +29,14 @@ export async function sendHead(
   }
 }
 
+/**
+ * A refusal whose condition the status leaves open. A transient one is the retry budget's,
+ * and spec 7.9 already reads the `400` to a key above 1024 bytes as `InvalidKey`.
+ */
 function isReadByAGet(failure: StorageError): boolean {
   const status = failure.status ?? 0;
+
+  if (failure.retryable || failure.code === "InvalidKey") return false;
 
   return status >= badRequest && status <= lastClientError;
 }

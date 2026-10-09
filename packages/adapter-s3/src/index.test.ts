@@ -790,13 +790,30 @@ test.each(["stat", "exists"] as const)(
 // Spec 7.9: 513 characters and 1026 bytes, so the limit is counted in UTF-8 bytes.
 const tooLongKey = "ü".repeat(513);
 
-test("`stat` of a key above 1024 bytes answered `400` is `InvalidKey`", async () => {
-  stubFetch(() => new Response(null, { status: 400 }));
+test("`stat` of a key above 1024 bytes answered `400` is `InvalidKey` without a `GET`", async () => {
+  const sent = stubFetch(() => new Response(null, { status: 400 }));
 
   const failure = await rejection(async () => await s3Storage(options()).stat(tooLongKey));
 
   expect(failure).toMatchObject({ code: "InvalidKey", key: tooLongKey, status: 400, attempts: 1 });
+  expect(sent.map((request) => request.method)).toEqual(["HEAD"]);
 });
+
+// Spec 7.9: a transient status names its condition already, and the budget of spec 7.5 is
+// what answers it.
+test.each([408, 429])(
+  "a `HEAD` of `stat` answered a transient `%i` is followed by no `GET`",
+  async (status) => {
+    const sent = stubFetch(() => new Response(null, { status }));
+
+    const failure = await rejection(
+      async () => await s3Storage(options({ retry: false })).stat("object.txt"),
+    );
+
+    expect(failure).toMatchObject({ code: "ProviderError", status, retryable: true });
+    expect(sent.map((request) => request.method)).toEqual(["HEAD"]);
+  },
+);
 
 test("`exists` of a key above 1024 bytes answered `400` rejects with `InvalidKey`", async () => {
   stubFetch(() => new Response(null, { status: 400 }));
