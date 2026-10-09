@@ -1007,7 +1007,8 @@ function refreshingResolver(): (options?: ResolverOptions) => typeof temporaryCr
 
 test("a stale session token refused at the `HEAD` of `stat` is refreshed, and the `HEAD` sent again", async () => {
   const sent = stubFetch(answeringTheFreshTokenAlone());
-  const resolve = vi.fn(refreshingResolver());
+  const resolve =
+    vi.fn<(options?: ResolverOptions) => typeof temporaryCredentials>(refreshingResolver());
 
   const stat = await s3Storage(options({ credentials: resolve })).stat("object.txt");
 
