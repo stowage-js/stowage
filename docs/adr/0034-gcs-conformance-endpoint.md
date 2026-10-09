@@ -97,8 +97,9 @@ federated principal cannot sign, and `signBlob` needs a service account to sign 
   of that environment. The GitHub environment `gcs` is restricted to `main`, like `aws-s3`, `r2`
   and `azure-blob`.
 - Against the real bucket `createStorageWithBadCredentials` hands over a resolver that returns
-  `not-a-google-token` on every call, `forceRefresh` included. That costs one repeat and ends in
-  `InvalidCredentials` with `attempts: 2` (ADR 0033).
+  `ya29.not-a-google-token` on every call, `forceRefresh` included. That costs one repeat and ends
+  in `InvalidCredentials` with `attempts: 2` (ADR 0033). The token carries the prefix of an access
+  token because GCS answers a string without it with no `error=invalid_token` since 2026-10-09.
 - A token for `signBlob` comes from the same federated token with the scope `iam`, since a storage
   token's scope does not reach `iamcredentials`. How a signer takes it is the decision on presigned
   URLs. The real bucket signs through `signBlob` alone: a local key there would be a stored secret.

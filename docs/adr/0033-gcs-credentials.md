@@ -34,6 +34,16 @@ therefore reads the header, the one signal alike on all three paths, and repeats
 ADR 0021 does on Azure after `401 InvalidAuthenticationInfo`. Reading the body would have needed
 two parsers for the same refusal and left `HEAD` without one.
 
+Measured again on 2026-10-09, after the first scheduled run of `errors/stale-credentials` saw no
+refresh (ADR 0067): GCS now gives `error=invalid_token` only to a token that starts as its access
+tokens do, with `ya29.`, case-sensitively. `ya29.not-a-google-token` and `ya29.` alone get it on
+the JSON API, a media download, an upload and the XML API's `HEAD`, which quotes the value. The
+made-up token of the first measurement, `not-a-google-token`, a random hex string and
+`Ya29.not-a-google-token` get `401` with `WWW-Authenticate: Bearer
+realm="https://accounts.google.com/"` and no `error`, which the adapter does not repeat. The
+scheduled run of the same day saw a token past its expiry still answered with
+`error=invalid_token`, so the decision stands; the harness's made-up tokens take the prefix.
+
 ## Consequences
 
 - The resolved credential is checked before the first request, and each violation is
@@ -55,8 +65,9 @@ two parsers for the same refusal and left `HEAD` without one.
   the open points of spec section 14 for a scheduled run. Should it carry a signal of its own, such
   as an `error_description`, a genuine `Expired` can be added in a minor release. The first run
   against the bucket asked with a token of a 60-second lifetime past its expiry and saw the answer
-  a made-up token gets, `401` with `error=invalid_token`, the reason `authError` and "Invalid
+  a made-up token got then, `401` with `error=invalid_token`, the reason `authError` and "Invalid
   Credentials", 0 and 1 seconds after it expired, so the adapter still never reports `Expired`.
+  Since 2026-10-09 a made-up token gets that answer only with the prefix `ya29.`.
 - `adapter-gcs` exports no `fromEnv`. An access token in an environment variable is a snapshot that
   stops working within an hour, the reason ADR 0021 did not read one, and
   `GOOGLE_APPLICATION_CREDENTIALS` names a file, which `workerd` cannot read.

@@ -76,9 +76,10 @@ export function gcsEndpointFrom(variables: Variables): GcsEndpoint | undefined {
       deniedServiceAccount === undefined
         ? unsetVariablesResolver(serviceAccountVariable, [deniedServiceAccountVariable])
         : impersonate(deniedServiceAccount, "devstorage.read_write"),
-    // ADR 0067: GCS answers a made-up token with the `401` that refreshes, as it answers one
-    // past its expiry (ADR 0033), so the stale credential needs no token to expire.
-    staleCredentials: (onRefresh) => staleResolver(notAGoogleToken, credentials, onRefresh),
+    // ADR 0067: GCS answers a made-up token in the shape of an access token with the `401`
+    // that refreshes, as it answers one past its expiry (ADR 0033), so the stale credential
+    // needs no token to expire.
+    staleCredentials: (onRefresh) => staleResolver(madeUpAccessToken, credentials, onRefresh),
     expiringToken: async (lifetimeSeconds) =>
       await expiring(serviceAccount, "devstorage.read_write", lifetimeSeconds),
   };
@@ -91,9 +92,13 @@ const deniedServiceAccountVariable = "STOWAGE_GCS_DENIED_SERVICE_ACCOUNT";
  * Spec 14.3: a credential the provider refuses. ADR 0034: a resolver that answers a token
  * that is none on every call, `forceRefresh` included, so the case ends after the one repeat.
  */
-const badCredentials: Credentials = async () => notAGoogleToken;
+const badCredentials: Credentials = async () => madeUpAccessToken;
 
-const notAGoogleToken = { accessToken: "not-a-google-token" };
+/**
+ * ADR 0033: GCS gives `error=invalid_token` only to a token that starts as its access tokens
+ * do, `ya29.`, and answers any other string without it, which does not refresh.
+ */
+const madeUpAccessToken = { accessToken: "ya29.not-a-google-token" };
 
 /** What the job names beside the service accounts, the Actions runtime's two among them. */
 const federationVariables = [

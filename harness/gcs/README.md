@@ -88,10 +88,12 @@ provider, both service accounts, `ACTIONS_ID_TOKEN_REQUEST_URL` and
 
 `createStorageWithDeniedCredentials` runs under `stowage-conformance-denied`, which the bucket
 answers with `403` on a write, and `errors/denied-credentials` reads that as `AccessDenied`.
-`createStorageWithBadCredentials` hands over a resolver that answers `not-a-google-token` on every
-call, `forceRefresh` included, which ends in `InvalidCredentials` after the one repeat (ADR 0033).
-`createStorageWithStaleCredentials` answers the same token until the adapter refreshes, and the
-service account's from then on, which `errors/stale-credentials` reads as the recovery (ADR 0067).
+`createStorageWithBadCredentials` hands over a resolver that answers `ya29.not-a-google-token` on
+every call, `forceRefresh` included, which ends in `InvalidCredentials` after the one repeat
+(ADR 0033). Without the prefix of an access token GCS refuses the token without
+`error=invalid_token`, which does not refresh. `createStorageWithStaleCredentials` answers the same
+token until the adapter refreshes, and the service account's from then on, which
+`errors/stale-credentials` reads as the recovery (ADR 0067).
 Against fake-gcs-server the target supplies none of the three.
 
 A lifecycle rule deletes an object a day after it was written, which removes what a run that died
