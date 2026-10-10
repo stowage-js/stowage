@@ -3153,6 +3153,9 @@ that disagrees with this document is corrected without a changeset.
   the README of `@stowage/nestjs` with `experimentalDecorators` and without
   `erasableSyntaxOnly`, against `@types/node` and `@types/express` (ADR 0055). Links are not
   checked.
+- The first `ts` block of the root README also runs in CI, on Node, from the packages its install
+  line names, packed and installed with npm into a project outside the workspace, with `root`
+  pointed at a temporary directory (ADR 0069).
 - TSDoc is written where a meaning was decided: the ten error codes, the six capability names,
   `retry`, `multipart`, `expiresIn`, `contentLength` on `presignPut`, the three content headers on
   `PutOptions`, on `ObjectStat`, on `presignPut` and on the options of `acceptUpload` and
