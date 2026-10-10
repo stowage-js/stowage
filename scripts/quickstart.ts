@@ -46,7 +46,7 @@ export function withStowageDependencies(
 
   for (const name of names) visit(name);
 
-  return [...found].toSorted();
+  return [...found].toSorted((left, right) => left.localeCompare(right));
 }
 
 interface Manifest {
