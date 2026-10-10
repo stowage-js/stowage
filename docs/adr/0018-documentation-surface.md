@@ -83,3 +83,7 @@ someone writing an adapter outside this repository and needs the steps of that j
 - ADR 0055 gives the four READMEs of v0.5 the sections of the adapters, adds "Test a server" to
   the README of `@stowage/conformance`, and has the code-block test compile each document with the
   compiler options of its reader's application.
+- ADR 0069 replaces the measure of success this decision started from. It keeps the site, the
+  `examples/` workspace and `CODE_OF_CONDUCT.md` out, and adds the install line, the state of the
+  project and the sections "Why stowage" and "When not to use stowage" to the root README, a
+  sentence leading every package README to the root, `CONTRIBUTING.md` and one issue form.

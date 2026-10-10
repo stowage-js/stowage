@@ -1,5 +1,8 @@
 # @stowage/conformance
 
+Part of [stowage](https://github.com/stowage-js/stowage#readme): one typed API for object storage
+across S3, R2, Azure Blob, GCS and local disk.
+
 The cases every stowage adapter and every server has to pass, as plain cases a test framework maps
 onto its own runner. An adapter written outside this repository passes the same cases as the ones
 inside it, and so does a server that answers through `@stowage/http`.

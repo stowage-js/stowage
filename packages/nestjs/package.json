@@ -3,12 +3,14 @@
   "version": "0.6.0",
   "description": "The NestJS integration of stowage: registers a storage under the caller's injection token, and carries a web request and response over Express and Fastify for @stowage/http.",
   "keywords": [
+    "download",
     "express",
     "fastify",
     "nestjs",
     "object-storage",
     "storage",
-    "stowage"
+    "stowage",
+    "upload"
   ],
   "homepage": "https://github.com/stowage-js/stowage/tree/main/packages/nestjs#readme",
   "bugs": "https://github.com/stowage-js/stowage/issues",

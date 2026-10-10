@@ -1,0 +1,81 @@
+name: Bug report
+description: A package does something its specification does not say it does.
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        What a package promises is what [the specification](https://github.com/stowage-js/stowage/blob/main/docs/spec.md) states. A vulnerability goes through the [security policy](https://github.com/stowage-js/stowage/security/policy), not here.
+  - type: dropdown
+    id: package
+    attributes:
+      label: Package
+      options:
+        - "@stowage/core"
+        - "@stowage/adapter-memory"
+        - "@stowage/adapter-fs"
+        - "@stowage/adapter-s3"
+        - "@stowage/adapter-azure-blob"
+        - "@stowage/adapter-gcs"
+        - "@stowage/http"
+        - "@stowage/nestjs"
+        - "@stowage/hono"
+        - "@stowage/nextjs"
+        - "@stowage/conformance"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: "0.6.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      description: The provider the storage faces. An endpoint that speaks a provider's wire protocol without being that provider, such as MinIO or an emulator, is a compatible endpoint.
+      options:
+        - AWS S3
+        - Cloudflare R2
+        - Azure Blob Storage
+        - Google Cloud Storage
+        - Local file system on Linux
+        - Local file system on macOS
+        - None (adapter-memory, or no storage involved)
+        - A compatible endpoint (name it below)
+    validations:
+      required: true
+  - type: input
+    id: compatible-endpoint
+    attributes:
+      label: Compatible endpoint
+      description: Its name and version, if you picked a compatible endpoint above.
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: Runtime
+      options:
+        - Node
+        - Bun
+        - Deno
+        - workerd
+    validations:
+      required: true
+  - type: input
+    id: runtime-version
+    attributes:
+      label: Runtime version
+      description: For `workerd`, the compatibility date and flags. For an integration, the framework's version as well.
+      placeholder: "Node 24.21.0"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: The fewest calls that show it, what you expected and what happened instead, with the `StorageError` code if there is one.
+      render: ts
+    validations:
+      required: true

@@ -1,5 +1,8 @@
 # @stowage/nestjs
 
+Part of [stowage](https://github.com/stowage-js/stowage#readme): one typed API for object storage
+across S3, R2, Azure Blob, GCS and local disk.
+
 The NestJS integration of stowage: `StorageModule.forRoot({ provide, storage })` registers a
 storage under the caller's injection token, and a controller answers through `@stowage/http`
 with `webRequestOf(req, res)` and `sendResponse(res, response)`, on Express and on Fastify.

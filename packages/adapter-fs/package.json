@@ -4,6 +4,8 @@
   "description": "stowage adapter rooting a storage in one directory of the local file system.",
   "keywords": [
     "adapter",
+    "cloud-storage",
+    "file-storage",
     "filesystem",
     "fs",
     "object-storage",

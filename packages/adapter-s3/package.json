@@ -5,7 +5,9 @@
   "keywords": [
     "adapter",
     "aws",
+    "cloud-storage",
     "cloudflare",
+    "file-storage",
     "object-storage",
     "r2",
     "s3",

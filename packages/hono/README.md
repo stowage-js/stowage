@@ -1,5 +1,8 @@
 # @stowage/hono
 
+Part of [stowage](https://github.com/stowage-js/stowage#readme): one typed API for object storage
+across S3, R2, Azure Blob, GCS and local disk.
+
 The Hono integration of stowage: `withStorage(name, storage)` sets a storage on `c.var[name]`,
 and a route answers through `@stowage/http` with `c.req.raw`.
 

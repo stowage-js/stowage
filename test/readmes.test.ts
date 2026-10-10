@@ -574,3 +574,67 @@ test("the root README links the HTTP layer and the integrations after flow 1", a
     expect(afterExample).toContain(`(${directoryOf(manifest)})`);
   }
 });
+
+const beforeFirstTsBlock = (text: string): string => text.slice(0, text.indexOf("```ts"));
+
+// ADR 0069: a reader who copies the first block meets the state of the project and the install
+// line before it.
+test("the root README states the state of the project before its first block", async () => {
+  const opening = proseOf(beforeFirstTsBlock(await read("README.md")));
+
+  expect(opening).toContain("below 1.0");
+  expect(opening).toContain("(docs/spec.md#15-versions)");
+});
+
+test("the root README installs both adapters of its opening blocks before them", async () => {
+  const opening = beforeFirstTsBlock(await read("README.md"));
+
+  expect(opening).toContain("```sh\nnpm install @stowage/adapter-fs @stowage/adapter-s3\n```");
+  expect(proseOf(opening)).toContain("directory that exists");
+  expect(proseOf(opening)).toContain("module");
+});
+
+test("the root README says why and when not before flow 1", async () => {
+  const headings = headingsOf(await read("README.md"));
+  const positions = ["Why stowage", "When not to use stowage", "A large upload from a server"].map(
+    (heading) => headings.indexOf(heading),
+  );
+
+  expect(positions).not.toContain(-1);
+  expect(positions).toEqual(positions.toSorted((left, right) => left - right));
+});
+
+test("every point of the root README's why stands beside the place that holds it", async () => {
+  const points = bulletsOf(sectionOf(await read("README.md"), "Why stowage"));
+
+  expect(points.length).toBeGreaterThan(0);
+
+  for (const point of points) expect(point).toMatch(/\]\([^)]+\)/u);
+});
+
+test("the root README's when not names spec 17 and the compatible endpoint", async () => {
+  const whenNot = proseOf(sectionOf(await read("README.md"), "When not to use stowage"));
+
+  expect(whenNot).toContain("(docs/spec.md#17-non-goals)");
+  expect(whenNot).toContain("compatible endpoint");
+});
+
+const leadOf = (text: string): string => text.slice(0, text.indexOf("\n## "));
+
+// ADR 0069: npm shows a package its own README, so each one leads to the root's.
+test.each(published)("the README of $name leads to the root README", async (manifest) => {
+  expect(leadOf(await readmeOf(manifest))).toContain(
+    "(https://github.com/stowage-js/stowage#readme)",
+  );
+});
+
+test.each([adapterS3, adapterAzureBlob, adapterGcs])(
+  "the README of $name records a size under the bound of the root README",
+  async (manifest) => {
+    const bound = /under (\d+) kB/u.exec(sectionOf(await read("README.md"), "Why stowage"))?.[1];
+    const measured = /The bundle measures ([\d.]+) kB/u.exec(await readmeOf(manifest))?.[1];
+
+    expect(bound, "names no bound").toBeDefined();
+    expect(Number(measured)).toBeLessThan(Number(bound));
+  },
+);

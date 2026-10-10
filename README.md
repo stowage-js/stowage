@@ -4,6 +4,22 @@ stowage puts object storage providers behind one typed API, so that an applicati
 against local disk runs against a cloud provider by changing where the storage is constructed, and
 nothing else.
 
+[![npm](https://img.shields.io/npm/v/@stowage/core)](https://www.npmjs.com/package/@stowage/core)
+[![CI](https://github.com/stowage-js/stowage/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/stowage-js/stowage/actions/workflows/ci.yml)
+[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=stowage-js_stowage&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=stowage-js_stowage)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=stowage-js_stowage&metric=coverage)](https://sonarcloud.io/summary/new_code?id=stowage-js_stowage)
+[![License](https://img.shields.io/github/license/stowage-js/stowage)](LICENSE)
+
+stowage is below 1.0: a minor release may withdraw a promise, and its changelog marks that change
+as breaking. 1.0 waits for what [spec 15](docs/spec.md#15-versions) names.
+
+```sh
+npm install @stowage/adapter-fs @stowage/adapter-s3
+```
+
+Both blocks are ES modules, so they run from an `.mjs` file or in a package with
+`"type": "module"`, and `root` names an absolute path to a directory that exists.
+
 ```ts
 import { fsStorage } from "@stowage/adapter-fs";
 
@@ -37,6 +53,43 @@ for await (const entry of storage.list({ prefix: "notes/" })) {
 
 await storage.delete("notes/hello.txt");
 ```
+
+## Why stowage
+
+- **No SDK beneath an adapter.** The adapters for S3, Azure Blob and GCS speak their provider's
+  wire protocol themselves, over `fetch`, Web Crypto and web streams, and depend on
+  `@stowage/core` alone ([ADR 0003](docs/adr/0003-own-the-s3-wire-protocol.md)). As measured for
+  0.6.0, each of them stays under 15 kB minified and gzipped with `@stowage/core` included
+  ([`adapter-s3`](packages/adapter-s3#runtimes),
+  [`adapter-azure-blob`](packages/adapter-azure-blob#runtimes),
+  [`adapter-gcs`](packages/adapter-gcs#runtimes)).
+- **Node, Bun, Deno and `workerd`.** Every adapter but `adapter-fs` runs on all four, on `workerd`
+  without Node APIs ([the runtime matrix](docs/spec.md#2-runtime-matrix)).
+- **Run against the providers themselves.** One conformance suite runs every adapter against an
+  emulator on each pull request, and against AWS S3, Cloudflare R2, Azure Blob Storage and Google
+  Cloud Storage every day and before each release ([`@stowage/conformance`](packages/conformance)).
+- **Failures to switch on.** A failure is a `StorageError` carrying one of ten codes, and a missing
+  object is `NotFound` on every provider ([spec 4.10](docs/spec.md#410-errors)).
+- **Promises written down.** What a caller may rely on is what [the specification](docs/spec.md)
+  states, and what a provider cannot hold is a capability its storage does not declare
+  ([spec 4.9](docs/spec.md#49-capabilities)).
+
+## When not to use stowage
+
+- You need what a provider offers beyond objects: versioning, object lock, tagging, storage
+  classes, ACLs or encryption keys of your own. Use the provider's SDK for those, beside
+  stowage or instead of it.
+- You need a key-value store rather than objects, with values you read and write whole by key.
+  [unstorage](https://unstorage.unjs.io) is built for that.
+- You create, list or delete buckets and containers from your application.
+- You want credentials found for you through instance metadata, a managed identity or workload
+  identity federation. stowage takes static credentials, `fromEnv`, or an access token your own
+  resolver obtains.
+- Your endpoint is not one of the providers stowage promises. MinIO and other endpoints that speak
+  a promised provider's wire protocol are each a [compatible endpoint](CONTEXT.md): the adapter for
+  that protocol can be configured for them, and stowage promises nothing against them.
+
+The full list is [spec 17](docs/spec.md#17-non-goals).
 
 ## Packages
 
@@ -92,6 +145,7 @@ A route that takes uploads from clients needs a size limit in front of `put`, wh
   and on nothing else a package happens to export
 - [The terms it uses](CONTEXT.md)
 - [The decisions behind it](docs/adr)
+- [How to contribute](CONTRIBUTING.md)
 
 ## License
 

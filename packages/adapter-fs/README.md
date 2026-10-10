@@ -1,5 +1,8 @@
 # @stowage/adapter-fs
 
+Part of [stowage](https://github.com/stowage-js/stowage#readme): one typed API for object storage
+across S3, R2, Azure Blob, GCS and local disk.
+
 A storage rooted in one directory of the local file system.
 
 ## Install

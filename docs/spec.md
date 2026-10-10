@@ -3062,12 +3062,19 @@ with `requires` carries a `runWithout` half, described in the last column. A dat
 Twelve READMEs point into this document. A README states no promise of its own; a line in a README
 that disagrees with this document is corrected without a changeset.
 
-- The repository root README shows the package family and opens with two blocks: the same four
-  calls, `put`, `get`, `list` and `delete`, against `fsStorage` and against `s3Storage`, differing
-  only in how the storage is constructed. Reference flow 1 follows as the second example, a `put`
-  of `request.body`, and one sentence after it links `acceptUpload` of `@stowage/http` and the
-  three integrations for a route with a size limit, without a code block. The package table lists
-  all eleven packages (ADR 0055).
+- The repository root README shows the package family. Under the opening sentence it states the
+  state of the project, then the install line as a `sh` block with a sentence that the blocks are
+  modules and that `root` names a directory that exists (ADR 0069). Two blocks follow: the same
+  four calls, `put`, `get`, `list` and `delete`, against `fsStorage` and against `s3Storage`,
+  differing only in how the storage is constructed. "Why stowage" follows them, each point beside
+  the place that holds it, and "When not to use stowage" names what section 17 keeps out and that a
+  compatible endpoint is not promised, naming another library only for a key-value store
+  (ADR 0069).
+  Reference flow 1 follows as the second example, a `put` of `request.body`, and one sentence after
+  it links `acceptUpload` of `@stowage/http` and the three integrations for a route with a size
+  limit, without a code block. The package table lists all eleven packages (ADR 0055).
+- Every package README opens with one sentence leading to the root README, before its sections
+  (ADR 0069).
 - `@stowage/core`, `@stowage/adapter-memory`, `@stowage/adapter-fs`, `@stowage/adapter-s3`,
   `@stowage/adapter-azure-blob` and `@stowage/adapter-gcs` carry the sections install, example,
   runtimes, limits and notes, in that order, then the link into this document at the tag of their
@@ -3154,8 +3161,10 @@ that disagrees with this document is corrected without a changeset.
   `expiresIn` on `redirectToObject` and `presignUpload`, `disposition`, `cacheControl`,
   `storageErrorOf`, `objectStatOf`, `global` on `StorageModule`, the factories of `withStorage`
   and `lazyStorage`, and every field whose bounds this document fixes.
-- There is no documentation site, no `examples/` workspace, no `CODE_OF_CONDUCT.md` and no issue
-  template. The reference flows exist as the prose of section 3 and the cases of section 14.6.
+- `CONTRIBUTING.md` states how to build, test and start the emulators, and one issue form asks a
+  bug report for the package, its version, the provider and the runtime (ADR 0069).
+- There is no documentation site, no `examples/` workspace and no `CODE_OF_CONDUCT.md`. The
+  reference flows exist as the prose of section 3 and the cases of section 14.6.
 
 ## 17. Non-goals
 

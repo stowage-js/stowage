@@ -1,5 +1,8 @@
 # @stowage/core
 
+Part of [stowage](https://github.com/stowage-js/stowage#readme): one typed API for object storage
+across S3, R2, Azure Blob, GCS and local disk.
+
 The types every stowage adapter implements, `StorageError`, and the utilities an adapter calls. It
 does nothing without an adapter.
 

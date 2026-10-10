@@ -1,5 +1,8 @@
 # @stowage/adapter-azure-blob
 
+Part of [stowage](https://github.com/stowage-js/stowage#readme): one typed API for object storage
+across S3, R2, Azure Blob, GCS and local disk.
+
 A storage in one container of an Azure Blob Storage account, spoken to over the Blob wire protocol
 rather than through an SDK.
 

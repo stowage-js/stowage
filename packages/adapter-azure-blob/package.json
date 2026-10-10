@@ -6,6 +6,8 @@
     "adapter",
     "azure",
     "azure-blob",
+    "cloud-storage",
+    "file-storage",
     "object-storage",
     "storage",
     "stowage"
