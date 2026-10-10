@@ -35,8 +35,9 @@ endpoint under `harness/` says what it stands in for and how it differs from the
 
 ## Change a promise
 
-A caller may rely on what [the specification](docs/spec.md) states and on nothing else. A change to what it promises starts there, with an ADR in [`docs/adr`](docs/adr) for a
-decision that was weighed, and uses the terms of [`CONTEXT.md`](CONTEXT.md).
+A caller may rely on what [the specification](docs/spec.md) states and on nothing else. A change
+to what it promises starts there, with an ADR in [`docs/adr`](docs/adr) for a decision that was
+weighed, and uses the terms of [`CONTEXT.md`](CONTEXT.md).
 
 A pull request a caller would notice carries a changeset, written with `pnpm changeset`. One that
 takes something from a caller starts it with `**Breaking:**`, as
