@@ -143,6 +143,7 @@ A route that takes uploads from clients needs a size limit in front of `put`, wh
   and on nothing else a package happens to export
 - [The terms it uses](CONTEXT.md)
 - [The decisions behind it](docs/adr)
+- [How to contribute](CONTRIBUTING.md)
 
 ## License
 
