@@ -91,3 +91,5 @@ a README.
 - `CONTEXT.md` gains no term.
 - This extends ADR 0018 and contradicts none of it. No released promise changes, so ADR 0017 is not
   touched.
+- ADR 0069 adds one `sh` block to the root README, the install line, and keeps every other
+  consequence here.
