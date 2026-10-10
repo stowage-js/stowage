@@ -13,6 +13,7 @@
     "test:bun": "pnpm --filter @stowage/harness-bun test",
     "test:deno": "pnpm --filter @stowage/harness-deno test",
     "test:workerd": "pnpm --filter @stowage/harness-workerd test",
+    "test:quickstart": "node scripts/quickstart.ts",
     "changeset": "changeset",
     "version-packages": "changeset version && node scripts/newest-versions.ts"
   },
