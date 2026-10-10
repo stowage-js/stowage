@@ -1,5 +1,8 @@
 # @stowage/http
 
+Part of [stowage](https://github.com/stowage-js/stowage#readme): one typed API for object storage
+across S3, R2, Azure Blob, GCS and local disk.
+
 The HTTP layer of stowage: it answers a web `Request` on a storage's behalf for a key the caller
 has already named, and resolves with a web `Response`. A server that cannot send a web `Response`
 reaches it through the Node bridge.

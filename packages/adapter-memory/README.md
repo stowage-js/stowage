@@ -1,5 +1,8 @@
 # @stowage/adapter-memory
 
+Part of [stowage](https://github.com/stowage-js/stowage#readme): one typed API for object storage
+across S3, R2, Azure Blob, GCS and local disk.
+
 A storage held in process memory, and the implementation a third-party adapter is read against.
 
 ## Install

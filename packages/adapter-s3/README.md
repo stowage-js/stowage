@@ -1,5 +1,8 @@
 # @stowage/adapter-s3
 
+Part of [stowage](https://github.com/stowage-js/stowage#readme): one typed API for object storage
+across S3, R2, Azure Blob, GCS and local disk.
+
 A storage in one bucket of AWS S3 or Cloudflare R2, spoken to over the S3 wire protocol rather than
 through an SDK.
 

@@ -619,6 +619,15 @@ test("the root README's when not names spec 17 and the compatible endpoint", asy
   expect(whenNot).toContain("compatible endpoint");
 });
 
+const leadOf = (text: string): string => text.slice(0, text.indexOf("\n## "));
+
+// ADR 0069: npm shows a package its own README, so each one leads to the root's.
+test.each(published)("the README of $name leads to the root README", async (manifest) => {
+  expect(leadOf(await readmeOf(manifest))).toContain(
+    "(https://github.com/stowage-js/stowage#readme)",
+  );
+});
+
 test.each([adapterS3, adapterAzureBlob, adapterGcs])(
   "the README of $name records a size under the bound of the root README",
   async (manifest) => {
