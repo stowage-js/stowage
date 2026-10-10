@@ -33,12 +33,12 @@ enforcement body, so there is no `CODE_OF_CONDUCT.md`. The npm name collision is
 
 ## Consequences
 
-- The root README opens with the sentence of `CONTEXT.md`, three badges (the version on npm, CI,
-  the license), and one sentence on the state of the project: below 1.0 a minor release may withdraw
-  a promise, and 1.0 waits for what spec 15 names. The install line follows as a `sh` block, the
-  one block besides the `ts` blocks of ADR 0018 and ADR 0055, with a sentence that the blocks are
-  modules and that `root` names a directory that exists. ADR 0055 added no code block to the root
-  README; this `sh` block is the one exception.
+- The root README opens with the sentence of `CONTEXT.md`, five badges (the version on npm, CI,
+  SonarQube Cloud's quality gate and coverage, the license), and one sentence on the state of the
+  project: below 1.0 a minor release may withdraw a promise, and 1.0 waits for what spec 15 names.
+  The install line follows as a `sh` block, the one block besides the `ts` blocks of ADR 0018 and
+  ADR 0055, with a sentence that the blocks are modules and that `root` names a directory that
+  exists. ADR 0055 added no code block to the root README; this `sh` block is the one exception.
 - A section "Why stowage" follows the two opening blocks. Each point stands beside the place that
   holds it: no SDK beneath an adapter, the four runtimes of spec 2, the measured bundle sizes, the
   conformance suite against emulators on every pull request and against the cloud providers on a

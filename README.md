@@ -6,6 +6,8 @@ nothing else.
 
 [![npm](https://img.shields.io/npm/v/@stowage/core)](https://www.npmjs.com/package/@stowage/core)
 [![CI](https://github.com/stowage-js/stowage/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/stowage-js/stowage/actions/workflows/ci.yml)
+[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=stowage-js_stowage&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=stowage-js_stowage)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=stowage-js_stowage&metric=coverage)](https://sonarcloud.io/summary/new_code?id=stowage-js_stowage)
 [![License](https://img.shields.io/github/license/stowage-js/stowage)](LICENSE)
 
 stowage is below 1.0: a minor release may withdraw a promise, and its changelog marks that change
