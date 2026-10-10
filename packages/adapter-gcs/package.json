@@ -4,6 +4,8 @@
   "description": "stowage adapter for one bucket of Google Cloud Storage, speaking the JSON API without an SDK.",
   "keywords": [
     "adapter",
+    "cloud-storage",
+    "file-storage",
     "gcs",
     "google-cloud-storage",
     "object-storage",

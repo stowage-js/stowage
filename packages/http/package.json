@@ -3,12 +3,14 @@
   "version": "0.6.0",
   "description": "The HTTP layer of stowage: answers a web request on a storage's behalf for a key the caller named, with a bridge for Node-style servers.",
   "keywords": [
+    "download",
     "http",
     "object-storage",
     "request",
     "response",
     "storage",
-    "stowage"
+    "stowage",
+    "upload"
   ],
   "homepage": "https://github.com/stowage-js/stowage/tree/main/packages/http#readme",
   "bugs": "https://github.com/stowage-js/stowage/issues",

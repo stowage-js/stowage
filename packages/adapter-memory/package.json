@@ -4,6 +4,8 @@
   "description": "stowage adapter holding a storage in process memory, and the implementation a third-party adapter is read against.",
   "keywords": [
     "adapter",
+    "cloud-storage",
+    "file-storage",
     "memory",
     "object-storage",
     "storage",

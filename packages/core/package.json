@@ -4,6 +4,8 @@
   "description": "One typed API for object storage: the types every stowage adapter implements, StorageError, and the utilities an adapter calls.",
   "keywords": [
     "adapter",
+    "cloud-storage",
+    "file-storage",
     "object-storage",
     "s3",
     "storage",

@@ -3,11 +3,13 @@
   "version": "0.6.0",
   "description": "The Hono integration of stowage: sets a storage on `c.var` under a name the caller chooses, for routes that answer through @stowage/http.",
   "keywords": [
+    "download",
     "hono",
     "middleware",
     "object-storage",
     "storage",
-    "stowage"
+    "stowage",
+    "upload"
   ],
   "homepage": "https://github.com/stowage-js/stowage/tree/main/packages/hono#readme",
   "bugs": "https://github.com/stowage-js/stowage/issues",
