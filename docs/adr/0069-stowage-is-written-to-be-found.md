@@ -62,8 +62,8 @@ enforcement body, so there is no `CODE_OF_CONDUCT.md`. The npm name collision is
   runs the first block of the root README against a temporary `root`, read from the README rather
   than copied, so the two cannot drift apart. It runs on Node, and joins the required checks once
   it has run green for a while.
-- The keywords of `@stowage/core` and the five adapters gain `cloud-storage` and `file-storage`, those
-  of `@stowage/http` and the three integrations `upload` and `download`. The repository's
+- The keywords of `@stowage/core` and the five adapters gain `cloud-storage` and `file-storage`,
+  those of `@stowage/http` and the three integrations `upload` and `download`. The repository's
   description and topics are set in GitHub's settings and name the promised providers, the
   integrations and the runtimes. `minio` stays a topic: a topic is a way in, not a promise, and the
   README's note on compatible endpoints sets the expectation.
