@@ -92,3 +92,60 @@ test("the message never names the value it refused", () => {
 
   expect(refusal?.message).not.toContain("secret-tag");
 });
+
+test("no precondition passes on `delete` on every storage", () => {
+  expect(preconditionRefusal(undefined, "delete", [])).toBeUndefined();
+});
+
+test("an `etag` passes on `delete` where the storage declares `deleteIfUnchanged`", () => {
+  expect(preconditionRefusal({ etag: "abc" }, "delete", ["deleteIfUnchanged"])).toBeUndefined();
+});
+
+test.each([
+  ["a well-formed `etag`", { etag: "abc" }],
+  ["an `etag` starting with `W/`", { etag: 'W/"x"' }],
+  ["an object without `etag`", {}],
+])(
+  "%s is `Unsupported` naming `deleteIfUnchanged` on `delete` where the storage does not declare it",
+  (_, value) => {
+    expect(preconditionRefusal(value, "delete", declaringBoth)).toEqual({
+      code: "Unsupported",
+      capability: "deleteIfUnchanged",
+      message: expect.any(String),
+    });
+  },
+);
+
+test.each([
+  ['`"absent"`', "absent"],
+  ["another string", "present"],
+  ["an empty string", ""],
+])(
+  "%s is `InvalidOption` naming `onlyIf` on `delete`, whatever the storage declares",
+  (_, value) => {
+    for (const capabilities of [[], declaringBoth, ["deleteIfUnchanged"]] as const) {
+      expect(preconditionRefusal(value, "delete", capabilities)).toEqual({
+        code: "InvalidOption",
+        message: expect.stringContaining("`onlyIf`"),
+      });
+    }
+  },
+);
+
+test.each([
+  ["a number", 42],
+  ["`null`", null],
+  ["an empty `etag`", { etag: "" }],
+  ["an `etag` holding a quote", { etag: '"abc"' }],
+  ["an `etag` starting with `W/`", { etag: "W/abc" }],
+  ["an `etag` that is no string", { etag: 42 }],
+  ["an object beside `etag`", { etag: "abc", generation: "1" }],
+])(
+  "%s is `InvalidOption` naming `onlyIf` on `delete` where the storage declares `deleteIfUnchanged`",
+  (_, value) => {
+    expect(preconditionRefusal(value, "delete", ["deleteIfUnchanged"])).toEqual({
+      code: "InvalidOption",
+      message: expect.stringContaining("`onlyIf`"),
+    });
+  },
+);

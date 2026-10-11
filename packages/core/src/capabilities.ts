@@ -6,6 +6,9 @@
  *   `stat` and `get` return them, `copy` and `move` keep them. Where not declared, a `put`
  *   carrying any of the three as a value other than `undefined` is `Unsupported`, and reads
  *   report none.
+ * - `deleteIfUnchanged`: `delete(key, { onlyIf: { etag } })` deletes only the object that
+ *   `etag` describes; `etag` is promised on every description and listing entry. Where not
+ *   declared, a `delete` with an `onlyIf` object is `Unsupported`.
  * - `keyBytesPreserved`: a key comes back byte for byte as it was written. Where not
  *   declared, it comes back Unicode-equivalent.
  * - `presignedUrls`: the concrete type carries `presignGet` and `presignPut`. Where not
@@ -27,6 +30,7 @@
  */
 export const capabilityNames = [
   "contentHeaders",
+  "deleteIfUnchanged",
   "keyBytesPreserved",
   "presignedUrls",
   "rangeReads",
