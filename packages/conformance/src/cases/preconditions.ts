@@ -1,4 +1,4 @@
-import type { CapabilityName, PutBody } from "@stowage/core";
+import type { CapabilityName, DeleteOptions, DeleteReport, PutBody } from "@stowage/core";
 
 import { assert, assertSameBytes, expectStorageError } from "../assertions.ts";
 import type { ConformanceCaseSource } from "../case.ts";
@@ -532,6 +532,121 @@ export const movePreconditionCases: readonly ConformanceCaseSource[] = [
   copyIfAbsentCase("move"),
   copyIfUnchangedCase("move"),
 ];
+
+/**
+ * Spec 4.7: a conditional `delete` reads a failed precondition as the key's one entry of the
+ * report, asserted as the preamble of spec 14.5 asserts a rejected `PreconditionFailed`.
+ */
+async function expectPreconditionFailedEntry(
+  report: DeleteReport,
+  key: string,
+  what: string,
+): Promise<void> {
+  assert(report.requested === 1, `${what} reports \`requested: ${report.requested}\` and not 1`);
+  assert(
+    report.failed.length === 1,
+    `${what} reports ${report.failed.length} failures and not the one of its key`,
+  );
+
+  await expectPreconditionFailed(
+    async () => {
+      throw report.failed[0];
+    },
+    "delete",
+    key,
+    `the entry of ${what}`,
+  );
+}
+
+const deleteIfUnchanged: ConformanceCaseSource = {
+  name: "delete/if-unchanged",
+  requires: ["deleteIfUnchanged"],
+  cost: "fast",
+  async run(ctx) {
+    const key = keyFor(ctx, "delete/if-unchanged");
+    const stale = keyFor(ctx, "delete/if-unchanged", "stale");
+    const free = keyFor(ctx, "delete/if-unchanged", "free");
+    const [first, second] = [smallBody(0), smallBody(1)];
+
+    await ctx.storage.put(key, first.body());
+
+    const read = await etagOfStat(ctx, key);
+    const deleted = await ctx.storage.delete(key, { onlyIf: { etag: read } });
+
+    assert(
+      deleted.requested === 1 && deleted.failed.length === 0,
+      `\`delete\` with the \`etag\` of \`stat\` reports \`requested: ${deleted.requested}\` and ${deleted.failed.length} failures`,
+    );
+    await assertAbsent(ctx, key, "`delete` with the `etag` of `stat`");
+
+    await ctx.storage.put(stale, first.body());
+
+    const staleEtag = await etagOfStat(ctx, stale);
+
+    await ctx.storage.put(stale, second.body());
+    await expectPreconditionFailedEntry(
+      await ctx.storage.delete(stale, { onlyIf: { etag: staleEtag } }),
+      stale,
+      "`delete` with an `etag` a second `put` made stale",
+    );
+    await assertHolds(ctx, stale, second.bytes, "The key a stale `etag` met on `delete`");
+
+    // Spec 4.7: a missing key is no success under a precondition, as it is without one.
+    await expectPreconditionFailedEntry(
+      await ctx.storage.delete(free, { onlyIf: { etag: staleEtag } }),
+      free,
+      "`delete` with `onlyIf: { etag }` of a key that holds no object",
+    );
+
+    const current = await etagOfStat(ctx, stale);
+    const malformed = [
+      { what: '`onlyIf: "absent"`', onlyIf: "absent" },
+      ...malformedEtags.map(({ what, etagOf }) => ({ what, onlyIf: { etag: etagOf(current) } })),
+    ];
+
+    for (const { what, onlyIf } of malformed) {
+      // oxlint-disable-next-line no-await-in-loop -- one key, so the calls go in turn
+      const refusal = await expectStorageError(
+        // oxlint-disable-next-line no-unsafe-type-assertion -- the wrong form is the point
+        () => ctx.storage.delete(stale, { onlyIf } as DeleteOptions),
+        { code: "InvalidOption", attempts: 0 },
+        `${what} on \`delete\``,
+      );
+
+      assert(
+        refusal.message.includes("onlyIf"),
+        `The message ${JSON.stringify(refusal.message)} does not name the option \`onlyIf\``,
+      );
+    }
+
+    await assertHolds(ctx, stale, second.bytes, "The key a malformed `onlyIf` named on `delete`");
+  },
+  async runWithout(ctx) {
+    const key = keyFor(ctx, "delete/if-unchanged");
+    const free = keyFor(ctx, "delete/if-unchanged", "free");
+    const written = smallBody(0);
+
+    await ctx.storage.put(key, written.body());
+
+    const etag = (await ctx.storage.stat(key)).etag ?? someEtag;
+
+    await expectUnsupportedPrecondition(
+      () => ctx.storage.delete(key, { onlyIf: { etag } }),
+      "deleteIfUnchanged",
+      "`delete` with `onlyIf: { etag }` of a key that holds an object",
+    );
+    await assertHolds(ctx, key, written.bytes, "The key a refused `onlyIf: { etag }` named");
+
+    await expectUnsupportedPrecondition(
+      () => ctx.storage.delete(free, { onlyIf: { etag } }),
+      "deleteIfUnchanged",
+      "`delete` with `onlyIf: { etag }` of a free key",
+    );
+    await assertAbsent(ctx, free, "A refused `onlyIf: { etag }` on `delete`");
+  },
+};
+
+export const deletePreconditionCases: readonly ConformanceCaseSource[] = [deleteIfUnchanged];
 
 /** The `etag` `stat` reports, which spec 4.4 promises where `writeIfUnchanged` is declared. */
 export async function etagOfStat(ctx: ConformanceContext, key: string): Promise<string> {

@@ -1,4 +1,4 @@
-import { assert } from "../assertions.ts";
+import { assert, expectRuntimeError } from "../assertions.ts";
 import type { ConformanceCaseSource } from "../case.ts";
 import { patternOf } from "./bytes.ts";
 import { keyFor, prefixFor } from "./keys.ts";
@@ -9,6 +9,7 @@ import {
   pastOneThousand,
   putEach,
 } from "./objects.ts";
+import { deletePreconditionCases } from "./preconditions.ts";
 
 export const deleteCases: readonly ConformanceCaseSource[] = [
   {
@@ -123,6 +124,35 @@ export const deleteCases: readonly ConformanceCaseSource[] = [
       );
 
       await assertNothingBelow(ctx, prefix);
+    },
+  },
+  ...deletePreconditionCases,
+  {
+    name: "delete/options",
+    requires: [],
+    cost: "fast",
+    async run(ctx) {
+      const prefix = prefixFor(ctx, "delete/options");
+      const deleted = `${prefix}deleted`;
+      const kept = `${prefix}kept`;
+
+      await putEach(ctx, [deleted, kept], patternOf(8));
+
+      // Spec 4.1: without `onlyIf` the form for one key deletes as `delete(key)` does.
+      assertAccepted(await ctx.storage.delete(deleted, {}), 1, "Deleting one key with `{}`");
+      assert(
+        !(await ctx.storage.exists(deleted)),
+        "`exists` answers true for the key `delete(key, {})` deleted",
+      );
+
+      await expectRuntimeError(
+        () => ctx.storage.delete(kept, { signal: AbortSignal.abort() }),
+        "AbortError",
+      );
+      assert(
+        await ctx.storage.exists(kept),
+        "`delete` under a signal that already fired deleted the key",
+      );
     },
   },
   {
