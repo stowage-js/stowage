@@ -47,9 +47,10 @@ export interface FailureReading {
 export type UnansweredRule = "repeat" | "stop" | "reportOverNotFound";
 
 /**
- * A request carrying a precondition, whose refusal after an attempt that received no
- * response or a `5xx` rejects with that attempt's failure: the repeat of a request that
- * took effect meets its own result (ADR 0073). `PreconditionFailed` is that refusal.
+ * What a request carrying a precondition does with a refusal of it after an attempt that
+ * received no response or a `5xx`: it rejects with that attempt's failure, because the
+ * repeat of a request that took effect meets its own result (ADR 0073). A refusal is a
+ * `PreconditionFailed`, or a provider code named in `alsoRefusedBy`.
  */
 export interface PreconditionRule {
   /** Provider codes that refuse it as well, such as a commit's `NoSuchUpload` (spec 7.5). */
