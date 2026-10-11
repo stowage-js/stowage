@@ -1,4 +1,9 @@
-import { type CapabilityName, isStorageError, type PresignedPut } from "@stowage/core";
+import {
+  type CapabilityName,
+  type Precondition,
+  isStorageError,
+  type PresignedPut,
+} from "@stowage/core";
 
 import type { HeaderField, QueryParameter } from "./canonical.ts";
 import type { S3Configuration } from "./configuration.ts";
@@ -11,6 +16,7 @@ import {
   presignPutOptionKeys,
   requireKnownOptions,
 } from "./options.ts";
+import { refusePrecondition } from "./precondition.ts";
 import { pathOf, urlOf } from "./request.ts";
 import { presignRequest } from "./sign.ts";
 import { inStorage, s3Error } from "./storage-error.ts";
@@ -49,6 +55,11 @@ export interface S3PresignPutOptions {
   contentDisposition?: string;
   /** Bound as `Content-Language`, handed back as `content-language`, as `cacheControl` is. */
   contentLanguage?: string;
+  /**
+   * `Unsupported` before anything is signed, since the storage declares neither
+   * `writeIfAbsent` nor `writeIfUnchanged`.
+   */
+  onlyIf?: Precondition;
 }
 
 /** The ceiling SigV4 query signing sets on `X-Amz-Expires`, a week in seconds. */
@@ -123,6 +134,8 @@ export async function presignPut(
     operation,
     capabilities,
   );
+
+  refusePrecondition(configuration.bucket, options.onlyIf, operation, key, capabilities);
 
   const url = await presignedUrl(configuration, {
     method: "PUT",

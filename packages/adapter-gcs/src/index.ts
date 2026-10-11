@@ -5,6 +5,7 @@ import {
   type ListOptions,
   type ObjectListing,
   type ObjectStat,
+  type CopyOptions,
   type OperationOptions,
   type PresignedPut,
   type PutBody,
@@ -27,12 +28,14 @@ import { getObject } from "./download.ts";
 import { requireKey } from "./key.ts";
 import { createListing } from "./listing.ts";
 import {
+  copyOptionKeys,
   getOptionKeys,
   operationOptionKeys,
   optionError,
   putOptionKeys,
   requireKnownOptions,
 } from "./options.ts";
+import { refusePrecondition } from "./precondition.ts";
 import {
   type GcsPresignGetOptions,
   type GcsPresignPutOptions,
@@ -130,6 +133,7 @@ class GcsBucketStorage implements GcsStorage {
   async #put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat> {
     requireKey(this.bucket, key, "writable", "put");
     requireKnownOptions(this.bucket, options, putOptionKeys, "put");
+    refusePrecondition(this.bucket, options?.onlyIf, "put", key, this.capabilities);
 
     const userMetadata = heldUserMetadata(
       this.bucket,
@@ -212,13 +216,13 @@ class GcsBucketStorage implements GcsStorage {
     return await deleteBelow(this.configuration, prefix, options?.signal);
   }
 
-  async copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
+  async copy(from: string, to: string, options?: CopyOptions): Promise<ObjectStat> {
     this.#requireCopyKeys(from, to, options, "copy");
 
     return await copyObject(this.configuration, from, to, options?.signal);
   }
 
-  async move(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
+  async move(from: string, to: string, options?: CopyOptions): Promise<ObjectStat> {
     this.#requireCopyKeys(from, to, options, "move");
 
     return await moveObject(this.configuration, from, to, options?.signal);
@@ -238,12 +242,13 @@ class GcsBucketStorage implements GcsStorage {
   #requireCopyKeys(
     from: string,
     to: string,
-    options: OperationOptions | undefined,
+    options: CopyOptions | undefined,
     operation: string,
   ): void {
     requireKey(this.bucket, from, "addressable", operation);
     requireKey(this.bucket, to, "writable", operation);
-    requireKnownOptions(this.bucket, options, operationOptionKeys, operation);
+    requireKnownOptions(this.bucket, options, copyOptionKeys, operation);
+    refusePrecondition(this.bucket, options?.onlyIf, operation, to, this.capabilities);
 
     if (from === to) {
       throw gcsError(this.bucket, {

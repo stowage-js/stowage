@@ -17,6 +17,7 @@ import {
   isStorageError,
   type ObjectListing,
   type OperationOptions,
+  type PutOptions,
   type StorageError,
 } from "@stowage/core";
 import { afterEach, expect, test } from "vitest";
@@ -308,6 +309,52 @@ test.each([
   expect(canceled).toBe(true);
   expect(await readdir(root)).toEqual([]);
 });
+
+test.each([
+  ['`"absent"`', "absent", "Unsupported", "writeIfAbsent"],
+  ["an `etag`", { etag: "abc" }, "Unsupported", "writeIfUnchanged"],
+  ["a value of no kind", 42, "InvalidOption", undefined],
+])("refuses `onlyIf` as %s before `put` writes anything", async (_, onlyIf, code, capability) => {
+  const root = await temporaryRoot();
+  const storage = fsStorage({ root });
+  let canceled = false;
+  const body = new ReadableStream<Uint8Array>({
+    cancel() {
+      canceled = true;
+    },
+  });
+
+  // A caller writing JavaScript may hand over a value of no kind, which the type rules out.
+  // oxlint-disable-next-line no-unsafe-type-assertion -- the point of the test
+  const options = { onlyIf } as PutOptions;
+  const refused = await storageErrorOf(storage.put("docs/refused", body, options));
+
+  expect(refused).toMatchObject({ code, capability, operation: "put", key: "docs/refused" });
+  expect(refused.attempts).toBe(0);
+  expect(canceled).toBe(true);
+  expect(await readdir(root)).toEqual([]);
+});
+
+test.each(["copy", "move"] as const)(
+  "refuses `onlyIf` on `%s` against `to`, leaving both keys as they were",
+  async (operation) => {
+    const storage = await rootedStorage();
+
+    await storage.put("from", "the source");
+
+    const refused = await storageErrorOf(storage[operation]("from", "to", { onlyIf: "absent" }));
+
+    expect(refused).toMatchObject({
+      code: "Unsupported",
+      capability: "writeIfAbsent",
+      operation,
+      key: "to",
+      attempts: 0,
+    });
+    expect(await (await storage.get("from")).text()).toBe("the source");
+    expect(await storage.exists("to")).toBe(false);
+  },
+);
 
 test("takes the content headers given as `undefined` and reads back none", async () => {
   const storage = await rootedStorage();

@@ -167,6 +167,34 @@ test("an unknown option key is `InvalidOption` naming it", async () => {
   expect(put.message).toContain("`userMetadata`");
 });
 
+test.each([
+  ["absent", "writeIfAbsent"],
+  [{ etag: "abc" }, "writeIfUnchanged"],
+] as const)(
+  "`onlyIf` as %j is `Unsupported` naming `%s` before anything is sent",
+  async (onlyIf, capability) => {
+    const sent = stubFetch(delegationKey);
+    const failure = await failureOf(
+      async () =>
+        await storage().presignPut("a.txt", {
+          expiresIn: 300,
+          contentType: "text/plain",
+          contentLength: 1,
+          onlyIf,
+        }),
+    );
+
+    expect(failure).toMatchObject({
+      code: "Unsupported",
+      capability,
+      operation: "presignPut",
+      key: "a.txt",
+      attempts: 0,
+    });
+    expect(sent).toEqual([]);
+  },
+);
+
 test("an empty response override and an empty content type are `InvalidOption`", async () => {
   const override = await failureOf(
     async () => await storage().presignGet("a.txt", { expiresIn: 300, responseCacheControl: "" }),

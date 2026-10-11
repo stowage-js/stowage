@@ -939,6 +939,30 @@ test.each([
   expect(failure.attempts).toBe(0);
 });
 
+// Until the adapter declares `writeIfAbsent` and `writeIfUnchanged`, spec 4.3 refuses every
+// `onlyIf` before any request, naming the capability its form needs.
+test.each([
+  ["put", "writeIfAbsent", () => storage().put("to", "body", { onlyIf: "absent" })],
+  ["put", "writeIfUnchanged", () => storage().put("to", "body", { onlyIf: { etag: "abc" } })],
+  ["copy", "writeIfAbsent", () => storage().copy("from", "to", { onlyIf: "absent" })],
+  ["move", "writeIfUnchanged", () => storage().move("from", "to", { onlyIf: { etag: "abc" } })],
+] as const)(
+  "`%s` refuses `onlyIf` as `Unsupported` naming `%s` before any request",
+  async (operation, capability, call) => {
+    const sent = stubFetch(() => created());
+    const failure = await failureOf(call);
+
+    expect(failure).toMatchObject({
+      code: "Unsupported",
+      capability,
+      operation,
+      key: "to",
+      attempts: 0,
+    });
+    expect(sent).toEqual([]);
+  },
+);
+
 test("an empty `contentType` is `InvalidOption`", async () => {
   stubFetch(() => created());
 

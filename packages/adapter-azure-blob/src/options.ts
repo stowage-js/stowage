@@ -12,7 +12,9 @@ export const putOptionKeys: readonly string[] = [
   "contentDisposition",
   "contentLanguage",
   "userMetadata",
+  "onlyIf",
 ];
+export const copyOptionKeys: readonly string[] = [...operationOptionKeys, "onlyIf"];
 export const getOptionKeys: readonly string[] = [...operationOptionKeys, "range"];
 export const presignGetOptionKeys: readonly string[] = [
   "expiresIn",
@@ -27,6 +29,7 @@ export const presignPutOptionKeys: readonly string[] = [
   "cacheControl",
   "contentDisposition",
   "contentLanguage",
+  "onlyIf",
 ];
 export const listOptionKeys: readonly string[] = [
   ...operationOptionKeys,

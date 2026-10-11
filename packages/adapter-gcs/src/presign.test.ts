@@ -424,6 +424,32 @@ test("an empty `contentType` is refused", async () => {
   expect(refusal.message).toContain("`contentType`");
 });
 
+test.each([
+  ["absent", "writeIfAbsent"],
+  [{ etag: "1" }, "writeIfUnchanged"],
+] as const)(
+  "`onlyIf` as %j is `Unsupported` naming `%s` before anything is signed",
+  async (onlyIf, capability) => {
+    const sent = stubFetch(() => signedBlob(new Uint8Array(256)));
+    const failure = await failureOf(
+      async () =>
+        await iamSigningStorage({ accessToken: signerToken }).presignPut("object", {
+          ...putOptions,
+          onlyIf,
+        }),
+    );
+
+    expect(failure).toMatchObject({
+      code: "Unsupported",
+      capability,
+      operation: "presignPut",
+      key: "object",
+      attempts: 0,
+    });
+    expect(sent).toEqual([]);
+  },
+);
+
 test("an override spec 9.9 leaves off the type is an unknown option", async () => {
   refuseFetch();
 
