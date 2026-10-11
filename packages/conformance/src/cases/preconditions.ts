@@ -49,7 +49,10 @@ const malformedEtags: readonly {
   { what: "an `etag` that is no string", etagOf: () => 42 },
 ];
 
-/** What a half without `writeIfUnchanged` names, where a storage may report no `etag` to name. */
+/**
+ * What a half without `writeIfUnchanged` or `deleteIfUnchanged` names, where a storage may
+ * report no `etag` to name.
+ */
 export const someEtag: string = "conformance-etag";
 
 /**
@@ -648,7 +651,10 @@ const deleteIfUnchanged: ConformanceCaseSource = {
 
 export const deletePreconditionCases: readonly ConformanceCaseSource[] = [deleteIfUnchanged];
 
-/** The `etag` `stat` reports, which spec 4.4 promises where `writeIfUnchanged` is declared. */
+/**
+ * The `etag` `stat` reports, which spec 4.4 promises where `writeIfUnchanged` or
+ * `deleteIfUnchanged` is declared.
+ */
 export async function etagOfStat(ctx: ConformanceContext, key: string): Promise<string> {
   const { etag } = await ctx.storage.stat(key);
 

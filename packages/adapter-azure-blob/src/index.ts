@@ -59,7 +59,10 @@ export interface AzureBlobStorage extends Storage {
   readonly provider: "azure-blob";
   /** Sends at most one Blob Batch request per 256 keys. */
   delete(...keys: readonly string[]): Promise<DeleteReport>;
-  /** Deletes the key as `delete(key)` does, under the signal. */
+  /**
+   * Deletes the key as `delete(key)` does, under the signal. Refuses every `onlyIf` while the
+   * storage declares no `deleteIfUnchanged`.
+   */
   delete(key: string, options: DeleteOptions): Promise<DeleteReport>;
   /**
    * A SAS a client holding no credential calls with a plain `GET` for this one key until it
@@ -330,7 +333,6 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
   }
 }
 
-/** Spec 4.2: a string travels as its UTF-8 bytes. */
 type OneKeyWithOptions = readonly [key: string, options: DeleteOptions];
 
 /** The form of `delete` for one key: a second argument that is no key (spec 4.1). */
@@ -340,6 +342,7 @@ function isOneKeyWithOptions(
   return args.length === 2 && typeof args[1] === "object" && args[1] !== null;
 }
 
+/** Spec 4.2: a string travels as its UTF-8 bytes. */
 function bytesOf(body: string | Uint8Array): Uint8Array<ArrayBuffer> {
   return typeof body === "string" ? utf8.encode(body) : heldBytes(body);
 }

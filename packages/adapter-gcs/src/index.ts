@@ -57,7 +57,10 @@ export interface GcsStorage extends Storage {
   readonly provider: "gcs";
   /** Sends at most one batch request per 100 keys. */
   delete(...keys: readonly string[]): Promise<DeleteReport>;
-  /** Deletes the key as `delete(key)` does, under the signal. */
+  /**
+   * Deletes the key as `delete(key)` does, under the signal. Refuses every `onlyIf` while the
+   * storage declares no `deleteIfUnchanged`.
+   */
   delete(key: string, options: DeleteOptions): Promise<DeleteReport>;
 }
 
@@ -337,7 +340,6 @@ function holdsControlCharacter(value: string): boolean {
   return false;
 }
 
-/** Spec 4.2: a string travels as its UTF-8 bytes. */
 type OneKeyWithOptions = readonly [key: string, options: DeleteOptions];
 
 /** The form of `delete` for one key: a second argument that is no key (spec 4.1). */
@@ -347,6 +349,7 @@ function isOneKeyWithOptions(
   return args.length === 2 && typeof args[1] === "object" && args[1] !== null;
 }
 
+/** Spec 4.2: a string travels as its UTF-8 bytes. */
 function bytesOf(body: string | Uint8Array): Uint8Array<ArrayBuffer> {
   return typeof body === "string" ? utf8.encode(body) : heldBytes(body);
 }

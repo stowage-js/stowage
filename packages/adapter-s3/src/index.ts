@@ -320,7 +320,6 @@ class SimpleStorageServiceStorage implements S3Storage {
   }
 }
 
-/** Spec 4.2: a string travels as its UTF-8 bytes. */
 type OneKeyWithOptions = readonly [key: string, options: DeleteOptions];
 
 /** The form of `delete` for one key: a second argument that is no key (spec 4.1). */
@@ -330,6 +329,7 @@ function isOneKeyWithOptions(
   return args.length === 2 && typeof args[1] === "object" && args[1] !== null;
 }
 
+/** Spec 4.2: a string travels as its UTF-8 bytes. */
 function bytesOf(body: string | Uint8Array): Uint8Array<ArrayBuffer> {
   return typeof body === "string" ? utf8.encode(body) : heldBytes(body);
 }
