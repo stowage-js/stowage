@@ -338,6 +338,12 @@ export const presignCases: readonly ConformanceCaseSource[] = [
         written >= 200 && written < 300,
         `A signed \`PUT\` bound to \`"absent"\` onto a free key answered ${written} and not a success`,
       );
+      const described = await ctx.storage.stat(key);
+
+      assert(
+        described.size === first.byteLength,
+        `\`stat\` reports ${described.size} bytes for the ${first.byteLength} a URL bound to \`"absent"\` wrote`,
+      );
       await assertHoldsBytes(ctx, key, first, 'the object a URL bound to `"absent"` wrote');
 
       const refused = await uploadSigned(ctx, key, second, { onlyIf: "absent" });
@@ -371,15 +377,16 @@ export const presignCases: readonly ConformanceCaseSource[] = [
       );
       await assertHoldsBytes(ctx, key, uploaded, "the object a URL bound to its `etag` wrote");
 
+      const read = await etagOfStat(ctx, key);
+
+      await ctx.storage.put(key, between, { contentType: textContentType });
+
       const presigned = await presignedPut(ctx, key, {
         expiresIn: presignLifetime,
         contentType: textContentType,
         contentLength: stale.byteLength,
-        onlyIf: { etag: await etagOfStat(ctx, key) },
+        onlyIf: { etag: read },
       });
-
-      await ctx.storage.put(key, between, { contentType: textContentType });
-
       const refused = await statusOf(
         await fetch(presigned.url, { method: "PUT", body: stale, headers: presigned.headers }),
       );
@@ -480,6 +487,8 @@ async function assertWithoutPreconditions(
       `\`presignPut\` with \`onlyIf\` on a storage without \`${kindCapabilities[kind]}\``,
     );
   }
+
+  assert(!(await ctx.storage.exists(key)), "A refused `presignPut` left an object behind");
 }
 
 /** Signs for `body` under `options` and uploads it as `headers` has it, answering the status. */

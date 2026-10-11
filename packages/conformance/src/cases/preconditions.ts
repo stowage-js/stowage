@@ -19,7 +19,7 @@ interface Written {
   readonly body: () => PutBody;
 }
 
-/** Bodies of `size` bytes, which differ from each other at every byte (`patternOf`). */
+/** One size of body, a seed apart: two bodies of different seeds differ at every byte. */
 type BodyOf = (seed: number) => Written;
 
 const smallBody: BodyOf = (seed) => {
@@ -343,8 +343,7 @@ type CopyOperation = "copy" | "move";
 
 /**
  * The objects a copy or move case writes below its prefix: each source carries bytes of its
- * own, so the destination shows which one reached it, and `held` is what the destination
- * held before the call.
+ * own, so the destination shows which one reached it.
  */
 async function sourcesBelow(
   ctx: ConformanceContext,
@@ -393,6 +392,9 @@ function copyIfAbsentCase(operation: CopyOperation): ConformanceCaseSource {
         taken.bytes,
         `The free key \`${operation}\` wrote under \`"absent"\``,
       );
+      // Spec 4.11: a copy leaves its source; a move takes it, which `move/round-trip` reads.
+      if (operation === "copy")
+        await assertHolds(ctx, taken.key, taken.bytes, "The source of a copy");
 
       await expectPreconditionFailed(
         () => ctx.storage[operation](refused.key, to, { onlyIf: "absent" }),
