@@ -51,6 +51,7 @@ const defaultContentType = "application/octet-stream";
 // constructed, and a caller reaching past the `readonly` type reaches all of them.
 const memoryCapabilities: readonly CapabilityName[] = Object.freeze([
   "contentHeaders",
+  "deleteIfUnchanged",
   "keyBytesPreserved",
   "rangeReads",
   "userMetadata",
@@ -180,13 +181,26 @@ class InMemoryStorage implements MemoryStorage {
     return { requested: keys.length, failed };
   }
 
+  /**
+   * Spec 4.7 reads a failed precondition as the key's entry, as an invalid key is. Nothing
+   * awaits between the check and the removal, so no other call runs between them (ADR 0072).
+   */
   #deleteOne(key: string, options: DeleteOptions): DeleteReport {
     requireKnownOptions(options, deleteOptionKeys, "delete");
-    readPrecondition(options.onlyIf, "delete", "delete", key, this.capabilities);
+
+    const precondition = readPrecondition(
+      options.onlyIf,
+      "delete",
+      "delete",
+      key,
+      this.capabilities,
+    );
 
     options.signal?.throwIfAborted();
 
-    const error = keyError(key, "addressable", "delete");
+    const error =
+      keyError(key, "addressable", "delete") ??
+      preconditionFailure(precondition, this.#objects.get(key), "delete", key);
 
     if (error === undefined) this.#objects.delete(key);
 

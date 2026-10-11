@@ -1,5 +1,6 @@
 import {
   capabilityNames,
+  type DeleteOptions,
   isStorageError,
   type ObjectListing,
   type PutOptions,
@@ -82,6 +83,7 @@ test("names the provider and the bucket it is bound to", () => {
 test("declares the capabilities it implements", () => {
   expect(memoryStorage().capabilities.toSorted()).toEqual([
     "contentHeaders",
+    "deleteIfUnchanged",
     "keyBytesPreserved",
     "rangeReads",
     "userMetadata",
@@ -754,6 +756,72 @@ test("cancels a stream body whose precondition it refuses by its form", async ()
 
   expect(error).toMatchObject({ code: "InvalidOption", attempts: 0 });
   expect(canceled).toBe(true);
+});
+
+test("deletes the object the `etag` describes", async () => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello");
+
+  const report = await storage.delete("greeting", { onlyIf: { etag: helloDigest } });
+
+  expect(report).toEqual({ requested: 1, failed: [] });
+  expect(await storage.exists("greeting")).toBe(false);
+});
+
+test("reports a stale `etag` on `delete` as the key's entry and keeps the object", async () => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello");
+  await storage.put("greeting", "servus");
+
+  const report = await storage.delete("greeting", { onlyIf: { etag: helloDigest } });
+
+  expect(report.requested).toBe(1);
+  expect(report.failed).toHaveLength(1);
+
+  const [failure] = report.failed;
+
+  expect(isStorageError(failure)).toBe(true);
+  expect(failure).toMatchObject({
+    code: "PreconditionFailed",
+    operation: "delete",
+    key: "greeting",
+    retryable: false,
+    attempts: 1,
+  });
+  expect(failure?.status).toBeUndefined();
+  expect(failure?.providerCode).toBeUndefined();
+  expect(await (await storage.get("greeting")).text()).toBe("servus");
+});
+
+test("reports an `etag` on a key that holds no object as the key's entry, not as a success", async () => {
+  const report = await memoryStorage().delete("greeting", { onlyIf: { etag: helloDigest } });
+
+  expect(report.requested).toBe(1);
+  expect(report.failed.map((failure) => [failure.code, failure.key])).toEqual([
+    ["PreconditionFailed", "greeting"],
+  ]);
+});
+
+test.each([
+  ['`"absent"`', "absent"],
+  ["an `etag` starting with `W/`", { etag: `W/${helloDigest}` }],
+  ["an empty `etag`", { etag: "" }],
+])("refuses %s on `delete` before it deletes anything", async (_, onlyIf) => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello");
+
+  const error = await storageErrorOf(
+    // oxlint-disable-next-line no-unsafe-type-assertion -- the wrong form is the point
+    storage.delete("greeting", { onlyIf } as DeleteOptions),
+  );
+
+  expect(error).toMatchObject({
+    code: "InvalidOption",
+    operation: "delete",
+    key: "greeting",
+    attempts: 0,
+  });
+  expect(await storage.exists("greeting")).toBe(true);
 });
 
 test("copies the bytes it was handed", async () => {
