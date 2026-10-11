@@ -75,3 +75,6 @@ precondition on the cloud target. A script moving the other way can pass `onlyIf
   linking the file a link resolves to. It names the `InvalidRequest` for a name that holds no
   object, and the `ProviderError` for a file system without hard links in the `errno` mapping.
 - A conditional `move` that is repeated after its delete failed goes to #443.
+- Settled while writing the v0.7 spec (#447): reference flow 5 stays without a line on
+  preconditions, as this decision has it. The README of `adapter-fs` names among its limits that
+  `writeIfAbsent` needs a file system with hard links.

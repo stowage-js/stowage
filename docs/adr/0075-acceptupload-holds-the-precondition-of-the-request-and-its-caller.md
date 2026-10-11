@@ -108,3 +108,7 @@ the call.
 - The `http` changeset starts with `**Breaking:**`.
 - Which HTTP cases cover the mapping, the `400`, `501` and `412` before the body, `412` for
   `PreconditionFailed` and `204` under `{ etag }` is decided in #446.
+- The README of `@stowage/http` also tells a cross-origin route to allow `if-match` and
+  `if-none-match` in its preflight answer and to name `ETag` in `Access-Control-Expose-Headers`,
+  since a page that cannot read the `ETag` cannot send it back (settled while writing the v0.7
+  spec, #447).

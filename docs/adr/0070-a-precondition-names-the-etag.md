@@ -115,3 +115,17 @@ closes.
   to decide.
 - What a repeat after a lost answer does (#443), a presigned upload's precondition (#444), and how
   `acceptUpload` takes one from a request (#445) stay with their tickets.
+- Settled while writing the v0.7 spec (#447): `@stowage/core` exports
+  `type Precondition = "absent" | { etag: string }`, which `PutOptions`, `CopyOptions`, the options
+  of every `presignPut`, `PresignsPut`, `AcceptUploadOptions` and `PresignUploadOptions` name;
+  `DeleteOptions` keeps `{ etag: string }`. Spec 4.13 gains `preconditionRefusal`, the one
+  definition of the checks of spec 4.3 and of the form of an `etag`, which every adapter and
+  `@stowage/http` call, as `checkContentHeaders` is for the content headers; the generation of
+  `adapter-gcs` stays in that adapter.
+- On `delete`, any string in `onlyIf` is `InvalidOption` on every storage, whatever it declares:
+  "absent" has no kind there, so no capability decides first. `delete(key, options)` without
+  `onlyIf` deletes as `delete(key)` does, under the signal. With `onlyIf`, the answer to its one
+  request is read as the entry of that key in a batch: a failure of the request as a whole
+  rejects, any other failure is the entry.
+- The README of `adapter-gcs` names among its limits that `etag` is the generation and does not
+  move on a change another tool makes to the content headers or user metadata alone.

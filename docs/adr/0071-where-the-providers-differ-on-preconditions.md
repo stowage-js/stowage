@@ -108,3 +108,6 @@ authenticates, and the conformance runs on `main` cover the access token.
   needs something else on the later calls amends this ADR before the spec is written.
 - Which cases run against the emulators and which against the real endpoints alone, given what
   SeaweedFS, Azurite and fake-gcs-server drop, is #446's.
+- The README of `adapter-s3` also names among its limits that the conditional `copy` on R2 rests
+  on Cloudflare's beta `cf-copy-destination-if-*` headers (settled while writing the v0.7 spec,
+  #447).

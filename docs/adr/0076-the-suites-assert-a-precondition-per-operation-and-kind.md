@@ -248,3 +248,9 @@ entries are private and reach no changeset.
   on SeaweedFS, `put/concurrent-if-absent-multipart` unrun.
 - The CORS rules of the conformance account and bucket are unchanged.
 - The changeset of `@stowage/conformance` is a minor without `**Breaking:**`.
+- Settled while writing the v0.7 spec (#447): fake-gcs-server 1.56.1 ignores
+  `x-goog-if-generation-match` on a signed `PUT`, `0` and a stale generation alike, and overwrites,
+  measured against a local instance on 2026-10-11. `presign/put-if-absent`,
+  `presign/put-if-unchanged` and `presign/put-rejects-precondition` join its divergence list as
+  expected failures, settled by `gcs`; the last one fails there in any case, since the emulator
+  checks no signature.

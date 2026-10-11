@@ -124,3 +124,7 @@ aside, which #448 measures before the spec is written. Spec section 18 gains not
   suites gain for preconditions is #446's.
 - An unconditional `CompleteMultipartUpload` on R2 that meets `NoSuchUpload` after a `5xx` keeps
   reporting `ProviderError`.
+- Spec 15 states the rule this decision applies to the safe repeat of a `move`, and ADR 0076 to
+  the concurrent-writers promise: a promise holds for the form of a call it was made for, and a
+  new option may come with a narrower promise of its own without a withdrawal (settled while
+  writing the v0.7 spec, #447).
