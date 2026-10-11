@@ -10,7 +10,7 @@ test("no precondition passes on every storage", () => {
   expect(preconditionRefusal(undefined, "write", declaringBoth)).toBeUndefined();
 });
 
-test("`\"absent\"` passes where the storage declares `writeIfAbsent`", () => {
+test('`"absent"` passes where the storage declares `writeIfAbsent`', () => {
   expect(preconditionRefusal("absent", "write", ["writeIfAbsent"])).toBeUndefined();
 });
 
@@ -25,29 +25,35 @@ test.each([
 });
 
 test.each([
-  ["`\"absent\"`", "absent"],
+  ['`"absent"`', "absent"],
   ["another string", "present"],
   ["an empty string", ""],
-])("%s is `Unsupported` naming `writeIfAbsent` where the storage does not declare it", (_, value) => {
-  expect(preconditionRefusal(value, "write", ["writeIfUnchanged"])).toEqual({
-    code: "Unsupported",
-    capability: "writeIfAbsent",
-    message: expect.any(String),
-  });
-});
+])(
+  "%s is `Unsupported` naming `writeIfAbsent` where the storage does not declare it",
+  (_, value) => {
+    expect(preconditionRefusal(value, "write", ["writeIfUnchanged"])).toEqual({
+      code: "Unsupported",
+      capability: "writeIfAbsent",
+      message: expect.any(String),
+    });
+  },
+);
 
 test.each([
   ["a well-formed `etag`", { etag: "abc" }],
   ["an `etag` starting with `W/`", { etag: 'W/"x"' }],
   ["an `etag` that is no string", { etag: 42 }],
   ["an object without `etag`", {}],
-])("%s is `Unsupported` naming `writeIfUnchanged` where the storage does not declare it", (_, value) => {
-  expect(preconditionRefusal(value, "write", ["writeIfAbsent"])).toEqual({
-    code: "Unsupported",
-    capability: "writeIfUnchanged",
-    message: expect.any(String),
-  });
-});
+])(
+  "%s is `Unsupported` naming `writeIfUnchanged` where the storage does not declare it",
+  (_, value) => {
+    expect(preconditionRefusal(value, "write", ["writeIfAbsent"])).toEqual({
+      code: "Unsupported",
+      capability: "writeIfUnchanged",
+      message: expect.any(String),
+    });
+  },
+);
 
 test.each([
   ["a number", 42],
@@ -62,9 +68,9 @@ test.each([
 });
 
 test.each([
-  ["a string other than `\"absent\"`", "present"],
+  ['a string other than `"absent"`', "present"],
   ["an empty string", ""],
-  ["`\"absent\"` in another case", "Absent"],
+  ['`"absent"` in another case', "Absent"],
   ["an empty `etag`", { etag: "" }],
   ["an `etag` holding a quote", { etag: '"abc"' }],
   ["an `etag` starting with `W/`", { etag: "W/abc" }],
