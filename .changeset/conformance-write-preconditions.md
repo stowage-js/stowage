@@ -1,0 +1,5 @@
+---
+"@stowage/conformance": minor
+---
+
+The suite gains `put/if-absent`, `put/if-absent-multipart`, `put/concurrent-if-absent`, `put/concurrent-if-absent-multipart`, `copy/if-absent` and `move/if-absent`, requiring `writeIfAbsent`; `put/if-unchanged`, `put/if-unchanged-multipart`, `stat/etag-promised`, `copy/if-unchanged` and `move/if-unchanged`, requiring `writeIfUnchanged`; and `put/only-if-no-kind`, requiring nothing. A storage declaring the capability writes only where the precondition holds and otherwise rejects with `PreconditionFailed`, `retryable: false`, `attempts: 1`, `operation` the operation called and `key` the key that carries the precondition, leaving the key as it was; of two writers racing for a free key under `"absent"`, exactly one resolves. A storage without it refuses the `onlyIf` as `Unsupported` naming the capability its form needs, `attempts: 0`, and leaves every key the call names as it was. A third-party adapter that refuses `onlyIf` as an unknown option fails the cases until it handles it (ADR 0070, ADR 0076).

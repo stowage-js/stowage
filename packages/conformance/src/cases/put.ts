@@ -21,6 +21,7 @@ import {
   streamsEndingTogether,
 } from "./bytes.ts";
 import { putContentHeaderCases } from "./content-headers.ts";
+import { putPreconditionCases } from "./preconditions.ts";
 import { acceptedKeys, keyFor, prefixFor, type RefusedKey, refusedWritableKeys } from "./keys.ts";
 
 const utf8 = new TextEncoder();
@@ -453,6 +454,7 @@ export const putCases: readonly ConformanceCaseSource[] = [
       );
     },
   },
+  ...putPreconditionCases,
 ];
 
 function describeOutcome(outcome: PromiseSettledResult<unknown>): string {
