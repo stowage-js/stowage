@@ -103,6 +103,13 @@ const specified: readonly SpecifiedCase[] = [
   ["presign/expired-url", ["presignedUrls"], "slow"],
   ["presign/put-content-headers", ["presignedUrls", "contentHeaders"], "fast"],
   ["presign/put-rejects-content-headers", ["presignedUrls", "contentHeaders"], "slow"],
+  ["presign/put-if-absent", ["presignedUrls", "writeIfAbsent"], "fast"],
+  ["presign/put-if-unchanged", ["presignedUrls", "writeIfUnchanged"], "fast"],
+  [
+    "presign/put-rejects-precondition",
+    ["presignedUrls", "writeIfAbsent", "writeIfUnchanged"],
+    "slow",
+  ],
   ["flow/1-large-upload", [], "fast"],
   ["flow/2-presigned-put", ["presignedUrls"], "fast"],
   ["flow/3-file-browser", [], "fast"],

@@ -50,7 +50,7 @@ const malformedEtags: readonly {
 ];
 
 /** What a half without `writeIfUnchanged` names, where a storage may report no `etag` to name. */
-const someEtag = "conformance-etag";
+export const someEtag: string = "conformance-etag";
 
 /**
  * Spec 14.5: a `PreconditionFailed` is asserted with the fields its preamble lists, and with
@@ -532,7 +532,7 @@ export const movePreconditionCases: readonly ConformanceCaseSource[] = [
 ];
 
 /** The `etag` `stat` reports, which spec 4.4 promises where `writeIfUnchanged` is declared. */
-async function etagOfStat(ctx: ConformanceContext, key: string): Promise<string> {
+export async function etagOfStat(ctx: ConformanceContext, key: string): Promise<string> {
   const { etag } = await ctx.storage.stat(key);
 
   assert(etag !== undefined, `\`stat\` reports no \`etag\` for ${JSON.stringify(key)}`);
