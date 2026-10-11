@@ -38,11 +38,11 @@ import {
 import {
   adapterOptionKeys,
   copyOptionKeys,
+  deleteOptionKeys,
   getOptionKeys,
   operationOptionKeys,
   optionError,
   putOptionKeys,
-  deleteOptionKeys,
   requireKnownOptions,
 } from "./options.ts";
 import {
@@ -291,7 +291,7 @@ class FileSystemStorage implements FsStorage {
   delete(...keys: readonly string[]): Promise<DeleteReport>;
   delete(key: string, options: DeleteOptions): Promise<DeleteReport>;
   async delete(...args: readonly string[] | OneKeyWithOptions): Promise<DeleteReport> {
-    if (!isOneKeyWithOptions(args)) return await this.#delete(args);
+    if (!isOneKeyWithOptions(args)) return await this.#deleteKeys(args);
 
     const [key, options] = args;
 
@@ -300,10 +300,10 @@ class FileSystemStorage implements FsStorage {
 
     options.signal?.throwIfAborted();
 
-    return await this.#delete([key]);
+    return await this.#deleteKeys([key]);
   }
 
-  async #delete(keys: readonly string[]): Promise<DeleteReport> {
+  async #deleteKeys(keys: readonly string[]): Promise<DeleteReport> {
     // Spec 4.7 rejects the call for what fails the request as a whole and fills the
     // report for what fails one key. A root that is gone is the first of the two: it is
     // no reason any single key could not be deleted.
