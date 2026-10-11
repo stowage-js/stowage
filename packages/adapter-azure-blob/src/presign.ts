@@ -156,7 +156,14 @@ export async function presignPut(
     capabilities,
   );
 
-  refusePrecondition(configuration.container, options.onlyIf, operation, key, capabilities);
+  refusePrecondition(
+    configuration.container,
+    options.onlyIf,
+    "write",
+    operation,
+    key,
+    capabilities,
+  );
 
   const credentials = await credentialsOfCall(configuration, operation, key);
 

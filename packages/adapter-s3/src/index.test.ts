@@ -1,4 +1,5 @@
 import {
+  type DeleteOptions,
   isStorageError,
   type ResolverOptions,
   type StorageError,
@@ -2145,6 +2146,60 @@ test("`delete` sends one `DeleteObjects` for the keys, quiet and with its MD5", 
   );
   expect(sent[0]?.headers.get("content-md5")).toBe(md5Base64(new TextEncoder().encode(body)));
   expect(sent[0]?.headers.get("authorization")).toContain("content-md5");
+});
+
+test("`delete` of one key given with options sends what `delete` of the key alone sends", async () => {
+  const sent = stubFetch(() => deleteResult());
+
+  const report = await s3Storage(options()).delete("one.txt", {});
+
+  expect(report).toEqual({ requested: 1, failed: [] });
+  expect(sent).toHaveLength(1);
+  expect(sent[0]?.url).toBe("https://stowage.s3.eu-central-1.amazonaws.com/?delete=");
+  expect(await deletedKeys(sent[0])).toEqual(["one.txt"]);
+});
+
+test("`delete` of one key rejects before any request where the signal already fired", async () => {
+  const sent = stubFetch(() => deleteResult());
+
+  await expect(
+    s3Storage(options()).delete("one.txt", { signal: AbortSignal.abort() }),
+  ).rejects.toThrow(expect.objectContaining({ name: "AbortError" }));
+  expect(sent).toHaveLength(0);
+});
+
+// Spec 4.9: the adapter never declares `deleteIfUnchanged`, since R2 drops the precondition of
+// a delete in silence (ADR 0071).
+test.each([
+  ["an `etag`", { etag: "abc" }, "Unsupported", "deleteIfUnchanged"],
+  ['`"absent"`', "absent", "InvalidOption", undefined],
+] as const)(
+  "`delete` refuses `onlyIf` as %s before any request",
+  async (_, onlyIf, code, capability) => {
+    const sent = stubFetch(() => deleteResult());
+    const failure = await rejection(
+      async () =>
+        // oxlint-disable-next-line no-unsafe-type-assertion -- `"absent"` has no kind on a delete
+        await s3Storage(options()).delete("one.txt", { onlyIf } as DeleteOptions),
+    );
+
+    expect(failure).toMatchObject({ code, capability, operation: "delete", key: "one.txt" });
+    expect(failure.attempts).toBe(0);
+    expect(sent).toHaveLength(0);
+  },
+);
+
+test("`delete` of one key refuses an option key it does not list before any request", async () => {
+  const sent = stubFetch(() => deleteResult());
+  const failure = await rejection(
+    async () =>
+      // oxlint-disable-next-line no-unsafe-type-assertion -- the point of the case
+      await s3Storage(options()).delete("one.txt", { versionId: "1" } as DeleteOptions),
+  );
+
+  expect(failure).toMatchObject({ code: "InvalidOption", operation: "delete", attempts: 0 });
+  expect(failure.message).toContain("versionId");
+  expect(sent).toHaveLength(0);
 });
 
 test("a key is escaped where it stands in the XML", async () => {

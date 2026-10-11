@@ -7,6 +7,7 @@ import {
   type ObjectListing,
   type ObjectStat,
   type CopyOptions,
+  type DeleteOptions,
   type OperationOptions,
   type PresignedPut,
   type PutBody,
@@ -32,6 +33,7 @@ import {
 } from "./presign.ts";
 import {
   copyOptionKeys,
+  deleteOptionKeys,
   getOptionKeys,
   operationOptionKeys,
   optionError,
@@ -58,6 +60,12 @@ export interface S3Storage extends Storage {
    * go after the batches, one after another.
    */
   delete(...keys: readonly string[]): Promise<DeleteReport>;
+  /**
+   * Deletes the key as `delete(key)` does, under the signal. Refuses every `onlyIf`: the
+   * storage declares no `deleteIfUnchanged`, since R2 drops the precondition of a delete in
+   * silence and the adapter does not know which provider it talks to.
+   */
+  delete(key: string, options: DeleteOptions): Promise<DeleteReport>;
   /**
    * A URL a client holding no credential calls with a plain `GET` for this one key until
    * it expires. Whoever holds it may read the object: it is a bearer token. Sends no
@@ -117,7 +125,7 @@ class SimpleStorageServiceStorage implements S3Storage {
   async #put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat> {
     requireKey(this.bucket, key, "writable", "put");
     requireKnownOptions(this.bucket, options, putOptionKeys, "put");
-    refusePrecondition(this.bucket, options?.onlyIf, "put", key, this.capabilities);
+    refusePrecondition(this.bucket, options?.onlyIf, "write", "put", key, this.capabilities);
 
     const contentType = this.#readContentType(options?.contentType);
     const write: ObjectWrite = {
@@ -201,8 +209,24 @@ class SimpleStorageServiceStorage implements S3Storage {
     return createListing(this.#configuration, options);
   }
 
-  async delete(...keys: readonly string[]): Promise<DeleteReport> {
-    return await deleteKeys(this.#configuration, keys, { operation: "delete" });
+  delete(...keys: readonly string[]): Promise<DeleteReport>;
+  delete(key: string, options: DeleteOptions): Promise<DeleteReport>;
+  async delete(...args: readonly string[] | OneKeyWithOptions): Promise<DeleteReport> {
+    if (!isOneKeyWithOptions(args)) {
+      return await deleteKeys(this.#configuration, args, { operation: "delete" });
+    }
+
+    const [key, options] = args;
+
+    requireKnownOptions(this.bucket, options, deleteOptionKeys, "delete");
+    refusePrecondition(this.bucket, options.onlyIf, "delete", "delete", key, this.capabilities);
+
+    options.signal?.throwIfAborted();
+
+    return await deleteKeys(this.#configuration, [key], {
+      operation: "delete",
+      signal: options.signal,
+    });
   }
 
   async deleteAll(prefix: string, options?: OperationOptions): Promise<DeleteReport> {
@@ -272,7 +296,7 @@ class SimpleStorageServiceStorage implements S3Storage {
     requireKey(this.bucket, from, "addressable", operation);
     requireKey(this.bucket, to, "writable", operation);
     requireKnownOptions(this.bucket, options, copyOptionKeys, operation);
-    refusePrecondition(this.bucket, options?.onlyIf, operation, to, this.capabilities);
+    refusePrecondition(this.bucket, options?.onlyIf, "write", operation, to, this.capabilities);
 
     if (from !== to) return;
 
@@ -297,6 +321,15 @@ class SimpleStorageServiceStorage implements S3Storage {
 }
 
 /** Spec 4.2: a string travels as its UTF-8 bytes. */
+type OneKeyWithOptions = readonly [key: string, options: DeleteOptions];
+
+/** The form of `delete` for one key: a second argument that is no key (spec 4.1). */
+function isOneKeyWithOptions(
+  args: readonly string[] | OneKeyWithOptions,
+): args is OneKeyWithOptions {
+  return args.length === 2 && typeof args[1] === "object" && args[1] !== null;
+}
+
 function bytesOf(body: string | Uint8Array): Uint8Array<ArrayBuffer> {
   return typeof body === "string" ? utf8.encode(body) : heldBytes(body);
 }

@@ -13,11 +13,12 @@ import { memoryError } from "./storage-error.ts";
  */
 export function readPrecondition(
   onlyIf: unknown,
+  on: "write" | "delete",
   operation: string,
   key: string,
   capabilities: readonly CapabilityName[],
 ): Precondition | undefined {
-  const refusal = preconditionRefusal(onlyIf, "write", capabilities);
+  const refusal = preconditionRefusal(onlyIf, on, capabilities);
 
   if (refusal !== undefined) throw memoryError({ ...refusal, operation, key, attempts: 0 });
 

@@ -51,6 +51,7 @@ export { errorCodeForStatus, isTransientStatus } from "./status.ts";
 export type {
   ByteRange,
   CopyOptions,
+  DeleteOptions,
   DeleteReport,
   GetOptions,
   ListOptions,

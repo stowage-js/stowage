@@ -2,6 +2,7 @@ import type {
   CapabilityName,
   ContentHeaders,
   CopyOptions,
+  DeleteOptions,
   DeleteReport,
   GetOptions,
   ListOptions,
@@ -24,6 +25,7 @@ import { keyError, requireKey } from "./key.ts";
 import { createListing } from "./listing.ts";
 import {
   copyOptionKeys,
+  deleteOptionKeys,
   getOptionKeys,
   operationOptionKeys,
   putOptionKeys,
@@ -117,7 +119,7 @@ class InMemoryStorage implements MemoryStorage {
         contentType,
         userMetadata,
         contentHeaders: readContentHeaders(options ?? {}, contentType, key, this.capabilities),
-        precondition: readPrecondition(options?.onlyIf, "put", key, this.capabilities),
+        precondition: readPrecondition(options?.onlyIf, "write", "put", key, this.capabilities),
       };
     } catch (refusal) {
       await cancelBody(body, refusal);
@@ -160,7 +162,12 @@ class InMemoryStorage implements MemoryStorage {
     return createListing(() => this.#entries(), options);
   }
 
-  async delete(...keys: readonly string[]): Promise<DeleteReport> {
+  delete(...keys: readonly string[]): Promise<DeleteReport>;
+  delete(key: string, options: DeleteOptions): Promise<DeleteReport>;
+  async delete(...args: readonly string[] | OneKeyWithOptions): Promise<DeleteReport> {
+    if (isOneKeyWithOptions(args)) return this.#deleteOne(...args);
+
+    const keys = args;
     const failed: StorageError[] = [];
 
     for (const key of keys) {
@@ -171,6 +178,19 @@ class InMemoryStorage implements MemoryStorage {
     }
 
     return { requested: keys.length, failed };
+  }
+
+  #deleteOne(key: string, options: DeleteOptions): DeleteReport {
+    requireKnownOptions(options, deleteOptionKeys, "delete");
+    readPrecondition(options.onlyIf, "delete", "delete", key, this.capabilities);
+
+    options.signal?.throwIfAborted();
+
+    const error = keyError(key, "addressable", "delete");
+
+    if (error === undefined) this.#objects.delete(key);
+
+    return { requested: 1, failed: error === undefined ? [] : [error] };
   }
 
   async deleteAll(prefix: string, options?: OperationOptions): Promise<DeleteReport> {
@@ -203,7 +223,13 @@ class InMemoryStorage implements MemoryStorage {
     requireKey(to, "writable", operation);
     requireKnownOptions(options, copyOptionKeys, operation);
 
-    const precondition = readPrecondition(options?.onlyIf, operation, to, this.capabilities);
+    const precondition = readPrecondition(
+      options?.onlyIf,
+      "write",
+      operation,
+      to,
+      this.capabilities,
+    );
 
     options?.signal?.throwIfAborted();
 
@@ -260,6 +286,15 @@ class InMemoryStorage implements MemoryStorage {
 
     return object;
   }
+}
+
+type OneKeyWithOptions = readonly [key: string, options: DeleteOptions];
+
+/** The form of `delete` for one key: a second argument that is no key (spec 4.1). */
+function isOneKeyWithOptions(
+  args: readonly string[] | OneKeyWithOptions,
+): args is OneKeyWithOptions {
+  return args.length === 2 && typeof args[1] === "object" && args[1] !== null;
 }
 
 function describe(object: MemoryObject): ObjectStat {

@@ -15,6 +15,7 @@ export const putOptionKeys: readonly string[] = [
   "onlyIf",
 ];
 export const copyOptionKeys: readonly string[] = [...operationOptionKeys, "onlyIf"];
+export const deleteOptionKeys: readonly string[] = [...operationOptionKeys, "onlyIf"];
 export const getOptionKeys: readonly string[] = [...operationOptionKeys, "range"];
 export const presignGetOptionKeys: readonly string[] = [
   "expiresIn",

@@ -1,4 +1,5 @@
 import {
+  type DeleteOptions,
   type GetOptions,
   isStorageError,
   type PutOptions,
@@ -2190,6 +2191,57 @@ test("`delete` sends its keys as one Blob Batch of `Delete Blob` subrequests und
     // The batch names the version once, on the request that carries it.
     expect(headers.has("x-ms-version")).toBe(false);
   }
+});
+
+test("`delete` of one key given with options sends what `delete` of the key alone sends", async () => {
+  const sent = stubFetch(() => accepted(1));
+
+  const report = await storage().delete("one", {});
+
+  expect(report).toEqual({ requested: 1, failed: [] });
+  expect(sent).toHaveLength(1);
+  expect(subrequestsOf(sent[0]).map((subrequest) => subrequest.requestLine)).toEqual([
+    "DELETE /conformance/one HTTP/1.1",
+  ]);
+});
+
+test("`delete` of one key rejects before any request where the signal already fired", async () => {
+  const sent = stubFetch(() => accepted(1));
+
+  await expect(storage().delete("one", { signal: AbortSignal.abort() })).rejects.toMatchObject({
+    name: "AbortError",
+  });
+  expect(sent).toEqual([]);
+});
+
+// Until the adapter declares `deleteIfUnchanged`, spec 4.3 refuses an `onlyIf` object on `delete`
+// before any request, and `"absent"`, which has no kind there, on every storage.
+test.each([
+  ["an `etag`", { etag: "0x8D" }, "Unsupported", "deleteIfUnchanged"],
+  ['`"absent"`', "absent", "InvalidOption", undefined],
+] as const)(
+  "`delete` refuses `onlyIf` as %s before any request",
+  async (_, onlyIf, code, capability) => {
+    const sent = stubFetch(() => accepted(1));
+    // oxlint-disable-next-line no-unsafe-type-assertion -- `"absent"` has no kind on a delete
+    const failure = await failureOf(() => storage().delete("one", { onlyIf } as DeleteOptions));
+
+    expect(failure).toMatchObject({ code, capability, operation: "delete", key: "one" });
+    expect(failure.attempts).toBe(0);
+    expect(sent).toEqual([]);
+  },
+);
+
+test("`delete` of one key refuses an option key it does not list before any request", async () => {
+  const sent = stubFetch(() => accepted(1));
+  const failure = await failureOf(() =>
+    // oxlint-disable-next-line no-unsafe-type-assertion -- the point of the case
+    storage().delete("one", { versionId: "1" } as DeleteOptions),
+  );
+
+  expect(failure).toMatchObject({ code: "InvalidOption", operation: "delete", attempts: 0 });
+  expect(failure.message).toContain("versionId");
+  expect(sent).toEqual([]);
 });
 
 test("under an account key each subrequest carries a Shared Key signature of its own", async () => {

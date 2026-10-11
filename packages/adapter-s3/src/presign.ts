@@ -135,7 +135,7 @@ export async function presignPut(
     capabilities,
   );
 
-  refusePrecondition(configuration.bucket, options.onlyIf, operation, key, capabilities);
+  refusePrecondition(configuration.bucket, options.onlyIf, "write", operation, key, capabilities);
 
   const url = await presignedUrl(configuration, {
     method: "PUT",
