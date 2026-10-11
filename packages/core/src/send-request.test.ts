@@ -1,6 +1,11 @@
 import { afterEach, expect, test, vi } from "vitest";
 
-import { isStorageError, StorageError, type StorageErrorFields } from "./errors.ts";
+import {
+  isStorageError,
+  StorageError,
+  type StorageErrorCode,
+  type StorageErrorFields,
+} from "./errors.ts";
 import {
   type FailureReading,
   readMaxAttempts,
@@ -65,12 +70,17 @@ function refusedWithBrokenBody(status: number, failure: unknown): Response {
   );
 }
 
+const codeByProviderCode = new Map<string | undefined, StorageErrorCode>([
+  ["NoSuchKey", "NotFound"],
+  ["PreconditionFailed", "PreconditionFailed"],
+]);
+
 /** What a provider reads out of the body above: the code after `code=`. */
 function readFailure(answer: RefusedAnswer): FailureReading {
   const providerCode = answer.body?.replace(/^code=/u, "");
 
   return {
-    code: providerCode === "NoSuchKey" ? "NotFound" : "ProviderError",
+    code: codeByProviderCode.get(providerCode) ?? "ProviderError",
     message: `The provider answered ${answer.status}`,
     key: providerCode === "NoSuchBucket" ? undefined : "object.txt",
     providerCode,
@@ -578,6 +588,165 @@ test("`reportOverNotFound` leaves a `NotFound` without doubt, or of the bucket, 
 
   expect(ofTheBucket.status).toBe(404);
   expect(ofTheBucket.key).toBeUndefined();
+});
+
+// ADR 0073: a conditional request that took effect meets its own result when sent again.
+test("`precondition` rejects with the doubtful attempt rather than a later `PreconditionFailed`", async () => {
+  withoutDelays();
+  let calls = 0;
+
+  vi.stubGlobal("fetch", async (): Promise<Response> => {
+    calls += 1;
+
+    return calls === 1
+      ? await Promise.reject(new TypeError("fetch failed"))
+      : refused(412, "PreconditionFailed");
+  });
+
+  const afterNoResponse = await rejection(
+    async () => await sendRequest(request({ precondition: {} })),
+  );
+
+  expect(afterNoResponse.code).toBe("NetworkError");
+  expect(afterNoResponse.retryable).toBe(true);
+  expect(afterNoResponse.attempts).toBe(2);
+
+  stubFetch((_, index) => (index === 0 ? refused(503) : refused(412, "PreconditionFailed")));
+
+  const afterServerError = await rejection(
+    async () => await sendRequest(request({ precondition: {} })),
+  );
+
+  expect(afterServerError.code).toBe("ProviderError");
+  expect(afterServerError.status).toBe(503);
+  expect(afterServerError.retryable).toBe(true);
+  expect(afterServerError.attempts).toBe(2);
+});
+
+test("`precondition` counts every attempt before the doubtful one and after it", async () => {
+  withoutDelays();
+  stubFetch((_, index) => {
+    if (index === 0) return refused(429, "SlowDown");
+
+    return index === 1 ? refused(500, "InternalError") : refused(412, "PreconditionFailed");
+  });
+
+  const doubt = await rejection(async () => await sendRequest(request({ precondition: {} })));
+
+  expect(doubt.status).toBe(500);
+  expect(doubt.attempts).toBe(3);
+});
+
+// `408` and `429` say the request was not carried out, which leaves no doubt behind.
+test("`precondition` leaves a `PreconditionFailed` after a `408` or a `429` as it is", async () => {
+  withoutDelays();
+
+  for (const [status, providerCode] of [
+    [408, "RequestTimeout"],
+    [429, "SlowDown"],
+  ] as const) {
+    stubFetch((_, index) =>
+      index === 0 ? refused(status, providerCode) : refused(412, "PreconditionFailed"),
+    );
+
+    // oxlint-disable-next-line no-await-in-loop -- one stubbed `fetch` per status
+    const refusal = await rejection(async () => await sendRequest(request({ precondition: {} })));
+
+    expect(refusal.code).toBe("PreconditionFailed");
+    expect(refusal.retryable).toBe(false);
+    expect(refusal.attempts).toBe(2);
+  }
+});
+
+test("`precondition` leaves a `PreconditionFailed` of the first attempt as it is", async () => {
+  withoutDelays();
+  const sent = stubFetch(() => refused(412, "PreconditionFailed"));
+
+  const refusal = await rejection(async () => await sendRequest(request({ precondition: {} })));
+
+  expect(sent).toHaveLength(1);
+  expect(refusal.code).toBe("PreconditionFailed");
+  expect(refusal.attempts).toBe(1);
+});
+
+test("a request without `precondition` reads a doubtful `PreconditionFailed` as before", async () => {
+  withoutDelays();
+  stubFetch((_, index) => (index === 0 ? refused(503) : refused(412, "PreconditionFailed")));
+
+  const refusal = await rejection(async () => await sendRequest(request()));
+
+  expect(refusal.code).toBe("PreconditionFailed");
+  expect(refusal.status).toBe(412);
+  expect(refusal.attempts).toBe(2);
+});
+
+// Spec 7.5: R2 answers the repeat of a conditional commit that went through `NoSuchUpload`.
+test("`precondition` reads the provider codes it is also refused by as `PreconditionFailed`", async () => {
+  withoutDelays();
+  stubFetch((_, index) => (index === 0 ? refused(503) : refused(404, "NoSuchUpload")));
+
+  const named = await rejection(
+    async () => await sendRequest(request({ precondition: { alsoRefusedBy: ["NoSuchUpload"] } })),
+  );
+
+  expect(named.status).toBe(503);
+  expect(named.attempts).toBe(2);
+
+  stubFetch((_, index) => (index === 0 ? refused(503) : refused(404, "NoSuchUpload")));
+
+  const unnamed = await rejection(async () => await sendRequest(request({ precondition: {} })));
+
+  expect(unnamed.providerCode).toBe("NoSuchUpload");
+});
+
+// Spec 7.7: a conditional `CompleteMultipartUpload` keeps not repeating an unanswered commit.
+test("`precondition` beside `stop` repeats no attempt that received no response", async () => {
+  withoutDelays();
+  let calls = 0;
+
+  vi.stubGlobal("fetch", async (): Promise<Response> => {
+    calls += 1;
+
+    return await Promise.reject(new TypeError("fetch failed"));
+  });
+
+  const unanswered = await rejection(
+    async () =>
+      await sendRequest(
+        request({ unanswered: "stop", precondition: { alsoRefusedBy: ["NoSuchUpload"] } }),
+      ),
+  );
+
+  expect(calls).toBe(1);
+  expect(unanswered.code).toBe("NetworkError");
+  expect(unanswered.attempts).toBe(1);
+
+  stubFetch((_, index) => (index === 0 ? refused(503) : refused(412, "PreconditionFailed")));
+
+  const afterServerError = await rejection(
+    async () => await sendRequest(request({ unanswered: "stop", precondition: {} })),
+  );
+
+  expect(afterServerError.status).toBe(503);
+  expect(afterServerError.attempts).toBe(2);
+});
+
+// Spec 9.5: a conditional `objects.move` follows both rules.
+test("`precondition` beside `reportOverNotFound` reports the doubt over either refusal", async () => {
+  withoutDelays();
+
+  for (const providerCode of ["NoSuchKey", "PreconditionFailed"]) {
+    stubFetch((_, index) => (index === 0 ? refused(503) : refused(404, providerCode)));
+
+    // oxlint-disable-next-line no-await-in-loop -- one stubbed `fetch` per refusal
+    const doubt = await rejection(
+      async () =>
+        await sendRequest(request({ unanswered: "reportOverNotFound", precondition: {} })),
+    );
+
+    expect(doubt.status).toBe(503);
+    expect(doubt.attempts).toBe(2);
+  }
 });
 
 const storage = { provider: "s3", bucket: "stowage", constructedBy: "s3Storage" };
