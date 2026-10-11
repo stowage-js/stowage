@@ -1,21 +1,23 @@
-import type {
-  CapabilityName,
-  ContentHeaders,
-  CopyOptions,
-  DeleteOptions,
-  DeleteReport,
-  GetOptions,
-  ListOptions,
-  ObjectEntry,
-  ObjectListing,
-  ObjectStat,
-  OperationOptions,
-  Precondition,
-  PutBody,
-  PutOptions,
-  Storage,
-  StorageError,
-  StoredObject,
+import {
+  type CapabilityName,
+  type ContentHeaders,
+  type CopyOptions,
+  type DeleteOptions,
+  type DeleteReport,
+  type GetOptions,
+  isOneKeyWithOptions,
+  type ListOptions,
+  type ObjectEntry,
+  type ObjectListing,
+  type ObjectStat,
+  type OneKeyWithOptions,
+  type OperationOptions,
+  type Precondition,
+  type PutBody,
+  type PutOptions,
+  type Storage,
+  type StorageError,
+  type StoredObject,
 } from "@stowage/core";
 
 import { cancelBody, readBody } from "./bytes.ts";
@@ -300,15 +302,6 @@ class InMemoryStorage implements MemoryStorage {
 
     return object;
   }
-}
-
-type OneKeyWithOptions = readonly [key: string, options: DeleteOptions];
-
-/** The form of `delete` for one key: a second argument that is no key (spec 4.1). */
-function isOneKeyWithOptions(
-  args: readonly string[] | OneKeyWithOptions,
-): args is OneKeyWithOptions {
-  return args.length === 2 && typeof args[1] === "object" && args[1] !== null;
 }
 
 function describe(object: MemoryObject): ObjectStat {

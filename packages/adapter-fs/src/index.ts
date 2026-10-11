@@ -9,10 +9,12 @@ import {
   type DeleteOptions,
   type DeleteReport,
   type GetOptions,
+  isOneKeyWithOptions,
   isStorageError,
   type ListOptions,
   type ObjectListing,
   type ObjectStat,
+  type OneKeyWithOptions,
   type OperationOptions,
   type PutBody,
   type PutOptions,
@@ -564,15 +566,6 @@ class FileSystemStorage implements FsStorage {
       capability: "userMetadata",
     });
   }
-}
-
-type OneKeyWithOptions = readonly [key: string, options: DeleteOptions];
-
-/** The form of `delete` for one key: a second argument that is no key (spec 4.1). */
-function isOneKeyWithOptions(
-  args: readonly string[] | OneKeyWithOptions,
-): args is OneKeyWithOptions {
-  return args.length === 2 && typeof args[1] === "object" && args[1] !== null;
 }
 
 function readRoot(options: FsAdapterOptions): string {

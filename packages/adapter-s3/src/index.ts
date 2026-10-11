@@ -2,12 +2,14 @@ import {
   type CapabilityName,
   type DeleteReport,
   type GetOptions,
+  isOneKeyWithOptions,
   isStorageError,
   type ListOptions,
   type ObjectListing,
   type ObjectStat,
   type CopyOptions,
   type DeleteOptions,
+  type OneKeyWithOptions,
   type OperationOptions,
   type PresignedPut,
   type PutBody,
@@ -318,15 +320,6 @@ class SimpleStorageServiceStorage implements S3Storage {
 
     return contentType;
   }
-}
-
-type OneKeyWithOptions = readonly [key: string, options: DeleteOptions];
-
-/** The form of `delete` for one key: a second argument that is no key (spec 4.1). */
-function isOneKeyWithOptions(
-  args: readonly string[] | OneKeyWithOptions,
-): args is OneKeyWithOptions {
-  return args.length === 2 && typeof args[1] === "object" && args[1] !== null;
 }
 
 /** Spec 4.2: a string travels as its UTF-8 bytes. */
