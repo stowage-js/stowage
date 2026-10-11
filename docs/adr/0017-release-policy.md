@@ -106,3 +106,9 @@ the first time a month fills up is worse than no promise.
   adapters, and ADR 0064 one of `@stowage/conformance`, a case that asserts more of a target than
   it did; each names its conflict with the rule that a withdrawal takes something from the
   caller.
+- ADR 0070 withdraws two promises: `etag` on `adapter-gcs` becomes the generation, and the
+  `delete` overload breaks every adapter that implements the variadic form alone. ADR 0075
+  withdraws one of `@stowage/http`, `acceptUpload` storing a `PUT` whose `If-Match` or
+  `If-None-Match` it now holds. Each names its conflict with this rule. ADR 0073 and ADR 0076 add
+  that a promise holds for the form of a call it was made for, and that a new option may come with
+  a narrower promise of its own without a withdrawal.

@@ -90,3 +90,7 @@ takes no `signal` on any adapter.
   read from a request, and has `presignUpload` answer `400` for a value outside the rule or a
   bound. The header-value rule for `contentType` moves into `@stowage/core` as `isHeaderValue`,
   shared with the content headers of `put` (spec 4.13).
+- ADR 0074 gives `presignUpload` and `PresignsPut` an optional `onlyIf`, taken from options
+  alone. ADR 0075 has `acceptUpload` take `onlyIf` and the request's `If-Match` and
+  `If-None-Match` together, answer `412` and `501` before the body, and answer a write under
+  `{ etag }` with `204` where this decision sent `201`.

@@ -118,3 +118,6 @@ would pass because its calls all fail correctly.
 - ADR 0060 adds `contentHeaders`, declared by every adapter but `adapter-fs`, which refuses the
   content headers as it refuses user metadata: no sidecar file, no extended attribute, no silent
   drop.
+- ADR 0070 adds `writeIfAbsent`, `writeIfUnchanged` and `deleteIfUnchanged`. ADR 0071 and
+  ADR 0072 declare them: all three on `adapter-memory`, `adapter-azure-blob` and `adapter-gcs`, the
+  two write capabilities on `adapter-s3`, and `writeIfAbsent` alone on `adapter-fs`.

@@ -105,3 +105,6 @@ ranged `get` never hands such an object over.
   a stored `attachment` where the caller passes neither `filename` nor `disposition`, and a stored
   `Cache-Control` under `storedCacheControl: true`. The download name and `Accept-Ranges` narrow
   what v0.5 released, and ADR 0062 names that conflict with ADR 0017.
+- ADR 0075 maps `PreconditionFailed` to `412` for every function of the layer and adds `501` to
+  the layer's own refusals. ADR 0070 makes the `ETag` of an object on `adapter-gcs` its generation,
+  which a change of its content headers alone does not move.

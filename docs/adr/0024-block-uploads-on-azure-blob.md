@@ -115,3 +115,6 @@ uncommitted blocks of its name, as documented and not as Azurite does.
   does.
 - `partSize` above 4,000 MiB is `InvalidOption` on Azure and valid on S3. A configuration shared
   between the two adapters stays within 5 MiB to 4,000 MiB.
+- ADR 0073 limits the certain answer of a `put` to one without a precondition: a conditional
+  `Put Block List` repeated after a lost answer may meet its own commit, and reports that refusal
+  as the lost attempt's failure.
