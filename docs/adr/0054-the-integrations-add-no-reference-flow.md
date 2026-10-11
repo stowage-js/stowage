@@ -33,7 +33,7 @@ The caller writes the few lines that turn a `page()` into the JSON its own clien
   `flow/` prefix and are named after the answer they request, `serve/`, `redirect/`, `upload/` and
   `presign/`, the four values of `url(answer, key)` on an `HttpConformanceTarget`.
 - Section 17 names a listing endpoint in `@stowage/http` as a non-goal.
-- `CONTEXT.md` sharpens Reference flow to a call sequence against a storage, which a route carries.
+- `GLOSSARY.md` sharpens Reference flow to a call sequence against a storage, which a route carries.
 - This extends ADR 0004 and contradicts none of it. No released promise changes, so ADR 0017 is not
   touched.
 - A case name is unique within its list, so the HTTP case `presign/put` and the conformance case

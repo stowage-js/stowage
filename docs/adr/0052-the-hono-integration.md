@@ -75,4 +75,4 @@ the client.
   `@stowage/hono` names validators on upload routes.
 - Neither ADR 0049 nor ADR 0051 is released, so no promise is narrowed and ADR 0017 is not
   touched.
-- `CONTEXT.md` gains no term.
+- `GLOSSARY.md` gains no term.

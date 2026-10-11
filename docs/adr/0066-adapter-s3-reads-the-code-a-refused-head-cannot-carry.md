@@ -59,7 +59,7 @@ Three alternatives were weighed in #414 and while deciding it. A refresh after e
 `HEAD` under a session token recovers an expired credential and leaves a wrong secret
 `AccessDenied`, the gap that remains wider. Reading the `GET` inside the reading of the `HEAD`'s
 refusal, so that `sendRequest` refreshes the `HEAD` itself, costs three requests where this costs
-four, and makes the further `HEAD` the refresh CONTEXT.md names. It makes `readFailure`
+four, and makes the further `HEAD` the refresh GLOSSARY.md names. It makes `readFailure`
 asynchronous and runs a request with its own budget and abort inside the reading of another
 request's refusal. `sendRequest` is not part of the spec (ADR 0057), so that stays open should the
 fourth request matter. Leaving the gap stated in spec 7.3 was the third.

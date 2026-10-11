@@ -88,7 +88,7 @@ a README.
   uses. The NestJS README compiles with `experimentalDecorators` and without `erasableSyntaxOnly`,
   against `@types/node` and `@types/express`; the frameworks are devDependencies of this repository
   already, because CI runs them.
-- `CONTEXT.md` gains no term.
+- `GLOSSARY.md` gains no term.
 - This extends ADR 0018 and contradicts none of it. No released promise changes, so ADR 0017 is not
   touched.
 - ADR 0069 adds one `sh` block to the root README, the install line, and keeps every other

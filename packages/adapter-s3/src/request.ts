@@ -70,7 +70,7 @@ export async function send(configuration: S3Configuration, request: S3Request): 
 }
 
 /**
- * One signed request, which is the attempt CONTEXT.md names and what a repeat repeats.
+ * One signed request, which is the attempt GLOSSARY.md names and what a repeat repeats.
  * Spec 7.3 refreshes after `Expired` whatever the credential, since a resolver may hand
  * back a key pair as well as a session token.
  */

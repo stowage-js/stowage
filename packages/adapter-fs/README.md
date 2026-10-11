@@ -110,7 +110,7 @@ await storage.put("videos/intro.mp4", response.body.pipeThrough(countBytes(conso
 
 [`docs/spec.md` at `@stowage/adapter-fs@0.6.0`](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.6.0/docs/spec.md#6-stowageadapter-fs)
 is the contract: a caller may rely on what it states and on nothing else this package happens to
-export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.6.0/CONTEXT.md)
+export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.6.0/GLOSSARY.md)
 and the [decisions behind it](https://github.com/stowage-js/stowage/tree/@stowage/adapter-fs@0.6.0/docs/adr)
 are at the same tag.
 

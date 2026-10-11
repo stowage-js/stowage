@@ -46,7 +46,7 @@ that fails now and then for a reason of its own.
 - Spec 14.9's row for `upload/max-size` reads that 1048577 bytes as bytes answer `413` or fail as a
   network error, as a stream without a length answer `413`, and that the object reads back
   unchanged.
-- `CONTEXT.md` adds to HTTP layer that it promises the answer it hands back, not its delivery.
+- `GLOSSARY.md` adds to HTTP layer that it promises the answer it hands back, not its delivery.
 - The sentence of spec 10.2 is a minor release of `@stowage/http`, and the change to the case a
   minor release of `@stowage/conformance`; neither changeset is marked breaking (ADR 0017). The
   spec never promised delivery, a client met the reset before a sentence stated it, and a server

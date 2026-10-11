@@ -36,7 +36,7 @@ someone writing an adapter outside this repository and needs the steps of that j
   without an adapter. They are not the same text.
 - The root README opens with two blocks: the same four calls against `adapter-fs` and against
   `adapter-s3`, differing only in how the storage is constructed, which is the opening sentence of
-  `CONTEXT.md` written as code. Reference flow 1 follows as the second example.
+  `GLOSSARY.md` written as code. Reference flow 1 follows as the second example.
 - `@stowage/core`, `@stowage/adapter-memory`, `@stowage/adapter-fs` and `@stowage/adapter-s3` share
   the same sections in the same order: install, one example, runtimes, limits, notes, and the link
   into the spec. A section is present even when it is empty, where it says so.
@@ -69,7 +69,7 @@ someone writing an adapter outside this repository and needs the steps of that j
   private vulnerability reporting, a fix in the current line, no backport, no stated deadline. No
   `CODE_OF_CONDUCT.md` and no issue templates for v0.1; one maintainer is not an enforcement body,
   and templates wait for issues from outside.
-- `CONTEXT.md` is read by callers, not only by this project. The spec links it for the terms it
+- `GLOSSARY.md` is read by callers, not only by this project. The spec links it for the terms it
   uses instead of defining them a second time.
 - The npm name collision of ADR 0008 is answered by the `description` and `keywords` of the five
   packages alone. Disputing the name costs correspondence a side project cannot spend, and renaming

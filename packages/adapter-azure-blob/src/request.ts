@@ -87,7 +87,7 @@ export async function send(
 }
 
 /**
- * One authorized request, which is the attempt CONTEXT.md names and what a repeat
+ * One authorized request, which is the attempt GLOSSARY.md names and what a repeat
  * repeats: the credential is resolved and the request dated and signed anew. Spec 8.3
  * refreshes an access token the provider refused, and never an account key, which a
  * refresh does not make valid.

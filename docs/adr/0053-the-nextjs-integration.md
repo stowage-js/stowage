@@ -95,4 +95,4 @@ refuse, a segment holding an encoded `/`, is a decision about the caller's keys.
   decoded, so a segment `a%2Fb` arrives as `a/b` and cannot be told apart from two segments after
   `join("/")`.
 - No ADR this builds on is released, so no promise is narrowed and ADR 0017 is not touched.
-- `CONTEXT.md` gains no term.
+- `GLOSSARY.md` gains no term.
