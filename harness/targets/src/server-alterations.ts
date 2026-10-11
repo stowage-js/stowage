@@ -3,7 +3,7 @@ import type { CaseOf } from "../../../packages/conformance/src/case.ts";
 /**
  * A change a runtime's own server makes to the answers of HTTP cases on their way to the
  * socket, setting or dropping a header that no answer of the layer can keep it from.
- * It is no divergence (`CONTEXT.md`): no other run settles it, and a client of that cell
+ * It is no divergence (`GLOSSARY.md`): no other run settles it, and a client of that cell
  * sees it, so spec 2 names each one below its second table.
  */
 export interface ServerAlteration {

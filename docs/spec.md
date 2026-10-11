@@ -4,7 +4,7 @@ This document states what the `@stowage/*` packages promise. A caller may rely o
 on nothing else a package happens to export. It describes the version that is current on `main`;
 the README of every published package links the revision that belongs to that release.
 
-The terms used here are defined in [`CONTEXT.md`](../CONTEXT.md). The reasoning behind each rule is
+The terms used here are defined in [`GLOSSARY.md`](../GLOSSARY.md). The reasoning behind each rule is
 in [`docs/adr/`](adr/), one decision per file; this document states the rules without repeating the
 reasoning. Where a section names an ADR, that ADR holds the alternatives that were weighed.
 

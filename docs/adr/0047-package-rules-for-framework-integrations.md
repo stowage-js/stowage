@@ -54,7 +54,7 @@ already pays for, and with the rule above a dropped major is almost never a brea
   framework major beside the one for runtimes and Node lines. Dropping a major its framework still
   supports is a withdrawal, and its changeset starts with `**Breaking:**`.
 - The names are the framework's own, in lower case: `@stowage/nestjs`, `@stowage/hono`,
-  `@stowage/nextjs`. No prefix like `adapter-`, which `CONTEXT.md` keeps for adapters, and not
+  `@stowage/nextjs`. No prefix like `adapter-`, which `GLOSSARY.md` keeps for adapters, and not
   `@stowage/next`, which reads as the next stowage.
 - The `fixed` group in `.changeset/config.json` and spec section 15 list eleven packages:
   the seven of v0.4, `@stowage/http` and the three integrations. Each new package needs a `0.0.0`

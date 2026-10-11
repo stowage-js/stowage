@@ -96,7 +96,7 @@ object on demand.
   Testing only the newest version under `^12` would have promised 12.0.0 without ever running it;
   `^4` would have reached back to Hono 4.0.0 of February 2024.
 - The new CI jobs join the required checks on `main`.
-- `CONTEXT.md` gains HTTP conformance suite and HTTP conformance target; Runtime matrix covers
+- `GLOSSARY.md` gains HTTP conformance suite and HTTP conformance target; Runtime matrix covers
   servers beside flows.
 - No promise a released package makes is narrowed, so ADR 0017 is extended, not contradicted.
 - Under "Write the v0.5 spec" (#309) the spec names below the second table the floor of each

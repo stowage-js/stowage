@@ -54,7 +54,7 @@ recovering on every provider is #415.
 SignatureDoesNotMatch`, that under a session token a refresh follows, and that a fresh credential
   refused too is `InvalidCredentials` with `attempts: 2`.
 - Spec 7.3 names both conditions for the refresh, and that `stat` and `exists` get none.
-- `CONTEXT.md` names the further attempt a refresh. Spec 7.5, 8.5 and 9.5 say "refresh" where they
+- `GLOSSARY.md` names the further attempt a refresh. Spec 7.5, 8.5 and 9.5 say "refresh" where they
   said "the `Expired` repeat"; one request still costs at most six HTTP requests.
 - Spec 14.4 lists the stubbed test beside the ones for Azure and GCS.
 - `errors/expired-credentials` stays skipped against R2: it asserts `Expired`, and R2 now answers

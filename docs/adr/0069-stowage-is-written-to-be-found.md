@@ -33,7 +33,7 @@ enforcement body, so there is no `CODE_OF_CONDUCT.md`. The npm name collision is
 
 ## Consequences
 
-- The root README opens with the sentence of `CONTEXT.md`, five badges (the version on npm, CI,
+- The root README opens with the sentence of `GLOSSARY.md`, five badges (the version on npm, CI,
   SonarQube Cloud's quality gate and coverage, the license), and one sentence on the state of the
   project: below 1.0 a minor release may withdraw a promise, and 1.0 waits for what spec 15 names.
   The install line follows as a `sh` block, the one block besides the `ts` blocks of ADR 0018 and
@@ -69,4 +69,4 @@ enforcement body, so there is no `CODE_OF_CONDUCT.md`. The npm name collision is
   README's note on compatible endpoints sets the expectation.
 - Spec 16 changes with this decision. It describes documentation and promises a caller nothing, so
   the change is editorial under ADR 0017 and carries no changeset.
-- `CONTEXT.md` gains no term.
+- `GLOSSARY.md` gains no term.

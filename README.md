@@ -86,7 +86,7 @@ await storage.delete("notes/hello.txt");
   identity federation. stowage takes static credentials, `fromEnv`, or an access token your own
   resolver obtains.
 - Your endpoint is not one of the providers stowage promises. MinIO and other endpoints that speak
-  a promised provider's wire protocol are each a [compatible endpoint](CONTEXT.md): the adapter for
+  a promised provider's wire protocol are each a [compatible endpoint](GLOSSARY.md): the adapter for
   that protocol can be configured for them, and stowage promises nothing against them.
 
 The full list is [spec 17](docs/spec.md#17-non-goals).
@@ -143,7 +143,7 @@ A route that takes uploads from clients needs a size limit in front of `put`, wh
 
 - [The specification](docs/spec.md), which is the contract: a caller may rely on what it states
   and on nothing else a package happens to export
-- [The terms it uses](CONTEXT.md)
+- [The terms it uses](GLOSSARY.md)
 - [The decisions behind it](docs/adr)
 - [How to contribute](CONTRIBUTING.md)
 

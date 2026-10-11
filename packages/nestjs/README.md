@@ -171,7 +171,7 @@ integration provides no separate fake or `forTesting` module.
 
 [`docs/spec.md` at `@stowage/nestjs@0.6.0`](https://github.com/stowage-js/stowage/blob/@stowage/nestjs@0.6.0/docs/spec.md#11-stowagenestjs)
 is the contract: a caller may rely on what it states and on nothing else this package happens to
-export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/nestjs@0.6.0/CONTEXT.md)
+export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/nestjs@0.6.0/GLOSSARY.md)
 and the [decisions behind it](https://github.com/stowage-js/stowage/tree/@stowage/nestjs@0.6.0/docs/adr)
 are at the same tag.
 
