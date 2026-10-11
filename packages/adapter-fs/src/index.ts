@@ -5,6 +5,7 @@ import { dirname, isAbsolute } from "node:path";
 import {
   type CapabilityName,
   checkContentHeaders,
+  type CopyOptions,
   type DeleteReport,
   type GetOptions,
   isStorageError,
@@ -14,6 +15,7 @@ import {
   type OperationOptions,
   type PutBody,
   type PutOptions,
+  preconditionRefusal,
   type Storage,
   type StorageError,
   type StoredObject,
@@ -34,6 +36,7 @@ import {
 } from "./object-file.ts";
 import {
   adapterOptionKeys,
+  copyOptionKeys,
   getOptionKeys,
   operationOptionKeys,
   optionError,
@@ -121,6 +124,7 @@ class FileSystemStorage implements FsStorage {
     this.#requireContentType(options?.contentType);
     this.#requireNoUserMetadata(options?.userMetadata, key);
     this.#requireNoContentHeaders(options, key);
+    this.#refusePrecondition(options?.onlyIf, "put", key);
 
     // Spec 4.3: a signal that already fired rejects in front of the write, before a
     // directory has been created for a body that is not going to be stored.
@@ -354,7 +358,7 @@ class FileSystemStorage implements FsStorage {
     }
   }
 
-  async copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
+  async copy(from: string, to: string, options?: CopyOptions): Promise<ObjectStat> {
     const ends = await this.#endpoints(from, to, "copy", options);
     const source = await this.#requireFile(ends.from);
 
@@ -396,7 +400,7 @@ class FileSystemStorage implements FsStorage {
     }
   }
 
-  async move(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
+  async move(from: string, to: string, options?: CopyOptions): Promise<ObjectStat> {
     const ends = await this.#endpoints(from, to, "move", options);
     const source = await this.#requireFile(ends.from);
 
@@ -422,11 +426,12 @@ class FileSystemStorage implements FsStorage {
     from: string,
     to: string,
     operation: string,
-    options?: OperationOptions,
+    options?: CopyOptions,
   ): Promise<{ readonly from: FsAccessContext; readonly to: FsAccessContext }> {
     requireKey(this.#root, from, "addressable", operation);
     requireKey(this.#root, to, "writable", operation);
-    requireKnownOptions(this.#root, options, operationOptionKeys, operation);
+    requireKnownOptions(this.#root, options, copyOptionKeys, operation);
+    this.#refusePrecondition(options?.onlyIf, operation, to);
 
     options?.signal?.throwIfAborted();
 
@@ -511,6 +516,18 @@ class FileSystemStorage implements FsStorage {
     if (!("refusal" in check)) return;
 
     throw fsError(this.#root, { ...check.refusal, operation: "put", key, attempts: 0 });
+  }
+
+  /**
+   * Spec 4.3: the storage declares neither `writeIfAbsent` nor `writeIfUnchanged`, so every
+   * `onlyIf` is refused before anything is written, against the key that carries it.
+   */
+  #refusePrecondition(onlyIf: unknown, operation: string, key: string): void {
+    const refusal = preconditionRefusal(onlyIf, "write", this.capabilities);
+
+    if (refusal === undefined) return;
+
+    throw fsError(this.#root, { ...refusal, operation, key, attempts: 0 });
   }
 
   #requireNoUserMetadata(userMetadata: Record<string, string> | undefined, key: string): void {

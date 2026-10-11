@@ -5,6 +5,7 @@ import type { ConformanceCaseSource } from "../case.ts";
 import type { ConformanceContext } from "../target.ts";
 import { copyContentHeaderCase, moveContentHeaderCase } from "./content-headers.ts";
 import { prefixFor } from "./keys.ts";
+import { copyPreconditionCases, movePreconditionCases } from "./preconditions.ts";
 import { textContentType } from "./objects.ts";
 
 const utf8 = new TextEncoder();
@@ -148,6 +149,7 @@ export const copyAndMoveCases: readonly ConformanceCaseSource[] = [
     },
   },
   copyContentHeaderCase,
+  ...copyPreconditionCases,
   {
     name: "move/round-trip",
     requires: [],
@@ -179,6 +181,7 @@ export const copyAndMoveCases: readonly ConformanceCaseSource[] = [
     },
   },
   moveContentHeaderCase,
+  ...movePreconditionCases,
 ];
 
 async function write(ctx: ConformanceContext, key: string, text: string): Promise<WrittenObject> {

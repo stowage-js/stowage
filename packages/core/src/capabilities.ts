@@ -17,6 +17,13 @@
  * - `userMetadataTokenKeys`: beside `userMetadata`, a key may be any ASCII HTTP token, such as
  *   `content-hash`. Where not declared, a key outside identifiers is `Unsupported` naming it;
  *   without `userMetadata` too, the call is `Unsupported` naming that.
+ * - `writeIfAbsent`: `put`, `copy` and `move` with `onlyIf: "absent"` write only where the key
+ *   they write holds no object, and `presignPut` binds it. Where not declared, any of them
+ *   with a string `onlyIf` is `Unsupported`.
+ * - `writeIfUnchanged`: `put`, `copy` and `move` with `onlyIf: { etag }` write only over the
+ *   object that `etag` describes, and `presignPut` binds it; `etag` is promised on every
+ *   description and listing entry. Where not declared, any of them with an `onlyIf` object
+ *   is `Unsupported`.
  */
 export const capabilityNames = [
   "contentHeaders",
@@ -25,6 +32,8 @@ export const capabilityNames = [
   "rangeReads",
   "userMetadata",
   "userMetadataTokenKeys",
+  "writeIfAbsent",
+  "writeIfUnchanged",
 ] as const;
 
 /** One name out of {@link capabilityNames}. */

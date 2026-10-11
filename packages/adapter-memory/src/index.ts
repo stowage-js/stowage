@@ -1,6 +1,7 @@
 import type {
   CapabilityName,
   ContentHeaders,
+  CopyOptions,
   DeleteReport,
   GetOptions,
   ListOptions,
@@ -8,6 +9,7 @@ import type {
   ObjectListing,
   ObjectStat,
   OperationOptions,
+  Precondition,
   PutBody,
   PutOptions,
   Storage,
@@ -21,11 +23,13 @@ import { etagOf } from "./etag.ts";
 import { keyError, requireKey } from "./key.ts";
 import { createListing } from "./listing.ts";
 import {
+  copyOptionKeys,
   getOptionKeys,
   operationOptionKeys,
   putOptionKeys,
   requireKnownOptions,
 } from "./options.ts";
+import { preconditionFailure, readPrecondition } from "./precondition.ts";
 import { requireRange, sliceRange } from "./range.ts";
 import { memoryError } from "./storage-error.ts";
 import { createStoredObject } from "./stored-object.ts";
@@ -49,6 +53,8 @@ const memoryCapabilities: readonly CapabilityName[] = Object.freeze([
   "rangeReads",
   "userMetadata",
   "userMetadataTokenKeys",
+  "writeIfAbsent",
+  "writeIfUnchanged",
 ] as const);
 
 interface MemoryObject {
@@ -69,19 +75,19 @@ class InMemoryStorage implements MemoryStorage {
   readonly #objects = new Map<string, MemoryObject>();
 
   async put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat> {
-    const { contentType, contentHeaders, userMetadata } = await this.#accept(key, body, options);
+    const { precondition, ...described } = await this.#accept(key, body, options);
     const bytes = await readBody(body, options?.signal);
     const object: MemoryObject = {
       key,
       bytes,
-      contentType,
-      contentHeaders,
-      userMetadata,
+      ...described,
       etag: await etagOf(bytes),
       lastModified: new Date(),
     };
 
-    this.#objects.set(key, object);
+    // ADR 0072: nothing awaits between the check and the store, so no other call on the
+    // storage runs between them.
+    this.#store(object, precondition, "put");
 
     return describe(object);
   }
@@ -95,7 +101,11 @@ class InMemoryStorage implements MemoryStorage {
     key: string,
     body: PutBody,
     options?: PutOptions,
-  ): Promise<Pick<MemoryObject, "contentType" | "contentHeaders" | "userMetadata">> {
+  ): Promise<
+    Pick<MemoryObject, "contentType" | "contentHeaders" | "userMetadata"> & {
+      readonly precondition: Precondition | undefined;
+    }
+  > {
     try {
       requireKey(key, "writable", "put");
       requireKnownOptions(options, putOptionKeys, "put");
@@ -107,6 +117,7 @@ class InMemoryStorage implements MemoryStorage {
         contentType,
         userMetadata,
         contentHeaders: readContentHeaders(options ?? {}, contentType, key, this.capabilities),
+        precondition: readPrecondition(options?.onlyIf, "put", key, this.capabilities),
       };
     } catch (refusal) {
       await cancelBody(body, refusal);
@@ -175,11 +186,11 @@ class InMemoryStorage implements MemoryStorage {
     return { requested: keys.length, failed: [] };
   }
 
-  async copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
+  async copy(from: string, to: string, options?: CopyOptions): Promise<ObjectStat> {
     return this.#copy(from, to, "copy", options);
   }
 
-  async move(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
+  async move(from: string, to: string, options?: CopyOptions): Promise<ObjectStat> {
     const destination = this.#copy(from, to, "move", options);
 
     this.#objects.delete(from);
@@ -187,10 +198,12 @@ class InMemoryStorage implements MemoryStorage {
     return destination;
   }
 
-  #copy(from: string, to: string, operation: string, options?: OperationOptions): ObjectStat {
+  #copy(from: string, to: string, operation: string, options?: CopyOptions): ObjectStat {
     requireKey(from, "addressable", operation);
     requireKey(to, "writable", operation);
-    requireKnownOptions(options, operationOptionKeys, operation);
+    requireKnownOptions(options, copyOptionKeys, operation);
+
+    const precondition = readPrecondition(options?.onlyIf, operation, to, this.capabilities);
 
     options?.signal?.throwIfAborted();
 
@@ -209,9 +222,19 @@ class InMemoryStorage implements MemoryStorage {
     // `get` copies on the way out, so the destination shares them with its source.
     const object: MemoryObject = { ...source, key: to, lastModified: new Date() };
 
-    this.#objects.set(to, object);
+    this.#store(object, precondition, operation);
 
     return describe(object);
+  }
+
+  /** Stores the object where the precondition holds at its key, and leaves the key otherwise. */
+  #store(object: MemoryObject, precondition: Precondition | undefined, operation: string): void {
+    const held = this.#objects.get(object.key);
+    const failure = preconditionFailure(precondition, held, operation, object.key);
+
+    if (failure !== undefined) throw failure;
+
+    this.#objects.set(object.key, object);
   }
 
   // A listing pages through one order, so the snapshot it reads is sorted by key. The

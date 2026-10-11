@@ -1,9 +1,17 @@
-import type { ContentHeaders, ObjectStat, PresignedPut, Storage } from "@stowage/core";
+import type {
+  CapabilityName,
+  ContentHeaders,
+  ObjectStat,
+  Precondition,
+  PresignedPut,
+  Storage,
+} from "@stowage/core";
 
 import { assert, assertHeader, assertSameBytes, expectStorageError } from "../assertions.ts";
 import type { ConformanceCaseSource } from "../case.ts";
 import type { ConformanceContext } from "../target.ts";
 import { keyFor } from "./keys.ts";
+import { etagOfStat, someEtag } from "./preconditions.ts";
 import { textContentType } from "./objects.ts";
 
 const utf8 = new TextEncoder();
@@ -43,7 +51,16 @@ export interface PresignOptions extends ContentHeaders {
   readonly expiresIn: number;
   readonly contentType?: string;
   readonly contentLength?: number;
+  readonly onlyIf?: Precondition;
 }
+
+/** Each kind of precondition, with the capability its form needs (spec 4.3). */
+type PreconditionKind = "absent" | "unchanged";
+
+const kindCapabilities: Readonly<Record<PreconditionKind, CapabilityName>> = {
+  absent: "writeIfAbsent",
+  unchanged: "writeIfUnchanged",
+};
 
 type ContentHeaderOption = keyof ContentHeaders;
 
@@ -306,7 +323,219 @@ export const presignCases: readonly ConformanceCaseSource[] = [
     runWithout: async (ctx) =>
       await assertWithoutContentHeaders(ctx, "presign/put-rejects-content-headers"),
   },
+  {
+    name: "presign/put-if-absent",
+    requires: ["presignedUrls", "writeIfAbsent"],
+    cost: "fast",
+    async run(ctx) {
+      const key = keyFor(ctx, "presign/put-if-absent", "object.txt");
+      const first = utf8.encode("the body a URL bound to a free key writes");
+      const second = utf8.encode("a body for a key that is no longer free");
+
+      const written = await uploadSigned(ctx, key, first, { onlyIf: "absent" });
+
+      assert(
+        written >= 200 && written < 300,
+        `A signed \`PUT\` bound to \`"absent"\` onto a free key answered ${written} and not a success`,
+      );
+      const described = await ctx.storage.stat(key);
+
+      assert(
+        described.size === first.byteLength,
+        `\`stat\` reports ${described.size} bytes for the ${first.byteLength} a URL bound to \`"absent"\` wrote`,
+      );
+      await assertHoldsBytes(ctx, key, first, 'the object a URL bound to `"absent"` wrote');
+
+      const refused = await uploadSigned(ctx, key, second, { onlyIf: "absent" });
+
+      assertRefused(refused, 'A signed `PUT` bound to `"absent"` onto a key that holds an object');
+      await assertHoldsBytes(ctx, key, first, 'the object a URL bound to `"absent"` met');
+    },
+    runWithout: async (ctx) =>
+      await assertWithoutPreconditions(ctx, "presign/put-if-absent", ["absent"]),
+  },
+  {
+    name: "presign/put-if-unchanged",
+    requires: ["presignedUrls", "writeIfUnchanged"],
+    cost: "fast",
+    async run(ctx) {
+      const key = keyFor(ctx, "presign/put-if-unchanged", "object.txt");
+      const replaced = utf8.encode("the body a URL bound to its etag replaces");
+      const uploaded = utf8.encode("the body a URL bound to the current etag writes");
+      const between = utf8.encode("the body another put wrote between");
+      const stale = utf8.encode("a body for an etag that went stale");
+
+      await ctx.storage.put(key, replaced, { contentType: textContentType });
+
+      const written = await uploadSigned(ctx, key, uploaded, {
+        onlyIf: { etag: await etagOfStat(ctx, key) },
+      });
+
+      assert(
+        written >= 200 && written < 300,
+        `A signed \`PUT\` bound to the current \`etag\` answered ${written} and not a success`,
+      );
+      await assertHoldsBytes(ctx, key, uploaded, "the object a URL bound to its `etag` wrote");
+
+      const read = await etagOfStat(ctx, key);
+
+      await ctx.storage.put(key, between, { contentType: textContentType });
+
+      const presigned = await presignedPut(ctx, key, {
+        expiresIn: presignLifetime,
+        contentType: textContentType,
+        contentLength: stale.byteLength,
+        onlyIf: { etag: read },
+      });
+      const refused = await statusOf(
+        await fetch(presigned.url, { method: "PUT", body: stale, headers: presigned.headers }),
+      );
+
+      assertRefused(refused, "A signed `PUT` bound to an `etag` another `put` replaced");
+      await assertHoldsBytes(ctx, key, between, "the object the other `put` wrote");
+    },
+    runWithout: async (ctx) =>
+      await assertWithoutPreconditions(ctx, "presign/put-if-unchanged", ["unchanged"]),
+  },
+  {
+    name: "presign/put-rejects-precondition",
+    requires: ["presignedUrls", "writeIfAbsent", "writeIfUnchanged"],
+    cost: "slow",
+    async run(ctx) {
+      const body = utf8.encode("a body whose precondition deviates from the signed one");
+      const free = keyFor(ctx, "presign/put-rejects-precondition", "free.txt");
+      const held = keyFor(ctx, "presign/put-rejects-precondition", "held.txt");
+      const heldBody = utf8.encode("the body that stays");
+
+      await ctx.storage.put(held, heldBody, { contentType: textContentType });
+
+      const kinds = [
+        { key: free, onlyIf: "absent" as const },
+        { key: held, onlyIf: { etag: await etagOfStat(ctx, held) } },
+      ];
+
+      for (const { key, onlyIf } of kinds) {
+        const plainOptions = {
+          expiresIn: presignLifetime,
+          contentType: textContentType,
+          contentLength: body.byteLength,
+        };
+        // oxlint-disable-next-line no-await-in-loop -- one storage, so the signatures go in turn
+        const plain = await presignedPut(ctx, key, plainOptions);
+        // oxlint-disable-next-line no-await-in-loop -- one storage, so the signatures go in turn
+        const bound = await presignedPut(ctx, key, { ...plainOptions, onlyIf });
+
+        for (const [name, value] of bindingOf(plain, bound)) {
+          for (const deviation of [
+            { what: `no \`${name}\``, value: undefined },
+            { what: `another \`${name}\``, value: anotherValueThan(value) },
+          ]) {
+            const headers = new Headers(bound.headers);
+
+            if (deviation.value === undefined) headers.delete(name);
+            else headers.set(name, deviation.value);
+
+            // oxlint-disable-next-line no-await-in-loop -- one key, so the uploads go in turn
+            const status = await statusOf(await fetch(bound.url, { method: "PUT", body, headers }));
+
+            assertRefused(
+              status,
+              `A signed \`PUT\` bound to a precondition carrying ${deviation.what}`,
+            );
+          }
+        }
+      }
+
+      assert(!(await ctx.storage.exists(free)), "A refused upload wrote the free key after all");
+      await assertHoldsBytes(ctx, held, heldBody, "the object refused uploads named");
+    },
+    runWithout: async (ctx) =>
+      await assertWithoutPreconditions(ctx, "presign/put-rejects-precondition", [
+        "absent",
+        "unchanged",
+      ]),
+  },
 ];
+
+/**
+ * The half of the precondition cases: without `presignedUrls` the methods are absent, and with
+ * it a `presignPut` carrying an `onlyIf` whose capability the storage does not declare is
+ * `Unsupported` naming it and returns no URL (spec 14.5, ADR 0076). A kind whose capability the
+ * storage declares is the case of its own.
+ */
+async function assertWithoutPreconditions(
+  ctx: ConformanceContext,
+  caseName: string,
+  kinds: readonly PreconditionKind[],
+): Promise<void> {
+  if (!ctx.declares("presignedUrls")) {
+    await assertNeitherMethod(ctx);
+
+    return;
+  }
+
+  const key = keyFor(ctx, caseName, "object.txt");
+  const plain = { expiresIn: presignLifetime, contentType: textContentType, contentLength: 0 };
+
+  for (const kind of kinds.filter((one) => !ctx.declares(kindCapabilities[one]))) {
+    const onlyIf: Precondition = kind === "absent" ? "absent" : { etag: someEtag };
+
+    // oxlint-disable-next-line no-await-in-loop -- one storage, so the calls go in turn
+    await expectStorageError(
+      async () => await presignedPut(ctx, key, { ...plain, onlyIf }),
+      { code: "Unsupported", capability: kindCapabilities[kind], attempts: 0 },
+      `\`presignPut\` with \`onlyIf\` on a storage without \`${kindCapabilities[kind]}\``,
+    );
+  }
+
+  assert(!(await ctx.storage.exists(key)), "A refused `presignPut` left an object behind");
+}
+
+/** Signs for `body` under `options` and uploads it as `headers` has it, answering the status. */
+async function uploadSigned(
+  ctx: ConformanceContext,
+  key: string,
+  body: Uint8Array<ArrayBuffer>,
+  options: Pick<PresignOptions, "onlyIf">,
+): Promise<number> {
+  const { url, headers } = await presignedPut(ctx, key, {
+    expiresIn: presignLifetime,
+    contentType: textContentType,
+    contentLength: body.byteLength,
+    ...options,
+  });
+
+  return await statusOf(await fetch(url, { method: "PUT", body, headers }));
+}
+
+/**
+ * The headers a URL signed with `onlyIf` hands back beyond those of one signed without it,
+ * which are what binds the precondition: the suite names no provider's headers (ADR 0076).
+ */
+function bindingOf(plain: PresignedPut, bound: PresignedPut): readonly [string, string][] {
+  const unbound = new Headers(plain.headers);
+
+  return [...new Headers(bound.headers)].filter(([name, value]) => unbound.get(name) !== value);
+}
+
+/** A value close to the signed one and different from it. */
+function anotherValueThan(value: string): string {
+  return value === "*" ? '"conformance"' : `${value}0`;
+}
+
+/** Spec 14.5 states the class of the answer, since the providers refuse with several statuses. */
+function assertRefused(status: number, what: string): void {
+  assert(status >= 400 && status < 500, `${what} was answered ${status} and not refused`);
+}
+
+async function assertHoldsBytes(
+  ctx: ConformanceContext,
+  key: string,
+  expected: Uint8Array,
+  what: string,
+): Promise<void> {
+  assertSameBytes(await (await ctx.storage.get(key)).bytes(), expected, what);
+}
 
 /**
  * The half of both content header cases: without `presignedUrls` the methods are absent, and

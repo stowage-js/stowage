@@ -86,6 +86,8 @@ test("declares the capabilities it implements", () => {
     "rangeReads",
     "userMetadata",
     "userMetadataTokenKeys",
+    "writeIfAbsent",
+    "writeIfUnchanged",
   ]);
 });
 
@@ -674,6 +676,83 @@ test.each([
   expect(error.attempts).toBe(0);
   expect(error.message).toContain("retries");
   expect(error.message).not.toContain("3");
+});
+
+test("keeps the `etag` over a write of the same bytes, so a precondition naming it still holds", async () => {
+  const storage = memoryStorage();
+  const written = await storage.put("greeting", "hello");
+
+  const rewritten = await storage.put("greeting", "hello", { onlyIf: { etag: helloDigest } });
+
+  expect(written.etag).toBe(helloDigest);
+  expect(rewritten.etag).toBe(helloDigest);
+});
+
+test("reports a failed precondition without `status`, `providerCode` or `requestId`", async () => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello");
+
+  const error = await storageErrorOf(storage.put("greeting", "servus", { onlyIf: "absent" }));
+
+  expect(error).toMatchObject({
+    code: "PreconditionFailed",
+    operation: "put",
+    key: "greeting",
+    retryable: false,
+    attempts: 1,
+  });
+  expect(error.status).toBeUndefined();
+  expect(error.providerCode).toBeUndefined();
+  expect(error.requestId).toBeUndefined();
+  expect(await (await storage.get("greeting")).text()).toBe("hello");
+});
+
+test("checks the precondition after the body is read, against what the key holds then", async () => {
+  const storage = memoryStorage();
+  const { promise: released, resolve: release } = Promise.withResolvers<void>();
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      await released;
+      controller.enqueue(new TextEncoder().encode("late"));
+      controller.close();
+    },
+  });
+
+  const late = storage.put("greeting", body, { onlyIf: "absent" });
+
+  await storage.put("greeting", "early", { onlyIf: "absent" });
+  release();
+
+  expect((await storageErrorOf(late)).code).toBe("PreconditionFailed");
+  expect(await (await storage.get("greeting")).text()).toBe("early");
+});
+
+test("leaves `from` in place where a `move` is refused at `to`", async () => {
+  const storage = memoryStorage();
+  await storage.put("from", "moved");
+  await storage.put("to", "held");
+
+  const error = await storageErrorOf(storage.move("from", "to", { onlyIf: "absent" }));
+
+  expect(error).toMatchObject({ code: "PreconditionFailed", operation: "move", key: "to" });
+  expect(await (await storage.get("from")).text()).toBe("moved");
+  expect(await (await storage.get("to")).text()).toBe("held");
+});
+
+test("cancels a stream body whose precondition it refuses by its form", async () => {
+  let canceled = false;
+  const body = new ReadableStream<Uint8Array>({
+    cancel() {
+      canceled = true;
+    },
+  });
+
+  const error = await storageErrorOf(
+    memoryStorage().put("greeting", body, { onlyIf: { etag: "W/weak" } }),
+  );
+
+  expect(error).toMatchObject({ code: "InvalidOption", attempts: 0 });
+  expect(canceled).toBe(true);
 });
 
 test("copies the bytes it was handed", async () => {

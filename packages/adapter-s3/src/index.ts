@@ -6,6 +6,7 @@ import {
   type ListOptions,
   type ObjectListing,
   type ObjectStat,
+  type CopyOptions,
   type OperationOptions,
   type PresignedPut,
   type PutBody,
@@ -30,12 +31,14 @@ import {
   type S3PresignPutOptions,
 } from "./presign.ts";
 import {
+  copyOptionKeys,
   getOptionKeys,
   operationOptionKeys,
   optionError,
   putOptionKeys,
   requireKnownOptions,
 } from "./options.ts";
+import { refusePrecondition } from "./precondition.ts";
 import { send } from "./request.ts";
 import { rangedAnswerFailure, requireRange } from "./range.ts";
 import { s3Error } from "./storage-error.ts";
@@ -114,6 +117,7 @@ class SimpleStorageServiceStorage implements S3Storage {
   async #put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat> {
     requireKey(this.bucket, key, "writable", "put");
     requireKnownOptions(this.bucket, options, putOptionKeys, "put");
+    refusePrecondition(this.bucket, options?.onlyIf, "put", key, this.capabilities);
 
     const contentType = this.#readContentType(options?.contentType);
     const write: ObjectWrite = {
@@ -210,7 +214,7 @@ class SimpleStorageServiceStorage implements S3Storage {
     return await deleteBelow(this.#configuration, prefix, options?.signal);
   }
 
-  async copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
+  async copy(from: string, to: string, options?: CopyOptions): Promise<ObjectStat> {
     this.#requireCopyKeys(from, to, options, "copy");
 
     return await copyObject(this.#configuration, from, to, "copy", options?.signal);
@@ -221,7 +225,7 @@ class SimpleStorageServiceStorage implements S3Storage {
    * destination is described before the source goes, so a failing delete leaves both in
    * place and a repeated `move` is safe.
    */
-  async move(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
+  async move(from: string, to: string, options?: CopyOptions): Promise<ObjectStat> {
     this.#requireCopyKeys(from, to, options, "move");
 
     const written = await copyObject(this.#configuration, from, to, "move", options?.signal);
@@ -262,12 +266,13 @@ class SimpleStorageServiceStorage implements S3Storage {
   #requireCopyKeys(
     from: string,
     to: string,
-    options: OperationOptions | undefined,
+    options: CopyOptions | undefined,
     operation: string,
   ): void {
     requireKey(this.bucket, from, "addressable", operation);
     requireKey(this.bucket, to, "writable", operation);
-    requireKnownOptions(this.bucket, options, operationOptionKeys, operation);
+    requireKnownOptions(this.bucket, options, copyOptionKeys, operation);
+    refusePrecondition(this.bucket, options?.onlyIf, operation, to, this.capabilities);
 
     if (from !== to) return;
 

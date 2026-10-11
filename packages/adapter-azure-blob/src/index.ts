@@ -6,6 +6,7 @@ import {
   type ListOptions,
   type ObjectListing,
   type ObjectStat,
+  type CopyOptions,
   type OperationOptions,
   type PresignedPut,
   type PutBody,
@@ -27,12 +28,14 @@ import { defaultContentType, describeResponse } from "./description.ts";
 import { requireKey } from "./key.ts";
 import { createListing } from "./listing.ts";
 import {
+  copyOptionKeys,
   getOptionKeys,
   operationOptionKeys,
   optionError,
   putOptionKeys,
   requireKnownOptions,
 } from "./options.ts";
+import { refusePrecondition } from "./precondition.ts";
 import {
   type AzureBlobPresignGetOptions,
   type AzureBlobPresignPutOptions,
@@ -112,6 +115,7 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
   async #put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat> {
     requireKey(this.bucket, key, "writable", "put");
     requireKnownOptions(this.bucket, options, putOptionKeys, "put");
+    refusePrecondition(this.bucket, options?.onlyIf, "put", key, this.capabilities);
     const userMetadata = userMetadataHeaders(
       this.bucket,
       options?.userMetadata,
@@ -213,7 +217,7 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
     return await deleteBelow(this.#configuration, prefix, options?.signal);
   }
 
-  async copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
+  async copy(from: string, to: string, options?: CopyOptions): Promise<ObjectStat> {
     this.#requireCopyKeys(from, to, options, "copy");
 
     return await copyBlob(this.#configuration, from, to, "copy", options?.signal);
@@ -224,7 +228,7 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
    * has finished when it resolves, so no pending copy is there for the delete to break, and
    * a source already gone counts as deleted, as it does for `delete` (spec 4.7).
    */
-  async move(from: string, to: string, options?: OperationOptions): Promise<ObjectStat> {
+  async move(from: string, to: string, options?: CopyOptions): Promise<ObjectStat> {
     this.#requireCopyKeys(from, to, options, "move");
 
     const written = await copyBlob(this.#configuration, from, to, "move", options?.signal);
@@ -276,12 +280,13 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
   #requireCopyKeys(
     from: string,
     to: string,
-    options: OperationOptions | undefined,
+    options: CopyOptions | undefined,
     operation: string,
   ): void {
     requireKey(this.bucket, from, "addressable", operation);
     requireKey(this.bucket, to, "writable", operation);
-    requireKnownOptions(this.bucket, options, operationOptionKeys, operation);
+    requireKnownOptions(this.bucket, options, copyOptionKeys, operation);
+    refusePrecondition(this.bucket, options?.onlyIf, operation, to, this.capabilities);
 
     if (from !== to) return;
 

@@ -1,4 +1,4 @@
-import type { CapabilityName, PresignedPut } from "@stowage/core";
+import type { CapabilityName, Precondition, PresignedPut } from "@stowage/core";
 
 import type { GcsConfiguration, GcsSigner } from "./configuration.ts";
 import { heldContentHeaders, signedContentHeaders } from "./content-headers.ts";
@@ -9,6 +9,7 @@ import {
   presignPutOptionKeys,
   requireKnownOptions,
 } from "./options.ts";
+import { refusePrecondition } from "./precondition.ts";
 import type { HeaderField, QueryParameter } from "./request.ts";
 import { resolvePrivateKey, signWith } from "./private-key.ts";
 import { signBlobAs } from "./sign-blob.ts";
@@ -54,6 +55,11 @@ export interface GcsPresignPutOptions {
   contentDisposition?: string;
   /** Bound as `content-language`, as `cacheControl` is. */
   contentLanguage?: string;
+  /**
+   * `Unsupported` before anything is signed, since the storage declares neither
+   * `writeIfAbsent` nor `writeIfUnchanged`.
+   */
+  onlyIf?: Precondition;
 }
 
 /** The week V4 signing allows `X-Goog-Expires`; GCS refuses `604801` with `400`. */
@@ -126,6 +132,9 @@ export async function presignPut(
     operation,
     capabilities,
   );
+
+  refusePrecondition(configuration.bucket, options.onlyIf, operation, key, capabilities);
+
   const contentHeaders = signedContentHeaders(held);
 
   const url = await presignedUrl(configuration, signer, {

@@ -24,6 +24,7 @@ export {
   type StorageErrorFields,
 } from "./errors.ts";
 export { invalidKeyReason, type KeyRule } from "./keys.ts";
+export { preconditionRefusal } from "./precondition.ts";
 export type { PresignedPut } from "./presigned-put.ts";
 export {
   contentCodingRefusal,
@@ -49,6 +50,7 @@ export {
 export { errorCodeForStatus, isTransientStatus } from "./status.ts";
 export type {
   ByteRange,
+  CopyOptions,
   DeleteReport,
   GetOptions,
   ListOptions,
@@ -57,6 +59,7 @@ export type {
   ObjectListing,
   ObjectStat,
   OperationOptions,
+  Precondition,
   PutBody,
   PutOptions,
   Storage,

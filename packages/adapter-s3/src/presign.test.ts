@@ -340,6 +340,26 @@ test("an unknown option is refused by name", async () => {
   }
 });
 
+test.each([
+  ["absent", "writeIfAbsent"],
+  [{ etag: "abc" }, "writeIfUnchanged"],
+] as const)(
+  "`onlyIf` as %j is `Unsupported` naming `%s` before signing",
+  async (onlyIf, capability) => {
+    const failure = await rejection(
+      async () => await s3Storage(options()).presignPut("object.txt", { ...putOptions, onlyIf }),
+    );
+
+    expect(failure).toMatchObject({
+      code: "Unsupported",
+      capability,
+      operation: "presignPut",
+      key: "object.txt",
+      attempts: 0,
+    });
+  },
+);
+
 test("options that are no group are `InvalidOption`", async () => {
   const failure = await rejection(
     // oxlint-disable-next-line no-unsafe-type-assertion -- a caller outside TypeScript

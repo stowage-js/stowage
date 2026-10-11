@@ -1,4 +1,12 @@
-import { type ContentHeaders, type ObjectStat, type Storage, StorageError } from "@stowage/core";
+import {
+  type ContentHeaders,
+  type ObjectStat,
+  type Precondition,
+  preconditionRefusal,
+  type Storage,
+  StorageError,
+  type StoredObject,
+} from "@stowage/core";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { createKeyPrefix, selectHalf, startRun } from "../run.ts";
@@ -489,4 +497,207 @@ test("the half without `contentHeaders` refuses a storage refusing a `presignPut
   await expect(run("presign/put-content-headers", storage)).rejects.toThrow(
     "This storage holds no content headers",
   );
+});
+
+interface PreconditionProvider {
+  /** Reads the precondition of an upload that carries no binding header as none at all. */
+  readonly admitsUnbound?: boolean;
+  /** Writes whatever the precondition says, as fake-gcs-server does with a signed `PUT`. */
+  readonly ignoresPreconditions?: boolean;
+}
+
+/**
+ * A storage declaring `presignedUrls` and both write capabilities that binds a precondition as
+ * `adapter-s3` does, through `if-none-match` and `if-match`; and the provider its URLs point
+ * at, which refuses a request missing a signed header and checks the precondition it carries.
+ */
+function signingPreconditions(provider: PreconditionProvider = {}): {
+  storage: Storage;
+  uploads: Request[];
+} {
+  const held = new Map<string, { readonly bytes: Uint8Array; readonly etag: string }>();
+  const signedHeaders = new Map<string, Headers>();
+  const uploads: Request[] = [];
+  let written = 0;
+
+  const store = (key: string, bytes: Uint8Array): void => {
+    written += 1;
+    held.set(key, { bytes, etag: `etag-${written}` });
+  };
+  const describe = (key: string): ObjectStat => ({
+    key,
+    size: held.get(key)?.bytes.byteLength ?? 0,
+    lastModified: new Date(),
+    contentType,
+    userMetadata: {},
+    etag: held.get(key)?.etag,
+  });
+
+  const storage = {
+    ...stubStorage({
+      capabilities: ["presignedUrls", "writeIfAbsent", "writeIfUnchanged"],
+      put: async (key, body) => {
+        if (!(body instanceof Uint8Array)) throw new Error("The cases hand `put` bytes");
+
+        store(key, body);
+
+        return describe(key);
+      },
+      get: async (key): Promise<StoredObject> => {
+        const bytes = held.get(key)?.bytes ?? new Uint8Array();
+
+        return {
+          stat: describe(key),
+          stream: () =>
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(bytes);
+                controller.close();
+              },
+            }),
+          bytes: async () => bytes,
+          text: async () => new TextDecoder().decode(bytes),
+          json: async () => JSON.parse(new TextDecoder().decode(bytes)),
+        };
+      },
+      stat: async (key) => describe(key),
+      exists: async (key) => held.has(key),
+    }),
+    presignPut: async (key: string, options: { onlyIf?: Precondition }) => {
+      const headers = new Headers({ "content-type": contentType });
+
+      if (options.onlyIf === "absent") headers.set("if-none-match", "*");
+      if (typeof options.onlyIf === "object") headers.set("if-match", `"${options.onlyIf.etag}"`);
+
+      const url = `${signedUrl}?key=${encodeURIComponent(key)}&n=${signedHeaders.size}`;
+
+      signedHeaders.set(url, headers);
+
+      return { url, headers: Object.fromEntries(headers) };
+    },
+  };
+
+  vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+    const request = new Request(url, init);
+    const key = new URL(url).searchParams.get("key") ?? "";
+    const signed = signedHeaders.get(url) ?? new Headers();
+    const sent = request.headers;
+    const object = held.get(key);
+
+    uploads.push(request);
+
+    const bound = [...signed].every(
+      ([name, value]) =>
+        sent.get(name) === value || (provider.admitsUnbound === true && !sent.has(name)),
+    );
+
+    if (!bound) return new Response(null, { status: 403 });
+
+    const fails =
+      provider.ignoresPreconditions !== true &&
+      ((sent.get("if-none-match") === "*" && object !== undefined) ||
+        (sent.has("if-match") && sent.get("if-match") !== `"${object?.etag}"`));
+
+    if (fails) return new Response(null, { status: 412 });
+
+    store(key, new Uint8Array(await request.arrayBuffer()));
+
+    return new Response(null, { status: 200 });
+  });
+
+  return { storage, uploads };
+}
+
+test.each([
+  "presign/put-if-absent",
+  "presign/put-if-unchanged",
+  "presign/put-rejects-precondition",
+])("`%s` holds against a provider that binds and checks the precondition", async (name) => {
+  const { storage } = signingPreconditions();
+
+  await expect(run(name, storage)).resolves.toBe("declared");
+});
+
+test.each([
+  ["presign/put-if-absent", 'bound to `"absent"` onto a key that holds an object'],
+  ["presign/put-if-unchanged", "bound to an `etag` another `put` replaced"],
+])("the `%s` case refuses a provider writing past the precondition", async (name, what) => {
+  const { storage } = signingPreconditions({ ignoresPreconditions: true });
+
+  await expect(run(name, storage)).rejects.toThrow(`A signed \`PUT\` ${what} was answered 200`);
+});
+
+test("`presign/put-rejects-precondition` sends each binding header once differing and once left out", async () => {
+  const { storage, uploads } = signingPreconditions();
+
+  await expect(run("presign/put-rejects-precondition", storage)).resolves.toBe("declared");
+  expect(uploads.map((upload) => upload.headers.get("if-none-match"))).toEqual([
+    null,
+    '"conformance"',
+    null,
+    null,
+  ]);
+  expect(uploads.map((upload) => upload.headers.get("if-match"))).toEqual([
+    null,
+    null,
+    null,
+    expect.stringMatching(/^"etag-\d+"0$/u),
+  ]);
+});
+
+test("the `presign/put-rejects-precondition` case refuses a provider admitting a binding left out", async () => {
+  const { storage } = signingPreconditions({ admitsUnbound: true });
+
+  await expect(run("presign/put-rejects-precondition", storage)).rejects.toThrow(
+    "carrying no `if-none-match` was answered 200",
+  );
+});
+
+/** A storage declaring `presignedUrls` and the capabilities given, refusing any other `onlyIf`. */
+function signingWithout(capabilities: readonly ("writeIfAbsent" | "writeIfUnchanged")[]): Storage {
+  return {
+    ...signing({}),
+    capabilities: ["presignedUrls", ...capabilities],
+    presignPut: async (key: string, options: { onlyIf?: unknown }) => {
+      const refusal = preconditionRefusal(options.onlyIf, "write", capabilities);
+
+      if (refusal !== undefined) {
+        throw new StorageError({
+          ...refusal,
+          operation: "presignPut",
+          key,
+          bucket: "stub",
+          provider: "stub",
+          attempts: 0,
+        });
+      }
+
+      return { url: signedUrl, headers: { "content-type": contentType } };
+    },
+  } as Storage;
+}
+
+test.each([
+  "presign/put-if-absent",
+  "presign/put-if-unchanged",
+  "presign/put-rejects-precondition",
+])(
+  "`%s` holds where the storage declares `presignedUrls` and neither write capability",
+  async (name) => {
+    await expect(run(name, signingWithout([]))).resolves.toBe("without");
+  },
+);
+
+test("the `presign/put-rejects-precondition` half refuses only the kind the storage declares nothing for", async () => {
+  await expect(
+    run("presign/put-rejects-precondition", signingWithout(["writeIfAbsent"])),
+  ).resolves.toBe("without");
+});
+
+test("the half without `writeIfAbsent` refuses a storage signing a URL bound to it", async () => {
+  const storage = signing({
+    presignPut: async () => ({ url: signedUrl, headers: { "content-type": contentType } }),
+  });
+
+  await expect(run("presign/put-if-absent", storage)).rejects.toThrow('`code: "Unsupported"`');
 });

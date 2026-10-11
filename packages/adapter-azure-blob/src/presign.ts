@@ -1,4 +1,4 @@
-import type { CapabilityName, PresignedPut } from "@stowage/core";
+import type { CapabilityName, Precondition, PresignedPut } from "@stowage/core";
 
 import type { AzureBlobConfiguration } from "./configuration.ts";
 import { contentHeaderFields } from "./content-headers.ts";
@@ -10,6 +10,7 @@ import {
   presignPutOptionKeys,
   requireKnownOptions,
 } from "./options.ts";
+import { refusePrecondition } from "./precondition.ts";
 import { blobUrl } from "./request.ts";
 import {
   type ResponseOverrides,
@@ -70,6 +71,11 @@ export interface AzureBlobPresignPutOptions {
   contentDisposition?: string;
   /** Bound as `x-ms-blob-content-language`, as `cacheControl` is. */
   contentLanguage?: string;
+  /**
+   * `Unsupported` before anything is signed, since the storage declares neither
+   * `writeIfAbsent` nor `writeIfUnchanged`.
+   */
+  onlyIf?: Precondition;
 }
 
 /** Spec 8.9: a `PUT` creates a block blob only when it names the type. */
@@ -149,6 +155,8 @@ export async function presignPut(
     operation,
     capabilities,
   );
+
+  refusePrecondition(configuration.container, options.onlyIf, operation, key, capabilities);
 
   const credentials = await credentialsOfCall(configuration, operation, key);
 

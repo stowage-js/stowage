@@ -12,7 +12,9 @@ export const putOptionKeys: readonly string[] = [
   "contentDisposition",
   "contentLanguage",
   "userMetadata",
+  "onlyIf",
 ];
+export const copyOptionKeys: readonly string[] = [...operationOptionKeys, "onlyIf"];
 export const getOptionKeys: readonly string[] = [...operationOptionKeys, "range"];
 export const listOptionKeys: readonly string[] = [
   ...operationOptionKeys,

@@ -3,6 +3,7 @@ import {
   checkContentHeaders,
   isUserMetadataKey,
   type ObjectStat,
+  preconditionRefusal,
   type Storage,
   StorageError,
   type StoredObject,
@@ -12,6 +13,7 @@ import { expect, test } from "vitest";
 
 import { createKeyPrefix, selectHalf, startRun } from "../run.ts";
 import { caseNamed, stubListing, stubStorage, stubTarget } from "../stubs.ts";
+import { collect } from "./bytes.ts";
 
 interface UndeclaredBehavior {
   /** Answers a range although it declares no `rangeReads`, which the half has to catch. */
@@ -24,6 +26,8 @@ interface UndeclaredBehavior {
   readonly checksContentHeaders?: boolean;
   /** Reports `cacheControl` as `undefined`, which spec 4.4 has missing instead. */
   readonly readsContentHeadersAsUndefined?: boolean;
+  /** Writes as if `onlyIf` were not there, which no path may do in silence (ADR 0070). */
+  readonly readsPastPreconditions?: boolean;
 }
 
 // Spec 4.9: a storage declaring no `keyBytesPreserved` hands a key back Unicode-
@@ -49,9 +53,26 @@ const undeclaring = (behavior: UndeclaredBehavior = {}): Storage => {
       behavior.readsUserMetadata === true ? { "written-by": "stowage" } : (held.get(key) ?? {}),
   });
 
+  const requireNoPrecondition = (onlyIf: unknown, operation: string, key: string): void => {
+    const refusal = preconditionRefusal(onlyIf, "write", []);
+
+    if (refusal === undefined || behavior.readsPastPreconditions === true) return;
+
+    throw new StorageError({
+      ...refusal,
+      operation,
+      key,
+      bucket: "stub",
+      provider: "stub",
+      attempts: 0,
+    });
+  };
+
   return stubStorage({
     put: async (key, body, options) => {
       const userMetadata = options?.userMetadata ?? {};
+
+      requireNoPrecondition(options?.onlyIf, "put", key);
 
       if (Object.keys(userMetadata).length > 0 && behavior.storesUserMetadata !== true) {
         throw unsupported("userMetadata", "put");
@@ -70,7 +91,12 @@ const undeclaring = (behavior: UndeclaredBehavior = {}): Storage => {
       held.set(storedKey(key), userMetadata);
       bodies.set(storedKey(key), {
         // Every half that writes one hands over the bytes it will read back.
-        bytes: body instanceof Uint8Array ? body : new Uint8Array(0),
+        bytes:
+          body instanceof Uint8Array
+            ? body
+            : body instanceof ReadableStream
+              ? await collect(body)
+              : new Uint8Array(0),
         contentType: options?.contentType ?? "application/octet-stream",
       });
 
@@ -90,12 +116,14 @@ const undeclaring = (behavior: UndeclaredBehavior = {}): Storage => {
           .filter((key) => key.startsWith(options?.prefix ?? ""))
           .map((key) => describe(key)),
       ),
-    copy: async (from, to) => {
+    copy: async (from, to, options) => {
+      requireNoPrecondition(options?.onlyIf, "copy", to);
       held.set(storedKey(to), held.get(storedKey(from)) ?? {});
 
       return describe(storedKey(to));
     },
-    move: async (from, to) => {
+    move: async (from, to, options) => {
+      requireNoPrecondition(options?.onlyIf, "move", to);
       held.set(storedKey(to), held.get(storedKey(from)) ?? {});
       held.delete(storedKey(from));
 
@@ -266,6 +294,9 @@ test.each([
   "presign/expired-url",
   "presign/put-content-headers",
   "presign/put-rejects-content-headers",
+  "presign/put-if-absent",
+  "presign/put-if-unchanged",
+  "presign/put-rejects-precondition",
   "flow/2-presigned-put",
 ])("`%s` holds where the storage declares no `presignedUrls`", async (name) => {
   await expect(runWithout(name, undeclaring())).resolves.toBe("without");
@@ -319,5 +350,39 @@ test.each(["put/content-headers", "copy/content-headers", "move/content-headers"
     await expect(
       runWithout(name, undeclaring({ readsContentHeadersAsUndefined: true })),
     ).rejects.toThrow("reports `cacheControl` as undefined");
+  },
+);
+
+test.each([
+  "put/if-absent",
+  "put/if-absent-multipart",
+  "put/concurrent-if-absent",
+  "put/concurrent-if-absent-multipart",
+  "copy/if-absent",
+  "move/if-absent",
+])("`%s` holds where the storage declares no `writeIfAbsent`", async (name) => {
+  await expect(runWithout(name, undeclaring())).resolves.toBe("without");
+});
+
+test.each([
+  "put/if-unchanged",
+  "put/if-unchanged-multipart",
+  "stat/etag-promised",
+  "copy/if-unchanged",
+  "move/if-unchanged",
+])("`%s` holds where the storage declares no `writeIfUnchanged`", async (name) => {
+  await expect(runWithout(name, undeclaring())).resolves.toBe("without");
+});
+
+test("`put/only-if-no-kind` holds on a storage declaring neither write capability", async () => {
+  await expect(runWithout("put/only-if-no-kind", undeclaring())).resolves.toBe("declared");
+});
+
+test.each(["put/if-absent", "put/if-unchanged", "copy/if-absent", "move/if-unchanged"])(
+  "the `%s` half refuses a storage writing past an `onlyIf` it cannot hold",
+  async (name) => {
+    await expect(runWithout(name, undeclaring({ readsPastPreconditions: true }))).rejects.toThrow(
+      '`code: "Unsupported"`',
+    );
   },
 );

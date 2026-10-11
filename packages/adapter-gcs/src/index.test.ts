@@ -417,6 +417,30 @@ test.each([[".well-known/acme-challenge/token"], ["a￾b"]])(
 
 // `put` options
 
+// Until the adapter declares `writeIfAbsent` and `writeIfUnchanged`, spec 4.3 refuses every
+// `onlyIf` before any request, naming the capability its form needs.
+test.each([
+  ["put", "writeIfAbsent", () => storage().put("to", "hello", { onlyIf: "absent" })],
+  ["put", "writeIfUnchanged", () => storage().put("to", "hello", { onlyIf: { etag: "1" } })],
+  ["copy", "writeIfAbsent", () => storage().copy("from", "to", { onlyIf: "absent" })],
+  ["move", "writeIfUnchanged", () => storage().move("from", "to", { onlyIf: { etag: "1" } })],
+] as const)(
+  "`%s` refuses `onlyIf` as `Unsupported` naming `%s` before any request",
+  async (operation, capability, call) => {
+    const sent = stubFetch(() => resource());
+    const failure = await failureOf(call);
+
+    expect(failure).toMatchObject({
+      code: "Unsupported",
+      capability,
+      operation,
+      key: "to",
+      attempts: 0,
+    });
+    expect(sent).toEqual([]);
+  },
+);
+
 test("an unknown option of `put` is `InvalidOption` naming it, before any request", async () => {
   const sent = stubFetch(() => resource());
   // oxlint-disable-next-line no-unsafe-type-assertion -- the point of the test
