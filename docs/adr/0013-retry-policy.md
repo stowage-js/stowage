@@ -130,3 +130,6 @@ reason.
 - The backoff defaults — 100 milliseconds and five seconds — are not part of what a caller can rely
   on, and ADR 0017 moves them in a minor release and never in a patch; the three-attempt ceiling
   is part of this decision.
+- ADR 0073 has a conditional request repeated after an attempt without a response or with a
+  `5xx` report a later `PreconditionFailed` as that earlier failure, since the repeat may meet the
+  object the lost attempt wrote. The loop and `withRetry` stay as decided here.

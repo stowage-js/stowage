@@ -110,3 +110,6 @@ covers the object, and anything else is `ProviderError`, whose message here name
 - ADR 0040 replaces the repeat of `get` after a generation mismatch with at most two requests
   pinned to a generation, and refuses every range on an object stored with a content coding,
   whose `size` stays the stored size.
+- ADR 0070 has `adapter-gcs` report the generation as `etag`, since GCS checks a precondition on
+  the generation alone and a change of the content headers or user metadata moves the JSON `etag`
+  without changing the bytes.

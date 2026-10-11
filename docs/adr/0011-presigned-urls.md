@@ -102,3 +102,6 @@ something to check it against.
   as signed headers where the caller gives them, and leaves a content header it is not given open
   to whoever holds the URL. It finds the binding exact up to runs of spaces, which SigV4 and GOOG4
   collapse before comparing, and withdraws "exact" for `Content-Type` in that measure.
+- ADR 0074 lets `presignPut` bind a precondition, `If-None-Match: *` or `If-Match` as a signed
+  header on S3 and R2 and `x-goog-if-generation-match` on GCS, so that whoever holds the URL can
+  neither drop nor change it. A URL signed without one overwrites as before.

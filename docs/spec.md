@@ -63,10 +63,12 @@ conformance suite does (section 14.8). There is no weaker level (ADR 0002, ADR 0
   before every release; on Node and `workerd` it runs against a real AWS S3 bucket, a real R2
   bucket, a real Azure Blob Storage account and a real GCS bucket, on Bun and Deno against the
   emulators (ADR 0012, ADR 0023, ADR 0026, ADR 0034, ADR 0039).
-- fake-gcs-server checks no credential and no signature and serves no `moveTo`. Against it the
-  credential cases are skipped, and the four rejections of a presigned URL and the three `move`
+- fake-gcs-server checks no credential and no signature, serves no `moveTo`, and ignores
+  `ifGenerationMatch` on `rewriteTo` and `DELETE` and `x-goog-if-generation-match` on a signed
+  `PUT`. Against it the credential cases are skipped, and the five rejections of a presigned URL,
+  the two presigned preconditions, the five `move` cases and the conditional `copy` and `delete`
   cases fail as its divergence list expects; the real bucket answers all of them on Node and
-  `workerd`.
+  `workerd` (ADR 0076).
   On Bun and Deno the emulator answers the rest of the suite, as SeaweedFS and Azurite do (ADR
   0034, ADR 0039).
 - `adapter-fs` is covered on the file systems of Linux and of macOS (section 6). On macOS the
@@ -140,8 +142,8 @@ carries one case per flow (section 14.6).
 
 A server process writes a stream of unknown length under a key.
 
-- In: key, `ReadableStream<Uint8Array>`, optional content type, content headers and user
-  metadata.
+- In: key, `ReadableStream<Uint8Array>`, optional content type, content headers, user metadata and
+  precondition.
 - Out: the stored object's description.
 - Adapters: `memory`, `fs`, `s3`, `azure-blob`, `gcs`. Runtimes: Node, Bun, Deno, `workerd`.
 - Holds when: memory does not grow with the size of the object (`adapter-memory` excepted); the
@@ -154,16 +156,18 @@ A server process writes a stream of unknown length under a key.
   or `InvalidCredentials` where the provider or the adapter cannot tell an expiry, on R2, Azure
   Blob and GCS, sections 7.2, 8.3 and 9.3; on GCS a
   credential expiring after the upload started does not fail it, since its chunks carry none); the
-  provider rejects the write (`AccessDenied`, `InvalidRequest`, `ProviderError`).
+  provider rejects the write (`AccessDenied`, `InvalidRequest`, `ProviderError`); the precondition
+  fails at the commit (`PreconditionFailed`, section 4.10), the key left as it was.
 - Through a route: `acceptUpload` of `@stowage/http` streams a request body into `put` with a size
-  limit (section 10.5).
+  limit, and evaluates the request's `If-Match` and `If-None-Match` together with its `onlyIf`
+  (section 10.5).
 
 ### Flow 2: browser upload through a presigned `PUT`
 
 A server signs a URL and the browser uploads to the provider directly.
 
 - In: key, lifetime, content type, the content length the client reported, and optionally the
-  content headers the object is stored with.
+  content headers the object is stored with and a precondition.
 - Out: a URL and the headers a plain `fetch` sends with `PUT` beside the body.
 - Adapters: `s3`, `azure-blob`, `gcs`. Runtimes: the signing side on Node, Bun, Deno and
   `workerd`.
@@ -172,20 +176,30 @@ A server signs a URL and the browser uploads to the provider directly.
   up to runs of spaces, which the provider stores as sent, and a body of unknown length cannot be
   uploaded through the URL; an expired URL is rejected; the rejections reach the client as an HTTP
   status. A content header the URL does not bind can be set by whoever holds the URL, and the
-  provider stores it (ADR 0063).
-- Fails as: signature mismatch, expired URL, a body that contradicts the signed headers. The
-  provider answers the browser, so none of them reaches the adapter or becomes a `StorageError`.
+  provider stores it (ADR 0063). A precondition given is bound so that the provider refuses an
+  upload onto a key that holds an object, or onto an object that changed, and the holder of the
+  URL can neither drop nor change it. The provider checks it when the upload arrives, not when the
+  URL is signed (ADR 0074).
+- Fails as: signature mismatch, expired URL, a body that contradicts the signed headers, a failed
+  precondition. The provider answers the browser, so none of them reaches the adapter or becomes a
+  `StorageError`. No single status is promised for a failed precondition: S3, R2 and GCS answer
+  `412`, AWS answers "unchanged" against a key that holds no object with `404`, and Azure answers
+  "absent" with `403` and "unchanged" with `412`. A browser that repeats an upload whose answer it
+  lost meets its own object and is refused as another writer's upload would be; the server that
+  signed the URL settles it as section 4.10 has it.
 - Requires, on `s3`: the bucket policy allows `UNSIGNED-PAYLOAD`, and CORS is configured for the
   origin that uploads, allowing `cache-control`, `content-disposition` and `content-language` where
-  the URL binds them. On `azure-blob`: the account's CORS rule allows the origin, `PUT`, and the
-  headers `content-type`, `x-ms-blob-type` and `x-ms-blob-content-type`, and
-  `x-ms-blob-cache-control`, `x-ms-blob-content-disposition` and `x-ms-blob-content-language` where
-  the URL binds them, and the signing storage is built with an access token (section 8.9). On
-  `gcs`: the storage is built with a `signer`, and the bucket's CORS rule allows the origin, `PUT`
-  and the header `content-type`, and `cache-control`, `content-disposition` and `content-language`
-  where the URL binds them (section 9.9). The rule names `content-language` although CORS
-  safelists it, since it does so only for a short value of a restricted alphabet. stowage states
-  these and configures none of them.
+  the URL binds them, and `if-none-match` or `if-match` where it binds a precondition. On
+  `azure-blob`: the account's CORS rule allows the origin, `PUT`, and the headers `content-type`,
+  `x-ms-blob-type` and `x-ms-blob-content-type`, and `x-ms-blob-cache-control`,
+  `x-ms-blob-content-disposition` and `x-ms-blob-content-language` where the URL binds them, and
+  `if-match` where it binds "unchanged"; "absent" needs no entry (section 8.9). The signing storage
+  is built with an access token. On `gcs`: the storage is built with a `signer`, and the bucket's
+  CORS rule allows the origin, `PUT` and the header `content-type`, and `cache-control`,
+  `content-disposition` and `content-language` where the URL binds them, and
+  `x-goog-if-generation-match` where it binds a precondition (section 9.9). The rule names
+  `content-language` although CORS safelists it, since it does so only for a short value of a
+  restricted alphabet. stowage states these and configures none of them.
 - Every cross-origin upload through the URL is preflighted, because `PUT` is not a CORS-safelisted
   method. Azure Blob and GCS answer a rejected upload with the CORS headers of the rule, so a page
   reads its status and not the provider's code; R2 sends none on the `403` for an expired URL, so a
@@ -263,9 +277,10 @@ export interface Storage {
   exists(key: string, options?: OperationOptions): Promise<boolean>;
   list(options?: ListOptions): ObjectListing;
   delete(...keys: readonly string[]): Promise<DeleteReport>;
+  delete(key: string, options: DeleteOptions): Promise<DeleteReport>;
   deleteAll(prefix: string, options?: OperationOptions): Promise<DeleteReport>;
-  copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat>;
-  move(from: string, to: string, options?: OperationOptions): Promise<ObjectStat>;
+  copy(from: string, to: string, options?: CopyOptions): Promise<ObjectStat>;
+  move(from: string, to: string, options?: CopyOptions): Promise<ObjectStat>;
 }
 ```
 
@@ -283,9 +298,11 @@ export interface Storage {
   `capabilityNames`. It is fixed when the storage is constructed.
 - Every operation is asynchronous and rejects rather than throwing synchronously, including for an
   invalid argument.
-- Every operation except `delete` takes an `AbortSignal` through its options. `delete` is variadic
-  and has no room for one; it sends its keys in batches, one request per batch, and each adapter
-  states its batch size (ADR 0020).
+- Every operation takes an `AbortSignal` through its options, `delete` through the form for one
+  key. The variadic `delete` has no room for one; it sends its keys in batches, one request per
+  batch, and each adapter states its batch size (ADR 0020). `delete(key, options)` without `onlyIf`
+  deletes as `delete(key)` does, under the signal. With `onlyIf` it is one request and never part
+  of a batch (ADR 0070).
 - There is no facade, no manager over several storages, no clone onto another bucket, and no bucket
   management. Another bucket is another storage.
 
@@ -310,12 +327,25 @@ export interface OperationOptions {
   signal?: AbortSignal;
 }
 
+/** "absent": the key holds no object. `{ etag }`: the key holds the object `etag` describes. */
+export type Precondition = "absent" | { etag: string };
+
 export interface PutOptions extends OperationOptions {
   contentType?: string;
   cacheControl?: string;
   contentDisposition?: string;
   contentLanguage?: string;
   userMetadata?: Record<string, string>;
+  onlyIf?: Precondition;
+}
+
+/** Applies to `to`. */
+export interface CopyOptions extends OperationOptions {
+  onlyIf?: Precondition;
+}
+
+export interface DeleteOptions extends OperationOptions {
+  onlyIf?: { etag: string };
 }
 
 export interface GetOptions extends OperationOptions {
@@ -359,7 +389,26 @@ export interface ListOptions extends OperationOptions {
   4. A `contentLanguage` of more than 100 characters is `InvalidRequest`.
 
   A `put` that carries none of the three is not measured, whatever its `contentType`. Across
-  `contentType`, `userMetadata` and the content headers no order is promised.
+  `contentType`, `userMetadata`, the content headers and `onlyIf` no order is promised.
+
+- `onlyIf` carries a precondition on `put`, on the destination of `copy` and `move`, and on the
+  form of `delete` for one key (ADR 0070). `"absent"` holds where the key holds no object;
+  `{ etag }` holds where the key holds the object whose `etag` it names, compared as a strong
+  validator. `undefined` is no precondition. The form of the value decides the capability it
+  needs: on `put`, `copy` and `move` a string needs `writeIfAbsent` and an object
+  `writeIfUnchanged`; on `delete` an object needs `deleteIfUnchanged`. Each check comes before
+  signing, with `attempts: 0`, and leaves every key the call names as it was (ADR 0076):
+  1. Where the storage does not declare the capability the form needs, it is `Unsupported` naming
+     that capability, whatever the value: `onlyIf: "present"` on a storage without `writeIfAbsent`
+     names `writeIfAbsent`.
+  2. A value of neither form, such as `42` or `null`, a string other than `"absent"`, any string
+     on `delete`, and an `etag` that is no non-empty string of visible ASCII, holds a `"` or starts
+     with `W/`, is `InvalidOption` naming `onlyIf` and never its value.
+
+  A well-formed `etag` that cannot match is no wrong form: it fails as the provider would fail
+  it, with `PreconditionFailed` (section 4.10). An adapter that can tell without a request, as
+  `adapter-gcs` does for an `etag` that is no generation (section 9.1), refuses it with
+  `attempts: 0`.
 
 - `userMetadata` is stored where the storage declares `userMetadata`. Keys are compared
   case-insensitively. Values may hold any Unicode character; a value that would not travel in a
@@ -436,7 +485,13 @@ export interface ObjectStat extends ObjectEntry {
 - `lastModified` after `put`, `copy` and `move` is the time the provider reported when it accepted
   the object; a later `stat` may differ from it by the provider's rounding, one second on S3.
 - `etag` is set where the provider sends one. `adapter-fs` sends none. Its value is opaque and is
-  not promised to be an MD5.
+  not promised to be an MD5; on `adapter-gcs` it is the object's generation (section 9.4).
+- Where the storage declares `writeIfUnchanged` or `deleteIfUnchanged`, `etag` is promised: it is
+  set on every `ObjectStat` and on every `ObjectEntry` of a listing, the `etag` a write resolves
+  with is the one a later `stat` reports, and a precondition naming it holds as long as nothing
+  writes to the key. A write that changes the bytes changes the `etag`. A write of the same bytes
+  may keep it or change it, and a change another tool makes to the content headers or the user
+  metadata may move it or not: it does on Azure Blob and does not on GCS (ADR 0070).
 - `userMetadata` is an object on every adapter, empty where the storage holds none or does not
   declare the capability.
 
@@ -507,6 +562,12 @@ export interface DeleteReport {
   provider, rejects the call instead of filling the report.
 - A per-key failure is not retried by the adapter. Its entry carries `retryable`; deleting is
   idempotent, so the caller may repeat it.
+- `delete(key, { onlyIf })` reads the answer to its one request as the entry of that key in a
+  batch: a failure of the request as a whole rejects, any other failure is the entry. A key that
+  holds another object, or none, leaves one `PreconditionFailed` entry with that `key`, and the
+  object stays; a missing key is no success here. Where an attempt before the one refused received
+  no response or a `5xx`, the entry carries that earlier failure with `retryable: true` instead,
+  since whether this call deleted the object is open (section 4.10, ADR 0073).
 
 ### 4.8 Keys
 
@@ -542,32 +603,43 @@ stowage creates the key or only names one (ADR 0010).
 ```ts
 export const capabilityNames = [
   "contentHeaders",
+  "deleteIfUnchanged",
   "keyBytesPreserved",
   "presignedUrls",
   "rangeReads",
   "userMetadata",
   "userMetadataTokenKeys",
+  "writeIfAbsent",
+  "writeIfUnchanged",
 ] as const;
 
 export type CapabilityName = (typeof capabilityNames)[number];
 ```
 
-| Capability              | Where declared                                                                                      | Where not declared                                                                                                      |
-| ----------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `contentHeaders`        | `put` stores the content headers; `stat` and `get` return them; `copy` and `move` keep them         | `put` with any of the three is `Unsupported`; reads report none                                                         |
-| `keyBytesPreserved`     | A key comes back byte for byte as written                                                           | A key comes back Unicode-equivalent                                                                                     |
-| `presignedUrls`         | The concrete type carries `presignGet` and `presignPut`                                             | Neither method exists on the type                                                                                       |
-| `rangeReads`            | `get` honors `range`                                                                                | `get` with `range` is `Unsupported`                                                                                     |
-| `userMetadata`          | `put` stores `userMetadata` with ASCII identifier keys; `stat` and `get` return it; `copy` keeps it | `put` with a non-empty `userMetadata` is `Unsupported`; reads return `{}`                                               |
-| `userMetadataTokenKeys` | Beside `userMetadata`: a key may be any ASCII HTTP token, such as `content-hash`                    | A key outside identifiers is `Unsupported` naming it; without `userMetadata` too, the call is `Unsupported` naming that |
+| Capability              | Where declared                                                                                                                               | Where not declared                                                                                                      |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `contentHeaders`        | `put` stores the content headers; `stat` and `get` return them; `copy` and `move` keep them                                                  | `put` with any of the three is `Unsupported`; reads report none                                                         |
+| `deleteIfUnchanged`     | `delete(key, { onlyIf: { etag } })` deletes only the object that `etag` describes; `etag` is promised                                        | `delete` with an `onlyIf` object is `Unsupported`                                                                       |
+| `keyBytesPreserved`     | A key comes back byte for byte as written                                                                                                    | A key comes back Unicode-equivalent                                                                                     |
+| `presignedUrls`         | The concrete type carries `presignGet` and `presignPut`                                                                                      | Neither method exists on the type                                                                                       |
+| `rangeReads`            | `get` honors `range`                                                                                                                         | `get` with `range` is `Unsupported`                                                                                     |
+| `userMetadata`          | `put` stores `userMetadata` with ASCII identifier keys; `stat` and `get` return it; `copy` keeps it                                          | `put` with a non-empty `userMetadata` is `Unsupported`; reads return `{}`                                               |
+| `userMetadataTokenKeys` | Beside `userMetadata`: a key may be any ASCII HTTP token, such as `content-hash`                                                             | A key outside identifiers is `Unsupported` naming it; without `userMetadata` too, the call is `Unsupported` naming that |
+| `writeIfAbsent`         | `put`, `copy` and `move` with `onlyIf: "absent"` write only where the key they write holds no object; `presignPut` binds it                  | Any of them with a string `onlyIf` is `Unsupported`                                                                     |
+| `writeIfUnchanged`      | `put`, `copy` and `move` with `onlyIf: { etag }` write only over the object that `etag` describes; `presignPut` binds it; `etag` is promised | Any of them with an `onlyIf` object is `Unsupported`                                                                    |
 
 - The declarations: `adapter-s3` `contentHeaders`, `presignedUrls`, `rangeReads`, `userMetadata`,
-  `userMetadataTokenKeys`; `adapter-azure-blob` `contentHeaders`, `keyBytesPreserved`,
-  `presignedUrls`, `rangeReads`, `userMetadata`; `adapter-gcs` `contentHeaders`,
-  `keyBytesPreserved`, `rangeReads`, `userMetadata`, `userMetadataTokenKeys`, and `presignedUrls`
-  where the storage is built with a `signer` (section 9.1); `adapter-fs` `rangeReads`;
-  `adapter-memory` `contentHeaders`, `keyBytesPreserved`, `rangeReads`, `userMetadata`,
-  `userMetadataTokenKeys`.
+  `userMetadataTokenKeys`, `writeIfAbsent`, `writeIfUnchanged`; `adapter-azure-blob`
+  `contentHeaders`, `deleteIfUnchanged`, `keyBytesPreserved`, `presignedUrls`, `rangeReads`,
+  `userMetadata`, `writeIfAbsent`, `writeIfUnchanged`; `adapter-gcs` `contentHeaders`,
+  `deleteIfUnchanged`, `keyBytesPreserved`, `rangeReads`, `userMetadata`,
+  `userMetadataTokenKeys`, `writeIfAbsent`, `writeIfUnchanged`, and `presignedUrls` where the
+  storage is built with a `signer` (section 9.1); `adapter-fs` `rangeReads`, `writeIfAbsent`;
+  `adapter-memory` `contentHeaders`, `deleteIfUnchanged`, `keyBytesPreserved`, `rangeReads`,
+  `userMetadata`, `userMetadataTokenKeys`, `writeIfAbsent`, `writeIfUnchanged`.
+- `adapter-s3` does not declare `deleteIfUnchanged`: R2 drops the precondition of a delete in
+  silence, and the adapter does not know which provider it talks to (section 7.2, ADR 0071).
+  `adapter-fs` declares neither "unchanged" capability, since it reports no `etag` (ADR 0072).
 - The declaration is runtime only. There is no type parameter over it. `gcsStorage` is overloaded
   on `signer`, the option that decides its `presignedUrls`, so the type it returns carries the two
   methods where the storage declares the capability (section 9.1, ADR 0035).
@@ -587,7 +659,8 @@ export type StorageErrorCode =
   | "ProviderError"
   | "InvalidKey"
   | "InvalidOption"
-  | "Unsupported";
+  | "Unsupported"
+  | "PreconditionFailed";
 
 export class StorageError extends Error {
   readonly code: StorageErrorCode;
@@ -624,6 +697,7 @@ copies of `@stowage/core` in one dependency tree, where `instanceof` does not (A
 | `InvalidKey`         | The key violates the rule of section 4.8, or a rule the adapter adds to it                                                                                                                                                                                       |
 | `InvalidOption`      | An option or configuration value stowage refused: an unknown key, a value out of range, a cursor it did not produce                                                                                                                                              |
 | `Unsupported`        | The call needs a capability the storage does not declare; `capability` names it                                                                                                                                                                                  |
+| `PreconditionFailed` | The precondition of a conditional operation did not hold: the key held an object under `"absent"`, or another object or none under `{ etag }`. `retryable: false`; the key holds what it held                                                                    |
 
 - `operation` names the operation the caller invoked, also for a failure inside a compound
   operation such as `move`. `key` is set where the failure concerns one key. `bucket` and
@@ -666,30 +740,60 @@ Callers handle two shapes: `isStorageError(err)` and `err.name === "AbortError"`
 **After the promise resolved.** A body stream that breaks partway through `get` and a page that
 fails during a `list` iteration arrive as `StorageError` as well.
 
+**Preconditions.** One code covers both kinds on every operation; the caller knows which it sent.
+`key` is the key that carries the precondition, `to` for `copy` and `move`, and `status` and
+`providerCode` carry what the provider answered, such as Azure's `409 BlobAlreadyExists` for a key
+that is not free. "Unchanged" against a key that holds no object is `PreconditionFailed`, not
+`NotFound` (ADR 0070).
+
+**The open outcome of a conditional operation.** A conditional request an adapter repeats meets
+its own result where an earlier attempt took effect: `"absent"` meets the object it wrote,
+`{ etag }` the `etag` it produced, a conditional `delete` the absence it left. No adapter can tell
+that refusal from another writer's. So where an attempt received no response or answered a `5xx`
+and a later attempt is refused as `PreconditionFailed`, the operation rejects with that earlier
+failure, `NetworkError` or `ProviderError`, `retryable: true`, `attempts` counting every attempt;
+a conditional `delete` reports it as the key's entry (section 4.7). `408` and `429` leave no such
+doubt. Calling again with the same `onlyIf` may then meet the caller's own object and fail. The
+way to settle it is `stat` of the key, and a value of the caller's own in the user metadata, such
+as an id of its operation, that tells its write from another (ADR 0073). Sections 7.5, 8.5 and 9.5
+name the paths that answer with certainty.
+
 **Compound operations.** `move` throws the error of the step that failed. When the delete fails,
-the destination stays in place and repeating the `move` is safe.
+the destination stays in place and repeating the `move` is safe. A `move` whose destination
+precondition fails, or whose copy step ends in the open outcome above, deletes nothing, so `from`
+stays. Repeating a conditional `move` whose delete failed is safe as well, but does not finish it:
+under `"absent"` it meets the destination it wrote and rejects with `PreconditionFailed`. The
+caller finishes it with `delete(from)`, with `onlyIf: { etag }` from a `stat` of `from` where the
+storage declares `deleteIfUnchanged`.
 
 ### 4.11 Operations
 
-| Operation   | Key rule                              | Does                                                                                                                                                                                  | Rejects with                                                                                                                |
-| ----------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `put`       | `writable`                            | Stores the body under the key, replacing any object there. Resolves once the object is readable under the key                                                                         | `InvalidKey`, `InvalidOption`, `InvalidRequest`, `Unsupported`, provider failures                                           |
-| `get`       | `addressable`                         | Returns the object's description and a body readable once                                                                                                                             | `NotFound`, `Unsupported` (range), `InvalidRequest` (range), `ProviderError` (range on a content-coded object, section 4.3) |
-| `stat`      | `addressable`                         | Returns the object's description without its body                                                                                                                                     | `NotFound`                                                                                                                  |
-| `exists`    | `addressable`                         | `true` where `stat` would succeed, `false` where it would reject with `NotFound` for the key                                                                                          | Every other failure `stat` would reject with, a missing bucket among them (section 4.10)                                    |
-| `list`      | `prefix`                              | Section 4.6                                                                                                                                                                           | `InvalidOption` (`pageSize`, `cursor`, `delimiter`)                                                                         |
-| `delete`    | `addressable` per key                 | Deletes the keys, batching as the provider requires, in no promised order. Zero keys resolves with `requested: 0`                                                                     | A failure of the request as a whole, a missing bucket among them (section 4.10)                                             |
-| `deleteAll` | `prefix`                              | Lists every object below the prefix and deletes it, paging and batching on its own. Objects written during the call may or may not be deleted                                         | A failure of the request as a whole, a missing bucket among them (section 4.10)                                             |
-| `copy`      | `from` `addressable`, `to` `writable` | Creates `to` with the bytes, content type, content headers, content coding and user metadata of `from`, replacing any object at `to`. `from` stays. `from === to` is `InvalidRequest` | `NotFound`, `InvalidKey`, `InvalidRequest`                                                                                  |
-| `move`      | `from` `addressable`, `to` `writable` | The outcome of `copy` then `delete` of `from`, in one request on `adapter-gcs` (section 9.7). Resolves with the description of `to`                                                   | The failure of the step that failed                                                                                         |
+| Operation   | Key rule                              | Does                                                                                                                                                                                                                                              | Rejects with                                                                                                                    |
+| ----------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `put`       | `writable`                            | Stores the body under the key, replacing any object there, or with `onlyIf` only where its precondition holds. Resolves once the object is readable under the key                                                                                 | `InvalidKey`, `InvalidOption`, `InvalidRequest`, `Unsupported`, `PreconditionFailed`, provider failures                         |
+| `get`       | `addressable`                         | Returns the object's description and a body readable once                                                                                                                                                                                         | `NotFound`, `Unsupported` (range), `InvalidRequest` (range), `ProviderError` (range on a content-coded object, section 4.3)     |
+| `stat`      | `addressable`                         | Returns the object's description without its body                                                                                                                                                                                                 | `NotFound`                                                                                                                      |
+| `exists`    | `addressable`                         | `true` where `stat` would succeed, `false` where it would reject with `NotFound` for the key                                                                                                                                                      | Every other failure `stat` would reject with, a missing bucket among them (section 4.10)                                        |
+| `list`      | `prefix`                              | Section 4.6                                                                                                                                                                                                                                       | `InvalidOption` (`pageSize`, `cursor`, `delimiter`)                                                                             |
+| `delete`    | `addressable` per key                 | Deletes the keys, batching as the provider requires, in no promised order. Zero keys resolves with `requested: 0`. `delete(key, { onlyIf })` deletes one key only where its precondition holds, in one request (section 4.7)                      | A failure of the request as a whole, a missing bucket among them (section 4.10); `InvalidOption` and `Unsupported` for `onlyIf` |
+| `deleteAll` | `prefix`                              | Lists every object below the prefix and deletes it, paging and batching on its own. Objects written during the call may or may not be deleted                                                                                                     | A failure of the request as a whole, a missing bucket among them (section 4.10)                                                 |
+| `copy`      | `from` `addressable`, `to` `writable` | Creates `to` with the bytes, content type, content headers, content coding and user metadata of `from`, replacing any object at `to`, or with `onlyIf` only where its precondition holds at `to`. `from` stays. `from === to` is `InvalidRequest` | `NotFound`, `InvalidKey`, `InvalidRequest`, `InvalidOption`, `Unsupported`, `PreconditionFailed`                                |
+| `move`      | `from` `addressable`, `to` `writable` | The outcome of `copy` then `delete` of `from`, in one request on `adapter-gcs` (section 9.7), `onlyIf` applying to `to`. Resolves with the description of `to`                                                                                    | The failure of the step that failed                                                                                             |
 
 - `delimiter` is one or more characters; an empty string is `InvalidOption`.
 - `copy` and `move` keep the content type, where the adapter stores one (section 6), and the three
   content headers byte for byte (section 8.7). Neither takes an option that replaces them (ADR
   0058, ADR 0068).
-- Nothing in the API is atomic across keys, and no operation is conditional. Of two writers to one
-  key, each may resolve or reject, and the key ends with one whole object written by one of them
-  (ADR 0024). `adapter-memory`, `adapter-fs`, `adapter-s3` and `adapter-gcs` resolve both.
+- Nothing in the API is atomic across keys. Of two writers to one key without `onlyIf`, each may
+  resolve or reject, and the key ends with one whole object written by one of them (ADR 0024).
+  `adapter-memory`, `adapter-fs`, `adapter-s3` and `adapter-gcs` resolve both.
+- Of two writers to one free key with `onlyIf: "absent"`, at most one resolves, and the other
+  rejects with `PreconditionFailed`; the key holds the object of the one that resolved (ADR 0076).
+  A precondition is checked once, as the write takes effect: at the single request, at the commit
+  of a multipart upload, block list or resumable session, and at the copy. Nothing checks it in
+  front, so a write whose precondition fails has usually sent its whole body (ADR 0072, ADR 0073).
+- `exists` says nothing about a later write: `exists` followed by `put` is the race
+  `onlyIf: "absent"` closes.
 
 ### 4.12 Credentials
 
@@ -778,6 +882,16 @@ export function checkContentHeaders(
   contentType: string | undefined,
   capabilities: readonly CapabilityName[],
 ): ContentHeadersCheck;
+
+/**
+ * The checks of section 4.3 for `onlyIf`, in order: `Unsupported` naming the capability the form
+ * needs, then `InvalidOption` naming `onlyIf`. `undefined` where the value passes.
+ */
+export function preconditionRefusal(
+  onlyIf: unknown,
+  on: "write" | "delete",
+  capabilities: readonly CapabilityName[],
+): Refusal | undefined;
 
 export type UserMetadataKeyRule = "token" | "identifier";
 export function isUserMetadataKey(name: string, rule: UserMetadataKeyRule): boolean;
@@ -897,6 +1011,17 @@ export function readSubresponses(
   that check applies. `@stowage/http` checks the content type of `presignUpload` with
   `isHeaderValue` and its content headers with `checkContentHeaders` under `capabilityNames`, so
   that the form and the bounds alone decide there (section 10.6, ADR 0058, ADR 0063).
+- `preconditionRefusal` is the one definition of the checks of section 4.3 for `onlyIf`, the form of
+  an `etag` among them. Every adapter runs it before a `put`, `copy`, `move` or the `delete` of one
+  key writes or sends anything, with `"write"` or `"delete"`, and every adapter that declares
+  `presignedUrls` before `presignPut` signs. The adapter raises the refusal with `attempts: 0`.
+  `@stowage/http` runs it under `capabilityNames`, so that the form alone decides there, for an
+  `onlyIf` option and for each tag of `If-Match` as `{ etag }` (sections 10.5 and 10.6). What one
+  adapter adds, such as the generation of `adapter-gcs`, stays in that adapter (ADR 0070).
+- An adapter that declares `writeIfAbsent`, `writeIfUnchanged` or `deleteIfUnchanged` and repeats a
+  conditional request reports a `PreconditionFailed` that follows an attempt without a response
+  or with a `5xx` as that attempt's failure, as section 4.10 states. `withRetry` stays as it is
+  and knows nothing of the rule; the adapter keeps what its earlier attempts received (ADR 0073).
 - What two adapters need on the wire is defined here once; what one adapter alone needs stays in
   that adapter, the signers among it (ADR 0019).
 - `parseXml` reads elements, attributes, text, comments, the five named entities and a numeric
@@ -948,8 +1073,12 @@ export function memoryStorage(): MemoryStorage;
 ```
 
 - `bucket` is `"memory"`. Two calls to `memoryStorage()` are two storages that share nothing.
-- Declares `contentHeaders`, `keyBytesPreserved`, `rangeReads`, `userMetadata` and
-  `userMetadataTokenKeys`.
+- Declares `contentHeaders`, `deleteIfUnchanged`, `keyBytesPreserved`, `rangeReads`,
+  `userMetadata`, `userMetadataTokenKeys`, `writeIfAbsent` and `writeIfUnchanged`.
+- Checks a precondition in the synchronous step that stores or deletes the object, after the body
+  is read and its `etag` computed, so no other call on the storage runs between the check and the
+  store. A refused one leaves the key as it was; a conditional `delete` reports it as an entry
+  without `status` or `providerCode` (ADR 0072).
 - Keeps the content headers byte for byte through `put`, `stat`, `get`, `copy` and `move`,
   `contentLanguage` on a copy included, which is more than section 4.11 promises. It never reports
   a `contentEncoding` and offers no way to seed one (ADR 0060, ADR 0061).
@@ -957,7 +1086,7 @@ export function memoryStorage(): MemoryStorage;
   a stored object through the array it passed or received. It has no size limit of its own.
 - Enforces the key rule of section 4.8 exactly, neither more nor less.
 - `etag` is set to a hex SHA-256 of the bytes, so a caller can rely on it changing when the bytes
-  do.
+  do. A write of the same bytes keeps it, which section 4.4 leaves open.
 - Has no transient condition and never sets `retryable`. Reports no `status`, no `providerCode` and
   no `requestId`.
 - Is the implementation a third-party adapter is read against. The cases of the conformance suite
@@ -978,8 +1107,8 @@ export function fsStorage(options: FsAdapterOptions): FsStorage;
 - `bucket` is the `root` as given. `root` is an absolute path to an existing directory; construction
   performs no I/O, and an operation against a root that does not exist rejects with `NotFound`
   without `key` (section 4.10).
-- Declares `rangeReads` only. `put` with a non-empty `userMetadata` is `Unsupported`; reads return
-  `{}`. `put` with any content header other than `undefined` is `Unsupported` naming
+- Declares `rangeReads` and `writeIfAbsent`. `put` with a non-empty `userMetadata` is `Unsupported`;
+  reads return `{}`. `put` with any content header other than `undefined` is `Unsupported` naming
   `contentHeaders`, `""` included; reads report none and no `contentEncoding`. The adapter keeps no
   sidecar file and no extended attribute for either (ADR 0015, ADR 0060).
 - A key maps to the path below the root with `/` as the separator. Every access resolves the real
@@ -1009,6 +1138,19 @@ export function fsStorage(options: FsAdapterOptions): FsStorage;
   directories it created where they stayed empty, and leaves those that were there before it.
   `delete`, `deleteAll` and `move` remove directories left empty, up to the root, so a listing with a
   delimiter shows no empty pseudo-directory.
+- A `put` or `copy` with `onlyIf: "absent"` fills its temporary file as every write does, then
+  links it to the key's path with `link(2)` and removes the temporary name, since `link` refuses a
+  name that holds anything, atomically against every other process, where `rename` replaces it. A
+  `move` with `onlyIf: "absent"` links the source to the destination and then removes the source;
+  a key that holds a symbolic link has the file the link resolves to linked, which lies below the
+  root, so the destination holds the same bytes on Linux and macOS. Between the link and the
+  removal the object is under both keys. Writes without `onlyIf` keep ending in `rename` (ADR
+  0072).
+- Where `link` answers `EEXIST`, a file, or a link resolving to a file below the root, holds the
+  name: the call is `PreconditionFailed`. Anything else, a directory, a link resolving to nothing
+  or one leaving the root, is `InvalidRequest`. A refused precondition removes the temporary file
+  and the directories the call created where they stayed empty, and leaves `from` of a `move` in
+  place. No precondition is checked before the body is read.
 - `lastModified` is the file's modification time. `size` is the file's size. `etag` is not set.
 - A key that names a directory, and a key whose parent path is a regular file, are `NotFound` on
   read and `InvalidRequest` on write.
@@ -1019,11 +1161,14 @@ export function fsStorage(options: FsAdapterOptions): FsStorage;
   alone. Nothing repairs either.
 - Runs on Node, Bun and Deno, on Linux and macOS. Windows is not named and not promised.
 - `errno` mapping: `ENOENT` is `NotFound`; `EISDIR` and `ENOTDIR` are `NotFound` on read and
-  `InvalidRequest` on write; `EACCES` and `EPERM` are `AccessDenied`; `ENAMETOOLONG` is `InvalidKey`;
-  `EILSEQ` is `NotFound` on read and `InvalidKey` on write;
-  `EMFILE`, `EBUSY` and `EAGAIN` are `ProviderError` with `retryable: true`; everything else is
-  `ProviderError` with `retryable: false`. `providerCode` carries the `errno` string. The adapter
-  retries nothing itself.
+  `InvalidRequest` on write; `EACCES` and `EPERM` are `AccessDenied`; `ENAMETOOLONG` is
+  `InvalidKey`; `EILSEQ` is `NotFound` on read and `InvalidKey` on write; `EMFILE`, `EBUSY` and
+  `EAGAIN` are `ProviderError` with `retryable: true`; everything else is `ProviderError` with
+  `retryable: false`. `providerCode` carries the `errno` string. The adapter retries nothing itself.
+  On the `link` of a conditional write, `EPERM`, `ENOTSUP` and `EOPNOTSUPP` are `ProviderError` with
+  `retryable: false` whose message says that the file system holds no hard links, as FAT, exFAT and
+  some network mounts do; `writeIfAbsent` stays declared, as the file systems section 2 covers all
+  have them.
 
 ## 7. `@stowage/adapter-s3`
 
@@ -1068,8 +1213,9 @@ export function fromEnv(options?: ResolverOptions): S3Credentials;
   ranges the value is `InvalidOption` and is not clamped.
 - `put` on `S3Storage` accepts the `PutOptions` of section 4.3 and nothing more. Storage class, ACL,
   tagging, object lock, versioning, server-managed encryption and checksum headers are not offered.
-- Declares `contentHeaders`, `presignedUrls`, `rangeReads`, `userMetadata` and
-  `userMetadataTokenKeys`.
+- Declares `contentHeaders`, `presignedUrls`, `rangeReads`, `userMetadata`,
+  `userMetadataTokenKeys`, `writeIfAbsent` and `writeIfUnchanged`. It does not declare
+  `deleteIfUnchanged` (section 7.2).
 - `delete` sends at most one `DeleteObjects` request per 1000 keys, plus at most one `DELETE` per
   key holding `U+FFFE` or `U+FFFF` (section 7.4).
 
@@ -1080,22 +1226,26 @@ Where the two answer differently the adapter is written to the stricter side, an
 promises what both hold (ADR 0014). A compatible endpoint can be configured and is not promised,
 Google Cloud Storage's XML API among them (ADR 0031).
 
-| Point                              | Promised                                                                                                                                                                                                                                                                                                      |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Listing order                      | None. A page holds at most 1000 keys                                                                                                                                                                                                                                                                          |
-| Unicode-equivalent keys            | May name one object (R2 normalizes to NFC) or two (S3 keeps both). `keyBytesPreserved` is not declared                                                                                                                                                                                                        |
-| `userMetadata`                     | 2 KB of encoded header bytes; keys handed back in lower case                                                                                                                                                                                                                                                  |
-| Single `PUT`                       | Up to 5 GB                                                                                                                                                                                                                                                                                                    |
-| Object size ceiling                | The provider's, answered with `EntityTooLarge`                                                                                                                                                                                                                                                                |
-| `Content-Type`                     | Always sent by `put`, `application/octet-stream` where none was given                                                                                                                                                                                                                                         |
-| `CompleteMultipartUpload`          | Judged by its body, which may carry an error under `200`                                                                                                                                                                                                                                                      |
-| Writes per key                     | R2 answers `429` above one write per second and key; the retry of section 7.5 may recover a single collision, but does not guarantee it                                                                                                                                                                       |
-| Incomplete multipart uploads       | Removed by a lifecycle rule on AWS, after seven days by default on R2; stowage removes none                                                                                                                                                                                                                   |
-| Presigned URL host                 | The endpoint that signed it; on R2 the `r2.cloudflarestorage.com` endpoint and not a custom domain                                                                                                                                                                                                            |
-| Response overrides on `presignGet` | Answered as the four response headers, on AWS and on R2                                                                                                                                                                                                                                                       |
-| Missing bucket                     | `NotFound` without `key` where AWS answers `NoSuchBucket` (section 7.9). Under a token scoped to other buckets, R2 answers `403 AccessDenied` for a missing bucket as for any other, and the call rejects with `AccessDenied`                                                                                 |
-| Expired credential                 | R2 answers an expired credential, a temporary credential past its `exp` included, with `403 SignatureDoesNotMatch`, which is `InvalidCredentials` (ADR 0045). Under a session token a refresh follows (section 7.3), and a fresh credential refused too is `InvalidCredentials` with `attempts: 2` (ADR 0065) |
-| Objects stored compressed          | An object another tool stored with a content coding may read decoded and longer than its `size`, which is the stored size, or as stored (section 4.4); a range starting inside it is `ProviderError` (section 4.3)                                                                                            |
+| Point                              | Promised                                                                                                                                                                                                                                                                                                                     |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Listing order                      | None. A page holds at most 1000 keys                                                                                                                                                                                                                                                                                         |
+| Unicode-equivalent keys            | May name one object (R2 normalizes to NFC) or two (S3 keeps both). `keyBytesPreserved` is not declared                                                                                                                                                                                                                       |
+| `userMetadata`                     | 2 KB of encoded header bytes; keys handed back in lower case                                                                                                                                                                                                                                                                 |
+| Single `PUT`                       | Up to 5 GB                                                                                                                                                                                                                                                                                                                   |
+| Object size ceiling                | The provider's, answered with `EntityTooLarge`                                                                                                                                                                                                                                                                               |
+| `Content-Type`                     | Always sent by `put`, `application/octet-stream` where none was given                                                                                                                                                                                                                                                        |
+| `CompleteMultipartUpload`          | Judged by its body, which may carry an error under `200`                                                                                                                                                                                                                                                                     |
+| Writes per key                     | R2 answers `429` above one write per second and key; the retry of section 7.5 may recover a single collision, but does not guarantee it                                                                                                                                                                                      |
+| Incomplete multipart uploads       | Removed by a lifecycle rule on AWS, after seven days by default on R2; stowage removes none                                                                                                                                                                                                                                  |
+| Presigned URL host                 | The endpoint that signed it; on R2 the `r2.cloudflarestorage.com` endpoint and not a custom domain                                                                                                                                                                                                                           |
+| Response overrides on `presignGet` | Answered as the four response headers, on AWS and on R2                                                                                                                                                                                                                                                                      |
+| Missing bucket                     | `NotFound` without `key` where AWS answers `NoSuchBucket` (section 7.9). Under a token scoped to other buckets, R2 answers `403 AccessDenied` for a missing bucket as for any other, and the call rejects with `AccessDenied`                                                                                                |
+| Expired credential                 | R2 answers an expired credential, a temporary credential past its `exp` included, with `403 SignatureDoesNotMatch`, which is `InvalidCredentials` (ADR 0045). Under a session token a refresh follows (section 7.3), and a fresh credential refused too is `InvalidCredentials` with `attempts: 2` (ADR 0065)                |
+| Objects stored compressed          | An object another tool stored with a content coding may read decoded and longer than its `size`, which is the stored size, or as stored (section 4.4); a range starting inside it is `ProviderError` (section 4.3)                                                                                                           |
+| Conditional delete                 | Not offered. R2 drops `If-Match` on `DeleteObject` and the per-key `<ETag>` of `DeleteObjects` in silence and deletes, so `deleteIfUnchanged` is not declared and AWS's conditional delete is lost with R2's (ADR 0071)                                                                                                      |
+| Conditional copy                   | AWS holds `If-None-Match` and `If-Match` on the destination of `CopyObject` and ignores `cf-copy-destination-if-*`; R2 ignores the former and holds the latter, which Cloudflare marks beta. Both sets are sent (section 7.8); should R2 drop its own, `writeIfAbsent` and `writeIfUnchanged` are withdrawn from the adapter |
+| "Unchanged" on a missing key       | AWS answers `404 NoSuchKey`, R2 `412`; both are `PreconditionFailed` (section 7.9)                                                                                                                                                                                                                                           |
+| Conditional multipart commit       | Checked at `CompleteMultipartUpload` alone. A commit overtaken by a `PUT` that landed after the upload began answers `200` on AWS without a precondition and `409 ConditionalRequestConflict` under `If-Match`, which is `PreconditionFailed`. AWS keeps a refused upload open, R2 consumes it (section 7.6)                 |
 
 ### 7.3 Credentials
 
@@ -1164,6 +1314,16 @@ Google Cloud Storage's XML API among them (ADR 0031).
   destination that describes it. An empty value is read as none. No request whose answer feeds an
   `ObjectStat` carries `response-content-encoding` or another response override, since AWS then
   reports the override in place of the stored value (ADR 0061).
+- A precondition travels as `If-None-Match: *` for `"absent"` and as `If-Match` with the `etag`
+  quoted as a strong tag for `{ etag }`, signed, on `PutObject` and `CompleteMultipartUpload`, and
+  on `CopyObject` beside `cf-copy-destination-if-none-match` or `cf-copy-destination-if-match` of
+  the same value (section 7.8). It is sent on no other request: AWS ignores one on
+  `CreateMultipartUpload` and refuses one on `UploadPart` with `501`, and R2 checks one on
+  `CreateMultipartUpload` without carrying it to the commit (ADR 0073).
+- Since the adapter declares `writeIfUnchanged`, an answer that feeds an `ObjectStat` or an
+  `ObjectEntry` without an `ETag` is `ProviderError`: the `ETag` header of
+  `PutObject`, the `ETag` in the body of `CompleteMultipartUpload`, the `HEAD` that describes the
+  destination of a copy, and every listing entry (ADR 0071).
 
 ### 7.5 Retries
 
@@ -1178,6 +1338,12 @@ Google Cloud Storage's XML API among them (ADR 0031).
   it interrupts the wait between attempts.
 - `CompleteMultipartUpload` is never repeated after a transport failure that received no response.
   `CreateMultipartUpload` is repeated, and an upload the first request created may be left behind.
+- A conditional `PutObject` and `CopyObject` follow the rule of section 4.10: a `PreconditionFailed`
+  after an attempt without a response or with a `5xx` rejects with that earlier failure. A
+  conditional `CompleteMultipartUpload` repeated after a `5xx` reads both `PreconditionFailed` and
+  `NoSuchUpload` as that `5xx`, since AWS answers the repeat of a commit that went through `200` and
+  R2 `404 NoSuchUpload`. An unconditional commit that meets `NoSuchUpload` after a `5xx` on R2
+  reports `ProviderError`, as before (ADR 0073).
 - Only a body the adapter holds is sent again. Every request the adapter sends carries one, because
   a stream travels as buffered parts.
 - One request costs at most six HTTP requests: three attempts, each doubled by the refresh of
@@ -1205,15 +1371,21 @@ Google Cloud Storage's XML API among them (ADR 0031).
 - The caller's abort cancels the parts in flight, aborts the upload at the provider with a request
   that carries no signal, and rejects with `AbortError`. A failure of that abort request is not
   reported.
+- A commit its precondition refused leaves the key as it was. AWS keeps the upload open, and a
+  later commit without the header would commit it, so the adapter aborts it as after a failed part,
+  without the caller's signal and without reporting a failure of the abort; R2 has consumed it and
+  answers that abort `204` (ADR 0073).
 - Nothing about a multipart upload reaches the API: no progress, no upload id, no resume.
 
 ### 7.7 The one ambiguous outcome
 
 When `CompleteMultipartUpload` receives no response, the commit may or may not have happened. The
 adapter does not repeat the request and does not abort the upload. `put` rejects with
-`NetworkError`, `retryable: true` and `attempts: 1`. `stat` settles the outcome only for a key the
-caller knows was absent before the upload; parts of an upload that was not committed stay with the
-provider until a lifecycle rule removes them.
+`NetworkError`, `retryable: true` and `attempts: 1`, with or without a precondition. `stat` settles
+the outcome only for a key the caller knows was absent before the upload; parts of an upload that
+was not committed stay with the provider until a lifecycle rule removes them. It is the one
+ambiguous outcome of a `put` without a precondition; a conditional request adds the open outcome
+of section 4.10.
 
 ### 7.8 Copies
 
@@ -1223,6 +1395,15 @@ provider until a lifecycle rule removes them.
 - Both providers refuse a source above 5 GiB with `400`: AWS answers `InvalidRequest`, R2
   `EntityTooLarge`, and either reaches the caller as `InvalidRequest`.
 - Copying a key onto itself is `InvalidRequest` before any request.
+- A conditional `copy` and `move` send the precondition of `to` on `CopyObject` twice, as
+  `If-None-Match` or `If-Match` and as `cf-copy-destination-if-none-match` or
+  `cf-copy-destination-if-match`, all signed; each provider holds its own set and ignores the other
+  (section 7.2, ADR 0071). The delete of `from` in a `move` stays unconditional.
+- Under `onlyIf: { etag }`, AWS answers a missing source and a missing destination with the same
+  `404 NoSuchKey`, and only `<Key>` in the error document names which. A `NoSuchKey` whose `<Key>`
+  is `to` is `PreconditionFailed`; any other, `<Key>` naming `from` or absent, is the missing
+  source, `NotFound`. With both missing, AWS names the destination, as it checks the destination's
+  precondition first.
 
 ### 7.9 Provider codes
 
@@ -1240,6 +1421,7 @@ endpoint's string where it names a condition one of them names otherwise and was
 | `RequestTimeTooSkewed`, `InvalidRange`, `InvalidRequest`, `InvalidArgument`, `MetadataTooLarge`, `EntityTooLarge`, `EntityTooSmall`, `InvalidPart`, `NoSuchPart`, `InvalidPartOrder`, `BadDigest`, `MalformedXML`, `InvalidDigest` | `InvalidRequest`     | `InvalidRequest` is AWS's; `InvalidArgument` with the message `X-Amz-Security-Token` is R2's for a session token it cannot parse and is `InvalidCredentials`, its message saying so in front; otherwise answered to `ListObjectsV2` it is `InvalidOption` naming `cursor`; `NoSuchPart` at `404` is Google Cloud Storage's XML API's, a compatible endpoint |
 | `InvalidObjectName`, `KeyTooLongError`                                                                                                                                                                                             | `InvalidKey`         | Reached only for a key the core accepted                                                                                                                                                                                                                                                                                                                    |
 | `PermanentRedirect`                                                                                                                                                                                                                | `InvalidOption`      | Names `region` and the region from the header                                                                                                                                                                                                                                                                                                               |
+| `PreconditionFailed`, `ConditionalRequestConflict`                                                                                                                                                                                 | `PreconditionFailed` | `ConditionalRequestConflict` at `409` is AWS's, for a multipart commit another writer overtook; `NoSuchKey` under `onlyIf: { etag }` is `PreconditionFailed` too on `PutObject` and `CompleteMultipartUpload`, and on `CopyObject` where `<Key>` names `to` (section 7.8)                                                                                   |
 | `NoSuchUpload`, `SlowDown`, `TooManyRequests`, `ServiceUnavailable`, `InternalError`, `RequestTimeout`                                                                                                                             | `ProviderError`      | The last five are transient by status                                                                                                                                                                                                                                                                                                                       |
 
 `status`, `providerCode`, `requestId` (from `x-amz-request-id`) and the provider's message are set
@@ -1280,6 +1462,7 @@ export interface S3PresignPutOptions {
   cacheControl?: string;
   contentDisposition?: string;
   contentLanguage?: string;
+  onlyIf?: Precondition;
 }
 ```
 
@@ -1293,6 +1476,12 @@ export interface S3PresignPutOptions {
   through signed headers, and returns the URL with `headers` holding `content-type`. A body of
   another type or another length is rejected by the provider. No user metadata, no checksum and no
   upper bound on the length can be signed in.
+- `onlyIf` is checked as `put` checks it (section 4.3) and signed as `If-None-Match: *` or as
+  `If-Match` with the `etag` quoted, returned in `headers` as `if-none-match` or `if-match`. AWS and
+  R2 answer the precondition failing with `412`, AWS "unchanged" on a key that holds no object
+  with `404`, and a request that sends none or another value with `403 SignatureDoesNotMatch`
+  before the precondition is looked at, so nothing is written. The query-parameter form AWS also
+  honors is not used, since R2 ignores it and overwrites (ADR 0074).
 - `cacheControl`, `contentDisposition` and `contentLanguage` are checked as `put` checks them
   (section 4.3), the content type always counted in the 2,048 bytes, and each one given is signed
   as `Cache-Control`, `Content-Disposition` or `Content-Language` and returned in `headers` under
@@ -1305,10 +1494,10 @@ export interface S3PresignPutOptions {
   signed.
 - The URL is a bearer token: whoever holds it may perform that one operation on that one key until
   it expires. It works against the endpoint that signed it only.
-- Neither method sends a request. Both reject with `InvalidKey`, `InvalidOption`, `InvalidRequest`
-  or `InvalidCredentials` before signing; a provider's rejection of the URL reaches whoever calls it
-  and never the adapter. `@stowage/core` offers no function that turns such a response into a
-  `StorageError`.
+- Neither method sends a request. Both reject with `InvalidKey`, `InvalidOption`, `InvalidRequest`,
+  `Unsupported` or `InvalidCredentials` before signing; a provider's rejection of the URL reaches
+  whoever calls it and never the adapter. `@stowage/core` offers no function that turns such a
+  response into a `StorageError`.
 - There is no presigned `POST` and no presigned multipart upload.
 
 ## 8. `@stowage/adapter-azure-blob`
@@ -1354,14 +1543,16 @@ export function fromEnv(options?: ResolverOptions): { accountKey: string };
 - `put` on `AzureBlobStorage` accepts the `PutOptions` of section 4.3 and nothing more. Append and
   page blobs, access tiers, snapshots, soft delete, versioning, leases, immutability policies and
   blob index tags are not offered.
-- Declares `contentHeaders`, `keyBytesPreserved`, `presignedUrls`, `rangeReads` and
-  `userMetadata`. It does not declare `userMetadataTokenKeys`.
+- Declares `contentHeaders`, `deleteIfUnchanged`, `keyBytesPreserved`, `presignedUrls`,
+  `rangeReads`, `userMetadata`, `writeIfAbsent` and `writeIfUnchanged`. It does not declare
+  `userMetadataTokenKeys`.
 - Refuses three kinds of writable key with `InvalidKey` and `attempts: 0`: more than 254
   segments, a segment ending in `.`, and a key holding a character from `U+0080` to `U+009F`.
   A noncharacter such as `U+FFFE` is not refused: the account stores and lists such a key as
   written. Addressable keys and prefixes are refused by nothing beyond the rule of section 4.8 (ADR
   0020).
-- `delete` sends at most one Blob Batch request per 256 keys.
+- `delete` sends at most one Blob Batch request per 256 keys. A conditional `delete` sends one
+  `Delete Blob`.
 
 ### 8.2 Promised provider
 
@@ -1382,6 +1573,7 @@ another endpoint that speaks the Blob wire protocol can be configured and are no
 | Presigned URL host                 | The endpoint that signed it                                                                                                                                                                                        |
 | Response overrides on `presignGet` | Answered as the three response headers                                                                                                                                                                             |
 | Objects stored compressed          | An object another tool stored with a content coding may read decoded and longer than its `size`, which is the stored size, or as stored (section 4.4); a range starting inside it is `ProviderError` (section 4.3) |
+| A key that is not free             | Answered `409 BlobAlreadyExists` where Azure documents `412`; `PreconditionFailed` either way (section 8.8)                                                                                                        |
 
 ### 8.3 Credentials
 
@@ -1447,6 +1639,13 @@ another endpoint that speaks the Blob wire protocol can be configured and are no
   an `ObjectStat` carries `rscc`, `rscd` or another response override (ADR 0061).
 - `stat` and `exists` read the provider code from `x-ms-error-code`, which Azure sends on a `HEAD`
   as well, so a missing blob and a missing container carry their own codes.
+- A precondition travels as `If-None-Match: *` for `"absent"` and as `If-Match` with the `etag`
+  quoted as a strong tag for `{ etag }` on `Put Blob`, `Put Block List`, `Put Blob From URL` for
+  its destination, and `Delete Blob`. It is sent on no `Put Block`, which Azure checks no
+  precondition on (ADR 0071, ADR 0073).
+- Where an answer that feeds an `ObjectStat` or an `ObjectEntry` carries no `ETag`, it is
+  `ProviderError`: `Put Blob`, `Put Block List`, the `HEAD` that describes the destination of a
+  copy, and every listing entry (ADR 0071).
 - `delete` sends Blob Batch requests of at most 256 `Delete Blob` subrequests. A subrequest
   answered `404 BlobNotFound` counts as deleted. A subrequest answered `404 ContainerNotFound`
   rejects the whole call with `NotFound` without `key` (section 4.10). Any other failed subrequest
@@ -1461,8 +1660,13 @@ another endpoint that speaks the Blob wire protocol can be configured and are no
   group already holds.
 - `Put Block List` names every block as `<Latest>` and is repeated like every other request, after
   a transport failure that received no response too: a repeat commits the same blocks in the same
-  order. Section 7.7 is S3's alone, and a `put` of any size is answered with certainty, except
-  where another writer replaced the key between a lost commit and its repeat (section 8.6).
+  order. Section 7.7 is S3's alone, and a `put` of any size without a precondition is answered with
+  certainty, except where another writer replaced the key between a lost commit and its repeat
+  (section 8.6).
+- A conditional `Put Blob`, `Put Block List`, `Put Blob From URL` and `Delete Blob` follow the rule
+  of section 4.10: a `PreconditionFailed` after an attempt without a response or with a `5xx`
+  rejects with that earlier failure, and a conditional `put` is answered with certainty only where
+  no such attempt came first (ADR 0073).
 - The refresh after `401 InvalidAuthenticationInfo` of section 8.3 doubles an attempt as the
   refresh of section 7.3 does on S3, so one request costs at most six HTTP requests.
 - A per-key failure in `delete` is reported, not repeated. A body stream that breaks during `get` is
@@ -1493,6 +1697,8 @@ another endpoint that speaks the Blob wire protocol can be configured and are no
   spent its budget, the parts in flight are canceled, the source stream is canceled, and `put`
   rejects with that part's error. The caller's abort cancels the parts in flight and rejects with
   `AbortError`.
+- A commit its precondition refused leaves the key as it was, and the staged blocks stay as after
+  any stopped block upload.
 - Nothing is sent after an upload stops, since nothing aborts a block upload and `Delete Blob`
   would delete a committed object of another writer. The staged blocks stay until the next commit
   or `Put Blob` to the name, or until the service discards them seven days after the last block.
@@ -1524,6 +1730,9 @@ another endpoint that speaks the Blob wire protocol can be configured and are no
 - Above 5,000 MiB the service answers `409 CannotVerifyCopySource` although the source is readable,
   which is `InvalidRequest` saying that the source is above 5,000 MiB or reported no valid length.
   There is no fallback to blocks copied by range or to `Copy Blob`. `move` inherits that.
+- A conditional `copy` sends the precondition of `to` on `Put Blob From URL` beside the pin of the
+  source; the repeat after a failed pin carries it again. `CannotVerifyCopySource` stays the failed
+  pin and never becomes `PreconditionFailed`.
 - `move` is `copy` followed by an unconditional `Delete Blob` on `from`.
 - Copying a key onto itself is `InvalidRequest` before any request.
 
@@ -1541,10 +1750,13 @@ carries a response.
 | `InvalidAuthenticationInfo`, `NoAuthenticationInformation`, `AuthenticationFailed`, `KeyBasedAuthenticationNotPermitted` | `InvalidCredentials` | `InvalidAuthenticationInfo` under an access token after the one repeat of section 8.3; `AuthenticationFailed` includes a clock skew, which Azure does not tell apart from a wrong key |
 | `InvalidRange`, `RequestBodyTooLarge`, `BlockCountExceedsLimit`, `MetadataTooLarge`, `InvalidMetadata`                   | `InvalidRequest`     | The metadata codes are reached only for metadata the core accepted                                                                                                                    |
 | `InvalidBlockList`, `InvalidBlobOrBlock`                                                                                 | `ProviderError`      | `retryable: false`; on a block upload, usually another writer won (section 8.6)                                                                                                       |
+| `BlobAlreadyExists`, `ConditionNotMet`                                                                                   | `PreconditionFailed` | `BlobAlreadyExists` at `409` is Azure's answer to a failed `If-None-Match: *`; `ConditionNotMet` at `412` to a failed `If-Match`                                                      |
 | `PendingCopyOperation`, `BlobArchived`, `SnapshotsPresent`, `LeaseIdMissing`, `BlobImmutableDueToPolicy`                 | `ProviderError`      | A state of the blob stowage does not create                                                                                                                                           |
 | `ServerBusy`, `InternalError`, `OperationTimedOut`                                                                       | `ProviderError`      | Transient by status                                                                                                                                                                   |
 | `CannotVerifyCopySource`                                                                                                 | By the source        | Mapped through `x-ms-copy-source-status-code` where present, else the response's status, with `key` set to `from`; a `412` is the failed pin of section 8.7                           |
 
+- On a conditional `Delete Blob`, `404 BlobNotFound` is `PreconditionFailed` and not counted as
+  deleted (section 4.7); `404 ContainerNotFound` stays the missing container.
 - On `Put Blob From URL`, a `409` whose code the table does not name is `InvalidRequest` (section
   8.7), and so is a `409 CannotVerifyCopySource` whose `x-ms-copy-source-status-code` is missing
   or names no failure, with `key` set to `to`.
@@ -1571,15 +1783,16 @@ export interface AzureBlobPresignPutOptions {
   cacheControl?: string;
   contentDisposition?: string;
   contentLanguage?: string;
+  onlyIf?: Precondition;
 }
 ```
 
 A URL is a SAS, and the credential of the call decides which kind (ADR 0022):
 
-| Credential    | `presignGet`          | `presignPut`                                                             |
-| ------------- | --------------------- | ------------------------------------------------------------------------ |
-| `accountKey`  | A service SAS         | `InvalidCredentials` naming `accountKey`                                 |
-| `accessToken` | A user delegation SAS | A user delegation SAS binding four headers and the content headers given |
+| Credential    | `presignGet`          | `presignPut`                                                                              |
+| ------------- | --------------------- | ----------------------------------------------------------------------------------------- |
+| `accountKey`  | A service SAS         | `InvalidCredentials` naming `accountKey`                                                  |
+| `accessToken` | A user delegation SAS | A user delegation SAS binding four headers and the content headers and precondition given |
 
 - `expiresIn` and `contentLength` take what section 7.10 has them take, and are checked before
   anything is sent. `contentLength` is not checked against the 5,000 MiB of a single `Put Blob`.
@@ -1597,7 +1810,7 @@ A URL is a SAS, and the credential of the call decides which kind (ADR 0022):
   request without `x-ms-blob-type` with `400 MissingRequiredHeader`. `x-ms-blob-content-type` is
   bound because `Put Blob` stores it in place of `Content-Type`, so an unsigned one could store
   another type than the one signed (ADR 0063). An existing blob is overwritten, as a presigned
-  `PUT` does on S3.
+  `PUT` does on S3, unless `onlyIf` binds a precondition.
 - `cacheControl`, `contentDisposition` and `contentLanguage` are checked as `put` checks them
   (section 4.3), the content type always counted in the 2,048 bytes, before the user delegation key
   is requested. Each one given is signed as `x-ms-blob-cache-control`,
@@ -1606,6 +1819,15 @@ A URL is a SAS, and the credential of the call decides which kind (ADR 0022):
   content header left out is not bound: whoever holds the URL may send it, and Azure stores it.
   Azure refuses an upload whose value differs from the signed one or is missing, and stores the
   signed one as sent.
+- `onlyIf` is checked as `put` checks it (section 4.3), before the user delegation key is
+  requested. `"absent"` is bound through the permission: the SAS carries `sp=c` in place of `sp=w`,
+  and neither `srh` nor `headers` changes. Azure refuses an upload onto an existing blob under
+  `sp=c` with `403 UnauthorizedBlobOverwrite` before it reads any conditional header, on
+  `Put Blob`, `Put Block` and `Put Block List` alike, so there is no header to send, drop or allow
+  in the CORS rule. `{ etag }` keeps `sp=w`, appends `if-match` to `srh` after the content
+  headers, in lower case since Azure signs the name as written there, and returns `if-match` with
+  the quoted `etag` in `headers`; Azure answers the precondition failing with `412`, and a missing
+  or another value with `403` (ADR 0074).
 - Under an account key `presignPut` rejects before any request, because a service SAS binds no
   request header. Its message says that `presignPut` needs an access token.
 - Every SAS carries `sr=b`, `st` 15 minutes in the past unless the next point moves it, `se`
@@ -1680,16 +1902,23 @@ export function gcsStorage(options: GcsAdapterOptions): GcsStorage;
   caller whose `signer` may be absent gets `GcsStorage`, narrower than the storage at runtime (ADR
   0035).
 - `put` on `GcsStorage` accepts the `PutOptions` of section 4.3 and nothing more. Storage classes,
-  ACLs, preconditions, object versioning, holds, retention policies, customer-managed and
-  customer-supplied encryption keys and Autoclass are not offered.
-- Declares `contentHeaders`, `keyBytesPreserved`, `rangeReads`, `userMetadata` and
-  `userMetadataTokenKeys`, and `presignedUrls` where `signer` is given (ADR 0032).
+  ACLs, preconditions on metadata alone, object versioning, holds, retention policies,
+  customer-managed and customer-supplied encryption keys and Autoclass are not offered.
+- Declares `contentHeaders`, `deleteIfUnchanged`, `keyBytesPreserved`, `rangeReads`,
+  `userMetadata`, `userMetadataTokenKeys`, `writeIfAbsent` and `writeIfUnchanged`, and
+  `presignedUrls` where `signer` is given (ADR 0032, ADR 0071).
+- An `etag` is a generation where it is decimal digits without a leading zero, other than `0`, and
+  at most 2⁶³−1. Any other `etag` of the right form in `onlyIf`, `0` and `01` among them, never
+  matches and is `PreconditionFailed` with `attempts: 0` and no request, on `put`, `copy`, `move`,
+  `delete` and `presignPut`. `0` is left out because `ifGenerationMatch=0` means that no object
+  exists (ADR 0071).
 - Refuses two kinds of writable key with `InvalidKey` and `attempts: 0`: a key starting with
   `.well-known/acme-challenge/`, and a key holding `U+FFFE` or `U+FFFF`, both of which GCS refuses
   to store. `.well-known/acme-challenge-x`, other noncharacters such as `U+FDD0`, and the C1
   controls from `U+0080` to `U+009F` are not refused. Addressable keys and prefixes are refused by
   nothing beyond the rule of section 4.8 (ADR 0032).
-- `delete` sends at most one batch request per 100 keys.
+- `delete` sends at most one batch request per 100 keys. A conditional `delete` sends one
+  `DELETE`.
 
 ### 9.2 Promised provider
 
@@ -1700,20 +1929,21 @@ that speaks the JSON API, fake-gcs-server among them, can be configured and are 
 reached through `adapter-s3` over the XML API is an S3-compatible endpoint like any other (section
 7.2, ADR 0031).
 
-| Point                              | Promised                                                                                                                                                                    |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Listing order                      | None. A page holds at most 1000 names                                                                                                                                       |
-| Unicode-equivalent keys            | Two objects: an NFC and an NFD name are stored, listed and read apart. `keyBytesPreserved` is declared                                                                      |
-| `userMetadata`                     | Any ASCII HTTP token as a key, stored in lower case and handed back as stored; values stored as written; 2 KB as section 4.3 measures them                                  |
-| Single request                     | Up to 5 TiB, the ceiling of an object                                                                                                                                       |
-| Object size ceiling                | 5 TiB. A resumable session has no part limit; GCS refuses the chunk that crosses the ceiling                                                                                |
-| `Content-Type`                     | Always sent by `put`, on the start of a resumable session as well, `application/octet-stream` where none was given                                                          |
-| Writes per key                     | GCS answers `429` above one write per second and name; the retry of section 9.5 may recover a collision, but does not guarantee it. The later commit wins                   |
-| Incomplete uploads                 | A session whose cancel did not arrive keeps its bytes until GCS removes it a week after it started; stowage removes none                                                    |
-| Storage class                      | `put` and `copy` write the bucket's default class; `move` keeps the source's                                                                                                |
-| Objects stored compressed          | An object another tool stored with a content coding may read decoded and longer than its `size`, which is the stored size (section 4.4); any range on it is `ProviderError` |
-| Presigned URL host                 | The configured endpoint, path-style                                                                                                                                         |
-| Response overrides on `presignGet` | Answered as the two response headers; GCS ignores `response-cache-control` and `response-expires`, so `GcsPresignGetOptions` carries neither                                |
+| Point                              | Promised                                                                                                                                                                                                          |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Listing order                      | None. A page holds at most 1000 names                                                                                                                                                                             |
+| Unicode-equivalent keys            | Two objects: an NFC and an NFD name are stored, listed and read apart. `keyBytesPreserved` is declared                                                                                                            |
+| `userMetadata`                     | Any ASCII HTTP token as a key, stored in lower case and handed back as stored; values stored as written; 2 KB as section 4.3 measures them                                                                        |
+| Single request                     | Up to 5 TiB, the ceiling of an object                                                                                                                                                                             |
+| Object size ceiling                | 5 TiB. A resumable session has no part limit; GCS refuses the chunk that crosses the ceiling                                                                                                                      |
+| `Content-Type`                     | Always sent by `put`, on the start of a resumable session as well, `application/octet-stream` where none was given                                                                                                |
+| Writes per key                     | GCS answers `429` above one write per second and name; the retry of section 9.5 may recover a collision, but does not guarantee it. The later commit wins                                                         |
+| Incomplete uploads                 | A session whose cancel did not arrive keeps its bytes until GCS removes it a week after it started; stowage removes none                                                                                          |
+| Storage class                      | `put` and `copy` write the bucket's default class; `move` keeps the source's                                                                                                                                      |
+| Objects stored compressed          | An object another tool stored with a content coding may read decoded and longer than its `size`, which is the stored size (section 4.4); any range on it is `ProviderError`                                       |
+| Presigned URL host                 | The configured endpoint, path-style                                                                                                                                                                               |
+| `etag`                             | The object's generation, not the JSON `etag`: GCS checks the generation alone, and ignores `If-Match` on an upload. A change another tool makes to the content headers or user metadata alone keeps it (ADR 0070) |
+| Response overrides on `presignGet` | Answered as the two response headers; GCS ignores `response-cache-control` and `response-expires`, so `GcsPresignGetOptions` carries neither                                                                      |
 
 ### 9.3 Credentials
 
@@ -1755,6 +1985,16 @@ reached through `adapter-s3` over the XML API is an S3-compatible endpoint like 
   another storage is `InvalidOption` naming `cursor` before any request. A cursor of this storage
   handed to a listing of another prefix is not detected: GCS answers it with an empty page (ADR
   0038).
+- `etag` is the object's `generation`, read from the resource, the answer of every upload,
+  `rewriteTo` and `objects.move`, and every listing item; the JSON `etag` is not read. An answer
+  that feeds an `ObjectStat` or an `ObjectEntry` without `generation` is `ProviderError` (ADR 0070,
+  ADR 0071).
+- A precondition travels as `ifGenerationMatch`, `0` for `"absent"` and the generation for
+  `{ etag }`, on the `uploadType=multipart` insert, the start of a resumable session, every call of
+  `rewriteTo`, `objects.move`, and a conditional `DELETE`. GCS stores the precondition of a
+  resumable session at its start and checks it at the commit, and holds that of the first
+  `rewriteTo` call through the whole rewrite and checks it at the call that commits; sending it on
+  every call drops nothing (ADR 0071, ADR 0073).
 - `stat` and `exists` read the object's resource. `get` sends the resource request and the media
   download side by side, since the media download carries no user metadata. Where the two name
   different generations, because a writer replaced the object between them, the resource is read
@@ -1808,7 +2048,14 @@ reached through `adapter-s3` over the XML API is an S3-compatible endpoint like 
   `ProviderError`, `retryable: true`, with `attempts` counting every attempt, since the move may
   have happened. That later `404` remains ambiguous unless the adapter can identify the destination
   as the object committed by this move; `stat(to)` alone is insufficient when the destination may
-  have pre-existed. It is the one ambiguous outcome on GCS (ADR 0037).
+  have pre-existed. It is the one ambiguous outcome on GCS of an operation without a precondition
+  (ADR 0037).
+- The single insert, every call of `rewriteTo`, `objects.move` and a conditional `DELETE` follow the
+  rule of section 4.10 when they carry a precondition: a `412 conditionNotMet` after an attempt
+  without a response or with a `5xx` rejects with that earlier failure, as a `404` after an
+  unanswered `objects.move` does. The requests of a resumable session take no part in it: GCS
+  answers a repeated commit that succeeded with the same object, and a commit its precondition
+  refused leaves the session dead, so a `412` there is `PreconditionFailed` (ADR 0073).
 - The refresh after `401` of section 9.3 doubles an attempt as the refresh of section 7.3 does on
   S3, so one request that carries the credential costs at most six HTTP requests.
 - A per-key failure in `delete` is reported, not repeated. A body stream that breaks during `get` is
@@ -1839,18 +2086,23 @@ reached through `adapter-s3` over the XML API is an S3-compatible endpoint like 
   covering all attempts, backoff and reading the answer,
   and `put` rejects with that part's error. The caller's abort cancels the source and the session
   the same way and rejects with `AbortError`. A failure of the cancel is not reported.
-- Where a commit spent its budget without a response, the adapter cancels the session and reads
-  the answer: a committed session answers with its object, which `put` resolves with; an open one
-  is gone, and `put` rejects with the commit's `NetworkError`. Only where the cancel receives no
-  response either does the outcome stay open. A failed or timed-out cancel rejects `put` with the
-  original commit error; neither the cleanup error nor its timeout replaces it.
+- Where a commit spent its budget without a response, the adapter cancels the session and reads the
+  answer: a committed session answers with its object, which `put` resolves with; an open one is
+  gone, and `put` rejects with the commit's `NetworkError`; a session the commit's precondition
+  refused answers the cancel `412 conditionNotMet`, and `put` rejects with `PreconditionFailed`.
+  Only where the cancel receives no response either does the outcome stay open. A failed or
+  timed-out cancel rejects `put` with the original commit error; neither the cleanup error nor its
+  timeout replaces it.
 - A session whose cancel did not arrive holds the bytes persisted so far until GCS removes it a week
   after it started. The API does not see it: `stat`, `get` and `list` answer as before the upload.
 - The chunks, the commit and the cancel carry no credential: the session URI authorizes them, and
   GCS checks no token there. An upload that runs longer than its token lives needs no refresh. The
   session URI is itself a credential for a week and never leaves the adapter, in a message, a
   `cause` or any field.
-- Two sessions for one name are independent, and the later commit wins.
+- Two sessions for one name are independent, and the later commit wins, unless a precondition
+  refuses it.
+- A commit its precondition refused leaves the key as it was and the session dead; nothing is
+  left to cancel.
 - Nothing about a resumable session reaches the API: no progress, no session URI, no resume.
 
 ### 9.7 Copies
@@ -1876,6 +2128,10 @@ reached through `adapter-s3` over the XML API is an S3-compatible endpoint like 
   `from`. A `move` that fails leaves both keys as they were, except in the one ambiguous outcome of
   section 9.5.
 - Copying a key onto itself is `InvalidRequest` before any request.
+- A conditional `copy` that another writer's object overtakes between two calls of a rewrite is
+  answered `200` up to the committing call and `412 conditionNotMet` there, which is
+  `PreconditionFailed`; the destination holds the other writer's object. A conditional `move` that
+  fails its precondition leaves both keys as they were.
 
 ### 9.8 Provider codes
 
@@ -1886,16 +2142,17 @@ character references decoded. A body that starts with `<` is not read, and the m
 status. Where no provider code arrived, `providerCode` stays unset and the status decides as
 section 4.10 has it, except for a `404`. `retryable` follows the status alone (ADR 0038).
 
-| Provider code                                        | Error code           | Note                                                                                 |
-| ---------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------ |
-| `notFound`                                           | `NotFound`           | A missing bucket by its message, without `key`                                       |
-| `forbidden`, `insufficientPermissions`               | `AccessDenied`       | The principal is authenticated and lacks the role, or its token the scope            |
-| `objectUnderActiveHold`, `retentionPolicyNotMet`     | `ProviderError`      | A state of the object stowage does not create                                        |
-| `authError`, `required`                              | `InvalidCredentials` | After the one repeat of section 9.3 where `WWW-Authenticate` carries `invalid_token` |
-| `invalidArgument`, `requestedRangeNotSatisfiable`    | `InvalidRequest`     |                                                                                      |
-| `uploadTooLarge`                                     | `InvalidRequest`     | Above the 5 TiB an object holds                                                      |
-| `invalid`                                            | `ProviderError`      | `InvalidOption` naming `cursor` where answered to a `list` that carried a cursor     |
-| `conditionNotMet`, `conflict`, `clientClosedRequest` | `ProviderError`      | By status; stowage sends no precondition, and `499` answers a canceled session       |
+| Provider code                                     | Error code           | Note                                                                                 |
+| ------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------ |
+| `notFound`                                        | `NotFound`           | A missing bucket by its message, without `key`                                       |
+| `forbidden`, `insufficientPermissions`            | `AccessDenied`       | The principal is authenticated and lacks the role, or its token the scope            |
+| `objectUnderActiveHold`, `retentionPolicyNotMet`  | `ProviderError`      | A state of the object stowage does not create                                        |
+| `authError`, `required`                           | `InvalidCredentials` | After the one repeat of section 9.3 where `WWW-Authenticate` carries `invalid_token` |
+| `invalidArgument`, `requestedRangeNotSatisfiable` | `InvalidRequest`     |                                                                                      |
+| `uploadTooLarge`                                  | `InvalidRequest`     | Above the 5 TiB an object holds                                                      |
+| `invalid`                                         | `ProviderError`      | `InvalidOption` naming `cursor` where answered to a `list` that carried a cursor     |
+| `conditionNotMet`                                 | `PreconditionFailed` | At `412`, on every request that carries `ifGenerationMatch`                          |
+| `conflict`, `clientClosedRequest`                 | `ProviderError`      | By status; `499` answers a canceled session                                          |
 
 - On the resource, the listing, a `DELETE`, a batch subresponse, `rewriteTo` and `moveTo`, a `404`
   means absence only with the provider code `notFound`. Any other `404` there is `ProviderError`,
@@ -1905,6 +2162,8 @@ section 4.10 has it, except for a `404`. `retryable` follows the status alone (A
   provider code and is read by its status.
 - A missing bucket answers `404` with "The specified bucket does not exist." on every path, and is
   `NotFound` without `key`. `exists` rethrows it (section 4.10).
+- A conditional `DELETE` answered `404 notFound` that is no missing bucket is `PreconditionFailed`
+  and not counted as deleted (section 4.7).
 - A key above 1024 bytes, which the addressable rule lets through, is answered `404 notFound` and
   is `NotFound`, and `delete` counts it as deleted, where sections 7.9 and 8.8 report `InvalidKey`.
   So is a read or delete of a name GCS cannot hold.
@@ -1938,6 +2197,7 @@ export interface GcsPresignPutOptions {
   cacheControl?: string;
   contentDisposition?: string;
   contentLanguage?: string;
+  onlyIf?: Precondition;
 }
 ```
 
@@ -1972,7 +2232,8 @@ A URL is a V4 signed URL on the XML API, signed as the `signer`'s service accoun
 - `presignPut` signs `PUT` on a writable key with `content-length`, `content-type` and `host` as
   its signed headers, and returns `headers` holding `content-type`. A body of another length or
   another content type, one differing in case or parameters included, is rejected with
-  `403 SignatureDoesNotMatch`. An existing object is overwritten. No length range is signed in.
+  `403 SignatureDoesNotMatch`. An existing object is overwritten unless `onlyIf` binds a
+  precondition. No length range is signed in.
 - `cacheControl`, `contentDisposition` and `contentLanguage` are checked as `put` checks them
   (section 4.3), the content type always counted in the 2,048 bytes, before anything is sent. Each
   one given joins the signed headers as `cache-control`, `content-disposition` or
@@ -1980,6 +2241,13 @@ A URL is a V4 signed URL on the XML API, signed as the `signer`'s service accoun
   from the signed one with `403 SignatureDoesNotMatch` and a missing one with
   `400 MalformedSecurityHeader`, and stores the signed one as sent. A content header left out is
   not bound: whoever holds the URL may send it, and GCS stores it (ADR 0063).
+- `onlyIf` is checked as `put` checks it (section 4.3), an `etag` that is no generation refused
+  with `PreconditionFailed` and no URL (section 9.1). It joins the signed headers as
+  `x-goog-if-generation-match`, `0` for `"absent"` and the generation for `{ etag }`, and is
+  returned in `headers` under that name. GCS answers the precondition failing with `412`, a missing
+  header with `400 MalformedSecurityHeader` and another value with `403 SignatureDoesNotMatch`. The
+  XML `PUT` ignores `If-None-Match` and `If-Match` even when signed, so the generation is the only
+  form (ADR 0074).
 - Every binding is exact up to runs of spaces, which GOOG4 collapses as SigV4 does (section
   7.10).
 - An expired URL is answered with `400 ExpiredToken`.
@@ -2021,6 +2289,7 @@ export interface AcceptUploadOptions {
   contentDisposition?: string;
   contentLanguage?: string;
   userMetadata?: Record<string, string>;
+  onlyIf?: Precondition;
 }
 
 export interface PresignUploadOptions {
@@ -2031,6 +2300,7 @@ export interface PresignUploadOptions {
   cacheControl?: string;
   contentDisposition?: string;
   contentLanguage?: string;
+  onlyIf?: Precondition;
 }
 
 export interface PresignsGet {
@@ -2050,6 +2320,7 @@ export interface PresignsPut {
       cacheControl?: string;
       contentDisposition?: string;
       contentLanguage?: string;
+      onlyIf?: Precondition;
     },
   ): Promise<PresignedPut>;
 }
@@ -2120,7 +2391,7 @@ export function writeResponse(res: NodeResponse, response: Response): Promise<vo
   arrives with every call. It keeps no registry over several storages, offers no hook into an
   adapter's requests and reaches nothing below a concrete type (ADR 0042). It buffers no body.
 - No function reads the request's URL. The key is the caller's argument.
-- `PresignedPut` is the type of section 4.13.
+- `PresignedPut` is the type of section 4.13, `Precondition` that of section 4.3.
 
 ### 10.2 Answers
 
@@ -2131,6 +2402,7 @@ export function writeResponse(res: NodeResponse, response: Response): Promise<vo
   | ------------------------------------------------------ | ----------------------- |
   | `NotFound` with `key`, `InvalidKey`                    | `404`                   |
   | `InvalidRequest` from a ranged `get` (section 10.3)    | `416`                   |
+  | `PreconditionFailed`                                   | `412`                   |
   | `NetworkError`, `ProviderError` with `retryable: true` | `503`, no `Retry-After` |
   | every other, `NotFound` without `key` among them       | `500`                   |
 
@@ -2143,8 +2415,9 @@ export function writeResponse(res: NodeResponse, response: Response): Promise<vo
   other `Response` and for a copy of one.
 - Anything thrown that is not a `StorageError` is thrown on, an `AbortError` and a programmer error
   among it.
-- The refusals of the layer's own, such as `405`, `412`, `413`, `415` and the `400`s of sections
-  10.5 and 10.6, carry no `StorageError`.
+- The refusals of the layer's own, such as `405`, `412`, `413`, `415`, `501` and the `400`s of
+  sections 10.5 and 10.6, carry no `StorageError`. A `412` made from `PreconditionFailed` carries
+  it, an empty body and no `ETag` of the object that holds the key (ADR 0075).
 - The layer promises the answer it hands back, not its delivery. A client still sending a body
   the layer answered without reading, or refused while it streamed, may meet a reset connection
   instead of the answer, as the runtime decides (ADR 0056).
@@ -2193,7 +2466,10 @@ export function writeResponse(res: NodeResponse, response: Response): Promise<vo
     sent without `storedCacheControl`.
   - `Content-Language` as stored, absent where none is stored.
   - `ETag`: the `etag` of the `stat` that describes the bytes sent, quoted as a strong tag. A
-    storage that hands over no `etag`, `adapter-fs`, gets no `ETag` and none derived for it.
+    storage that hands over no `etag`, `adapter-fs`, gets no `ETag` and none derived for it. On
+    `adapter-gcs` it is the generation (section 9.2), which a change another tool makes to the
+    content headers alone does not move: a client whose cached content headers are older than the
+    object's may be answered `304` (ADR 0070).
   - `Date`: the time `serveObject` was called, which the layer sets itself. Bun and Deno write a
     `Date` of their own up to a second behind their clock, and every server keeps the one an
     answer carries.
@@ -2284,17 +2560,48 @@ a content coding to the provider and serves the bytes from the provider's origin
   `InvalidOption` or `InvalidRequest`, answered `500`, as for `contentType`. A
   `Content-Encoding` other than `identity` is `415`, since no runtime decodes a request body. Any
   check of the content type is the caller's, made on the request's headers before the call.
-- A client still sending a body the layer refused, by `405`, `413`, `415` or `400`, may meet a reset
-  connection instead of the refusal (section 10.2).
+- A client still sending a body the layer refused, by `405`, `413`, `415`, `400`, `412` or `501`,
+  may meet a reset connection instead of the refusal (section 10.2).
 - A request whose `body` is `null` stores an empty object.
 - `request.bodyUsed` being `true` rejects with a `TypeError` before `put` starts, rather than storing an
   empty or partial body. A body read before the call is the caller's programmer error and not a
   `StorageError` (ADR 0052).
 - A stored object is `201` with an empty body and the `etag` `put` resolved with as a quoted strong
   `ETag`, none where the storage hands over none. `201` is sent whether or not the key held an
-  object before. `objectStatOf(response)` answers the `ObjectStat` `put` resolved with, and
-  `undefined` for any other `Response` and for a copy of one. The body carries no `ObjectStat`.
-- A `StorageError` becomes a status by section 10.2.
+  object before, without a precondition and under `"absent"`. Under `{ etag }` the write replaced an
+  object for certain and is `204`, with the same `ETag` (ADR 0075). `objectStatOf(response)` answers
+  the `ObjectStat` `put` resolved with, and `undefined` for any other `Response` and for a copy of
+  one. The body carries no `ObjectStat`.
+- Preconditions come from two sides and all of them hold (ADR 0075): `onlyIf`, the caller's
+  policy, such as a route that never overwrites, and the request's `If-Match` and `If-None-Match`,
+  the client's wish. The layer passes `put` the one `onlyIf` that satisfies all of them, and
+  answers `412` without calling `put` where none can: `"absent"` beside an `If-Match`, two
+  different `etag`s, `{ etag }` beside `If-None-Match: *`, and a request carrying both `If-Match`
+  and `If-None-Match: *`. No option switches the request's fields off; a caller who means to drop
+  them builds a `Request` without them.
+- The request's fields are read in the order of RFC 9110 13.2.2, and `If-Match` compares strongly:
+  - `If-None-Match: *` is `"absent"`.
+  - In `If-Match`, a weak tag never matches and is dropped, and so is a tag outside the form of an
+    `etag` in `onlyIf` (section 4.3), such as `""`. One distinct tag left is `{ etag }`; none left
+    is `412` without `put`.
+  - `If-Match` with two or more distinct tags left, and `If-Match: *`, hold together with a
+    caller's `{ etag }` as that `etag` where they name it or are `*`, and are `412` where they do
+    not. Without a caller's `{ etag }` they cannot be expressed as `onlyIf`, and neither can
+    `If-None-Match` with tags, nor `If-Unmodified-Since` without `If-Match`: each is `501`.
+  - `If-Modified-Since`, `If-Range`, and `If-Unmodified-Since` beside `If-Match` are ignored.
+- A precondition the client sent for which `storage.capabilities` declares no capability,
+  `writeIfAbsent` or `writeIfUnchanged`, is `501`. An `onlyIf` the caller passes on such a storage
+  stays with `put`, which refuses it as `Unsupported`, answered `500`.
+- An `If-Match` or `If-None-Match` that is no list of entity tags is `400`, and so is an `onlyIf`
+  option of the wrong form, checked with `preconditionRefusal` of section 4.13. `serveObject` keeps
+  reading such a field as naming nothing.
+- The checks run in this order, all before the body is read: the `TypeError`s of this section, then
+  `405`, `415` and the `Content-Length` checks, then a malformed field or option (`400`), a field
+  the layer cannot hold or the storage has no capability for (`501`), preconditions that cannot hold
+  together or an `If-Match` with no tag left (`412`), and only then `put`. The layer sends no `stat`
+  in front of `put`: the precondition is checked at the commit (section 4.11), so a client whose
+  precondition fails has usually sent its whole body when the `412` arrives.
+- A `StorageError` becomes a status by section 10.2, `PreconditionFailed` as `412`.
 
 ### 10.6 Presigning an upload
 
@@ -2310,6 +2617,11 @@ sent.
   the bounds included, which concern no body. So a client's value never reaches `presignPut` as an
   `InvalidOption` or `InvalidRequest` answered `500` (ADR 0063). A storage that does not declare
   `contentHeaders` refuses the three in `presignPut`, answered `500`.
+- `onlyIf` is optional, handed to `presignPut` where given, and never read from a request; a caller
+  hands over an `etag` the client sent in the body. A value of the wrong form is `400` before
+  signing, checked with `preconditionRefusal` of section 4.13. A storage without the capability
+  refuses it in `presignPut`, answered `500`. A `PreconditionFailed`, which `adapter-gcs` gives an
+  `etag` that is no generation, is `412` (ADR 0074, ADR 0075).
 - A signed upload is `200` with `Content-Type: application/json`,
   `Cache-Control: private, no-store` and the body `{ "url", "method": "PUT", "headers" }`, `headers`
   being what `presignPut` returns.
@@ -2672,6 +2984,23 @@ From URL`. Against Azurite on every commit and the account in the `slow` tier.
   against a stubbed `fetch`, `identity`, an empty value and `GZIP` (ADR 0061, ADR 0064).
 - The refusal of an upload whose `x-ms-blob-content-type` differs from the one a URL of
   `presignPut` binds, on `adapter-azure-blob` against the account in the `slow` tier (ADR 0063).
+- The open outcome of a conditional request (section 4.10) on each cloud adapter, against a
+  stubbed `fetch`: a `PreconditionFailed` after an attempt without a response and after a `5xx`
+  reported as that failure, and not after a `408` or `429`; a conditional `delete` reporting it as
+  the key's entry; `PreconditionFailed` and `NoSuchUpload` after a `5xx` on a conditional
+  `CompleteMultipartUpload`; and the cleanup of a GCS session meeting `412` on its cancel (ADR
+  0073).
+- A conditional `move` whose delete failed, repeated and refused with `PreconditionFailed`, and
+  finished with `delete(from)`, against a stubbed `fetch`.
+- `adapter-s3` aborting an upload whose commit its precondition refused, and reading the `<Key>`
+  of a `NoSuchKey` on a conditional `CopyObject`, against a stubbed `fetch` (sections 7.6 and 7.8).
+- `adapter-gcs` refusing an `etag` that is no generation, `0`, `01` and 2⁶³ among them, without a
+  request on `put` and on `presignPut` (section 9.1).
+- On `adapter-fs`: a conditional `move` of a key that holds a symbolic link, `EEXIST` on a
+  directory and on a link that resolves to nothing as `InvalidRequest`, and a file system without
+  hard links as `ProviderError` through a stubbed `link` (section 6).
+- The statuses of a user delegation SAS with `sp=c` and with `if-match` in `srh` (section 8.9),
+  against the account in the `slow` tier.
 - The divergences of each emulator from the provider it stands in for, kept as a list in the
   private harness (ADR 0012, ADR 0023, ADR 0034).
 
@@ -2680,6 +3009,14 @@ From URL`. Against Azurite on every commit and the account in the `slow` tier.
 Names are stable: a renamed case is a removed case and an added one. `fast` cases run on every
 pull request. A case with `requires` carries a `runWithout` half, described in the last column.
 A case marked with a factory is skipped where the target does not supply it.
+
+A case that asserts `PreconditionFailed` asserts `retryable: false`, `attempts: 1`, `operation`
+the operation called, `move` for a `move`, and `key` the key that carries the precondition, `to`
+for `copy` and `move`; it asserts neither `status` nor `providerCode`, since Azure answers `409`
+where the others answer `412` and `adapter-memory` carries neither. A half without the capability
+an `onlyIf` needs asserts what section 4.3 has it refuse with: `Unsupported` naming that
+capability, `attempts: 0`, and every key the call names holding what it held, or nothing where it
+held nothing (ADR 0076).
 
 **Declaration**
 
@@ -2690,29 +3027,36 @@ A case marked with a factory is skipped where the target does not supply it.
 
 **`put`**
 
-| Case                            | Requires                                | Cost   | Asserts                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ------------------------------- | --------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `put/bytes-round-trip`          |                                         | `fast` | A `Uint8Array` reads back byte for byte through `bytes()`; the returned `ObjectStat` and a later `stat` agree on `key`, `size` and `contentType`                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `put/string-round-trip`         |                                         | `fast` | A string with characters above ASCII reads back equal through `text()`; `size` is its UTF-8 length                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `put/stream-round-trip`         |                                         | `fast` | A 1 MiB stream reads back byte for byte                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `put/multipart-round-trip`      |                                         | `fast` | A 17 MiB stream of a generated pattern reads back byte for byte; `stat` reports the size                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `put/empty-body`                |                                         | `fast` | An empty `Uint8Array` and a stream that yields nothing both produce an object of size 0 that reads back empty                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `put/overwrites`                |                                         | `fast` | A second `put` under the same key replaces bytes and content type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `put/content-type-stored`       |                                         | `fast` | `contentType: "text/plain"` on a key ending in `.txt` is reported by `stat` and `get`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `put/content-type-default`      |                                         | `fast` | Without `contentType`, a key without an extension reports `application/octet-stream`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `put/accepted-keys`             |                                         | `fast` | Each key of the accepted list (section 14.7) round-trips and is listed under its prefix                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `put/refused-keys`              |                                         | `fast` | Each key of the refused writable list rejects with `InvalidKey`, `attempts: 0`, and `exists` afterwards is `false` where the key is addressable, or rejects with `InvalidKey` for a key the provider cannot hold (section 14.7)                                                                                                                                                                                                                                                                                                                                                                |
-| `put/unknown-option`            |                                         | `fast` | An unknown option key rejects with `InvalidOption` whose message names the key; nothing was written                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `put/aborted-signal`            |                                         | `fast` | A signal already aborted rejects with `AbortError`; nothing was written                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `put/abort-during-upload`       |                                         | `fast` | Aborting during a 17 MiB stream rejects with `err.name === "AbortError"` and not a `StorageError`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `put/stream-consumed`           |                                         | `fast` | After `put`, the source stream is closed or canceled; reading it yields `done`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `put/user-metadata`             | `userMetadata`                          | `fast` | Two entries with identifier keys round-trip through `stat` and `get`, keys compared case-insensitively. Without: a non-empty object is `Unsupported` naming `userMetadata`; `{}` passes and reads back `{}`                                                                                                                                                                                                                                                                                                                                                                                    |
-| `put/user-metadata-limits`      | `userMetadata`                          | `fast` | A key with a character above ASCII, a value holding a lone surrogate and a set of identifier keys over 2 KB each reject with `InvalidRequest`, `attempts: 0`. Without: all three are `Unsupported`                                                                                                                                                                                                                                                                                                                                                                                             |
-| `put/user-metadata-token-keys`  | `userMetadata`, `userMetadataTokenKeys` | `fast` | A key `content-hash` round-trips through `stat` and `get`. Without: it is `Unsupported`, `attempts: 0`, naming `userMetadataTokenKeys` where `userMetadata` is declared and `userMetadata` where it is not                                                                                                                                                                                                                                                                                                                                                                                     |
-| `put/content-headers`           | `contentHeaders`                        | `fast` | A `cacheControl` of `max-age=60`, `public` and `immutable` with a tab after its first comma, a `contentDisposition` holding a tab and a run of spaces, and `contentLanguage` `de-AT, en` read back byte for byte through the `ObjectStat` of `put`, through `stat` and through `get`; a second `put` without them reports none; no `ObjectStat` carries `contentEncoding`. Without: each of the three alone, `""` included, is `Unsupported` naming `contentHeaders`, `attempts: 0`, and leaves no object; an object written without them reports all three absent, not present as `undefined` |
-| `put/content-headers-multipart` | `contentHeaders`                        | `fast` | The three on a 17 MiB stream read back byte for byte through the `ObjectStat` of `put` and through `stat`, without `contentEncoding`. Without: the `put` is `Unsupported` naming `contentHeaders` and leaves no object                                                                                                                                                                                                                                                                                                                                                                         |
-| `put/content-headers-refused`   | `contentHeaders`                        | `fast` | A value that is no string, `""`, one with a space at either end, one holding a line feed and one holding `ü` each reject with `InvalidOption` naming the option, `attempts: 0`; 2,049 bytes with `Content-Type` and a `contentLanguage` of 101 characters each reject with `InvalidRequest`, `attempts: 0`; nothing was written. Exactly 2,048 bytes with `Content-Type`, the padding in `contentDisposition`, and exactly 100 characters of `contentLanguage` are stored and read back. Without: every one of them is `Unsupported` naming `contentHeaders`                                   |
-| `put/concurrent-writers`        |                                         | `fast` | Two streamed `put`s of 17 MiB, one of a pattern A and one of a pattern B, paced so that each has sent a part before either completes: each resolves or rejects, at least one resolves, and `get` returns A or B byte for byte                                                                                                                                                                                                                                                                                                                                                                  |
+| Case                                 | Requires                                | Cost   | Asserts                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------ | --------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `put/bytes-round-trip`               |                                         | `fast` | A `Uint8Array` reads back byte for byte through `bytes()`; the returned `ObjectStat` and a later `stat` agree on `key`, `size` and `contentType`                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `put/string-round-trip`              |                                         | `fast` | A string with characters above ASCII reads back equal through `text()`; `size` is its UTF-8 length                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `put/stream-round-trip`              |                                         | `fast` | A 1 MiB stream reads back byte for byte                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `put/multipart-round-trip`           |                                         | `fast` | A 17 MiB stream of a generated pattern reads back byte for byte; `stat` reports the size                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `put/empty-body`                     |                                         | `fast` | An empty `Uint8Array` and a stream that yields nothing both produce an object of size 0 that reads back empty                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `put/overwrites`                     |                                         | `fast` | A second `put` under the same key replaces bytes and content type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `put/content-type-stored`            |                                         | `fast` | `contentType: "text/plain"` on a key ending in `.txt` is reported by `stat` and `get`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `put/content-type-default`           |                                         | `fast` | Without `contentType`, a key without an extension reports `application/octet-stream`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `put/accepted-keys`                  |                                         | `fast` | Each key of the accepted list (section 14.7) round-trips and is listed under its prefix                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `put/refused-keys`                   |                                         | `fast` | Each key of the refused writable list rejects with `InvalidKey`, `attempts: 0`, and `exists` afterwards is `false` where the key is addressable, or rejects with `InvalidKey` for a key the provider cannot hold (section 14.7)                                                                                                                                                                                                                                                                                                                                                                |
+| `put/unknown-option`                 |                                         | `fast` | An unknown option key rejects with `InvalidOption` whose message names the key; nothing was written                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `put/aborted-signal`                 |                                         | `fast` | A signal already aborted rejects with `AbortError`; nothing was written                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `put/abort-during-upload`            |                                         | `fast` | Aborting during a 17 MiB stream rejects with `err.name === "AbortError"` and not a `StorageError`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `put/stream-consumed`                |                                         | `fast` | After `put`, the source stream is closed or canceled; reading it yields `done`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `put/user-metadata`                  | `userMetadata`                          | `fast` | Two entries with identifier keys round-trip through `stat` and `get`, keys compared case-insensitively. Without: a non-empty object is `Unsupported` naming `userMetadata`; `{}` passes and reads back `{}`                                                                                                                                                                                                                                                                                                                                                                                    |
+| `put/user-metadata-limits`           | `userMetadata`                          | `fast` | A key with a character above ASCII, a value holding a lone surrogate and a set of identifier keys over 2 KB each reject with `InvalidRequest`, `attempts: 0`. Without: all three are `Unsupported`                                                                                                                                                                                                                                                                                                                                                                                             |
+| `put/user-metadata-token-keys`       | `userMetadata`, `userMetadataTokenKeys` | `fast` | A key `content-hash` round-trips through `stat` and `get`. Without: it is `Unsupported`, `attempts: 0`, naming `userMetadataTokenKeys` where `userMetadata` is declared and `userMetadata` where it is not                                                                                                                                                                                                                                                                                                                                                                                     |
+| `put/content-headers`                | `contentHeaders`                        | `fast` | A `cacheControl` of `max-age=60`, `public` and `immutable` with a tab after its first comma, a `contentDisposition` holding a tab and a run of spaces, and `contentLanguage` `de-AT, en` read back byte for byte through the `ObjectStat` of `put`, through `stat` and through `get`; a second `put` without them reports none; no `ObjectStat` carries `contentEncoding`. Without: each of the three alone, `""` included, is `Unsupported` naming `contentHeaders`, `attempts: 0`, and leaves no object; an object written without them reports all three absent, not present as `undefined` |
+| `put/content-headers-multipart`      | `contentHeaders`                        | `fast` | The three on a 17 MiB stream read back byte for byte through the `ObjectStat` of `put` and through `stat`, without `contentEncoding`. Without: the `put` is `Unsupported` naming `contentHeaders` and leaves no object                                                                                                                                                                                                                                                                                                                                                                         |
+| `put/content-headers-refused`        | `contentHeaders`                        | `fast` | A value that is no string, `""`, one with a space at either end, one holding a line feed and one holding `ü` each reject with `InvalidOption` naming the option, `attempts: 0`; 2,049 bytes with `Content-Type` and a `contentLanguage` of 101 characters each reject with `InvalidRequest`, `attempts: 0`; nothing was written. Exactly 2,048 bytes with `Content-Type`, the padding in `contentDisposition`, and exactly 100 characters of `contentLanguage` are stored and read back. Without: every one of them is `Unsupported` naming `contentHeaders`                                   |
+| `put/concurrent-writers`             |                                         | `fast` | Two streamed `put`s of 17 MiB, one of a pattern A and one of a pattern B, paced so that each has sent a part before either completes: each resolves or rejects, at least one resolves, and `get` returns A or B byte for byte                                                                                                                                                                                                                                                                                                                                                                  |
+| `put/if-absent`                      | `writeIfAbsent`                         | `fast` | `onlyIf: "absent"` writes a free key; on a key that holds an object it rejects with `PreconditionFailed`, and the key holds what it held. Without: `Unsupported` naming `writeIfAbsent`                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `put/if-absent-multipart`            | `writeIfAbsent`                         | `fast` | As `put/if-absent`, with 17 MiB streams. Without: `Unsupported` naming `writeIfAbsent`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `put/if-unchanged`                   | `writeIfUnchanged`                      | `fast` | The `etag` of `stat` holds, and the `ObjectStat` of the write carries another; that `etag`, stale after a second `put`, and an `{ etag }` on a key that holds no object each reject with `PreconditionFailed`, not `NotFound`. `""`, an `etag` holding `"`, one starting with `W/` and one that is no string each reject with `InvalidOption` naming `onlyIf`, `attempts: 0`, and leave the key as it was. Without: `Unsupported` naming `writeIfUnchanged`                                                                                                                                    |
+| `put/if-unchanged-multipart`         | `writeIfUnchanged`                      | `fast` | As `put/if-unchanged` without the form checks, with 17 MiB streams. Without: `Unsupported` naming `writeIfUnchanged`                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `put/only-if-no-kind`                |                                         | `fast` | `onlyIf: 42` and `onlyIf: null` each reject with `InvalidOption` naming `onlyIf`, `attempts: 0`, on every storage; nothing was written                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `put/concurrent-if-absent`           | `writeIfAbsent`                         | `fast` | Two `put`s of small bodies with `onlyIf: "absent"` race for one free key: exactly one resolves, the other rejects with `PreconditionFailed`, and `get` returns the bytes of the one that resolved. Without: `Unsupported` naming `writeIfAbsent`                                                                                                                                                                                                                                                                                                                                               |
+| `put/concurrent-if-absent-multipart` | `writeIfAbsent`                         | `fast` | As `put/concurrent-if-absent`, with two 17 MiB streams paced as `put/concurrent-writers` paces them. Without: `Unsupported` naming `writeIfAbsent`                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 **`get`**
 
@@ -2732,12 +3076,13 @@ A case marked with a factory is skipped where the target does not supply it.
 
 **`stat` and `exists`**
 
-| Case                    | Requires | Cost   | Asserts                                                                                                           |
-| ----------------------- | -------- | ------ | ----------------------------------------------------------------------------------------------------------------- |
-| `stat/describes-object` |          | `fast` | `key`, `size`, `contentType` as written; `lastModified` a `Date` within a minute of now; `userMetadata` an object |
-| `stat/missing-key`      |          | `fast` | Rejects with `NotFound`, `operation: "stat"`                                                                      |
-| `exists/answers`        |          | `fast` | `true` for a stored key, `false` for an absent one and for an absent key ending in `/`                            |
-| `exists/invalid-key`    |          | `fast` | A key with a `..` segment rejects with `InvalidKey` rather than answering `false`                                 |
+| Case                    | Requires           | Cost   | Asserts                                                                                                                                                                                                                                                                                    |
+| ----------------------- | ------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `stat/describes-object` |                    | `fast` | `key`, `size`, `contentType` as written; `lastModified` a `Date` within a minute of now; `userMetadata` an object                                                                                                                                                                          |
+| `stat/missing-key`      |                    | `fast` | Rejects with `NotFound`, `operation: "stat"`                                                                                                                                                                                                                                               |
+| `stat/etag-promised`    | `writeIfUnchanged` | `fast` | `etag` is set on the `ObjectStat` of `put`, `stat`, `get`, `copy` and `move` and on every entry of a listing; the `etag` of `put` is the one a later `stat` reports; a write of other bytes changes it. Without: the object is written and read back, and nothing is asserted about `etag` |
+| `exists/answers`        |                    | `fast` | `true` for a stored key, `false` for an absent one and for an absent key ending in `/`                                                                                                                                                                                                     |
+| `exists/invalid-key`    |                    | `fast` | A key with a `..` segment rejects with `InvalidKey` rather than answering `false`                                                                                                                                                                                                          |
 
 **`list`**
 
@@ -2759,32 +3104,38 @@ A case marked with a factory is skipped where the target does not supply it.
 
 **`delete` and `deleteAll`**
 
-| Case                          | Requires | Cost   | Asserts                                                                                                                |
-| ----------------------------- | -------- | ------ | ---------------------------------------------------------------------------------------------------------------------- |
-| `delete/single`               |          | `fast` | One key: `requested: 1`, `failed` empty, `exists` is `false` afterwards                                                |
-| `delete/many`                 |          | `fast` | 30 keys in one call: `requested: 30`, all gone                                                                         |
-| `delete/absent-key-succeeds`  |          | `fast` | An absent key: `requested: 1`, `failed` empty                                                                          |
-| `delete/nothing`              |          | `fast` | No key: `requested: 0`, `failed` empty                                                                                 |
-| `delete/invalid-key-reported` |          | `fast` | One key with a `..` segment among two valid ones: `failed` holds one `InvalidKey` with that `key`, the two are deleted |
-| `delete/past-one-thousand`    |          | `slow` | 1001 keys in one call are all deleted                                                                                  |
-| `deleteAll/below-prefix`      |          | `fast` | Deletes the objects below the prefix and none beside it; `requested` equals their count                                |
-| `deleteAll/nothing`           |          | `fast` | A prefix holding nothing: `requested: 0`                                                                               |
-| `deleteAll/past-one-thousand` |          | `slow` | 1001 objects below a prefix are all deleted in one call                                                                |
+| Case                          | Requires            | Cost   | Asserts                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ----------------------------- | ------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `delete/single`               |                     | `fast` | One key: `requested: 1`, `failed` empty, `exists` is `false` afterwards                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `delete/many`                 |                     | `fast` | 30 keys in one call: `requested: 30`, all gone                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `delete/absent-key-succeeds`  |                     | `fast` | An absent key: `requested: 1`, `failed` empty                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `delete/nothing`              |                     | `fast` | No key: `requested: 0`, `failed` empty                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `delete/invalid-key-reported` |                     | `fast` | One key with a `..` segment among two valid ones: `failed` holds one `InvalidKey` with that `key`, the two are deleted                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `delete/past-one-thousand`    |                     | `slow` | 1001 keys in one call are all deleted                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `delete/if-unchanged`         | `deleteIfUnchanged` | `fast` | `delete(key, { onlyIf: { etag } })` with the current `etag` reports `requested: 1` and an empty `failed`, and the key is gone; a stale `etag` and a key that holds no object each leave one `PreconditionFailed` entry with that `key` in `failed`, and the object stays; `onlyIf: "absent"` rejects with `InvalidOption`. `""`, an `etag` holding `"`, one starting with `W/` and one that is no string each reject with `InvalidOption` naming `onlyIf`, `attempts: 0`, and leave the key as it was. Without: `Unsupported` naming `deleteIfUnchanged` |
+| `delete/options`              |                     | `fast` | `delete(key, {})` deletes the key; a signal already aborted rejects with `AbortError`                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `deleteAll/below-prefix`      |                     | `fast` | Deletes the objects below the prefix and none beside it; `requested` equals their count                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `deleteAll/nothing`           |                     | `fast` | A prefix holding nothing: `requested: 0`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `deleteAll/past-one-thousand` |                     | `slow` | 1001 objects below a prefix are all deleted in one call                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 **`copy` and `move`**
 
-| Case                   | Requires         | Cost   | Asserts                                                                                                                                                                                                                                                                                           |
-| ---------------------- | ---------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `copy/round-trip`      |                  | `fast` | Destination has the bytes and content type; source is unchanged; the returned `ObjectStat` names the destination                                                                                                                                                                                  |
-| `copy/overwrites`      |                  | `fast` | A destination that exists is replaced                                                                                                                                                                                                                                                             |
-| `copy/missing-source`  |                  | `fast` | Rejects with `NotFound`; no destination is created                                                                                                                                                                                                                                                |
-| `copy/onto-itself`     |                  | `fast` | `from === to` rejects with `InvalidRequest`, `attempts: 0`; the object is unchanged                                                                                                                                                                                                               |
-| `copy/invalid-keys`    |                  | `fast` | A destination ending in `/` and a source with a `..` segment each reject with `InvalidKey` before anything changes                                                                                                                                                                                |
-| `copy/user-metadata`   | `userMetadata`   | `fast` | The destination carries the source's metadata under identifier keys. Without: the copy succeeds and the destination reads `{}`                                                                                                                                                                    |
-| `copy/content-headers` | `contentHeaders` | `fast` | The destination reports the source's three content headers of `put/content-headers` and its `contentType` `text/plain;charset=utf-8` byte for byte, through the `ObjectStat` of `copy` and through `stat`, without `contentEncoding`. Without: the copy succeeds and the destination reports none |
-| `move/round-trip`      |                  | `fast` | Destination has the bytes and content type; source is gone; the result names the destination                                                                                                                                                                                                      |
-| `move/missing-source`  |                  | `fast` | Rejects with `NotFound`, `operation: "move"`; no destination is created                                                                                                                                                                                                                           |
-| `move/content-headers` | `contentHeaders` | `fast` | As `copy/content-headers`, through the `ObjectStat` of `move` and through `stat`; the source is gone. Without: the move succeeds and the destination reports none                                                                                                                                 |
+| Case                   | Requires           | Cost   | Asserts                                                                                                                                                                                                                                                                                           |
+| ---------------------- | ------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `copy/round-trip`      |                    | `fast` | Destination has the bytes and content type; source is unchanged; the returned `ObjectStat` names the destination                                                                                                                                                                                  |
+| `copy/overwrites`      |                    | `fast` | A destination that exists is replaced                                                                                                                                                                                                                                                             |
+| `copy/missing-source`  |                    | `fast` | Rejects with `NotFound`; no destination is created                                                                                                                                                                                                                                                |
+| `copy/onto-itself`     |                    | `fast` | `from === to` rejects with `InvalidRequest`, `attempts: 0`; the object is unchanged                                                                                                                                                                                                               |
+| `copy/invalid-keys`    |                    | `fast` | A destination ending in `/` and a source with a `..` segment each reject with `InvalidKey` before anything changes                                                                                                                                                                                |
+| `copy/user-metadata`   | `userMetadata`     | `fast` | The destination carries the source's metadata under identifier keys. Without: the copy succeeds and the destination reads `{}`                                                                                                                                                                    |
+| `copy/content-headers` | `contentHeaders`   | `fast` | The destination reports the source's three content headers of `put/content-headers` and its `contentType` `text/plain;charset=utf-8` byte for byte, through the `ObjectStat` of `copy` and through `stat`, without `contentEncoding`. Without: the copy succeeds and the destination reports none |
+| `copy/if-absent`       | `writeIfAbsent`    | `fast` | As `put/if-absent`, on the destination; the source stays. Without: `Unsupported` naming `writeIfAbsent`                                                                                                                                                                                           |
+| `copy/if-unchanged`    | `writeIfUnchanged` | `fast` | As `put/if-unchanged` without the form checks, on the destination; a missing source beside a destination whose `etag` holds rejects with `NotFound`, not `PreconditionFailed`. Without: `Unsupported` naming `writeIfUnchanged`                                                                   |
+| `move/round-trip`      |                    | `fast` | Destination has the bytes and content type; source is gone; the result names the destination                                                                                                                                                                                                      |
+| `move/missing-source`  |                    | `fast` | Rejects with `NotFound`, `operation: "move"`; no destination is created                                                                                                                                                                                                                           |
+| `move/content-headers` | `contentHeaders`   | `fast` | As `copy/content-headers`, through the `ObjectStat` of `move` and through `stat`; the source is gone. Without: the move succeeds and the destination reports none                                                                                                                                 |
+| `move/if-absent`       | `writeIfAbsent`    | `fast` | As `copy/if-absent`, with `operation: "move"`; a `move` refused at its destination leaves `from` in place. Without: `Unsupported` naming `writeIfAbsent`                                                                                                                                          |
+| `move/if-unchanged`    | `writeIfUnchanged` | `fast` | As `copy/if-unchanged`, with `operation: "move"`; a `move` refused at its destination leaves `from` in place. Without: `Unsupported` naming `writeIfUnchanged`                                                                                                                                    |
 
 **Errors**
 
@@ -2800,16 +3151,19 @@ A case marked with a factory is skipped where the target does not supply it.
 
 **Presigned URLs**
 
-| Case                                  | Requires                          | Cost   | Asserts                                                                                                                                                                                                                                                                                                                                                                               |
-| ------------------------------------- | --------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `presign/get`                         | `presignedUrls`                   | `fast` | `fetch` on the URL answers `200`, the bytes and the content type. Without: `"presignGet" in storage` and `"presignPut" in storage` are both `false`                                                                                                                                                                                                                                   |
-| `presign/put`                         | `presignedUrls`                   | `fast` | `fetch` with `PUT`, the returned `headers` and a body of the signed length answers `2xx`; `stat` reports the type and size. Without: as above                                                                                                                                                                                                                                         |
-| `presign/expires-in-bounds`           | `presignedUrls`                   | `fast` | `expiresIn` of 0 and of 604801 reject with `InvalidOption`; no request is made. Without: as above                                                                                                                                                                                                                                                                                     |
-| `presign/put-rejects-type`            | `presignedUrls`                   | `slow` | A body with another content type answers `403`. Without: as above                                                                                                                                                                                                                                                                                                                     |
-| `presign/put-rejects-length`          | `presignedUrls`                   | `slow` | A body of another length answers `4xx`. Without: as above                                                                                                                                                                                                                                                                                                                             |
-| `presign/expired-url`                 | `presignedUrls`                   | `slow` | A URL signed with `expiresIn: 1`, called after two seconds, answers `400` or `403`, while a URL signed with `expiresIn: 60` in the same case answers `200`. Without: as above                                                                                                                                                                                                         |
-| `presign/put-content-headers`         | `presignedUrls`, `contentHeaders` | `fast` | `presignPut` with the three; `fetch` with `PUT`, the returned `headers` and a body of the signed length answers `2xx`; `stat` reports the three byte for byte and no `contentEncoding`. Without `presignedUrls`: as above. Without `contentHeaders`: `presignPut` with one of the three rejects with `Unsupported` naming `contentHeaders`, `attempts: 0`, and one without them signs |
-| `presign/put-rejects-content-headers` | `presignedUrls`, `contentHeaders` | `slow` | Under a URL signed with the three, an upload sending one of them with another value and an upload leaving one out each answer `4xx`. Without: as `presign/put-content-headers`                                                                                                                                                                                                        |
+| Case                                  | Requires                                             | Cost   | Asserts                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------------------------- | ---------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `presign/get`                         | `presignedUrls`                                      | `fast` | `fetch` on the URL answers `200`, the bytes and the content type. Without: `"presignGet" in storage` and `"presignPut" in storage` are both `false`                                                                                                                                                                                                                                   |
+| `presign/put`                         | `presignedUrls`                                      | `fast` | `fetch` with `PUT`, the returned `headers` and a body of the signed length answers `2xx`; `stat` reports the type and size. Without: as above                                                                                                                                                                                                                                         |
+| `presign/expires-in-bounds`           | `presignedUrls`                                      | `fast` | `expiresIn` of 0 and of 604801 reject with `InvalidOption`; no request is made. Without: as above                                                                                                                                                                                                                                                                                     |
+| `presign/put-rejects-type`            | `presignedUrls`                                      | `slow` | A body with another content type answers `403`. Without: as above                                                                                                                                                                                                                                                                                                                     |
+| `presign/put-rejects-length`          | `presignedUrls`                                      | `slow` | A body of another length answers `4xx`. Without: as above                                                                                                                                                                                                                                                                                                                             |
+| `presign/expired-url`                 | `presignedUrls`                                      | `slow` | A URL signed with `expiresIn: 1`, called after two seconds, answers `400` or `403`, while a URL signed with `expiresIn: 60` in the same case answers `200`. Without: as above                                                                                                                                                                                                         |
+| `presign/put-content-headers`         | `presignedUrls`, `contentHeaders`                    | `fast` | `presignPut` with the three; `fetch` with `PUT`, the returned `headers` and a body of the signed length answers `2xx`; `stat` reports the three byte for byte and no `contentEncoding`. Without `presignedUrls`: as above. Without `contentHeaders`: `presignPut` with one of the three rejects with `Unsupported` naming `contentHeaders`, `attempts: 0`, and one without them signs |
+| `presign/put-rejects-content-headers` | `presignedUrls`, `contentHeaders`                    | `slow` | Under a URL signed with the three, an upload sending one of them with another value and an upload leaving one out each answer `4xx`. Without: as `presign/put-content-headers`                                                                                                                                                                                                        |
+| `presign/put-if-absent`               | `presignedUrls`, `writeIfAbsent`                     | `fast` | A URL signed with `onlyIf: "absent"` for a free key uploads with `2xx` and `stat` reports the object; a second one signed so for the key that now holds it answers `4xx`, and the object holds what it held. Without `presignedUrls`: as above. Without `writeIfAbsent`: `presignPut` with `onlyIf: "absent"` rejects with `Unsupported` naming it, `attempts: 0`                     |
+| `presign/put-if-unchanged`            | `presignedUrls`, `writeIfUnchanged`                  | `fast` | A URL signed with the current `etag` uploads with `2xx`; one signed with that `etag` after another `put` replaced the object answers `4xx`, and the object holds the other `put`'s bytes. Without `presignedUrls`: as above. Without `writeIfUnchanged`: `presignPut` with `onlyIf: { etag }` rejects with `Unsupported` naming it, `attempts: 0`                                     |
+| `presign/put-rejects-precondition`    | `presignedUrls`, `writeIfAbsent`, `writeIfUnchanged` | `slow` | For each kind, the headers a URL signed with `onlyIf` returns beyond those of a URL signed without it are the binding; an upload leaving one of them out and one sending it with another value each answer `4xx` and write nothing. Without: as `presign/put-if-absent` and `presign/put-if-unchanged`                                                                                |
 
 ### 14.6 Reference flow cases
 
@@ -2934,6 +3288,13 @@ repository's servers, tested in this repository and not by the suite:
   the default (section 10.3); `acceptUpload` handing its content headers to `put` and reading none
   from the request (section 10.5); `presignUpload` handing its content headers to `presignPut` and
   answering `400` for a value outside the form or a bound (section 10.6) (ADR 0064).
+- An `onlyIf` the caller passes to `acceptUpload` or `presignUpload`, which a case would reach
+  only through a route configured with it (section 10.5, 10.6, ADR 0076): how the option holds
+  together with the request's fields, a contradiction answered `412` without `put`, `400` for an
+  option of the wrong form, `412` from `presignUpload` for an `etag` that `adapter-gcs` refuses,
+  and `storageErrorOf` on the `412` of a `PreconditionFailed`, which a client over HTTP cannot see.
+  That the `400`, `501` and `412` of `acceptUpload` come before the body is read is tested on a web
+  `Request`, since a client that keeps writing may meet a reset rather than the status.
 - The `400` of `acceptUpload` for a body that ends short of its `Content-Length` and for a body
   that fails while it is read, over a raw socket: `fetch` cannot send a `Content-Length` that
   contradicts its body. A body that runs past its `Content-Length` is tested as a web `Request`,
@@ -2985,18 +3346,24 @@ with `requires` carries a `runWithout` half, described in the last column. A dat
 
 **Uploading**
 
-| Case                          | Requires | Cost   | Asserts                                                                                                                                                                                                     |
-| ----------------------------- | -------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `upload/stores`               |          | `fast` | `PUT` of 64 KiB with `Content-Type: text/plain` answers `201` with an empty body and the quoted `etag` of `stat` as `ETag`, none where `stat` has none; the object reads back byte for byte as `text/plain` |
-| `upload/streamed-body`        |          | `fast` | `PUT` of a 512 KiB stream without a length answers `201`; the object reads back byte for byte                                                                                                               |
-| `upload/content-type-default` |          | `fast` | `PUT` without `Content-Type` under a key without an extension stores `application/octet-stream`                                                                                                             |
-| `upload/empty-body`           |          | `fast` | `PUT` without a body answers `201`; `stat` reports size 0                                                                                                                                                   |
-| `upload/overwrites`           |          | `fast` | A second `PUT` under the same key answers `201` and replaces the bytes                                                                                                                                      |
-| `upload/max-size`             |          | `fast` | 1048576 bytes answer `201`. Over a stored object, 1048577 bytes as bytes answer `413` or fail as a network error, as a stream without a length answer `413`, and the object reads back unchanged            |
-| `upload/content-encoding`     |          | `fast` | `PUT` with `Content-Encoding: gzip` answers `415`; the key is absent                                                                                                                                        |
-| `upload/method-not-allowed`   |          | `fast` | `POST` and `GET` answer `405` with `Allow: PUT`; the key is absent                                                                                                                                          |
-| `upload/invalid-key`          |          | `fast` | `PUT` under the key `a/` answers `404`                                                                                                                                                                      |
-| `upload/no-header-metadata`   |          | `fast` | `PUT` with `x-amz-meta-a: 1` and `x-ms-meta-a: 1` answers `201`; `stat` reports `userMetadata` `{}`                                                                                                         |
+| Case                                | Requires                            | Cost   | Asserts                                                                                                                                                                                                                                                                                                   |
+| ----------------------------------- | ----------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `upload/stores`                     |                                     | `fast` | `PUT` of 64 KiB with `Content-Type: text/plain` answers `201` with an empty body and the quoted `etag` of `stat` as `ETag`, none where `stat` has none; the object reads back byte for byte as `text/plain`                                                                                               |
+| `upload/streamed-body`              |                                     | `fast` | `PUT` of a 512 KiB stream without a length answers `201`; the object reads back byte for byte                                                                                                                                                                                                             |
+| `upload/content-type-default`       |                                     | `fast` | `PUT` without `Content-Type` under a key without an extension stores `application/octet-stream`                                                                                                                                                                                                           |
+| `upload/empty-body`                 |                                     | `fast` | `PUT` without a body answers `201`; `stat` reports size 0                                                                                                                                                                                                                                                 |
+| `upload/overwrites`                 |                                     | `fast` | A second `PUT` under the same key answers `201` and replaces the bytes                                                                                                                                                                                                                                    |
+| `upload/max-size`                   |                                     | `fast` | 1048576 bytes answer `201`. Over a stored object, 1048577 bytes as bytes answer `413` or fail as a network error, as a stream without a length answer `413`, and the object reads back unchanged                                                                                                          |
+| `upload/content-encoding`           |                                     | `fast` | `PUT` with `Content-Encoding: gzip` answers `415`; the key is absent                                                                                                                                                                                                                                      |
+| `upload/method-not-allowed`         |                                     | `fast` | `POST` and `GET` answer `405` with `Allow: PUT`; the key is absent                                                                                                                                                                                                                                        |
+| `upload/invalid-key`                |                                     | `fast` | `PUT` under the key `a/` answers `404`                                                                                                                                                                                                                                                                    |
+| `upload/no-header-metadata`         |                                     | `fast` | `PUT` with `x-amz-meta-a: 1` and `x-ms-meta-a: 1` answers `201`; `stat` reports `userMetadata` `{}`                                                                                                                                                                                                       |
+| `upload/if-none-match`              | `writeIfAbsent`                     | `fast` | `If-None-Match: *` onto a free key answers `201` with `ETag`; the same onto the key that now holds the object answers `412` with an empty body, and the object holds what it held. Without: `501`, and the key stays free                                                                                 |
+| `upload/if-match`                   | `writeIfUnchanged`                  | `fast` | The `ETag` of a first upload answers `204` with the `ETag` of a later `stat` and replaces the bytes; that `ETag`, now stale, answers `412`; the current `ETag` as `W/` answers `412`; `If-Match` onto a free key answers `412`, and the key stays free. Without: `501`, and the object holds what it held |
+| `upload/both-preconditions`         | `writeIfAbsent`, `writeIfUnchanged` | `fast` | A current `If-Match` beside `If-None-Match: *` answers `412`, and the object holds what it held. Without: `501`                                                                                                                                                                                           |
+| `upload/inexpressible-precondition` |                                     | `fast` | `If-Match: *`, `If-Match` with two tags, `If-None-Match` with a tag and `If-Unmodified-Since` alone each answer `501`, and the object holds what it held                                                                                                                                                  |
+| `upload/malformed-precondition`     |                                     | `fast` | `If-Match: abc` and `If-None-Match: "a` each answer `400`, before `501` on every storage, and the object holds what it held                                                                                                                                                                               |
+| `upload/ignored-preconditions`      |                                     | `fast` | `If-Modified-Since` in the past and in the future and `If-Range` each answer `201`, and the body is stored                                                                                                                                                                                                |
 
 **Presigning**
 
@@ -3035,6 +3402,10 @@ with `requires` carries a `runWithout` half, described in the last column. A dat
   promised provider cannot hold is written into it without a withdrawal (ADR 0059). An option a
   storage refused as unknown with `InvalidOption`, which a release accepts or refuses as
   `Unsupported`, is no withdrawal either: the input was never valid (ADR 0060).
+- A promise holds for the form of a call it was made for. A new option may come with a narrower
+  promise of its own, which takes nothing from a caller: the concurrent-writers promise of section
+  4.11 and the safe repeat of a `move` in section 4.10 hold for calls without `onlyIf`, and the
+  conditional forms state their own (ADR 0073, ADR 0076).
 - Tightening a key rule is a minor release below 1.0 and a major above it. Loosening one is neither.
 - A provider promised later does not narrow the parity core: what it cannot hold becomes a
   capability its adapter does not declare. Where a difference refuses that shape, as a batch size
@@ -3082,15 +3453,19 @@ that disagrees with this document is corrected without a changeset.
   - Runtimes: what the package declares, the Bun and Deno versions CI last ran green, the measured
     bundle size.
   - Limits: the capabilities the package does not declare, each beside a link into section 4.9;
-    for `adapter-fs` the 255-byte segment, NFD on APFS and the derived content type of section 6;
-    for `adapter-s3` the R2 normalization to NFC and the rows of section 7.2; for
+    for `adapter-fs` the 255-byte segment, NFD on APFS, the derived content type of section 6, and
+    `writeIfAbsent` needing a file system with hard links;
+    for `adapter-s3` the R2 normalization to NFC, `deleteIfUnchanged` missing because R2 drops the
+    precondition of a delete, the conditional `copy` on R2 resting on Cloudflare's beta
+    `cf-copy-destination-if-*` headers, and the rows of section 7.2; for
     `adapter-azure-blob` the missing `userMetadataTokenKeys`, the three refused kinds of writable
     key and the batch of 256 of section 8.1, and the rows of section 8.2; for `adapter-gcs`
     `presignedUrls` only with a `signer`, the two refused kinds of writable key and the batch of 100
     of section 9.1, the requests of `get`, up to four where a writer replaces the object, the
     metadata values that XML readers see garbled,
-    and a cursor handed to a listing of another prefix yielding an empty page, and the rows of
-    section 9.2.
+    and a cursor handed to a listing of another prefix yielding an empty page, `etag` being the
+    generation, which a change another tool makes to the content headers or user metadata alone
+    does not move, and the rows of section 9.2.
   - Notes, what a caller writes themselves: for `adapter-s3` how a connection URL is split into
     `bucket`, `region`, `endpoint` and `credentials`; for every adapter `blob.stream()` for a caller
     holding a `Blob`, and a byte counter written as a `TransformStream` in front of `put`.
@@ -3118,7 +3493,11 @@ that disagrees with this document is corrected without a changeset.
     through the Node bridge; Fastify through `reply.hijack()` and an application-wide content type
     parser behind `removeAllContentTypeParsers()`, with `maxSize` taking over from `bodyLimit`,
     which that parser switches off; Bun's
-    `maxRequestBodySize` of 128 MiB; and that the body reaches the layer unread.
+    `maxRequestBodySize` of 128 MiB; and that the body reaches the layer unread. For preconditions:
+    a check answering `428` before the call where a route demands one; a `Request` built without
+    `If-Match` and `If-None-Match` for a caller who drops them; and that a cross-origin route
+    allows `if-match` and `if-none-match` in its preflight answer and names `ETag` in
+    `Access-Control-Expose-Headers`, so that a page can send back the `ETag` it read (ADR 0075).
   - `@stowage/nestjs`: the example is `StorageModule.forRoot({ provide, storage })` and a
     controller that injects with `@Inject(token)` and answers through `@Req()`, `@Res()`,
     `webRequestOf` and `sendResponse`. Limits are empty. Notes: on Fastify
@@ -3156,7 +3535,10 @@ that disagrees with this document is corrected without a changeset.
 - The first `ts` block of the root README also runs in CI, on Node, from the packages its install
   line names, packed and installed with npm into a project outside the workspace, with `root`
   pointed at a temporary directory (ADR 0069).
-- TSDoc is written where a meaning was decided: the ten error codes, the six capability names,
+- TSDoc is written where a meaning was decided: the eleven error codes, the nine capability names,
+  `Precondition` and `onlyIf` on `PutOptions`, `CopyOptions`, `DeleteOptions`, `presignPut` and
+  the options of `acceptUpload` and `presignUpload`, the promise on `etag` of section 4.4, the
+  form of `delete` for one key,
   `retry`, `multipart`, `expiresIn`, `contentLength` on `presignPut`, the three content headers on
   `PutOptions`, on `ObjectStat`, on `presignPut` and on the options of `acceptUpload` and
   `presignUpload`, `contentEncoding`, `storedCacheControl`, the two forms of
@@ -3171,7 +3553,7 @@ that disagrees with this document is corrected without a changeset.
 
 ## 17. Non-goals
 
-v0.6 does not have, and does not promise a path to:
+v0.7 does not have, and does not promise a path to:
 
 - Bucket and container management: creating, listing or deleting them.
 - A connection URL, a connection string or any other configuration string, and a key file or a
@@ -3191,11 +3573,19 @@ v0.6 does not have, and does not promise a path to:
 - Binding the absence of a content header into a presigned upload (ADR 0063).
 - Reading a header value of 16 KiB or more that another tool stored, which Node's `fetch` fails to
   read (ADR 0059).
-- Conditional operations, versioning, object lock, tagging, storage classes, ACLs, server-managed
-  encryption, customer-supplied encryption keys, requester pays and `x-amz-checksum-*` headers; on
-  Azure Blob, append and page blobs, access tiers, snapshots, soft delete, leases, immutability
-  policies and blob index tags; on GCS, object holds, retention policies, customer-managed and
-  customer-supplied encryption keys and Autoclass.
+- Preconditions on `get` and `stat`, date-based preconditions, `If-None-Match` with a tag on a
+  write, preconditions on metadata alone such as GCS's `metageneration`, a precondition on the
+  source of `copy` or `move`, and a conditional `deleteAll` or `delete` of several keys.
+- An error code or a marker that tells a conditional write's own earlier attempt from another
+  writer's after a lost answer (ADR 0073).
+- Locks, leases and a compare-and-swap helper built on preconditions.
+- A `DELETE` helper in `@stowage/http`, and an option demanding a precondition with `428`
+  (ADR 0075).
+- Versioning, object lock, tagging, storage classes, ACLs, server-managed encryption,
+  customer-supplied encryption keys, requester pays and `x-amz-checksum-*` headers; on Azure Blob,
+  append and page blobs, access tiers, snapshots, soft delete, leases, immutability policies and
+  blob index tags; on GCS, object holds, retention policies, customer-managed and customer-supplied
+  encryption keys and Autoclass.
 - Accounts and buckets with hierarchical namespace, sovereign clouds, other universes and
   dual-region turbo replication as promised targets.
 - Chunked signing, a per-runtime hasher, and any option to skip payload signing on a request the
@@ -3232,7 +3622,19 @@ the JSON resource returning the content headers as sent, and disproved neither; 
 sections 8.9 and 9.4, as is the answer to whether Azure collapses runs of spaces in a value `srh`
 binds. Each point left here names why no run has answered it.
 
-Promises: none.
+Promises:
+
+- `adapter-azure-blob`: that a user delegation SAS with `sp=c` admits an upload onto a free key and
+  refuses one onto an existing blob with `403`, and that one naming `if-match` in `srh` admits the
+  signed `etag`, refuses a request without it or with another, and answers `412` on a blob that
+  changed (section 8.9). `sp=c` was measured under a service SAS, and `srh` only on a user
+  delegation SAS no real key signed, since no Entra token was at hand; both leave this list once the
+  scheduled run on `main` passes the presigned precondition cases against the account (ADR 0074, ADR
+  0076).
+- `adapter-s3`: that AWS and R2 admit a preflight naming `if-none-match` or `if-match` under a rule
+  that allows them, and send `Access-Control-Allow-Origin` on the `412`, as flow 2 requires.
+  Observing it takes CORS rules on both conformance buckets, which no run sets; it stays here for
+  v0.7 (ADR 0076).
 
 Recorded only, since this document already states what follows from any answer:
 

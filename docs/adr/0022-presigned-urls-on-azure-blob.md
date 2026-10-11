@@ -123,3 +123,6 @@ before the signature, and the key request falls inside it, between the server an
   place of `Content-Type` and an unsigned one overrode the bound type under a service SAS, and
   appends the `x-ms-blob-*` form of each content header the caller gives. Flow 2's CORS rule on the
   account gains each of them.
+- ADR 0074 has `presignPut` bind "absent" through the permission, `sp=c` in place of `sp=w` with
+  no header and no CORS entry, and "unchanged" by appending `if-match` to `srh`. Spec section 18
+  holds both until a scheduled run passes them under a real user delegation key.

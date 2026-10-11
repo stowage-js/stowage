@@ -139,3 +139,8 @@ needs.
   takes its full size in capacity. A copy that changes class bills retrieval of the source's bytes.
 - ADR 0034's open point on storage-testbench's multi-call `rewrite` is settled: it is not used.
   Whether its fault injection tests retries stays with the decision on provider codes.
+- ADR 0073 carries the rule for a `404` after an unanswered `objects.move` to every conditional
+  request: a `PreconditionFailed` after an attempt without a response or with a `5xx` reports that
+  earlier failure. The ambiguous `move` stays the one of an operation without a precondition.
+  ADR 0071 sends `ifGenerationMatch` on every call of `rewriteTo`, which GCS holds from the first
+  call and checks at the committing one (#448).

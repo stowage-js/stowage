@@ -135,3 +135,6 @@ failure that would repeat one.
 - `workerd` was not measured. The `308` there follows the Fetch standard as on the three runtimes
   measured, and `put/multipart` on `workerd` against the real bucket shows it on the first
   scheduled run. That run passed `put/multipart-round-trip` there.
+- ADR 0073 has the requests of a session read `412 conditionNotMet` as `PreconditionFailed`: a
+  commit its precondition refused leaves the session dead, and the cancel after an unanswered
+  commit answers `412` for it, which #448 measured.

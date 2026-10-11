@@ -80,3 +80,6 @@ which every adapter satisfies and which would take the same promise from S3's ca
   refused kinds of writable key, and the batch of 256.
 - ADR 0029 amends this: the adapter sends user metadata keys folded to lower case and hands them
   back in lower case, because `fetch` reads every header name in lower case.
+- ADR 0070 gives `delete` a form for one key, `delete(key, options)`, which takes an
+  `AbortSignal` and an optional precondition and is never part of a batch. The variadic form stays
+  as decided here, without a signal.

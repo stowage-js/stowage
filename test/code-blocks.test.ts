@@ -202,13 +202,6 @@ const blocks: CodeBlock[] = (
   await Promise.all(documents.map(async (document) => codeBlocksOf(document, await read(document))))
 ).flat();
 
-const deferredBlocks = new Set(
-  blocks.filter(
-    (block) => block.specSection !== undefined && packageOfSpecSection[block.specSection] === null,
-  ),
-);
-const compiledBlocks = blocks.filter((block) => !deferredBlocks.has(block));
-
 /** Every name a package exports, read from the declarations its build wrote. */
 async function exportsOf(name: string): Promise<string[]> {
   const declarations = await read(`packages/${name}/dist/index.d.ts`);
@@ -233,6 +226,47 @@ const declaredNamesOf = (source: string): Set<string> =>
       ),
     ].map((match) => match[1] ?? ""),
   );
+
+/**
+ * The names the spec's blocks of a package's section declare and its build does not export yet:
+ * what a release adds to a package that exists, stated before the code that implements it.
+ */
+async function pendingNamesOf(name: string): Promise<Set<string>> {
+  const exported = new Set(await exportsOf(name));
+  const stated = blocks
+    .filter(
+      (block) =>
+        block.specSection !== undefined && packageOfSpecSection[block.specSection] === name,
+    )
+    .flatMap((block) => Array.from(declaredNamesOf(block.source)));
+
+  return new Set(stated.filter((entry) => !exported.has(entry)));
+}
+
+async function awaitsImplementation(block: CodeBlock): Promise<boolean> {
+  if (block.specSection === undefined) return false;
+
+  const name = packageOfSpecSection[block.specSection];
+
+  if (name === null) return true;
+  if (name === undefined) return false;
+
+  const declared = declaredNamesOf(block.source);
+  const pending = [...(await pendingNamesOf("core")), ...(await pendingNamesOf(name))].filter(
+    (entry) => !declared.has(entry),
+  );
+
+  return pending.some((entry) => new RegExp(`\\b${entry}\\b`, "u").test(block.source));
+}
+
+const deferredBlocks = new Set(
+  (
+    await Promise.all(
+      blocks.map(async (block) => ((await awaitsImplementation(block)) ? [block] : [])),
+    )
+  ).flat(),
+);
+const compiledBlocks = blocks.filter((block) => !deferredBlocks.has(block));
 
 /**
  * A spec block states a package's surface and names the types it does not declare itself,

@@ -146,6 +146,16 @@ iteration: the pseudo-directories it produces reach the caller through a page al
 below the prefix appears once across the pages, in no promised order.
 _Avoid_: iterator, result, page
 
+**Precondition**:
+A requirement a write or a delete carries about the object under its key, checked by the provider
+as the operation takes effect: that the key holds no object, or that it still holds the object the
+caller read. A failed precondition leaves the key as it was.
+_Avoid_: lock, guard, CAS
+
+**Conditional operation**:
+A `put`, `delete`, `copy` or `move` that carries a precondition on the key it writes or deletes.
+_Avoid_: compare-and-swap, atomic write, locked write
+
 **Spec**:
 `docs/spec.md`, which states what stowage promises across every published package. A caller may
 rely on what it says and on nothing else a package happens to export. It describes the version that

@@ -88,3 +88,6 @@ the options as `responseContentDisposition`.
   coded object, a suffix of length zero included, and answers `200`, as it does on a storage
   without `rangeReads`. `Deno.serve` adds `Content-Length: 0` to a `HEAD` answered without a
   length as `Bun.serve` does, as the server alterations of v0.5 recorded for both.
+- ADR 0070 makes `etag` on `adapter-gcs` the generation, which a change another tool makes to
+  the content headers alone does not move, so `serveObject` may answer `304` to a client whose
+  cached content headers are older than the object's.
