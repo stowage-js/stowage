@@ -681,7 +681,7 @@ test("a request without `precondition` reads a doubtful `PreconditionFailed` as 
 });
 
 // Spec 7.5: R2 answers the repeat of a conditional commit that went through `NoSuchUpload`.
-test("`precondition` reads the provider codes it is also refused by as `PreconditionFailed`", async () => {
+test("`precondition` reports the doubt over the provider codes it is also refused by", async () => {
   withoutDelays();
   stubFetch((_, index) => (index === 0 ? refused(503) : refused(404, "NoSuchUpload")));
 
