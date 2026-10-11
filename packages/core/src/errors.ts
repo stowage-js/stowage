@@ -20,6 +20,10 @@ import type { CapabilityName } from "./capabilities.ts";
  *   a value out of range or a cursor it did not produce.
  * - `Unsupported`: the call needs a capability the storage does not declare; `capability`
  *   names it.
+ * - `PreconditionFailed`: the `onlyIf` of a conditional operation did not hold: the key held an
+ *   object under `"absent"`, or another object or none under `{ etag }`. Never retryable; the
+ *   key holds what it held, and `key` names the key that carried it, `to` for `copy` and
+ *   `move`.
  */
 export type StorageErrorCode =
   | "NotFound"
@@ -31,7 +35,8 @@ export type StorageErrorCode =
   | "ProviderError"
   | "InvalidKey"
   | "InvalidOption"
-  | "Unsupported";
+  | "Unsupported"
+  | "PreconditionFailed";
 
 export interface StorageErrorFields {
   readonly code: StorageErrorCode;

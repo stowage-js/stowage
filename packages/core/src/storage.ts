@@ -7,6 +7,15 @@ export interface OperationOptions {
   signal?: AbortSignal;
 }
 
+/**
+ * `"absent"`: the key holds no object. `{ etag }`: the key holds the object `etag` describes,
+ * compared as a strong validator. A string needs `writeIfAbsent` and an object
+ * `writeIfUnchanged`, else the call is `Unsupported`; an `etag` that is empty, holds anything
+ * but visible ASCII, holds `"` or starts with `W/` is `InvalidOption`. A precondition that does
+ * not hold is `PreconditionFailed`, and the key holds what it held.
+ */
+export type Precondition = "absent" | { etag: string };
+
 export interface PutOptions extends OperationOptions {
   contentType?: string;
   /**
@@ -45,6 +54,16 @@ export interface PutOptions extends OperationOptions {
    * `Unsupported` where the storage does not declare `userMetadataTokenKeys`.
    */
   userMetadata?: Record<string, string>;
+  /** Writes only where the precondition holds at the key, checked as the write takes effect. */
+  onlyIf?: Precondition;
+}
+
+export interface CopyOptions extends OperationOptions {
+  /**
+   * Applies to `to`: writes only where the precondition holds there, checked as the copy
+   * takes effect. A `move` refused at `to` deletes nothing, so `from` stays.
+   */
+  onlyIf?: Precondition;
 }
 
 /** Both ends inclusive; `end` absent means to the end of the object. */
@@ -155,6 +174,6 @@ export interface Storage {
    */
   delete(...keys: readonly string[]): Promise<DeleteReport>;
   deleteAll(prefix: string, options?: OperationOptions): Promise<DeleteReport>;
-  copy(from: string, to: string, options?: OperationOptions): Promise<ObjectStat>;
-  move(from: string, to: string, options?: OperationOptions): Promise<ObjectStat>;
+  copy(from: string, to: string, options?: CopyOptions): Promise<ObjectStat>;
+  move(from: string, to: string, options?: CopyOptions): Promise<ObjectStat>;
 }
