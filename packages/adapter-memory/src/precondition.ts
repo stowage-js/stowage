@@ -40,18 +40,18 @@ export function preconditionFailure(
   if (precondition === "absent") {
     if (held === undefined) return undefined;
 
-    return failed(`The key ${JSON.stringify(key)} holds an object`, operation, key);
+    return preconditionFailed(`The key ${JSON.stringify(key)} holds an object`, operation, key);
   }
 
   if (held?.etag === precondition.etag) return undefined;
 
-  return failed(
+  return preconditionFailed(
     `The key ${JSON.stringify(key)} holds no object the \`etag\` describes`,
     operation,
     key,
   );
 }
 
-function failed(message: string, operation: string, key: string): StorageError {
+function preconditionFailed(message: string, operation: string, key: string): StorageError {
   return memoryError({ code: "PreconditionFailed", message, operation, key, attempts: 1 });
 }

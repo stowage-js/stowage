@@ -75,12 +75,12 @@ class InMemoryStorage implements MemoryStorage {
   readonly #objects = new Map<string, MemoryObject>();
 
   async put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat> {
-    const { precondition, ...held } = await this.#accept(key, body, options);
+    const { precondition, ...described } = await this.#accept(key, body, options);
     const bytes = await readBody(body, options?.signal);
     const object: MemoryObject = {
       key,
       bytes,
-      ...held,
+      ...described,
       etag: await etagOf(bytes),
       lastModified: new Date(),
     };
