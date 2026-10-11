@@ -87,8 +87,19 @@ test("the README of @stowage/conformance names the five adapters of this reposit
 /** A section's text with its line breaks undone, so a phrase may wrap anywhere. */
 const proseOf = (section: string): string => section.replaceAll(/\s+/gu, " ");
 
-/** The READMEs count capabilities in words, as their prose does, up to eight. */
-const numberWords = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight"];
+/** The READMEs count capabilities in words, as their prose does, up to nine. */
+const numberWords = [
+  "zero",
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+  "six",
+  "seven",
+  "eight",
+  "nine",
+];
 
 test("the README of @stowage/core counts the names of `capabilityNames`", async () => {
   const limits = proseOf(sectionOf(await readmeOf(core), "Limits"));
