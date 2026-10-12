@@ -54,6 +54,14 @@ export const divergences: readonly Divergence[] = [
       "both commits succeeded in 19 of 20 measured rounds and one was refused in the twentieth, so an expected failure would pass now and then and fail the run (ADR 0076)",
     settledBy: "aws-s3",
   },
+  ...(["copy", "move"] as const).map((operation): Divergence => ({
+    case: `${operation}/if-unchanged`,
+    endpoint: "seaweedfs",
+    differs:
+      "SeaweedFS 4.48 names the destination in the `<Key>` of the `404 NoSuchKey` it answers a conditional `CopyObject` of a missing source with, where AWS names the source, so `adapter-s3` reads the missing source as the destination's refused precondition",
+    failureMessagePart: `\`${operation}\` of a missing source onto a destination whose \`etag\` holds, and the error carries \`code: "PreconditionFailed"\``,
+    settledBy: "aws-s3",
+  })),
 ];
 
 /**
