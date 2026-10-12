@@ -8,8 +8,8 @@ import {
 import type { HeaderField } from "./sign.ts";
 import { azureBlobError } from "./storage-error.ts";
 
-/** The `onlyIf` of a `delete`, the one form spec 4.3 gives it. */
-export type DeletePrecondition = Exclude<Precondition, "absent">;
+/** `onlyIf: { etag }`, on a write or on a `delete`, the one form spec 4.3 gives a `delete`. */
+export type EtagPrecondition = Exclude<Precondition, "absent">;
 
 /**
  * Spec 4.3: an `onlyIf` the storage declares no capability for, or of no form it takes, is
@@ -40,7 +40,7 @@ export function readWritePrecondition(
 ): Precondition | undefined {
   refusePrecondition(bucket, onlyIf, "write", operation, key, capabilities);
 
-  if (typeof onlyIf === "object" && onlyIf !== null) return etagOf(onlyIf);
+  if (typeof onlyIf === "object" && onlyIf !== null) return etagPreconditionOf(onlyIf);
 
   return onlyIf === "absent" ? onlyIf : undefined;
 }
@@ -51,14 +51,14 @@ export function readDeletePrecondition(
   onlyIf: unknown,
   key: string,
   capabilities: readonly CapabilityName[],
-): DeletePrecondition | undefined {
+): EtagPrecondition | undefined {
   refusePrecondition(bucket, onlyIf, "delete", "delete", key, capabilities);
 
-  return typeof onlyIf === "object" && onlyIf !== null ? etagOf(onlyIf) : undefined;
+  return typeof onlyIf === "object" && onlyIf !== null ? etagPreconditionOf(onlyIf) : undefined;
 }
 
 /** A copy of what `preconditionRefusal` checked, which the caller's object changed later leaves. */
-function etagOf(onlyIf: object): DeletePrecondition {
+function etagPreconditionOf(onlyIf: object): EtagPrecondition {
   return { etag: String(Reflect.get(onlyIf, "etag")) };
 }
 

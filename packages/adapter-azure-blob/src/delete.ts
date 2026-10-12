@@ -20,7 +20,7 @@ import type { AzureBlobConfiguration } from "./configuration.ts";
 import type { AzureBlobCredentials } from "./credentials.ts";
 import { keyRefusal } from "./key.ts";
 import { maxPageSize, walkPages } from "./listing.ts";
-import { type DeletePrecondition, preconditionHeaders, preconditionRule } from "./precondition.ts";
+import { type EtagPrecondition, preconditionHeaders, preconditionRule } from "./precondition.ts";
 import { providerError } from "./provider-code.ts";
 import { authorizeHeaders, errorMessageOf, requestPath, send } from "./request.ts";
 
@@ -74,7 +74,7 @@ export async function deleteKeys(
 export async function deleteIfUnchanged(
   configuration: AzureBlobConfiguration,
   key: string,
-  onlyIf: DeletePrecondition,
+  onlyIf: EtagPrecondition,
   signal: AbortSignal | undefined,
 ): Promise<DeleteReport> {
   const operation = "delete";
@@ -82,7 +82,7 @@ export async function deleteIfUnchanged(
 
   if (refusal !== undefined) return { requested: 1, failed: [refusal] };
 
-  let lastRefusal: StorageErrorCode | undefined;
+  let lastFailureRead: StorageErrorCode | undefined;
 
   try {
     const response = await send(configuration, {
@@ -93,7 +93,7 @@ export async function deleteIfUnchanged(
       signal,
       precondition: preconditionRule(onlyIf),
       onRefusal: (reading) => {
-        lastRefusal = reading.code;
+        lastFailureRead = reading.code;
       },
     });
 
@@ -105,7 +105,7 @@ export async function deleteIfUnchanged(
 
     // ADR 0073: a refusal after an attempt without a response or with a `5xx` arrives as that
     // attempt's failure, and is the key's entry all the same.
-    if (lastRefusal === "PreconditionFailed" || !failsWholeRequest(failure)) {
+    if (lastFailureRead === "PreconditionFailed" || !failsWholeRequest(failure)) {
       return { requested: 1, failed: [failure] };
     }
 

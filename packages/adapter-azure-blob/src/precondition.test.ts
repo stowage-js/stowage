@@ -694,34 +694,41 @@ test("a conditional `delete` in a missing container rejects with `NotFound` with
 });
 
 // Spec 4.7 and ADR 0073: whether this call deleted the object is open, and the entry says so.
-test.each([
-  ["no response", noResponse, { code: "NetworkError" }],
-  [
-    "a `503`",
-    () => refused(503, "ServerBusy", "The server is busy."),
-    { code: "ProviderError", status: 503, providerCode: "ServerBusy" },
-  ],
-] as const)(
-  "a conditional `delete` refused after %s reports that failure as the key's entry",
-  async (_, first, reported) => {
+test.each(
+  (
+    [
+      ["no response", noResponse, { code: "NetworkError" }],
+      [
+        "a `503`",
+        () => refused(503, "ServerBusy", "The server is busy."),
+        { code: "ProviderError", status: 503, providerCode: "ServerBusy" },
+      ],
+    ] as const
+  ).flatMap(([first, answer, reported]) =>
+    (
+      [
+        ["`412 ConditionNotMet`", conditionNotMet],
+        ["`404 BlobNotFound`", blobNotFound],
+      ] as const
+    ).map(([refusal, refuse]) => [refusal, first, answer, refuse, reported] as const),
+  ),
+)(
+  "a conditional `delete` refused with %s after %s reports that failure as the key's entry",
+  async (_refusal, _first, answer, refuse, reported) => {
     immediateRetries();
+    stubFetch(answeringInTurn(answer, refuse));
 
-    for (const refusal of [conditionNotMet, blobNotFound]) {
-      stubFetch(answeringInTurn(first, refusal));
+    const report = await storage().delete("object.txt", { onlyIf: { etag } });
 
-      // oxlint-disable-next-line no-await-in-loop -- one stubbed provider at a time
-      const report = await storage().delete("object.txt", { onlyIf: { etag } });
-
-      expect(report.requested).toBe(1);
-      expect(report.failed).toHaveLength(1);
-      expect(report.failed[0]).toMatchObject({
-        ...reported,
-        operation: "delete",
-        key: "object.txt",
-        retryable: true,
-        attempts: 2,
-      });
-    }
+    expect(report.requested).toBe(1);
+    expect(report.failed).toHaveLength(1);
+    expect(report.failed[0]).toMatchObject({
+      ...reported,
+      operation: "delete",
+      key: "object.txt",
+      retryable: true,
+      attempts: 2,
+    });
   },
 );
 
