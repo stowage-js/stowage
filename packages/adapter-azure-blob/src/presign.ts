@@ -74,7 +74,7 @@ export interface AzureBlobPresignPutOptions {
   /**
    * Checked as `put` checks it, before the user delegation key is requested. `"absent"` is
    * bound through the permission, `sp=c` in place of `sp=w`, so an upload onto a key that
-   * holds a blob is refused with `403` and neither `srh` nor `headers` changes (ADR 0074).
+   * holds an object is refused with `403` and neither `srh` nor `headers` changes (ADR 0074).
    * `{ etag }` is `Unsupported`, since the storage does not declare `writeIfUnchanged`.
    */
   onlyIf?: Precondition;
