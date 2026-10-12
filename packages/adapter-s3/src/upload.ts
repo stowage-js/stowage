@@ -11,8 +11,13 @@ import { type AnsweredRequest, readAnswerDocument, textOf } from "./answer-docum
 import type { HeaderField } from "./canonical.ts";
 import type { S3Configuration } from "./configuration.ts";
 import type { ContentHeaderFields } from "./content-headers.ts";
-import { describeWrite, unquotedEtag, type WrittenObject } from "./description.ts";
-import { preconditionHeaders, preconditionRule, type WritePrecondition } from "./precondition.ts";
+import { describeWrite, type WrittenObject } from "./description.ts";
+import {
+  missingKeyRefusal,
+  preconditionHeaders,
+  preconditionRule,
+  type WritePrecondition,
+} from "./precondition.ts";
 import { send } from "./request.ts";
 import { s3Error } from "./storage-error.ts";
 import type { UserMetadataHeaders } from "./user-metadata.ts";
@@ -63,6 +68,7 @@ export async function putObject(
     body: bytes,
     signal: write.signal,
     precondition: preconditionRule(write.onlyIf),
+    refusedByMissing: missingKeyRefusal(write.onlyIf),
   });
 
   await response.body?.cancel();
@@ -211,6 +217,7 @@ async function completeUpload(
       repeatWithoutResponse: false,
       // Spec 7.5: R2 answers the repeat of a commit that went through `NoSuchUpload`.
       precondition: preconditionRule(write.onlyIf, ["NoSuchUpload"]),
+      refusedByMissing: missingKeyRefusal(write.onlyIf),
     });
     document = await readAnswerDocument(
       answeredRequest(configuration, write, "the completion of the upload"),
@@ -223,13 +230,11 @@ async function completeUpload(
     throw failure;
   }
 
-  const etag = textOf(document, "ETag");
-
   return describeWrite(
     configuration.bucket,
     writtenObject(write, size),
     response,
-    etag === undefined ? undefined : unquotedEtag(etag),
+    textOf(document, "ETag"),
   );
 }
 

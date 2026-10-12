@@ -57,9 +57,9 @@ export interface S3PresignPutOptions {
   contentLanguage?: string;
   /**
    * Checked as `put` checks it. `"absent"` is signed as `If-None-Match: *` and handed back as
-   * `if-none-match`, so an upload without it or onto a key that holds an object writes nothing
-   * (ADR 0074). `{ etag }` is `Unsupported` before anything is signed, since the storage does
-   * not declare `writeIfUnchanged`.
+   * `if-none-match`, `{ etag }` as `If-Match` with the `etag` quoted and handed back as
+   * `if-match`, so an upload without it, onto a key that holds an object or onto one that
+   * changed writes nothing (ADR 0074).
    */
   onlyIf?: Precondition;
 }

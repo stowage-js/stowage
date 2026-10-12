@@ -35,6 +35,11 @@ export interface S3Request {
    * response or with a `5xx` is that attempt's failure (spec 7.5, ADR 0073).
    */
   readonly precondition?: PreconditionRule;
+  /**
+   * Set on a request under `onlyIf: { etag }`: whether a `NoSuchKey` naming `named` in its
+   * `<Key>` is the precondition's refusal rather than a missing key (spec 7.9).
+   */
+  readonly refusedByMissing?: (named: string | undefined) => boolean;
   /** Told when an attempt is signed under a credential resolved with `forceRefresh: true`. */
   readonly onRefresh?: () => void;
 }
@@ -167,8 +172,11 @@ function readFailure(request: S3Request, answer: RefusedAnswer): FailureReading 
     underRefreshedCredential: answer.refreshed,
   });
 
+  const refusedByMissing =
+    document.code === "NoSuchKey" && request.refusedByMissing?.(document.key) === true;
+
   return {
-    code: failure.code,
+    code: refusedByMissing ? "PreconditionFailed" : failure.code,
     message: failure.message,
     // Spec 4.10: an unset `key` is what tells a missing bucket from a missing object, which
     // share the code `NotFound` (ADR 0043).

@@ -7,6 +7,7 @@ import { describeResponse } from "./description.ts";
 import { sendHead } from "./head.ts";
 import {
   copyPreconditionHeaders,
+  missingKeyRefusal,
   preconditionRule,
   type WritePrecondition,
 } from "./precondition.ts";
@@ -50,9 +51,15 @@ export async function copyObject(
     ],
     signal,
     precondition: preconditionRule(onlyIf),
+    refusedByMissing: missingKeyRefusal(onlyIf, to),
   }).catch((failure: unknown) => {
-    // The request addresses the destination, and the key it did not find is the source.
-    if (isStorageError(failure) && failure.providerCode === "NoSuchKey") {
+    // The request addresses the destination, and a key it did not find that refused no
+    // precondition is the source.
+    if (
+      isStorageError(failure) &&
+      failure.code === "NotFound" &&
+      failure.providerCode === "NoSuchKey"
+    ) {
       throw inStorage(failure, bucket, operation, from);
     }
 

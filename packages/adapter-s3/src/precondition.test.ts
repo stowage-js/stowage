@@ -82,12 +82,24 @@ test('`put` with `onlyIf: "absent"` sends `If-None-Match: *` on `PutObject`, sig
   expect(signedHeadersOf(sent[0])).toContain("if-none-match");
 });
 
+test("`put` with `onlyIf: { etag }` sends `If-Match` with the `etag` quoted, signed", async () => {
+  const sent = stubFetch(accepted);
+
+  await s3Storage(options()).put("object.txt", "body", { onlyIf: { etag: "abc" } });
+
+  expect(sent).toHaveLength(1);
+  expect(sent[0]?.headers.get("if-match")).toBe('"abc"');
+  expect(sent[0]?.headers.has("if-none-match")).toBe(false);
+  expect(signedHeadersOf(sent[0])).toContain("if-match");
+});
+
 test("`put` without `onlyIf` sends no precondition", async () => {
   const sent = stubFetch(accepted);
 
   await s3Storage(options()).put("object.txt", "body");
 
   expect(sent[0]?.headers.has("if-none-match")).toBe(false);
+  expect(sent[0]?.headers.has("if-match")).toBe(false);
 });
 
 /** The error document a provider answers every failed request but a `HEAD` with. */
@@ -148,6 +160,37 @@ test("`ConditionalRequestConflict` is `PreconditionFailed`", async () => {
   });
 });
 
+/** AWS's `404` for a key that holds no object, whose `<Key>` names it where given. */
+function noSuchKey(key?: string): Response {
+  const named = key === undefined ? "" : `<Key>${key}</Key>`;
+
+  return new Response(
+    `<?xml version="1.0" encoding="UTF-8"?>\n<Error><Code>NoSuchKey</Code><Message>The specified key does not exist.</Message>${named}<RequestId>abc</RequestId></Error>`,
+    { status: 404, headers: { "content-type": "application/xml", "x-amz-request-id": "abc" } },
+  );
+}
+
+// Spec 7.9 and ADR 0071: AWS answers "unchanged" against a key that holds no object with
+// `404`, where R2 answers `412`.
+test("`put` under `onlyIf: { etag }` answered `NoSuchKey` is `PreconditionFailed`", async () => {
+  const sent = stubFetch(() => noSuchKey("object.txt"));
+
+  const failure = await rejection(() =>
+    s3Storage(options()).put("object.txt", "body", { onlyIf: { etag: "abc" } }),
+  );
+
+  expect(failure).toMatchObject({
+    code: "PreconditionFailed",
+    operation: "put",
+    key: "object.txt",
+    status: 404,
+    providerCode: "NoSuchKey",
+    retryable: false,
+    attempts: 1,
+  });
+  expect(sent).toHaveLength(1);
+});
+
 /** A provider that answers the attempts in turn, the last answer standing for every later one. */
 function answeringInTurn(...answers: readonly (() => Response)[]): Answer {
   let attempt = 0;
@@ -187,6 +230,30 @@ test.each([
     expect(sent).toHaveLength(2);
   },
 );
+
+// Spec 4.10: AWS's `NoSuchKey` under `{ etag }` is a refusal as a `412` is, so after a `5xx` it
+// carries that attempt's doubt.
+test("a `PutObject` under `onlyIf: { etag }` answered `NoSuchKey` after a `503` rejects with the `503`", async () => {
+  immediateRetries();
+
+  stubFetch(
+    answeringInTurn(
+      () => refused(503, "SlowDown"),
+      () => noSuchKey("object.txt"),
+    ),
+  );
+
+  const failure = await rejection(() =>
+    s3Storage(options()).put("object.txt", "body", { onlyIf: { etag: "abc" } }),
+  );
+
+  expect(failure).toMatchObject({
+    code: "ProviderError",
+    status: 503,
+    retryable: true,
+    attempts: 2,
+  });
+});
 
 test.each([
   ["a `408`", () => refused(408, "RequestTimeout")],
@@ -283,29 +350,38 @@ function multipartStorage(): ReturnType<typeof s3Storage> {
   return s3Storage(options({ multipart: { partSize: smallestPart } }));
 }
 
+/** Each form of `onlyIf` on a write, with the header it travels as and that header's value. */
+const writePreconditions = [
+  ["absent", "if-none-match", "*"],
+  [{ etag: "abc" }, "if-match", '"abc"'],
+] as const;
+
 // Spec 7.4: AWS ignores a precondition on `CreateMultipartUpload` and refuses one on
 // `UploadPart`, and R2 checks one at the start without carrying it to the commit.
-test("a conditional multipart upload sends `If-None-Match: *` on its commit alone", async () => {
-  const sent = stubFetch(multipartProvider());
+test.each(writePreconditions)(
+  "a multipart upload under `onlyIf: %o` sends `%s` on its commit alone",
+  async (onlyIf, header, value) => {
+    const sent = stubFetch(multipartProvider());
 
-  const written = await multipartStorage().put("object.bin", twoParts(), { onlyIf: "absent" });
+    const written = await multipartStorage().put("object.bin", twoParts(), { onlyIf });
 
-  expect(written.etag).toBe("assembled-2");
+    expect(written.etag).toBe("assembled-2");
 
-  const complete = sent.find((request) => stepOf(request) === "complete");
+    const complete = sent.find((request) => stepOf(request) === "complete");
 
-  expect(complete?.headers.get("if-none-match")).toBe("*");
-  expect(signedHeadersOf(complete)).toContain("if-none-match");
-  expect(
-    sent
-      .filter((request) => stepOf(request) !== "complete")
-      .map((request) => [stepOf(request), request.headers.has("if-none-match")]),
-  ).toEqual([
-    ["create", false],
-    ["part", false],
-    ["part", false],
-  ]);
-});
+    expect(complete?.headers.get(header)).toBe(value);
+    expect(signedHeadersOf(complete)).toContain(header);
+    expect(
+      sent
+        .filter((request) => stepOf(request) !== "complete")
+        .map((request) => [stepOf(request), request.headers.has(header)]),
+    ).toEqual([
+      ["create", false],
+      ["part", false],
+      ["part", false],
+    ]);
+  },
+);
 
 // Spec 7.6: AWS keeps a refused upload open, and a later commit without the header would
 // commit it.
@@ -326,6 +402,24 @@ test("a commit its precondition refused aborts the upload without the caller's s
 
   expect(abort?.signal).toBeUndefined();
   expect(abort?.headers.has("if-none-match")).toBe(false);
+});
+
+test("a commit under `onlyIf: { etag }` answered `NoSuchKey` is refused and aborts the upload", async () => {
+  const sent = stubFetch(multipartProvider({ complete: () => noSuchKey("object.bin") }));
+
+  const failure = await rejection(() =>
+    multipartStorage().put("object.bin", twoParts(), { onlyIf: { etag: "abc" } }),
+  );
+
+  expect(failure).toMatchObject({
+    code: "PreconditionFailed",
+    key: "object.bin",
+    status: 404,
+    providerCode: "NoSuchKey",
+    attempts: 1,
+  });
+  expect(sent.map(stepOf).slice(-2)).toEqual(["complete", "abort"]);
+  expect(sent.at(-1)?.headers.has("if-match")).toBe(false);
 });
 
 // The refusal says the commit did not happen, whenever the caller's signal fired.
@@ -464,26 +558,31 @@ function copyingProvider(request: SentRequest): Response {
 }
 
 // Spec 7.8: AWS holds the one set and R2 the other, each ignoring the set it does not hold.
-test.each(["copy", "move"] as const)(
-  '`%s` with `onlyIf: "absent"` sends both sets of the precondition on `CopyObject`, signed',
-  async (operation) => {
+test.each(
+  (["copy", "move"] as const).flatMap((operation) =>
+    writePreconditions.map(
+      ([onlyIf, header, value]) => [operation, onlyIf, header, value] as const,
+    ),
+  ),
+)(
+  "`%s` with `onlyIf: %o` sends `%s` and its `cf-copy-destination-` twin on `CopyObject`, signed",
+  async (operation, onlyIf, header, value) => {
     const sent = stubFetch(copyingProvider);
+    const twin = `cf-copy-destination-${header}`;
 
-    await s3Storage(options())[operation]("from.txt", "to.txt", { onlyIf: "absent" });
+    await s3Storage(options())[operation]("from.txt", "to.txt", { onlyIf });
 
     const copy = sent[0];
 
     expect(copy?.method).toBe("PUT");
-    expect(copy?.headers.get("if-none-match")).toBe("*");
-    expect(copy?.headers.get("cf-copy-destination-if-none-match")).toBe("*");
-    expect(signedHeadersOf(copy)).toEqual(
-      expect.arrayContaining(["if-none-match", "cf-copy-destination-if-none-match"]),
-    );
+    expect(copy?.headers.get(header)).toBe(value);
+    expect(copy?.headers.get(twin)).toBe(value);
+    expect(signedHeadersOf(copy)).toEqual(expect.arrayContaining([header, twin]));
 
     // The `HEAD` that describes the destination, and the `DELETE` of the source of a `move`.
     for (const request of sent.slice(1)) {
-      expect(request.headers.has("if-none-match")).toBe(false);
-      expect(request.headers.has("cf-copy-destination-if-none-match")).toBe(false);
+      expect(request.headers.has(header)).toBe(false);
+      expect(request.headers.has(twin)).toBe(false);
     }
   },
 );
@@ -493,8 +592,14 @@ test("an unconditional `copy` sends neither set", async () => {
 
   await s3Storage(options()).copy("from.txt", "to.txt");
 
-  expect(sent[0]?.headers.has("if-none-match")).toBe(false);
-  expect(sent[0]?.headers.has("cf-copy-destination-if-none-match")).toBe(false);
+  for (const header of [
+    "if-none-match",
+    "cf-copy-destination-if-none-match",
+    "if-match",
+    "cf-copy-destination-if-match",
+  ]) {
+    expect(sent[0]?.headers.has(header)).toBe(false);
+  }
 });
 
 test.each(["copy", "move"] as const)(
@@ -516,6 +621,50 @@ test.each(["copy", "move"] as const)(
     expect(sent.map((request) => request.method)).toEqual(["PUT"]);
   },
 );
+
+// Spec 7.8 and ADR 0071: AWS answers a missing source and a missing destination under
+// `If-Match` with the same `404 NoSuchKey`, and only `<Key>` names which. With both missing
+// it names the destination, whose precondition it checks first.
+test.each(
+  (["copy", "move"] as const).flatMap((operation) =>
+    [
+      ["names `to`, as with both keys missing", "PreconditionFailed", "to.txt", "to.txt"],
+      ["names `from`", "NotFound", "from.txt", "from.txt"],
+      ["names no key", "NotFound", "from.txt", undefined],
+    ].map(([answer, code, against, named]) => [operation, answer, code, against, named] as const),
+  ),
+)(
+  "`%s` under `onlyIf: { etag }` answered `NoSuchKey` that %s is `%s` against `%s`",
+  async (operation, _, code, against, named) => {
+    const sent = stubFetch(() => noSuchKey(named));
+
+    const failure = await rejection(() =>
+      s3Storage(options())[operation]("from.txt", "to.txt", { onlyIf: { etag: "abc" } }),
+    );
+
+    expect(failure).toMatchObject({
+      code,
+      operation,
+      key: against,
+      status: 404,
+      providerCode: "NoSuchKey",
+      retryable: false,
+      attempts: 1,
+    });
+    expect(sent.map((request) => request.method)).toEqual(["PUT"]);
+  },
+);
+
+// Only "unchanged" turns a missing key into a refusal; under "absent" a missing key is the source.
+test('`copy` under `onlyIf: "absent"` answered `NoSuchKey` naming `to` is the missing source', async () => {
+  stubFetch(() => noSuchKey("to.txt"));
+
+  const failure = await rejection(() =>
+    s3Storage(options()).copy("from.txt", "to.txt", { onlyIf: "absent" }),
+  );
+
+  expect(failure).toMatchObject({ code: "NotFound", key: "from.txt" });
+});
 
 test("a conditional `CopyObject` refused after no response rejects with that failure", async () => {
   immediateRetries();
@@ -629,4 +778,77 @@ test("a conditional `move` whose delete failed is refused when repeated, and `de
 
   expect(report).toMatchObject({ requested: 1, failed: [] });
   expect([...bucket.held]).toEqual(["to.txt"]);
+});
+
+/** `answer` with its `ETag` header taken out, and with `body` in place of its own where given. */
+function withoutEtag(answer: () => Response, body?: string): () => Response {
+  return () => {
+    const response = answer();
+    const headers = new Headers(response.headers);
+
+    headers.delete("etag");
+
+    return new Response(body ?? response.body, { status: response.status, headers });
+  };
+}
+
+/** The `ProviderError` an answer without the `etag` spec 4.4 promises is reported as. */
+function missingEtag(operation: string, key: string): object {
+  return {
+    code: "ProviderError",
+    operation,
+    key,
+    message: expect.stringContaining("no entity tag"),
+  };
+}
+
+// Spec 7.4 and ADR 0071: with `writeIfUnchanged` declared, spec 4.4 promises an `etag` on
+// every description, so an answer that feeds one without it is reported, not described.
+test("a `PutObject` answered without `ETag` is a `ProviderError`", async () => {
+  stubFetch(withoutEtag(accepted));
+
+  const failure = await rejection(() => s3Storage(options()).put("object.txt", "body"));
+
+  expect(failure).toMatchObject(missingEtag("put", "object.txt"));
+});
+
+test("a `CompleteMultipartUpload` answered without `ETag` is a `ProviderError`", async () => {
+  const sent = stubFetch(
+    multipartProvider({
+      complete: () =>
+        xmlAnswer(
+          `<CompleteMultipartUploadResult xmlns="${s3Namespace}"><Key>object.bin</Key></CompleteMultipartUploadResult>`,
+        ),
+    }),
+  );
+
+  const failure = await rejection(() => multipartStorage().put("object.bin", twoParts()));
+
+  expect(failure).toMatchObject(missingEtag("put", "object.bin"));
+  // The commit went through, so there is no upload left to abort.
+  expect(sent.map(stepOf)).not.toContain("abort");
+});
+
+test.each(["copy", "move"] as const)(
+  "`%s` whose destination is described without `ETag` is a `ProviderError`",
+  async (operation) => {
+    stubFetch((request) =>
+      request.method === "HEAD" ? withoutEtag(copiedStat)() : copyingProvider(request),
+    );
+
+    const failure = await rejection(() => s3Storage(options())[operation]("from.txt", "to.txt"));
+
+    expect(failure).toMatchObject(missingEtag(operation, "to.txt"));
+  },
+);
+
+test.each([
+  ["stat", (storage: ReturnType<typeof s3Storage>) => storage.stat("object.txt")],
+  ["get", (storage: ReturnType<typeof s3Storage>) => storage.get("object.txt")],
+] as const)("`%s` answered without `ETag` is a `ProviderError`", async (operation, call) => {
+  stubFetch(withoutEtag(copiedStat, operation === "get" ? "body" : undefined));
+
+  const failure = await rejection(() => call(s3Storage(options())));
+
+  expect(failure).toMatchObject(missingEtag(operation, "object.txt"));
 });

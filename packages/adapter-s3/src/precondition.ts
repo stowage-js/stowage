@@ -4,9 +4,8 @@ import type { HeaderField } from "./canonical.ts";
 import { s3Error } from "./storage-error.ts";
 
 /**
- * Spec 4.3: an `onlyIf` the storage declares no capability for, `{ etag }` on a write and every
- * one on a `delete`, is refused before anything is sent or signed, against the key that
- * carries it.
+ * Spec 4.3: an `onlyIf` the storage declares no capability for, every one on a `delete`, is
+ * refused before anything is sent or signed, against the key that carries it.
  */
 export function refusePrecondition(
   bucket: string,
@@ -23,11 +22,8 @@ export function refusePrecondition(
   throw s3Error(bucket, { ...refusal, operation, key, attempts: 0 });
 }
 
-/**
- * The precondition a write carries. `"absent"` alone, since the storage does not declare
- * `writeIfUnchanged` and `refusePrecondition` refuses an `etag`.
- */
-export type WritePrecondition = "absent";
+/** The precondition a write carries, of a form `refusePrecondition` let through. */
+export type WritePrecondition = "absent" | { readonly etag: string };
 
 /** Spec 4.3: the `onlyIf` of a write refused or read, before anything is sent or signed. */
 export function readWritePrecondition(
@@ -39,25 +35,49 @@ export function readWritePrecondition(
 ): WritePrecondition | undefined {
   refusePrecondition(bucket, onlyIf, "write", operation, key, capabilities);
 
+  if (typeof onlyIf === "object" && onlyIf !== null) {
+    return { etag: String(Reflect.get(onlyIf, "etag")) };
+  }
+
   return onlyIf === "absent" ? onlyIf : undefined;
 }
 
-/** Spec 7.4: `"absent"` travels as `If-None-Match: *`, signed as every header is. */
+/**
+ * Spec 7.4: `"absent"` travels as `If-None-Match: *`, `{ etag }` as `If-Match` with the `etag`
+ * quoted as a strong tag, signed as every header is.
+ */
 export function preconditionHeaders(onlyIf: WritePrecondition | undefined): HeaderField[] {
-  return onlyIf === "absent" ? [["if-none-match", "*"]] : [];
+  if (onlyIf === undefined) return [];
+  if (onlyIf === "absent") return [["if-none-match", "*"]];
+
+  return [["if-match", `"${onlyIf.etag}"`]];
 }
 
 /**
  * Spec 7.8: the precondition of a copy's destination, sent twice. R2 ignores `If-None-Match`
- * there and holds `cf-copy-destination-if-none-match`, which AWS ignores in turn (ADR 0071).
+ * and `If-Match` there and holds their `cf-copy-destination-` twins, which AWS ignores in
+ * turn (ADR 0071).
  */
 export function copyPreconditionHeaders(onlyIf: WritePrecondition | undefined): HeaderField[] {
-  return onlyIf === "absent"
-    ? [
-        ["if-none-match", "*"],
-        ["cf-copy-destination-if-none-match", "*"],
-      ]
-    : [];
+  return preconditionHeaders(onlyIf).flatMap(([name, value]): HeaderField[] => [
+    [name, value],
+    [`cf-copy-destination-${name}`, value],
+  ]);
+}
+
+/**
+ * Spec 7.9: AWS answers `If-Match` against a key that holds no object with `404 NoSuchKey`,
+ * which is the precondition's refusal. On `CopyObject` the same answer reports a missing
+ * source, and only a `<Key>` naming `destination` is the refusal (ADR 0071).
+ */
+export function missingKeyRefusal(
+  onlyIf: WritePrecondition | undefined,
+  destination?: string,
+): ((named: string | undefined) => boolean) | undefined {
+  if (typeof onlyIf !== "object") return undefined;
+  if (destination === undefined) return () => true;
+
+  return (named) => named === destination;
 }
 
 /**

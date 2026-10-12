@@ -177,6 +177,7 @@ test("it names the provider, the bucket and what it declares", () => {
     "userMetadata",
     "userMetadataTokenKeys",
     "writeIfAbsent",
+    "writeIfUnchanged",
   ]);
 });
 
@@ -391,6 +392,7 @@ function bodyBreakingPartway(failure: unknown): Response {
       headers: {
         "content-length": "1024",
         "last-modified": "Sun, 30 Aug 2015 12:36:00 GMT",
+        etag: '"stored"',
         "x-amz-request-id": "broken-request",
       },
     },
@@ -1228,6 +1230,7 @@ test("a ranged `get` asks for the bytes and reports the size of the whole object
           "content-length": "4",
           "content-range": "bytes 100-103/1024",
           "last-modified": "Sun, 30 Aug 2015 12:36:00 GMT",
+          etag: '"stored"',
         },
       }),
   );
@@ -1249,6 +1252,7 @@ test("a range without an end asks for the rest of the object", async () => {
           "content-length": "1",
           "content-range": "bytes 1023-1023/1024",
           "last-modified": "Sun, 30 Aug 2015 12:36:00 GMT",
+          etag: '"stored"',
         },
       }),
   );
@@ -1332,6 +1336,7 @@ test.each([["bytes 0-3"], ["bytes 0-3/*"], ["items 0-3/4"], [undefined]])(
           headers: {
             "content-length": "4",
             "last-modified": "Sun, 30 Aug 2015 12:36:00 GMT",
+            etag: '"stored"',
             ...(contentRange === undefined ? {} : { "content-range": contentRange }),
           },
         }),
@@ -1356,6 +1361,7 @@ function codedPart(coding: string, body: BodyInit = "0123"): Response {
       "content-range": "bytes 2-5/39",
       "content-encoding": coding,
       "last-modified": "Sun, 30 Aug 2015 12:36:00 GMT",
+      etag: '"stored"',
       "x-amz-request-id": "coded-request",
     },
   });
@@ -1369,6 +1375,7 @@ function codedWhole(coding: string, body: BodyInit = "x".repeat(39)): Response {
       "content-length": "39",
       "content-encoding": coding,
       "last-modified": "Sun, 30 Aug 2015 12:36:00 GMT",
+      etag: '"stored"',
       "x-amz-request-id": "coded-request",
     },
   });
@@ -1503,25 +1510,24 @@ test("an unknown option is refused by name before any request", async () => {
   expect(sent).toHaveLength(0);
 });
 
-// Until the adapter declares `writeIfUnchanged`, spec 4.3 refuses `onlyIf: { etag }` before
-// any request, naming the capability its form needs.
+// Spec 4.3: a weak tag is no `etag` of the form `onlyIf` takes, refused before any request.
 test.each([
-  ["put", (storage: S3Storage) => storage.put("to.txt", "body", { onlyIf: { etag: "abc" } })],
-  ["copy", (storage: S3Storage) => storage.copy("from.txt", "to.txt", { onlyIf: { etag: "abc" } })],
-  ["move", (storage: S3Storage) => storage.move("from.txt", "to.txt", { onlyIf: { etag: "abc" } })],
+  ["put", (storage: S3Storage) => storage.put("to.txt", "body", { onlyIf: { etag: "W/abc" } })],
+  [
+    "copy",
+    (storage: S3Storage) => storage.copy("from.txt", "to.txt", { onlyIf: { etag: "W/abc" } }),
+  ],
+  [
+    "move",
+    (storage: S3Storage) => storage.move("from.txt", "to.txt", { onlyIf: { etag: "W/abc" } }),
+  ],
 ] as const)(
-  "`%s` refuses `onlyIf: { etag }` as `Unsupported` naming `writeIfUnchanged` before any request",
+  "`%s` refuses `onlyIf` naming a weak tag as `InvalidOption` before any request",
   async (operation, call) => {
     const sent = stubFetch(accepted);
     const failure = await rejection(async () => await call(s3Storage(options())));
 
-    expect(failure).toMatchObject({
-      code: "Unsupported",
-      capability: "writeIfUnchanged",
-      operation,
-      key: "to.txt",
-      attempts: 0,
-    });
+    expect(failure).toMatchObject({ code: "InvalidOption", operation, key: "to.txt", attempts: 0 });
     expect(sent).toHaveLength(0);
   },
 );

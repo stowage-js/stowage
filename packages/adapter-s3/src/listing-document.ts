@@ -113,7 +113,14 @@ function readEntry(answer: ListingAnswer, entry: XmlElement, readName: NameReade
     throw malformed(answer, `the object under ${JSON.stringify(key)} with no last-modified time`);
   }
 
-  return { key, size, lastModified: new Date(lastModified), etag: etagOf(textOf(entry, "ETag")) };
+  const etag = etagOf(textOf(entry, "ETag"));
+
+  // Spec 7.4: promised by spec 4.4 since the adapter declares `writeIfUnchanged`.
+  if (etag === undefined) {
+    throw malformed(answer, `the object under ${JSON.stringify(key)} with no entity tag`);
+  }
+
+  return { key, size, lastModified: new Date(lastModified), etag };
 }
 
 const decimalDigits = /^\d+$/u;
@@ -127,9 +134,9 @@ function sizeOf(text: string | undefined): number | undefined {
 }
 
 function etagOf(text: string | undefined): string | undefined {
-  if (text === undefined || text === "") return undefined;
+  const etag = unquotedEtag(text ?? "");
 
-  return unquotedEtag(text);
+  return etag === "" ? undefined : etag;
 }
 
 /**
