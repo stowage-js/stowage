@@ -111,9 +111,11 @@ export async function acceptUpload(
     return refused === undefined ? answerFor(thrown) : refusal(refused);
   }
 
-  // ADR 0075: a write under `{ etag }` replaced an object for certain, which RFC 9110 9.3.4
-  // answers `204`; telling a replacement apart otherwise would take a `stat` that races it.
-  return storedAnswer(stat, typeof onlyIf === "object" ? 204 : 201);
+  // ADR 0075: telling a replacement apart without `{ etag }` would take a `stat` that races
+  // the upload, so only that write answers RFC 9110 9.3.4's `204`.
+  const replaced = typeof onlyIf === "object";
+
+  return storedAnswer(stat, replaced ? 204 : 201);
 }
 
 function isIdentity(contentEncoding: string | null): boolean {

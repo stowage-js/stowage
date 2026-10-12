@@ -17,7 +17,7 @@ export type UploadPrecondition =
   | { readonly refusal: 400 | 412 | 501 };
 
 /** A field of entity tags as the request carries it. */
-type TagField = "absent" | "*" | readonly EntityTag[] | "malformed";
+type TagField = "unsent" | "*" | readonly EntityTag[] | "malformed";
 
 /**
  * Spec 10.5: the one `onlyIf` that satisfies the caller's `onlyIf` and the request's
@@ -45,7 +45,7 @@ export function uploadPreconditionOf(
   const absent = ifNoneMatch === "*";
   // RFC 9110 13.2.2 evaluates `If-Unmodified-Since` only without `If-Match`.
   const unmodifiedSince =
-    ifMatch === "absent" && httpDateOf(headers.get("if-unmodified-since") ?? "") !== undefined;
+    ifMatch === "unsent" && httpDateOf(headers.get("if-unmodified-since") ?? "") !== undefined;
   // Holding these would take a `stat` in front of the write, the race a precondition exists
   // to close, and dropping them would write where the client asked not to (ADR 0075).
   const inexpressible =
@@ -56,12 +56,12 @@ export function uploadPreconditionOf(
   // value the client chose.
   const unsupported =
     (absent && !capabilities.includes("writeIfAbsent")) ||
-    (ifMatch !== "absent" && !capabilities.includes("writeIfUnchanged"));
+    (ifMatch !== "unsent" && !capabilities.includes("writeIfUnchanged"));
 
   if (inexpressible || unsupported) return { refusal: 501 };
 
   if (absent || onlyIf === "absent") {
-    const contradicted = ifMatch !== "absent" || callerEtag !== undefined;
+    const contradicted = ifMatch !== "unsent" || callerEtag !== undefined;
 
     return contradicted ? { refusal: 412 } : { onlyIf: "absent" };
   }
@@ -75,7 +75,7 @@ export function uploadPreconditionOf(
 }
 
 function tagFieldOf(field: string | null): TagField {
-  if (field === null) return "absent";
+  if (field === null) return "unsent";
   if (field === "*") return "*";
 
   return entityTagsOf(field) ?? "malformed";
