@@ -7,7 +7,7 @@ import {
 } from "@stowage/core";
 
 import { textOf } from "./answer-document.ts";
-import { unquotedEtag } from "./description.ts";
+import { readEtag } from "./description.ts";
 import { s3Error } from "./storage-error.ts";
 
 /** The response a listing document came in, which a failure to read it is told against. */
@@ -113,9 +113,8 @@ function readEntry(answer: ListingAnswer, entry: XmlElement, readName: NameReade
     throw malformed(answer, `the object under ${JSON.stringify(key)} with no last-modified time`);
   }
 
-  const etag = etagOf(textOf(entry, "ETag"));
+  const etag = readEtag(textOf(entry, "ETag"));
 
-  // Spec 7.4: promised by spec 4.4 since the adapter declares `writeIfUnchanged`.
   if (etag === undefined) {
     throw malformed(answer, `the object under ${JSON.stringify(key)} with no entity tag`);
   }
@@ -131,12 +130,6 @@ function sizeOf(text: string | undefined): number | undefined {
   const size = Number(text);
 
   return Number.isSafeInteger(size) ? size : undefined;
-}
-
-function etagOf(text: string | undefined): string | undefined {
-  const etag = unquotedEtag(text ?? "");
-
-  return etag === "" ? undefined : etag;
 }
 
 /**

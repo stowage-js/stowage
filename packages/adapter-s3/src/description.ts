@@ -62,27 +62,34 @@ export function describeWrite(
   };
 }
 
-/**
- * Spec 7.4: the adapter declares `writeIfUnchanged`, so spec 4.4 promises an `etag` on every
- * description, and an answer without one is reported rather than described (ADR 0071).
- */
 function etagOf(
   bucket: string,
   key: string,
   operation: string,
   quotedEtag: string | null | undefined,
 ): string {
-  const etag = unquotedEtag(quotedEtag ?? "");
+  const etag = readEtag(quotedEtag);
 
-  if (etag === "") throw incomplete(bucket, key, operation, "no entity tag");
+  if (etag === undefined) throw incomplete(bucket, key, operation, "no entity tag");
 
   return etag;
+}
+
+/**
+ * The `etag` an answer carries, `undefined` where it carries none or an empty one. Spec 7.4
+ * has every caller report that as `ProviderError`: the adapter declares `writeIfUnchanged`,
+ * so spec 4.4 promises an `etag` on every description (ADR 0071).
+ */
+export function readEtag(quotedEtag: string | null | undefined): string | undefined {
+  const etag = unquotedEtag(quotedEtag ?? "");
+
+  return etag === "" ? undefined : etag;
 }
 
 // The quotes belong to the header field and to the listing XML rather than to the value,
 // which spec 4.4 leaves opaque; stripping them is what makes `get`, `stat` and a listing
 // answer the same string.
-export function unquotedEtag(etag: string): string {
+function unquotedEtag(etag: string): string {
   return etag.replace(/^"|"$/gu, "");
 }
 

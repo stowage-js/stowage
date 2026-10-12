@@ -76,9 +76,8 @@ test("a key and an entity tag arrive through their entities", () => {
   expect(document.objects[0]?.size).toBe(0);
 });
 
-// Spec 4.6: an entry that arrives without one of its parts is a `ProviderError` rather than
-// an entry with a value made up for it. The entity tag is one since the adapter declares
-// `writeIfUnchanged` (spec 7.4).
+// Spec 4.6 and 7.4: an entry that arrives without one of its parts, the entity tag among
+// them, is a `ProviderError` rather than an entry with a value made up for it.
 test.each([
   ["a key", "<Contents><LastModified>2026-09-23T08:00:00Z</LastModified><Size>1</Size></Contents>"],
   [
