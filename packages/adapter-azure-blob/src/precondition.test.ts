@@ -113,6 +113,17 @@ function refused(
 const blobAlreadyExists = (): Response =>
   refused(409, "BlobAlreadyExists", "The specified blob already exists.");
 
+/** Azure's answer to `If-Match` naming another blob than the one the key holds. */
+const conditionNotMet = (): Response =>
+  refused(
+    412,
+    "ConditionNotMet",
+    "The condition specified using HTTP conditional header(s) is not met.",
+  );
+
+/** The `etag` a `stat` reported, which `onlyIf` names unquoted. */
+const etag = "0x8DCA1B2C3D4E5F6";
+
 const noResponse = (): never => {
   throw new TypeError("fetch failed");
 };
@@ -160,6 +171,33 @@ test("`put` onto a key that holds a blob rejects with `PreconditionFailed`, not 
     key: "object.txt",
     status: 409,
     providerCode: "BlobAlreadyExists",
+    retryable: false,
+    attempts: 1,
+  });
+  expect(sent).toHaveLength(1);
+});
+
+test("`put` with `onlyIf: { etag }` sends `If-Match` with the `etag` quoted as a strong tag", async () => {
+  const sent = stubFetch(created);
+
+  await storage().put("object.txt", "body", { onlyIf: { etag } });
+
+  expect(sent).toHaveLength(1);
+  expect(sent[0]?.headers.get("if-match")).toBe(`"${etag}"`);
+  expect(sent[0]?.headers.has("if-none-match")).toBe(false);
+});
+
+test("`put` onto a key that holds another blob rejects with `PreconditionFailed`, not repeated", async () => {
+  const sent = stubFetch(conditionNotMet);
+
+  const failure = await rejection(() => storage().put("object.txt", "body", { onlyIf: { etag } }));
+
+  expect(failure).toMatchObject({
+    code: "PreconditionFailed",
+    operation: "put",
+    key: "object.txt",
+    status: 412,
+    providerCode: "ConditionNotMet",
     retryable: false,
     attempts: 1,
   });
@@ -224,6 +262,18 @@ test("a conditional block upload sends `If-None-Match: *` on its commit alone", 
   ]);
 });
 
+test("a block upload under `onlyIf: { etag }` sends `If-Match` on its commit alone", async () => {
+  const sent = stubFetch(blockProvider());
+
+  await blockStorage().put("object.bin", twoParts(), { onlyIf: { etag } });
+
+  expect(sent.map((request) => [stepOf(request), request.headers.get("if-match")])).toEqual([
+    ["block", null],
+    ["block", null],
+    ["commit", `"${etag}"`],
+  ]);
+});
+
 // Spec 8.6: nothing aborts a block upload, and `Delete Blob` would delete the object that
 // refused it.
 test("a commit its precondition refused sends nothing after it", async () => {
@@ -247,10 +297,14 @@ function copyProvider(copy: () => Response = created): Answer {
   };
 }
 
-/** Each conditional request of spec 8.5, answered `answer` where it is sent. */
+/**
+ * Each conditional write of spec 8.5, the answer Azure refuses its precondition with, and the
+ * call that sends it answered `answer`.
+ */
 const conditionalRequests = [
   [
     "`Put Blob`",
+    blobAlreadyExists,
     (answer: () => Response) => {
       stubFetch(answer);
 
@@ -259,6 +313,7 @@ const conditionalRequests = [
   ],
   [
     "`Put Block List`",
+    blobAlreadyExists,
     (answer: () => Response) => {
       stubFetch(blockProvider(answer));
 
@@ -267,10 +322,38 @@ const conditionalRequests = [
   ],
   [
     "`Put Blob From URL`",
+    blobAlreadyExists,
     (answer: () => Response) => {
       stubFetch(copyProvider(answer));
 
       return storage().copy("from.txt", "to.txt", { onlyIf: "absent" });
+    },
+  ],
+  [
+    "`Put Blob` under `{ etag }`",
+    conditionNotMet,
+    (answer: () => Response) => {
+      stubFetch(answer);
+
+      return storage().put("object.txt", "body", { onlyIf: { etag } });
+    },
+  ],
+  [
+    "`Put Block List` under `{ etag }`",
+    conditionNotMet,
+    (answer: () => Response) => {
+      stubFetch(blockProvider(answer));
+
+      return blockStorage().put("object.bin", twoParts(), { onlyIf: { etag } });
+    },
+  ],
+  [
+    "`Put Blob From URL` under `{ etag }`",
+    conditionNotMet,
+    (answer: () => Response) => {
+      stubFetch(copyProvider(answer));
+
+      return storage().copy("from.txt", "to.txt", { onlyIf: { etag } });
     },
   ],
 ] as const;
@@ -278,10 +361,10 @@ const conditionalRequests = [
 // Spec 8.5 and ADR 0073: the repeat of a write that went through meets its own blob.
 test.each(conditionalRequests)(
   "a conditional %s refused after no response rejects with that failure",
-  async (_, act) => {
+  async (_, refusal, act) => {
     immediateRetries();
 
-    const failure = await rejection(() => act(answeringInTurn(noResponse, blobAlreadyExists)));
+    const failure = await rejection(() => act(answeringInTurn(noResponse, refusal)));
 
     expect(failure).toMatchObject({ code: "NetworkError", retryable: true, attempts: 2 });
   },
@@ -289,13 +372,11 @@ test.each(conditionalRequests)(
 
 test.each(conditionalRequests)(
   "a conditional %s refused after a `503` rejects with that failure",
-  async (_, act) => {
+  async (_, refusal, act) => {
     immediateRetries();
 
     const failure = await rejection(() =>
-      act(
-        answeringInTurn(() => refused(503, "ServerBusy", "The server is busy."), blobAlreadyExists),
-      ),
+      act(answeringInTurn(() => refused(503, "ServerBusy", "The server is busy."), refusal)),
     );
 
     expect(failure).toMatchObject({
@@ -310,23 +391,26 @@ test.each(conditionalRequests)(
 
 // ADR 0073: a `408` or a `429` says the provider did not act on the attempt.
 test.each(
-  conditionalRequests.flatMap(([request, act]) =>
-    ([408, 429] as const).map((status) => [request, status, act] as const),
+  conditionalRequests.flatMap(([request, refusal, act]) =>
+    ([408, 429] as const).map((status) => [request, status, refusal, act] as const),
   ),
-)("a conditional %s refused after a `%i` stays `PreconditionFailed`", async (_, status, act) => {
-  immediateRetries();
+)(
+  "a conditional %s refused after a `%i` stays `PreconditionFailed`",
+  async (_, status, refusal, act) => {
+    immediateRetries();
 
-  const failure = await rejection(() =>
-    act(answeringInTurn(() => refused(status, "Refused", "Refused."), blobAlreadyExists)),
-  );
+    const failure = await rejection(() =>
+      act(answeringInTurn(() => refused(status, "Refused", "Refused."), refusal)),
+    );
 
-  expect(failure).toMatchObject({
-    code: "PreconditionFailed",
-    status: 409,
-    retryable: false,
-    attempts: 2,
-  });
-});
+    expect(failure).toMatchObject({
+      code: "PreconditionFailed",
+      status: refusal().status,
+      retryable: false,
+      attempts: 2,
+    });
+  },
+);
 
 test.each(["copy", "move"] as const)(
   '`%s` with `onlyIf: "absent"` sends `If-None-Match: *` on `Put Blob From URL` alone',
@@ -343,6 +427,45 @@ test.each(["copy", "move"] as const)(
       ["HEAD", null],
       ...(operation === "move" ? [["DELETE", null]] : []),
     ]);
+  },
+);
+
+test.each(["copy", "move"] as const)(
+  "`%s` with `onlyIf: { etag }` sends `If-Match` on `Put Blob From URL` alone",
+  async (operation) => {
+    const sent = stubFetch(copyProvider());
+
+    await storage()[operation]("from.txt", "to.txt", { onlyIf: { etag } });
+
+    expect(sent.map((request) => [request.method, request.headers.get("if-match")])).toEqual([
+      ["HEAD", null],
+      ["PUT", `"${etag}"`],
+      ["HEAD", null],
+      ...(operation === "move" ? [["DELETE", null]] : []),
+    ]);
+    expect(sent[1]?.headers.get("x-ms-source-if-match")).toBe(`"${etag}"`);
+  },
+);
+
+test.each(["copy", "move"] as const)(
+  "`%s` whose destination holds another blob is `PreconditionFailed` against `to`, and deletes nothing",
+  async (operation) => {
+    const sent = stubFetch(copyProvider(conditionNotMet));
+
+    const failure = await rejection(() =>
+      storage()[operation]("from.txt", "to.txt", { onlyIf: { etag } }),
+    );
+
+    expect(failure).toMatchObject({
+      code: "PreconditionFailed",
+      operation,
+      key: "to.txt",
+      status: 412,
+      providerCode: "ConditionNotMet",
+      retryable: false,
+      attempts: 1,
+    });
+    expect(sent.map((request) => request.method)).toEqual(["HEAD", "PUT"]);
   },
 );
 
@@ -513,4 +636,196 @@ test("a conditional `move` whose delete failed is refused when repeated, and `de
 
   expect(report).toMatchObject({ requested: 1, failed: [] });
   expect([...container.held]).toEqual(["to.txt"]);
+});
+
+/** What Azure answers a `Delete Blob` it carried out with. */
+const deleted = (): Response => new Response(null, { status: 202 });
+
+/** Azure's answer to a `Delete Blob` of a key that holds no blob. */
+const blobNotFound = (): Response =>
+  refused(404, "BlobNotFound", "The specified blob does not exist.");
+
+// Spec 8.1 and ADR 0071: a conditional `delete` is one `Delete Blob`, never a Blob Batch.
+test("`delete` with `onlyIf: { etag }` sends one `Delete Blob` carrying `If-Match`", async () => {
+  const sent = stubFetch(deleted);
+
+  const report = await storage().delete("a b.txt", { onlyIf: { etag } });
+
+  expect(report).toEqual({ requested: 1, failed: [] });
+  expect(sent).toHaveLength(1);
+  expect(sent[0]?.method).toBe("DELETE");
+  expect(sent[0]?.url.pathname).toBe("/conformance/a%20b.txt");
+  expect(sent[0]?.headers.get("if-match")).toBe(`"${etag}"`);
+});
+
+// Spec 4.7 and 8.8: a key that holds another blob, or none, is the key's entry, and a missing
+// key is no success under a precondition.
+test.each([
+  ["another blob", conditionNotMet, 412, "ConditionNotMet"],
+  ["no blob", blobNotFound, 404, "BlobNotFound"],
+] as const)(
+  "a conditional `delete` of a key that holds %s reports one `PreconditionFailed` entry",
+  async (_, answer, status, providerCode) => {
+    const sent = stubFetch(answer);
+
+    const report = await storage().delete("object.txt", { onlyIf: { etag } });
+
+    expect(report.requested).toBe(1);
+    expect(report.failed).toHaveLength(1);
+    expect(report.failed[0]).toMatchObject({
+      code: "PreconditionFailed",
+      operation: "delete",
+      key: "object.txt",
+      status,
+      providerCode,
+      retryable: false,
+      attempts: 1,
+    });
+    expect(sent).toHaveLength(1);
+  },
+);
+
+test("a conditional `delete` in a missing container rejects with `NotFound` without `key`", async () => {
+  stubFetch(() => refused(404, "ContainerNotFound", "The specified container does not exist."));
+
+  const failure = await rejection(() => storage().delete("object.txt", { onlyIf: { etag } }));
+
+  expect(failure).toMatchObject({ code: "NotFound", operation: "delete", key: undefined });
+});
+
+// Spec 4.7 and ADR 0073: whether this call deleted the object is open, and the entry says so.
+test.each([
+  ["no response", noResponse, { code: "NetworkError" }],
+  [
+    "a `503`",
+    () => refused(503, "ServerBusy", "The server is busy."),
+    { code: "ProviderError", status: 503, providerCode: "ServerBusy" },
+  ],
+] as const)(
+  "a conditional `delete` refused after %s reports that failure as the key's entry",
+  async (_, first, reported) => {
+    immediateRetries();
+
+    for (const refusal of [conditionNotMet, blobNotFound]) {
+      stubFetch(answeringInTurn(first, refusal));
+
+      // oxlint-disable-next-line no-await-in-loop -- one stubbed provider at a time
+      const report = await storage().delete("object.txt", { onlyIf: { etag } });
+
+      expect(report.requested).toBe(1);
+      expect(report.failed).toHaveLength(1);
+      expect(report.failed[0]).toMatchObject({
+        ...reported,
+        operation: "delete",
+        key: "object.txt",
+        retryable: true,
+        attempts: 2,
+      });
+    }
+  },
+);
+
+// Spec 4.7: a failure of the request as a whole rejects the call instead of filling the report.
+test.each([
+  ["receives no response", noResponse, "NetworkError"],
+  [
+    "is answered `503` on every attempt",
+    () => refused(503, "ServerBusy", "Busy."),
+    "ProviderError",
+  ],
+  [
+    "is refused its credential",
+    () => refused(403, "AuthenticationFailed", "Server failed to authenticate the request."),
+    "InvalidCredentials",
+  ],
+] as const)("a conditional `delete` that %s rejects", async (_, answer, code) => {
+  immediateRetries();
+  stubFetch(answer);
+
+  const failure = await rejection(() => storage().delete("object.txt", { onlyIf: { etag } }));
+
+  expect(failure).toMatchObject({ code, operation: "delete", key: "object.txt" });
+});
+
+// Spec 4.7: the answer is read as the entry of that key in a batch would be.
+test("a conditional `delete` the principal may not perform reports `AccessDenied` as the key's entry", async () => {
+  stubFetch(() =>
+    refused(
+      403,
+      "AuthorizationPermissionMismatch",
+      "This request is not authorized to perform this operation using this permission.",
+    ),
+  );
+
+  const report = await storage().delete("object.txt", { onlyIf: { etag } });
+
+  expect(report.failed).toHaveLength(1);
+  expect(report.failed[0]).toMatchObject({ code: "AccessDenied", key: "object.txt" });
+});
+
+test("a conditional `delete` of an invalid key reports `InvalidKey` without a request", async () => {
+  const sent = stubFetch(deleted);
+
+  const report = await storage().delete("", { onlyIf: { etag } });
+
+  expect(report.requested).toBe(1);
+  expect(report.failed[0]).toMatchObject({ code: "InvalidKey", attempts: 0 });
+  expect(sent).toEqual([]);
+});
+
+/** `answer` without its `ETag`. */
+function withoutEtag(answer: Response): Response {
+  answer.headers.delete("etag");
+
+  return answer;
+}
+
+// Spec 8.4: the adapter declares `writeIfUnchanged`, so spec 4.4 promises an `etag` on every
+// description, and an answer without one is reported rather than described (ADR 0071).
+test.each([
+  [
+    "`Put Blob`",
+    "put",
+    () => {
+      stubFetch(() => withoutEtag(created()));
+
+      return storage().put("to.txt", "body");
+    },
+  ],
+  [
+    "`Put Block List`",
+    "put",
+    () => {
+      stubFetch(blockProvider(() => withoutEtag(created())));
+
+      return blockStorage().put("to.txt", twoParts());
+    },
+  ],
+  [
+    "the `HEAD` that describes the destination of a copy",
+    "copy",
+    () => {
+      stubFetch((request) =>
+        request.method === "HEAD" && request.url.pathname.endsWith("/to.txt")
+          ? withoutEtag(described())
+          : copyProvider()(request),
+      );
+
+      return storage().copy("from.txt", "to.txt");
+    },
+  ],
+  [
+    "the `HEAD` of `stat`",
+    "stat",
+    () => {
+      stubFetch(() => withoutEtag(described()));
+
+      return storage().stat("to.txt");
+    },
+  ],
+] as const)("%s answered without an `ETag` is `ProviderError`", async (_, operation, act) => {
+  const failure = await rejection(act);
+
+  expect(failure).toMatchObject({ code: "ProviderError", operation, key: "to.txt" });
+  expect(failure.message).toContain("no entity tag");
 });

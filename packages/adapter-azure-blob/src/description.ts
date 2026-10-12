@@ -18,7 +18,7 @@ export function describeResponse(
     key,
     size: sizeOf(container, key, operation, response),
     lastModified: lastModifiedOf(container, key, operation, response),
-    etag: etagOf(response),
+    etag: etagOf(container, key, operation, response),
     contentType: response.headers.get("content-type") ?? defaultContentType,
     ...readContentHeaders(response.headers),
     ...readContentEncoding(response.headers),
@@ -50,14 +50,20 @@ export function describeWrite(
   return {
     ...written,
     lastModified: lastModifiedOf(container, written.key, "put", response),
-    etag: etagOf(response),
+    etag: etagOf(container, written.key, "put", response),
   };
 }
 
-function etagOf(response: Response): string | undefined {
-  const etag = response.headers.get("etag");
+/**
+ * Spec 8.4: the adapter declares `writeIfUnchanged`, so spec 4.4 promises an `etag` on every
+ * description, and an answer without one is reported rather than described (ADR 0071).
+ */
+function etagOf(container: string, key: string, operation: string, response: Response): string {
+  const etag = unquotedEtag(response.headers.get("etag") ?? "");
 
-  return etag === null ? undefined : unquotedEtag(etag);
+  if (etag === "") throw incomplete(container, key, operation, "no entity tag");
+
+  return etag;
 }
 
 // The quotes belong to the header field and to the listing XML rather than to the value,

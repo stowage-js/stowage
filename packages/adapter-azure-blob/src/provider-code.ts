@@ -40,6 +40,8 @@ const providerCodes: ReadonlyMap<string, StorageErrorCode> = new Map([
   ["InvalidBlobOrBlock", "ProviderError"],
   // Azure's answer to a failed `If-None-Match: *`, at `409` where it documents `412`.
   ["BlobAlreadyExists", "PreconditionFailed"],
+  // Azure's answer to a failed `If-Match`.
+  ["ConditionNotMet", "PreconditionFailed"],
   // States of the blob stowage does not create.
   ["PendingCopyOperation", "ProviderError"],
   ["BlobArchived", "ProviderError"],
@@ -78,6 +80,8 @@ export interface ProviderAnswer {
   readonly copiesFromUrl: boolean;
   /** What the source of a copy answered the service, from `x-ms-copy-source-status-code`. */
   readonly copySourceStatus?: number;
+  /** Whether the request carried a precondition, which a `Delete Blob` of no blob fails. */
+  readonly conditional?: boolean;
 }
 
 export interface ProviderFailure {
@@ -127,6 +131,16 @@ export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
     return { code: errorCodeForStatus(status) ?? "ProviderError", message: said, onSource: true };
   }
 
+  // Spec 8.8: under `If-Match` a key that holds no blob is a refusal, where without one it is
+  // the success of spec 4.7 (ADR 0071).
+  if (
+    answer.conditional === true &&
+    answer.method === "DELETE" &&
+    answer.providerCode === "BlobNotFound"
+  ) {
+    return { code: "PreconditionFailed", message: said };
+  }
+
   const recognized =
     answer.providerCode === undefined ? undefined : providerCodes.get(answer.providerCode);
 
@@ -157,6 +171,7 @@ export interface FailedResponse {
   readonly providerMessage?: string;
   readonly attempts: number;
   readonly underRefreshedToken: boolean;
+  readonly conditional?: boolean;
 }
 
 /**
@@ -189,6 +204,7 @@ export function readFailedResponse(
     underRefreshedToken: response.underRefreshedToken,
     copiesFromUrl: response.copySource !== undefined,
     copySourceStatus: statusOf(response.headers.get("x-ms-copy-source-status-code")),
+    conditional: response.conditional,
   });
 
   return {

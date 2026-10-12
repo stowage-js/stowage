@@ -420,14 +420,16 @@ test("a signal that already fired rejects with `AbortError` before any request",
   expect(sent).toHaveLength(0);
 });
 
-test("the storage declares `contentHeaders`, `keyBytesPreserved`, `presignedUrls`, `rangeReads`, `userMetadata` and `writeIfAbsent`, and not `userMetadataTokenKeys`", () => {
+test("the storage declares what spec 8.1 lists, and not `userMetadataTokenKeys`", () => {
   expect(storage().capabilities).toEqual([
     "contentHeaders",
+    "deleteIfUnchanged",
     "keyBytesPreserved",
     "presignedUrls",
     "rangeReads",
     "userMetadata",
     "writeIfAbsent",
+    "writeIfUnchanged",
   ]);
 });
 
@@ -941,25 +943,18 @@ test.each([
   expect(failure.attempts).toBe(0);
 });
 
-// Until the adapter declares `writeIfUnchanged`, spec 4.3 refuses `onlyIf: { etag }` before
-// any request, naming the capability its form needs.
+// Spec 4.3: a weak tag is no `etag` of the form `onlyIf` takes, refused before any request.
 test.each([
-  ["put", () => storage().put("to", "body", { onlyIf: { etag: "abc" } })],
-  ["copy", () => storage().copy("from", "to", { onlyIf: { etag: "abc" } })],
-  ["move", () => storage().move("from", "to", { onlyIf: { etag: "abc" } })],
+  ["put", () => storage().put("to", "body", { onlyIf: { etag: "W/abc" } })],
+  ["copy", () => storage().copy("from", "to", { onlyIf: { etag: "W/abc" } })],
+  ["move", () => storage().move("from", "to", { onlyIf: { etag: "W/abc" } })],
 ] as const)(
-  "`%s` refuses `onlyIf: { etag }` as `Unsupported` naming `writeIfUnchanged` before any request",
+  "`%s` refuses `onlyIf` naming a weak tag as `InvalidOption` before any request",
   async (operation, call) => {
     const sent = stubFetch(() => created());
     const failure = await failureOf(call);
 
-    expect(failure).toMatchObject({
-      code: "Unsupported",
-      capability: "writeIfUnchanged",
-      operation,
-      key: "to",
-      attempts: 0,
-    });
+    expect(failure).toMatchObject({ code: "InvalidOption", operation, key: "to", attempts: 0 });
     expect(sent).toEqual([]);
   },
 );
@@ -1716,7 +1711,7 @@ test("a source described without an entity tag is copied unpinned", async () => 
 
     const answer = described();
 
-    answer.headers.delete("etag");
+    if (request.url.endsWith("/from.txt")) answer.headers.delete("etag");
 
     return answer;
   });
@@ -1996,6 +1991,17 @@ test.each([
     () => enumeration([{ ...listedBlob("a"), lastModified: undefined }]),
     "no last-modified time",
   ],
+  // Spec 8.4: promised by spec 4.4 since the adapter declares `writeIfUnchanged`.
+  [
+    "an entry without an entity tag",
+    () => enumeration([{ ...listedBlob("a"), etag: undefined }]),
+    "no entity tag",
+  ],
+  [
+    "an entry with an empty entity tag",
+    () => enumeration([{ ...listedBlob("a"), etag: "" }]),
+    "no entity tag",
+  ],
   [
     "a pseudo-directory without a name",
     () => listingOf("<BlobPrefix></BlobPrefix>"),
@@ -2215,23 +2221,20 @@ test("`delete` of one key rejects before any request where the signal already fi
   expect(sent).toEqual([]);
 });
 
-// Until the adapter declares `deleteIfUnchanged`, spec 4.3 refuses an `onlyIf` object on `delete`
-// before any request, and `"absent"`, which has no kind there, on every storage.
+// Spec 4.3: `"absent"` has no kind on a delete, and a weak tag is no `etag` of the form
+// `onlyIf` takes, both refused before any request.
 test.each([
-  ["an `etag`", { etag: "0x8D" }, "Unsupported", "deleteIfUnchanged"],
-  ['`"absent"`', "absent", "InvalidOption", undefined],
-] as const)(
-  "`delete` refuses `onlyIf` as %s before any request",
-  async (_, onlyIf, code, capability) => {
-    const sent = stubFetch(() => accepted(1));
-    // oxlint-disable-next-line no-unsafe-type-assertion -- `"absent"` has no kind on a delete
-    const failure = await failureOf(() => storage().delete("one", { onlyIf } as DeleteOptions));
+  ['`"absent"`', "absent"],
+  ["a weak tag", { etag: "W/0x8D" }],
+] as const)("`delete` refuses `onlyIf` as %s before any request", async (_, onlyIf) => {
+  const sent = stubFetch(() => accepted(1));
+  // oxlint-disable-next-line no-unsafe-type-assertion -- `"absent"` has no kind on a delete
+  const failure = await failureOf(() => storage().delete("one", { onlyIf } as DeleteOptions));
 
-    expect(failure).toMatchObject({ code, capability, operation: "delete", key: "one" });
-    expect(failure.attempts).toBe(0);
-    expect(sent).toEqual([]);
-  },
-);
+  expect(failure).toMatchObject({ code: "InvalidOption", operation: "delete", key: "one" });
+  expect(failure.attempts).toBe(0);
+  expect(sent).toEqual([]);
+});
 
 test("`delete` of one key refuses an option key it does not list before any request", async () => {
   const sent = stubFetch(() => accepted(1));

@@ -1,4 +1,10 @@
-import { parseXml, type PreconditionRule, type PreparedAttempt, sendRequest } from "@stowage/core";
+import {
+  type FailureReading,
+  parseXml,
+  type PreconditionRule,
+  type PreparedAttempt,
+  sendRequest,
+} from "@stowage/core";
 
 import type { AzureBlobConfiguration } from "./configuration.ts";
 import { type AzureBlobCredentials, resolveCredentials } from "./credentials.ts";
@@ -28,6 +34,11 @@ export interface AzureBlobRequest {
    * response or with a `5xx` is that attempt's failure (spec 8.5, ADR 0073).
    */
   readonly precondition?: PreconditionRule;
+  /**
+   * Told what each refused attempt reads as, in turn, so that a conditional `delete` can tell
+   * a refusal reported as the failure before it from that failure alone (spec 4.7).
+   */
+  readonly onRefusal?: (reading: FailureReading) => void;
 }
 
 /**
@@ -79,8 +90,8 @@ export async function send(
     signal: request.signal,
     precondition: request.precondition,
     prepare: async ({ forceRefresh }) => await prepare(configuration, request, forceRefresh),
-    readFailure: (answer) =>
-      readFailedResponse({
+    readFailure: (answer) => {
+      const reading = readFailedResponse({
         method: request.method,
         key: request.key,
         copySource: request.copySource,
@@ -88,7 +99,13 @@ export async function send(
         headers: answer.headers,
         providerMessage: answer.body === undefined ? undefined : errorMessageOf(answer.body),
         underRefreshedToken: answer.refreshed,
-      }),
+        conditional: request.precondition !== undefined,
+      });
+
+      request.onRefusal?.(reading);
+
+      return reading;
+    },
   });
 }
 
