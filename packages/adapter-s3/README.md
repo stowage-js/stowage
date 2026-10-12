@@ -56,7 +56,7 @@ through `cacheControl`, `contentDisposition` and `contentLanguage`; stowage conf
 ## Runtimes
 
 Node 24 and later, Bun, Deno and `workerd` at the compatibility date `2026-09-01` without Node APIs. `fromEnv` reads
-the environment on `workerd` under `nodejs_compat` and on Deno under `--allow-env`. CI last ran green on Bun 1.4.2 and Deno 2.9.6.
+the environment on `workerd` under `nodejs_compat` and on Deno under `--allow-env`. CI last ran green on Bun 1.4.3 and Deno 2.9.6.
 
 The bundle measures 14.3 kB minified and gzipped, `@stowage/core` included.
 
