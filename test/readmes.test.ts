@@ -629,6 +629,10 @@ test.each(published)(
     }
 
     expect(text).not.toMatch(/stowage\/blob\/main\/docs\/spec\.md/u);
+
+    for (const [, named = ""] of text.matchAll(/`docs\/spec\.md` at `([^`]+)`/gu)) {
+      expect(named).toBe(`${manifest.name}@${release}`);
+    }
   },
 );
 
