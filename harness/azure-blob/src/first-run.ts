@@ -21,6 +21,8 @@ export const azureProbeNames = {
   unicodeEquivalentNames: "an NFC and an NFD name",
   refusedWritableKeys: "the three kinds of writable key spec 8.1 refuses",
   flowOneOnWorkerd: "flow/1-large-upload measured on workerd",
+  createPermission:
+    "a user delegation SAS with `sp=c` admits an upload onto a free key and refuses one onto an existing blob",
 } as const;
 
 const account = [azureBlobAccount];
@@ -101,6 +103,13 @@ export const azureBlobFirstRunPoints: readonly FirstRunPoint[] = [
       conformanceCase("presign/put-rejects-content-headers"),
       probe(azureProbeNames.differingBlobContentType),
     ],
+    endpoints: account,
+    runtime: "node",
+  },
+  {
+    promise:
+      "Azure Blob: a user delegation SAS with `sp=c` admits an upload onto a free key and refuses one onto an existing blob with `403` (ADR 0074)",
+    tests: [conformanceCase("presign/put-if-absent"), probe(azureProbeNames.createPermission)],
     endpoints: account,
     runtime: "node",
   },

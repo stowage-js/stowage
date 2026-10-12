@@ -420,13 +420,14 @@ test("a signal that already fired rejects with `AbortError` before any request",
   expect(sent).toHaveLength(0);
 });
 
-test("the storage declares `contentHeaders`, `keyBytesPreserved`, `presignedUrls`, `rangeReads` and `userMetadata`, and not `userMetadataTokenKeys`", () => {
+test("the storage declares `contentHeaders`, `keyBytesPreserved`, `presignedUrls`, `rangeReads`, `userMetadata` and `writeIfAbsent`, and not `userMetadataTokenKeys`", () => {
   expect(storage().capabilities).toEqual([
     "contentHeaders",
     "keyBytesPreserved",
     "presignedUrls",
     "rangeReads",
     "userMetadata",
+    "writeIfAbsent",
   ]);
 });
 
@@ -940,22 +941,21 @@ test.each([
   expect(failure.attempts).toBe(0);
 });
 
-// Until the adapter declares `writeIfAbsent` and `writeIfUnchanged`, spec 4.3 refuses every
-// `onlyIf` before any request, naming the capability its form needs.
+// Until the adapter declares `writeIfUnchanged`, spec 4.3 refuses `onlyIf: { etag }` before
+// any request, naming the capability its form needs.
 test.each([
-  ["put", "writeIfAbsent", () => storage().put("to", "body", { onlyIf: "absent" })],
-  ["put", "writeIfUnchanged", () => storage().put("to", "body", { onlyIf: { etag: "abc" } })],
-  ["copy", "writeIfAbsent", () => storage().copy("from", "to", { onlyIf: "absent" })],
-  ["move", "writeIfUnchanged", () => storage().move("from", "to", { onlyIf: { etag: "abc" } })],
+  ["put", () => storage().put("to", "body", { onlyIf: { etag: "abc" } })],
+  ["copy", () => storage().copy("from", "to", { onlyIf: { etag: "abc" } })],
+  ["move", () => storage().move("from", "to", { onlyIf: { etag: "abc" } })],
 ] as const)(
-  "`%s` refuses `onlyIf` as `Unsupported` naming `%s` before any request",
-  async (operation, capability, call) => {
+  "`%s` refuses `onlyIf: { etag }` as `Unsupported` naming `writeIfUnchanged` before any request",
+  async (operation, call) => {
     const sent = stubFetch(() => created());
     const failure = await failureOf(call);
 
     expect(failure).toMatchObject({
       code: "Unsupported",
-      capability,
+      capability: "writeIfUnchanged",
       operation,
       key: "to",
       attempts: 0,
@@ -1010,6 +1010,7 @@ test.each([
   [400, "InvalidMetadata", "InvalidRequest"],
   [400, "InvalidBlockList", "ProviderError"],
   [400, "InvalidBlobOrBlock", "ProviderError"],
+  [409, "BlobAlreadyExists", "PreconditionFailed"],
   [409, "PendingCopyOperation", "ProviderError"],
   [409, "BlobArchived", "ProviderError"],
   [409, "SnapshotsPresent", "ProviderError"],

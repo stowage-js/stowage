@@ -67,6 +67,8 @@ export const azureBlobDivergences: readonly Divergence<AzureBlobEmulator, AzureB
     { case: "copy/content-headers", failureMessagePart: notImplemented, ...copyUnimplemented },
     { case: "move/round-trip", failureMessagePart: notImplemented, ...copyUnimplemented },
     { case: "move/content-headers", failureMessagePart: notImplemented, ...copyUnimplemented },
+    { case: "copy/if-absent", failureMessagePart: notImplemented, ...copyUnimplemented },
+    { case: "move/if-absent", failureMessagePart: notImplemented, ...copyUnimplemented },
     {
       case: "presign/put",
       failureMessagePart: "answered 403 and not a success",
@@ -75,6 +77,14 @@ export const azureBlobDivergences: readonly Divergence<AzureBlobEmulator, AzureB
     {
       case: "presign/put-content-headers",
       failureMessagePart: "carrying the content headers answered 403 and not a success",
+      ...signedHeadersUnbound,
+    },
+    // Not `sp=c`, which ADR 0076 left unmeasured: a probe under a SAS whose `srh` names nothing
+    // found Azurite admitting an upload onto a free key and refusing one onto an existing blob
+    // with `403 AuthorizationPermissionMismatch`. What fails is the binding of `srh`.
+    {
+      case: "presign/put-if-absent",
+      failureMessagePart: "onto a free key answered 403 and not a success",
       ...signedHeadersUnbound,
     },
     {

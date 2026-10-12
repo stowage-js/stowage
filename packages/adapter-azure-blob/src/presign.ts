@@ -10,7 +10,7 @@ import {
   presignPutOptionKeys,
   requireKnownOptions,
 } from "./options.ts";
-import { refusePrecondition } from "./precondition.ts";
+import { readWritePrecondition } from "./precondition.ts";
 import { blobUrl } from "./request.ts";
 import {
   type ResponseOverrides,
@@ -72,8 +72,10 @@ export interface AzureBlobPresignPutOptions {
   /** Bound as `x-ms-blob-content-language`, as `cacheControl` is. */
   contentLanguage?: string;
   /**
-   * `Unsupported` before anything is signed, since the storage declares neither
-   * `writeIfAbsent` nor `writeIfUnchanged`.
+   * Checked as `put` checks it, before the user delegation key is requested. `"absent"` is
+   * bound through the permission, `sp=c` in place of `sp=w`, so an upload onto a key that
+   * holds an object is refused with `403` and neither `srh` nor `headers` changes (ADR 0074).
+   * `{ etag }` is `Unsupported`, since the storage does not declare `writeIfUnchanged`.
    */
   onlyIf?: Precondition;
 }
@@ -124,8 +126,8 @@ export async function presignGet(
 }
 
 /**
- * Spec 8.9: `sp=w` on a writable key, under an access token alone, since a service SAS
- * binds no request header (ADR 0022).
+ * Spec 8.9: `sp=w` on a writable key, or `sp=c` under `"absent"`, under an access token
+ * alone, since a service SAS binds no request header (ADR 0022).
  */
 export async function presignPut(
   configuration: AzureBlobConfiguration,
@@ -156,10 +158,9 @@ export async function presignPut(
     capabilities,
   );
 
-  refusePrecondition(
+  const onlyIf = readWritePrecondition(
     configuration.container,
     options.onlyIf,
-    "write",
     operation,
     key,
     capabilities,
@@ -184,7 +185,9 @@ export async function presignPut(
     configuration,
     {
       key,
-      permissions: "w",
+      // ADR 0074: Azure refuses an upload onto an existing blob under Create before it reads
+      // any header, so the precondition needs neither `srh` nor a header a CORS rule allows.
+      permissions: onlyIf === "absent" ? "c" : "w",
       ...sasWindow(expiresIn * 1000),
       // ADR 0063: `Put Blob` stores an `x-ms-blob-content-type` in place of `Content-Type`,
       // so left unsigned it would let a client store another type than the one bound.

@@ -1,4 +1,4 @@
-import { parseXml, type PreparedAttempt, sendRequest } from "@stowage/core";
+import { parseXml, type PreconditionRule, type PreparedAttempt, sendRequest } from "@stowage/core";
 
 import type { AzureBlobConfiguration } from "./configuration.ts";
 import { type AzureBlobCredentials, resolveCredentials } from "./credentials.ts";
@@ -23,6 +23,11 @@ export interface AzureBlobRequest {
   /** The key a `Put Blob From URL` copies from, which spec 8.8 tells a failure of the source by. */
   readonly copySource?: string;
   readonly signal?: AbortSignal;
+  /**
+   * Set on a request that carries a precondition, whose refusal after an attempt without a
+   * response or with a `5xx` is that attempt's failure (spec 8.5, ADR 0073).
+   */
+  readonly precondition?: PreconditionRule;
 }
 
 /**
@@ -72,6 +77,7 @@ export async function send(
     method: request.method,
     maxAttempts: configuration.maxAttempts,
     signal: request.signal,
+    precondition: request.precondition,
     prepare: async ({ forceRefresh }) => await prepare(configuration, request, forceRefresh),
     readFailure: (answer) =>
       readFailedResponse({
