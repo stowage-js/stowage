@@ -35,39 +35,49 @@ The bundle measures 6.5 kB minified and gzipped, `@stowage/core` included.
 
 - `contentHeaders` is not declared: `put` with `cacheControl`, `contentDisposition` or
   `contentLanguage` set to any value but `undefined` is `Unsupported`, and reads report none
-  ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.6.0/docs/spec.md#49-capabilities)).
+  ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.7.0/docs/spec.md#49-capabilities)).
+- `deleteIfUnchanged` is not declared: `delete` with an `onlyIf` object is `Unsupported`, since no
+  `etag` is set
+  ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.7.0/docs/spec.md#49-capabilities)).
 - `keyBytesPreserved` is not declared: a key comes back Unicode-equivalent to what was written
-  ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.6.0/docs/spec.md#49-capabilities)).
+  ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.7.0/docs/spec.md#49-capabilities)).
 - `presignedUrls` is not declared: `FsStorage` has neither `presignGet` nor `presignPut`
-  ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.6.0/docs/spec.md#49-capabilities)).
+  ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.7.0/docs/spec.md#49-capabilities)).
 - `userMetadata` is not declared: `put` with a non-empty `userMetadata` is `Unsupported`, and reads
   return `{}`
-  ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.6.0/docs/spec.md#49-capabilities)).
+  ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.7.0/docs/spec.md#49-capabilities)).
 - `userMetadataTokenKeys` is not declared: without `userMetadata`, a key beyond identifiers is
   `Unsupported` naming `userMetadata` like any other
-  ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.6.0/docs/spec.md#49-capabilities)).
+  ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.7.0/docs/spec.md#49-capabilities)).
+- `writeIfUnchanged` is not declared: `put`, `copy` and `move` with an `onlyIf` object are
+  `Unsupported`, since no `etag` is set
+  ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.7.0/docs/spec.md#49-capabilities)).
+- `writeIfAbsent` needs a file system with hard links, since a write under `onlyIf: "absent"` ends
+  in `link(2)`. On one without them, as FAT, exFAT and some network mounts are, that write is
+  `ProviderError` with `retryable: false`
+  ([spec 6](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.7.0/docs/spec.md#6-stowageadapter-fs)).
 - A key segment longer than 255 bytes is `InvalidKey`, and so is a key whose whole path is longer
   than the file system holds. macOS bounds one path at 1024 bytes with the root counted in
-  ([spec 6](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.6.0/docs/spec.md#6-stowageadapter-fs)).
+  ([spec 6](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.7.0/docs/spec.md#6-stowageadapter-fs)).
 - A name the file system refuses to create is `InvalidKey` on `put` and on the destination of
   `copy` and `move`. APFS refuses every noncharacter, so a key holding `U+FFFE` is written on
   Linux and refused on macOS
-  ([spec 6](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.6.0/docs/spec.md#6-stowageadapter-fs)).
+  ([spec 6](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.7.0/docs/spec.md#6-stowageadapter-fs)).
 - APFS keeps a name in the Unicode form it was written in, and folds the forms when it looks a name
   up, so a key in NFD reaches the object its NFC form wrote. A case-insensitive file system collides
   keys that differ in case alone. Nothing repairs either
-  ([spec 6](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.6.0/docs/spec.md#6-stowageadapter-fs)).
+  ([spec 6](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.7.0/docs/spec.md#6-stowageadapter-fs)).
 - The content type is derived from the key's extension, and is `application/octet-stream` where the
   extension is unknown or absent. The `contentType` handed to `put` is not stored, so `stat` may
   report another one
-  ([spec 6](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.6.0/docs/spec.md#6-stowageadapter-fs)).
+  ([spec 6](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.7.0/docs/spec.md#6-stowageadapter-fs)).
 - No `etag` is set
-  ([spec 4.4](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.6.0/docs/spec.md#44-object-descriptions)).
+  ([spec 4.4](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.7.0/docs/spec.md#44-object-descriptions)).
 
 ## Notes
 
 `put` takes no `Blob`. A caller holding one passes its stream
-([spec 4.2](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.6.0/docs/spec.md#42-bodies)):
+([spec 4.2](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.7.0/docs/spec.md#42-bodies)):
 
 ```ts
 import { fsStorage } from "@stowage/adapter-fs";
@@ -79,7 +89,7 @@ await storage.put("reports/2026/q4.csv", blob.stream());
 ```
 
 stowage reports no progress
-([spec 17](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.6.0/docs/spec.md#17-non-goals)).
+([spec 17](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.7.0/docs/spec.md#17-non-goals)).
 A caller who wants it counts the bytes on their way into `put`:
 
 ```ts
@@ -108,10 +118,10 @@ await storage.put("videos/intro.mp4", response.body.pipeThrough(countBytes(conso
 
 ## Specification
 
-[`docs/spec.md` at `@stowage/adapter-fs@0.6.0`](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.6.0/docs/spec.md#6-stowageadapter-fs)
+[`docs/spec.md` at `@stowage/adapter-fs@0.7.0`](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.7.0/docs/spec.md#6-stowageadapter-fs)
 is the contract: a caller may rely on what it states and on nothing else this package happens to
-export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.6.0/GLOSSARY.md)
-and the [decisions behind it](https://github.com/stowage-js/stowage/tree/@stowage/adapter-fs@0.6.0/docs/adr)
+export. The [terms it uses](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.7.0/GLOSSARY.md)
+and the [decisions behind it](https://github.com/stowage-js/stowage/tree/@stowage/adapter-fs@0.7.0/docs/adr)
 are at the same tag.
 
 ## License

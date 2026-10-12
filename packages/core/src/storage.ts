@@ -107,6 +107,15 @@ export interface ObjectEntry {
   readonly key: string;
   readonly size: number;
   readonly lastModified: Date;
+  /**
+   * Set where the provider sends one, and never on `adapter-fs`. Opaque and not promised to be
+   * an MD5; on `adapter-gcs` the object's generation. Promised where the storage declares
+   * `writeIfUnchanged` or `deleteIfUnchanged`: set on every description and listing entry, the
+   * value a write resolves with is the one a later `stat` reports, and a precondition naming it
+   * holds as long as nothing writes to the key. A write that changes the bytes changes it; one
+   * of the same bytes may keep it, and a change another tool makes to the content headers or
+   * the user metadata alone may move it or not.
+   */
   readonly etag?: string;
 }
 
