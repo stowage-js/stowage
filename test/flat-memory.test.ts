@@ -123,6 +123,7 @@ test(
           headers: {
             "content-length": String(objectSize),
             "last-modified": "Sun, 30 Aug 2015 12:36:00 GMT",
+            etag: '"large"',
           },
         }),
     );
