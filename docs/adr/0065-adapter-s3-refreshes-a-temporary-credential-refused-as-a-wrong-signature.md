@@ -51,7 +51,7 @@ recovering on every provider is #415.
 ## Consequences
 
 - The spec 7.2 row on an expired credential says that R2 answers it with `403
-SignatureDoesNotMatch`, that under a session token a refresh follows, and that a fresh credential
+  SignatureDoesNotMatch`, that under a session token a refresh follows, and that a fresh credential
   refused too is `InvalidCredentials` with `attempts: 2`.
 - Spec 7.3 names both conditions for the refresh, and that `stat` and `exists` get none.
 - `GLOSSARY.md` names the further attempt a refresh. Spec 7.5, 8.5 and 9.5 say "refresh" where they
