@@ -78,6 +78,19 @@ export const gcsDivergences: readonly Divergence<GcsEmulator, GcsRealEndpoint>[]
     failureMessagePart: 'bound to `"absent"` onto a key that holds an object was answered 200',
     settledBy: "gcs",
   },
+  {
+    case: "presign/put-if-unchanged",
+    endpoint: fakeGcsServer,
+    differs:
+      "fake-gcs-server 1.56.1 ignores `x-goog-if-generation-match` on a signed `PUT` and overwrites the object",
+    failureMessagePart: "bound to an `etag` another `put` replaced was answered 200",
+    settledBy: "gcs",
+  },
+  {
+    case: "presign/put-rejects-precondition",
+    failureMessagePart: "carrying no `x-goog-if-generation-match` was answered 200",
+    ...signatureUnchecked,
+  },
   // ADR 0076: the emulator checks a precondition on the insert and at the commit of a session,
   // so the cases of `put` need no entry, and drops it on `rewriteTo`.
   {
@@ -86,6 +99,24 @@ export const gcsDivergences: readonly Divergence<GcsEmulator, GcsRealEndpoint>[]
     differs:
       "fake-gcs-server 1.56.1 ignores `ifGenerationMatch` on `rewriteTo` and overwrites the destination",
     failureMessagePart: "onto a key that holds an object, and the call resolved",
+    settledBy: "gcs",
+  },
+  {
+    case: "copy/if-unchanged",
+    endpoint: fakeGcsServer,
+    differs:
+      "fake-gcs-server 1.56.1 ignores `ifGenerationMatch` on `rewriteTo` and overwrites the destination",
+    failureMessagePart: "over an `etag` the write before made stale, and the call resolved",
+    settledBy: "gcs",
+  },
+  // Measured against the emulator for #461: a `DELETE` under a stale `ifGenerationMatch` answers
+  // `200` and deletes the object.
+  {
+    case: "delete/if-unchanged",
+    endpoint: fakeGcsServer,
+    differs:
+      "fake-gcs-server 1.56.1 ignores `ifGenerationMatch` on `DELETE` and deletes the object",
+    failureMessagePart: "made stale reports 0 failures",
     settledBy: "gcs",
   },
   {
@@ -105,6 +136,17 @@ export const gcsDivergences: readonly Divergence<GcsEmulator, GcsRealEndpoint>[]
   },
   {
     case: "move/if-absent",
+    failureMessagePart: "Metadata in the request couldn't decode",
+    ...moveUnserved,
+  },
+  {
+    case: "move/if-unchanged",
+    failureMessagePart: "Metadata in the request couldn't decode",
+    ...moveUnserved,
+  },
+  // The case reads the `etag` a `move` resolves with beside those of `put` and `copy`.
+  {
+    case: "stat/etag-promised",
     failureMessagePart: "Metadata in the request couldn't decode",
     ...moveUnserved,
   },
