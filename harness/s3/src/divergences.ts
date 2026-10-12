@@ -34,14 +34,27 @@ interface ExpectedFailure {
  * image has to look for one by hand.
  */
 interface Unrun {
-  /** Why running the case would leave the emulator unable to finish the run. */
+  /**
+   * Why running the case would leave the emulator unable to finish the run, or why it fails
+   * there in some runs and passes in others, where an expected failure fails the run.
+   */
   readonly unrunBecause: string;
   readonly failureMessagePart?: never;
 }
 
 // Kept in the private harness and never in `@stowage/conformance`: it describes an
 // endpoint this repository happens to test against, not the API an adapter implements.
-export const divergences: readonly Divergence[] = [];
+export const divergences: readonly Divergence[] = [
+  {
+    case: "put/concurrent-if-absent-multipart",
+    endpoint: "seaweedfs",
+    differs:
+      "SeaweedFS 4.48 checks `If-None-Match: *` on `CompleteMultipartUpload` outside the lock that orders the completions, so two racing commits onto a free key may both succeed",
+    unrunBecause:
+      "both commits succeeded in 19 of 20 measured rounds and one was refused in the twentieth, so an expected failure would pass now and then and fail the run (ADR 0076)",
+    settledBy: "aws-s3",
+  },
+];
 
 /**
  * The cases as a run against `endpoint` performs them: a case with an entry for that

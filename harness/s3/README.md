@@ -62,8 +62,10 @@ fails with, and the real endpoint that runs the same case in the `slow` tier. Ag
 endpoint an entry names, the case passes where it fails as the entry says and fails where
 it passes, so an upstream fix shows up as a red run that asks for the entry to go. An entry
 that names, in place of the message, why running the case would leave the emulator unable
-to finish the run keeps the case unrun against that endpoint. Nothing then shows an upstream
-fix, so an update of the image has to look for one by hand.
+to finish the run, or why it fails there in some runs and passes in others, keeps the case
+unrun against that endpoint. Nothing then shows an upstream fix, so an update of the image
+has to look for one by hand. `put/concurrent-if-absent-multipart` is unrun for the second
+reason (ADR 0076).
 
 `errors/missing-bucket` is not on it. SeaweedFS creates a missing bucket on `PutObject`, so
 `s3.json` scopes both identities to `stowage-conformance`, and SeaweedFS answers any other bucket

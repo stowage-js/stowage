@@ -16,7 +16,7 @@ import {
   presignPutOptionKeys,
   requireKnownOptions,
 } from "./options.ts";
-import { refusePrecondition } from "./precondition.ts";
+import { preconditionHeaders, readWritePrecondition } from "./precondition.ts";
 import { pathOf, urlOf } from "./request.ts";
 import { presignRequest } from "./sign.ts";
 import { inStorage, s3Error } from "./storage-error.ts";
@@ -56,8 +56,10 @@ export interface S3PresignPutOptions {
   /** Bound as `Content-Language`, handed back as `content-language`, as `cacheControl` is. */
   contentLanguage?: string;
   /**
-   * `Unsupported` before anything is signed, since the storage declares neither
-   * `writeIfAbsent` nor `writeIfUnchanged`.
+   * Checked as `put` checks it. `"absent"` is signed as `If-None-Match: *` and handed back as
+   * `if-none-match`, so an upload without it or onto a key that holds an object writes nothing
+   * (ADR 0074). `{ etag }` is `Unsupported` before anything is signed, since the storage does
+   * not declare `writeIfUnchanged`.
    */
   onlyIf?: Precondition;
 }
@@ -106,11 +108,11 @@ export async function presignGet(
 }
 
 /**
- * Spec 7.10: `PutObject` on a writable key, with the content type, the content length and
- * each content header given bound through signed headers. Nothing else is signed in: no user
- * metadata and no checksum, which the browser would have to match exactly for a `403` that
- * names nothing (ADR 0011). All but the length are handed back to send beside the body
- * (spec 4.13).
+ * Spec 7.10: `PutObject` on a writable key, with the content type, the content length, each
+ * content header given and the precondition bound through signed headers. Nothing else is
+ * signed in: no user metadata and no checksum, which the browser would have to match exactly
+ * for a `403` that names nothing (ADR 0011). All but the length are handed back to send
+ * beside the body (spec 4.13).
  */
 export async function presignPut(
   configuration: S3Configuration,
@@ -135,24 +137,26 @@ export async function presignPut(
     capabilities,
   );
 
-  refusePrecondition(configuration.bucket, options.onlyIf, "write", operation, key, capabilities);
-
+  const onlyIf = readWritePrecondition(
+    configuration.bucket,
+    options.onlyIf,
+    operation,
+    key,
+    capabilities,
+  );
+  const handedBack = [...contentHeaders.headers, ...preconditionHeaders(onlyIf)];
   const url = await presignedUrl(configuration, {
     method: "PUT",
     operation,
     key,
     query: [],
-    headers: [
-      ["content-type", contentType],
-      ["content-length", contentLength],
-      ...contentHeaders.headers,
-    ],
+    headers: [["content-type", contentType], ["content-length", contentLength], ...handedBack],
     expiresIn,
   });
 
   return {
     url,
-    headers: { "content-type": contentType, ...Object.fromEntries(contentHeaders.headers) },
+    headers: { "content-type": contentType, ...Object.fromEntries(handedBack) },
   };
 }
 

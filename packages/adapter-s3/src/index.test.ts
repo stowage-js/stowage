@@ -176,6 +176,7 @@ test("it names the provider, the bucket and what it declares", () => {
     "rangeReads",
     "userMetadata",
     "userMetadataTokenKeys",
+    "writeIfAbsent",
   ]);
 });
 
@@ -1502,38 +1503,21 @@ test("an unknown option is refused by name before any request", async () => {
   expect(sent).toHaveLength(0);
 });
 
-// Until the adapter declares `writeIfAbsent` and `writeIfUnchanged`, spec 4.3 refuses every
-// `onlyIf` before any request, naming the capability its form needs.
+// Until the adapter declares `writeIfUnchanged`, spec 4.3 refuses `onlyIf: { etag }` before
+// any request, naming the capability its form needs.
 test.each([
-  [
-    "put",
-    "writeIfAbsent",
-    (storage: S3Storage) => storage.put("to.txt", "body", { onlyIf: "absent" }),
-  ],
-  [
-    "put",
-    "writeIfUnchanged",
-    (storage: S3Storage) => storage.put("to.txt", "body", { onlyIf: { etag: "abc" } }),
-  ],
-  [
-    "copy",
-    "writeIfAbsent",
-    (storage: S3Storage) => storage.copy("from.txt", "to.txt", { onlyIf: "absent" }),
-  ],
-  [
-    "move",
-    "writeIfUnchanged",
-    (storage: S3Storage) => storage.move("from.txt", "to.txt", { onlyIf: { etag: "abc" } }),
-  ],
+  ["put", (storage: S3Storage) => storage.put("to.txt", "body", { onlyIf: { etag: "abc" } })],
+  ["copy", (storage: S3Storage) => storage.copy("from.txt", "to.txt", { onlyIf: { etag: "abc" } })],
+  ["move", (storage: S3Storage) => storage.move("from.txt", "to.txt", { onlyIf: { etag: "abc" } })],
 ] as const)(
-  "`%s` refuses `onlyIf` as `Unsupported` naming `%s` before any request",
-  async (operation, capability, call) => {
+  "`%s` refuses `onlyIf: { etag }` as `Unsupported` naming `writeIfUnchanged` before any request",
+  async (operation, call) => {
     const sent = stubFetch(accepted);
     const failure = await rejection(async () => await call(s3Storage(options())));
 
     expect(failure).toMatchObject({
       code: "Unsupported",
-      capability,
+      capability: "writeIfUnchanged",
       operation,
       key: "to.txt",
       attempts: 0,

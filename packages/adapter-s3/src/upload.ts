@@ -12,6 +12,7 @@ import type { HeaderField } from "./canonical.ts";
 import type { S3Configuration } from "./configuration.ts";
 import type { ContentHeaderFields } from "./content-headers.ts";
 import { describeWrite, unquotedEtag, type WrittenObject } from "./description.ts";
+import { preconditionHeaders, preconditionRule, type WritePrecondition } from "./precondition.ts";
 import { send } from "./request.ts";
 import { s3Error } from "./storage-error.ts";
 import type { UserMetadataHeaders } from "./user-metadata.ts";
@@ -23,6 +24,8 @@ export interface ObjectWrite {
   readonly contentType: string;
   readonly contentHeaders: ContentHeaderFields;
   readonly userMetadata: UserMetadataHeaders;
+  /** Sent on the request that commits, `PutObject` or `CompleteMultipartUpload` (spec 7.4). */
+  readonly onlyIf?: WritePrecondition;
   readonly signal?: AbortSignal;
 }
 
@@ -56,9 +59,10 @@ export async function putObject(
     method: "PUT",
     operation: "put",
     key: write.key,
-    headers: objectHeaders(write),
+    headers: [...objectHeaders(write), ...preconditionHeaders(write.onlyIf)],
     body: bytes,
     signal: write.signal,
+    precondition: preconditionRule(write.onlyIf),
   });
 
   await response.body?.cancel();
@@ -201,10 +205,12 @@ async function completeUpload(
       operation: "put",
       key: write.key,
       query: [["uploadId", uploadId]],
-      headers: [["content-type", "application/xml"]],
+      headers: [["content-type", "application/xml"], ...preconditionHeaders(write.onlyIf)],
       body: utf8.encode(completeDocument(uploaded)),
       signal: write.signal,
       repeatWithoutResponse: false,
+      // Spec 7.5: R2 answers the repeat of a commit that went through `NoSuchUpload`.
+      precondition: preconditionRule(write.onlyIf, ["NoSuchUpload"]),
     });
     document = await readAnswerDocument(
       answeredRequest(configuration, write, "the completion of the upload"),
@@ -232,12 +238,13 @@ async function completeUpload(
  * could meet a commit still on its way. The same holds for a `200` that broke before its
  * body said how the commit went, since S3 sends that status before it has decided, and
  * for the caller's abort while the completion was out: the request may have arrived.
- * Only the provider's answer that it did not commit is aborted.
+ * Only the provider's answer that it did not commit is aborted, even where the caller's
+ * signal fired as it arrived: AWS would let a later commit complete a refused upload.
  */
 function mayHaveCommitted(failure: unknown, signal: AbortSignal | undefined): boolean {
-  if (signal?.aborted) return true;
+  if (isStorageError(failure)) return failure.code === "NetworkError";
 
-  return isStorageError(failure) && failure.code === "NetworkError";
+  return signal?.aborted === true;
 }
 
 /**

@@ -5,8 +5,23 @@ import { encodePath } from "./canonical.ts";
 import type { S3Configuration } from "./configuration.ts";
 import { describeResponse } from "./description.ts";
 import { sendHead } from "./head.ts";
+import {
+  copyPreconditionHeaders,
+  preconditionRule,
+  type WritePrecondition,
+} from "./precondition.ts";
 import { send } from "./request.ts";
 import { inStorage } from "./storage-error.ts";
+
+/** What `copy` and `move` copy. */
+export interface ObjectCopy {
+  readonly from: string;
+  readonly to: string;
+  readonly operation: string;
+  /** Applies to `to`. */
+  readonly onlyIf?: WritePrecondition;
+  readonly signal?: AbortSignal;
+}
 
 /**
  * Spec 7.8: one `CopyObject`, with the provider's refusal of a source too large for it as
@@ -17,10 +32,7 @@ import { inStorage } from "./storage-error.ts";
  */
 export async function copyObject(
   configuration: S3Configuration,
-  from: string,
-  to: string,
-  operation: string,
-  signal: AbortSignal | undefined,
+  { from, to, operation, onlyIf, signal }: ObjectCopy,
 ): Promise<ObjectStat> {
   const { bucket } = configuration;
 
@@ -32,8 +44,12 @@ export async function copyObject(
     key: to,
     // The source is named as the bucket and the key, never as the path the destination
     // is addressed through, and it is percent-encoded as the path is.
-    headers: [["x-amz-copy-source", encodePath(`/${bucket}/${from}`)]],
+    headers: [
+      ["x-amz-copy-source", encodePath(`/${bucket}/${from}`)],
+      ...copyPreconditionHeaders(onlyIf),
+    ],
     signal,
+    precondition: preconditionRule(onlyIf),
   }).catch((failure: unknown) => {
     // The request addresses the destination, and the key it did not find is the source.
     if (isStorageError(failure) && failure.providerCode === "NoSuchKey") {

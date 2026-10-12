@@ -21,7 +21,7 @@ import {
 
 import { readConfiguration, type S3AdapterOptions, type S3Configuration } from "./configuration.ts";
 import { contentHeaderFields } from "./content-headers.ts";
-import { copyObject } from "./copy.ts";
+import { copyObject, type ObjectCopy } from "./copy.ts";
 import { deleteBelow, deleteKeys } from "./delete.ts";
 import { defaultContentType, describeResponse } from "./description.ts";
 import { sendHead } from "./head.ts";
@@ -42,7 +42,7 @@ import {
   putOptionKeys,
   requireKnownOptions,
 } from "./options.ts";
-import { refusePrecondition } from "./precondition.ts";
+import { readWritePrecondition, refusePrecondition } from "./precondition.ts";
 import { send } from "./request.ts";
 import { rangedAnswerFailure, requireRange } from "./range.ts";
 import { s3Error } from "./storage-error.ts";
@@ -96,6 +96,7 @@ const s3Capabilities: readonly CapabilityName[] = Object.freeze([
   "rangeReads",
   "userMetadata",
   "userMetadataTokenKeys",
+  "writeIfAbsent",
 ]);
 
 const utf8 = new TextEncoder();
@@ -127,7 +128,13 @@ class SimpleStorageServiceStorage implements S3Storage {
   async #put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat> {
     requireKey(this.bucket, key, "writable", "put");
     requireKnownOptions(this.bucket, options, putOptionKeys, "put");
-    refusePrecondition(this.bucket, options?.onlyIf, "write", "put", key, this.capabilities);
+    const onlyIf = readWritePrecondition(
+      this.bucket,
+      options?.onlyIf,
+      "put",
+      key,
+      this.capabilities,
+    );
 
     const contentType = this.#readContentType(options?.contentType);
     const write: ObjectWrite = {
@@ -142,6 +149,7 @@ class SimpleStorageServiceStorage implements S3Storage {
         "put",
         this.capabilities,
       ),
+      onlyIf,
       signal: options?.signal,
     };
 
@@ -241,9 +249,7 @@ class SimpleStorageServiceStorage implements S3Storage {
   }
 
   async copy(from: string, to: string, options?: CopyOptions): Promise<ObjectStat> {
-    this.#requireCopyKeys(from, to, options, "copy");
-
-    return await copyObject(this.#configuration, from, to, "copy", options?.signal);
+    return await copyObject(this.#configuration, this.#readCopy(from, to, options, "copy"));
   }
 
   /**
@@ -252,9 +258,10 @@ class SimpleStorageServiceStorage implements S3Storage {
    * place and a repeated `move` is safe.
    */
   async move(from: string, to: string, options?: CopyOptions): Promise<ObjectStat> {
-    this.#requireCopyKeys(from, to, options, "move");
-
-    const written = await copyObject(this.#configuration, from, to, "move", options?.signal);
+    const written = await copyObject(
+      this.#configuration,
+      this.#readCopy(from, to, options, "move"),
+    );
     const response = await send(this.#configuration, {
       method: "DELETE",
       operation: "move",
@@ -289,18 +296,25 @@ class SimpleStorageServiceStorage implements S3Storage {
    * onto itself stop before it leaves the process; a `move` onto itself would otherwise
    * delete the one object it named.
    */
-  #requireCopyKeys(
+  #readCopy(
     from: string,
     to: string,
     options: CopyOptions | undefined,
     operation: string,
-  ): void {
+  ): ObjectCopy {
     requireKey(this.bucket, from, "addressable", operation);
     requireKey(this.bucket, to, "writable", operation);
     requireKnownOptions(this.bucket, options, copyOptionKeys, operation);
-    refusePrecondition(this.bucket, options?.onlyIf, "write", operation, to, this.capabilities);
 
-    if (from !== to) return;
+    const onlyIf = readWritePrecondition(
+      this.bucket,
+      options?.onlyIf,
+      operation,
+      to,
+      this.capabilities,
+    );
+
+    if (from !== to) return { from, to, operation, onlyIf, signal: options?.signal };
 
     throw s3Error(this.bucket, {
       code: "InvalidRequest",
