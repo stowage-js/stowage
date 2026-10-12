@@ -73,7 +73,6 @@ test.each(["EPERM", "ENOTSUP", "EOPNOTSUPP"])(
     });
     expect(refused.retryable).toBe(false);
     expect(refused.message).toContain("holds no hard links");
-    // The temporary file goes, and with it the directories the call created for it.
     expect(await readdir(root)).toEqual([]);
   },
 );

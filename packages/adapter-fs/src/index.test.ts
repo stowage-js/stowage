@@ -1,6 +1,7 @@
 import {
   chmod,
   link,
+  lstat,
   mkdir,
   mkdtemp,
   readdir,
@@ -379,7 +380,6 @@ test('writes a free key under `onlyIf: "absent"` and refuses one that holds an o
 
   expectPreconditionFailed(refused, "put", "docs/one.txt");
   expect(await (await storage.get("docs/one.txt")).text()).toBe("the first");
-  // Neither write leaves its temporary file behind, the one that landed nor the one refused.
   expect(await readdir(join(root, "docs"))).toEqual(["one.txt"]);
 });
 
@@ -464,6 +464,8 @@ test('moves the file a link at the key resolves to under `onlyIf: "absent"`', as
   expect(await (await storage.get("moved")).text()).toBe("a body");
   expect(await (await storage.get("object")).text()).toBe("a body");
   expect((await readdir(root)).toSorted()).toEqual(["moved", "object"]);
+  // A link of the link itself would read the same bytes through it on Linux.
+  expect((await lstat(join(root, "moved"))).isFile()).toBe(true);
 });
 
 test('refuses `onlyIf: "absent"` at a directory as an invalid request', async () => {
