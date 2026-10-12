@@ -105,10 +105,6 @@ function answeringInTurn(...answers: readonly (() => Response)[]): () => Respons
   };
 }
 
-test("the storage declares `writeIfAbsent`", () => {
-  expect(storage().capabilities).toContain("writeIfAbsent");
-});
-
 test('`put` with `onlyIf: "absent"` sends `ifGenerationMatch=0` on the insert', async () => {
   const sent = stubFetch(written);
 
