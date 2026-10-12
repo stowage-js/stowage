@@ -41,6 +41,7 @@ export { type RetryOptions, withRetry } from "./retry.ts";
 export {
   type ConstructedStorage,
   type FailureReading,
+  type PreconditionRule,
   type PreparedAttempt,
   readMaxAttempts,
   type RefusedAnswer,

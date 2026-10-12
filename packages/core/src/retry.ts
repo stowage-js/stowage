@@ -26,7 +26,8 @@ export async function withRetry<T>(attempt: () => Promise<T>, options: RetryOpti
 
 /**
  * The failure a request ends with although the budget would repeat it, or `undefined` to
- * let the budget decide. `sendRequest` passes the rules of spec 7.5 and ADR 0037 here.
+ * let the budget decide. `sendRequest` passes the rules of spec 7.5, ADR 0037 and ADR 0073
+ * here.
  */
 export type Settle = (failure: StorageError) => StorageError | undefined;
 

@@ -46,6 +46,17 @@ export interface FailureReading {
  */
 export type UnansweredRule = "repeat" | "stop" | "reportOverNotFound";
 
+/**
+ * What a request carrying a precondition does with a refusal of it after an attempt that
+ * received no response or a `5xx`: it rejects with that attempt's failure, because the
+ * repeat of a request that took effect meets its own result (ADR 0073). A refusal is a
+ * `PreconditionFailed`, or a provider code named in `alsoRefusedBy`.
+ */
+export interface PreconditionRule {
+  /** Provider codes that refuse it as well, such as a commit's `NoSuchUpload` (spec 7.5). */
+  readonly alsoRefusedBy?: readonly string[];
+}
+
 export interface RequestToSend {
   readonly provider: string;
   readonly bucket: string;
@@ -58,6 +69,7 @@ export interface RequestToSend {
   /** Statuses besides `2xx` that answer the request, such as a session's `308` (ADR 0036). */
   readonly answeredBy?: readonly number[];
   readonly unanswered?: UnansweredRule;
+  readonly precondition?: PreconditionRule;
   /** Resolves the credential, under `forceRefresh` where asked, and signs one attempt. */
   readonly prepare: (options: { readonly forceRefresh: boolean }) => Promise<PreparedAttempt>;
   readonly readFailure: (answer: RefusedAnswer) => FailureReading;
@@ -76,7 +88,7 @@ export async function sendRequest(request: RequestToSend): Promise<Response> {
   return await repeatOnBudget(
     async () => await attempt(request, false),
     { maxAttempts: request.maxAttempts, signal: request.signal },
-    settlingBy(request.unanswered ?? "repeat"),
+    settlingBy(request),
   );
 }
 
@@ -185,24 +197,33 @@ function toldAgainst(request: RequestToSend, failure: unknown): unknown {
   });
 }
 
-function settlingBy(rule: UnansweredRule): Settle {
-  if (rule === "stop") return (failure) => (receivedNoResponse(failure) ? failure : undefined);
-  if (rule === "repeat") return () => undefined;
-
+function settlingBy(request: RequestToSend): Settle {
+  const rule = request.unanswered ?? "repeat";
+  const { precondition } = request;
+  const outweighedByDoubt = (failure: StorageError): boolean =>
+    (rule === "reportOverNotFound" && failure.code === "NotFound" && failure.key !== undefined) ||
+    (precondition !== undefined && refusesPrecondition(failure, precondition));
   let doubtful: StorageError | undefined;
 
   return (failure) => {
-    if (doubtful !== undefined && failure.code === "NotFound" && failure.key !== undefined) {
-      return doubtful;
-    }
+    if (rule === "stop" && receivedNoResponse(failure)) return failure;
+    if (doubtful !== undefined && outweighedByDoubt(failure)) return doubtful;
 
     // A resolver's `NetworkError` counts as well although no request went out, which
-    // reports a doubt where there was none rather than `NotFound` for an object that may
-    // have moved (ADR 0037).
+    // reports a doubt where there was none rather than a refusal the request may have
+    // caused itself (ADR 0037, ADR 0073). `408` and `429` say it was not carried out.
     if (receivedNoResponse(failure) || (failure.status ?? 0) >= 500) doubtful = failure;
 
     return undefined;
   };
+}
+
+function refusesPrecondition(failure: StorageError, precondition: PreconditionRule): boolean {
+  return (
+    failure.code === "PreconditionFailed" ||
+    (failure.providerCode !== undefined &&
+      precondition.alsoRefusedBy?.includes(failure.providerCode) === true)
+  );
 }
 
 function receivedNoResponse(failure: StorageError): boolean {
