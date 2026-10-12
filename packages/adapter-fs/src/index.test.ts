@@ -153,7 +153,7 @@ test("names the provider and the root it is bound to", async () => {
 });
 
 test("declares the capabilities it implements", async () => {
-  expect((await rootedStorage()).capabilities).toEqual(["rangeReads"]);
+  expect((await rootedStorage()).capabilities).toEqual(["rangeReads", "writeIfAbsent"]);
 });
 
 test("refuses a root that is no absolute path", () => {
@@ -312,8 +312,8 @@ test.each([
 });
 
 test.each([
-  ['`"absent"`', "absent", "Unsupported", "writeIfAbsent"],
   ["an `etag`", { etag: "abc" }, "Unsupported", "writeIfUnchanged"],
+  ['a string other than `"absent"`', "present", "InvalidOption", undefined],
   ["a value of no kind", 42, "InvalidOption", undefined],
 ])("refuses `onlyIf` as %s before `put` writes anything", async (_, onlyIf, code, capability) => {
   const root = await temporaryRoot();
@@ -343,17 +343,163 @@ test.each(["copy", "move"] as const)(
 
     await storage.put("from", "the source");
 
-    const refused = await storageErrorOf(storage[operation]("from", "to", { onlyIf: "absent" }));
+    const refused = await storageErrorOf(
+      storage[operation]("from", "to", { onlyIf: { etag: "abc" } }),
+    );
 
     expect(refused).toMatchObject({
       code: "Unsupported",
-      capability: "writeIfAbsent",
+      capability: "writeIfUnchanged",
       operation,
       key: "to",
       attempts: 0,
     });
     expect(await (await storage.get("from")).text()).toBe("the source");
     expect(await storage.exists("to")).toBe(false);
+  },
+);
+
+/** What spec 14.5 has a refused precondition carry, against the key that carries it. */
+const expectPreconditionFailed = (error: StorageError, operation: string, key: string): void => {
+  expect(error).toMatchObject({ code: "PreconditionFailed", operation, key });
+  expect(error.retryable).toBe(false);
+  expect(error.attempts).toBe(1);
+};
+
+test('writes a free key under `onlyIf: "absent"` and refuses one that holds an object', async () => {
+  const root = await temporaryRoot();
+  const storage = fsStorage({ root });
+
+  await storage.put("docs/one.txt", "the first", { onlyIf: "absent" });
+
+  const refused = await storageErrorOf(
+    storage.put("docs/one.txt", "the second", { onlyIf: "absent" }),
+  );
+
+  expectPreconditionFailed(refused, "put", "docs/one.txt");
+  expect(await (await storage.get("docs/one.txt")).text()).toBe("the first");
+  // Neither write leaves its temporary file behind, the one that landed nor the one refused.
+  expect(await readdir(join(root, "docs"))).toEqual(["one.txt"]);
+});
+
+test('checks `onlyIf: "absent"` once the body is read, and not in front of it', async () => {
+  const root = await temporaryRoot();
+  const storage = fsStorage({ root });
+  const { promise: reading, resolve: startReading } = Promise.withResolvers<void>();
+  const { promise: finished, resolve: finish } = Promise.withResolvers<void>();
+  const body = new ReadableStream<Uint8Array>(
+    {
+      async pull(controller) {
+        startReading();
+        await finished;
+        controller.enqueue(new TextEncoder().encode("the slow writer"));
+        controller.close();
+      },
+    },
+    // No read ahead: the first pull is the write asking for the body.
+    { highWaterMark: 0 },
+  );
+  const slow = storage.put("object", body, { onlyIf: "absent" });
+
+  // The key is free while the slow writer reads its body, and taken before it ends.
+  await reading;
+  await storage.put("object", "the fast writer");
+  finish();
+
+  expectPreconditionFailed(await storageErrorOf(slow), "put", "object");
+  expect(await (await storage.get("object")).text()).toBe("the fast writer");
+  expect(await readdir(root)).toEqual(["object"]);
+});
+
+test.each(["copy", "move"] as const)(
+  '%s writes a free key under `onlyIf: "absent"`',
+  async (operation) => {
+    const root = await temporaryRoot();
+    const storage = fsStorage({ root });
+
+    await storage.put("from/source.txt", "the source");
+
+    const described = await storage[operation]("from/source.txt", "to/target.txt", {
+      onlyIf: "absent",
+    });
+
+    expect(described).toMatchObject({ key: "to/target.txt", size: 10 });
+    expect(await (await storage.get("to/target.txt")).text()).toBe("the source");
+    expect(await storage.exists("from/source.txt")).toBe(operation === "copy");
+    expect(await readdir(join(root, "to"))).toEqual(["target.txt"]);
+  },
+);
+
+test.each(["copy", "move"] as const)(
+  '%s refuses `onlyIf: "absent"` at a key that holds an object, leaving both keys',
+  async (operation) => {
+    const root = await temporaryRoot();
+    const storage = fsStorage({ root });
+
+    await storage.put("from", "the source");
+    await storage.put("to", "the destination");
+
+    const refused = await storageErrorOf(storage[operation]("from", "to", { onlyIf: "absent" }));
+
+    expectPreconditionFailed(refused, operation, "to");
+    expect(await (await storage.get("from")).text()).toBe("the source");
+    expect(await (await storage.get("to")).text()).toBe("the destination");
+    expect((await readdir(root)).toSorted()).toEqual(["from", "to"]);
+  },
+);
+
+test('moves the file a link at the key resolves to under `onlyIf: "absent"`', async () => {
+  const root = await temporaryRoot();
+  const storage = fsStorage({ root });
+
+  await storage.put("object", "a body");
+  await symlink(join(root, "object"), join(root, "link"));
+
+  await storage.move("link", "moved", { onlyIf: "absent" });
+
+  // macOS `link` follows a link and Linux does not, so the adapter hands it the file the
+  // link resolves to, and the destination holds the same bytes on both (spec 6).
+  expect((await iterate(storage.list())).toSorted()).toEqual(["moved", "object"]);
+  expect(await (await storage.get("moved")).text()).toBe("a body");
+  expect(await (await storage.get("object")).text()).toBe("a body");
+  expect((await readdir(root)).toSorted()).toEqual(["moved", "object"]);
+});
+
+test('refuses `onlyIf: "absent"` at a directory as an invalid request', async () => {
+  const root = await temporaryRoot();
+  const storage = fsStorage({ root });
+
+  await storage.put("docs/one.txt", "a body");
+
+  const refused = await storageErrorOf(storage.put("docs", "a body", { onlyIf: "absent" }));
+
+  expect(refused).toMatchObject({ code: "InvalidRequest", operation: "put", key: "docs" });
+  expect(await readdir(root)).toEqual(["docs"]);
+  expect(await readdir(join(root, "docs"))).toEqual(["one.txt"]);
+});
+
+test.each(["put", "copy", "move"] as const)(
+  '%s refuses `onlyIf: "absent"` at a link resolving to nothing as an invalid request',
+  async (operation) => {
+    const root = await temporaryRoot();
+    const storage = fsStorage({ root });
+
+    await storage.put("from", "the source");
+    await symlink(join(root, "nowhere"), join(root, "dangling"));
+
+    const call =
+      operation === "put"
+        ? storage.put("dangling", "a body", { onlyIf: "absent" })
+        : storage[operation]("from", "dangling", { onlyIf: "absent" });
+    const refused = await storageErrorOf(call);
+
+    // Such a key answers `exists` with `false`, and yet no write may take its name while
+    // the link holds it: replacing the link only while it is still that link is no step a
+    // file system offers (ADR 0072).
+    expect(refused).toMatchObject({ code: "InvalidRequest", operation, key: "dangling" });
+    expect(await storage.exists("dangling")).toBe(false);
+    expect(await (await storage.get("from")).text()).toBe("the source");
+    expect((await readdir(root)).toSorted()).toEqual(["dangling", "from"]);
   },
 );
 

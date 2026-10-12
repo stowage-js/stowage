@@ -32,6 +32,8 @@ import { asFailure } from "./errno.ts";
 import { requireKey } from "./key.ts";
 import {
   findObjectFile,
+  linkObjectFile,
+  linkWhereAbsent,
   type ObjectFile,
   releaseObjectFile,
   removeObjectFile,
@@ -79,7 +81,10 @@ export function fsStorage(options: FsAdapterOptions): FsStorage {
 
 // One frozen array behind every storage: the declaration is fixed once the storage is
 // constructed, and a caller reaching past the `readonly` type reaches all of them.
-const fsCapabilities: readonly CapabilityName[] = Object.freeze(["rangeReads"] as const);
+const fsCapabilities: readonly CapabilityName[] = Object.freeze([
+  "rangeReads",
+  "writeIfAbsent",
+] as const);
 
 /** A write whose directories and temporary file are in place, and whose bytes are not. */
 interface ReservedWrite {
@@ -141,7 +146,7 @@ class FileSystemStorage implements FsStorage {
     );
 
     try {
-      return await this.#write(context, reserved, body, options?.signal);
+      return await this.#write(context, reserved, body, options);
     } catch (thrown) {
       await withDirectoryMutations(context.realRoot, reserved.prepared.abandon);
 
@@ -169,8 +174,10 @@ class FileSystemStorage implements FsStorage {
     context: FsAccessContext,
     { prepared, temporary, handle }: ReservedWrite,
     body: PutBody,
-    signal?: AbortSignal,
+    options?: PutOptions,
   ): Promise<ObjectStat> {
+    const signal = options?.signal;
+
     return await this.#land(
       context,
       prepared.path,
@@ -193,7 +200,7 @@ class FileSystemStorage implements FsStorage {
           throw thrown;
         }
       },
-      signal,
+      options,
     );
   }
 
@@ -207,13 +214,22 @@ class FileSystemStorage implements FsStorage {
     path: string,
     temporary: string,
     fill: () => Promise<Stats>,
-    signal?: AbortSignal,
+    options?: CopyOptions,
   ): Promise<ObjectStat> {
     try {
       const written = await fill();
 
-      signal?.throwIfAborted();
-      await rename(temporary, path);
+      options?.signal?.throwIfAborted();
+
+      if (options?.onlyIf === "absent") {
+        await linkWhereAbsent(temporary, { context, path });
+        // The object is under its key once the link took. A temporary name left behind is
+        // one a listing passes over, and rejecting the write that took effect would send a
+        // caller into its own object under the same precondition (spec 4.10).
+        await unlink(temporary).catch(() => {});
+      } else {
+        await rename(temporary, path);
+      }
 
       return describe(context.key, written.size, written.mtime);
     } catch (thrown) {
@@ -400,7 +416,7 @@ class FileSystemStorage implements FsStorage {
               // writer renamed over the source in the meantime.
               return await stat(temporary);
             },
-            options?.signal,
+            options,
           ),
       );
     } finally {
@@ -424,15 +440,16 @@ class FileSystemStorage implements FsStorage {
     const source = await this.#requireFile(ends.from);
 
     try {
-      // The source's lease holds the directory lock, and a rename that fails leaves it held.
+      // The source's lease holds the directory lock, and a move that fails leaves it held.
       const prepared = await prepareWrite(ends.to);
+      const moveFile = options?.onlyIf === "absent" ? linkObjectFile : renameObjectFile;
 
       await abandoningOnFailure(prepared, async () => {
         options?.signal?.throwIfAborted();
-        await renameObjectFile(ends.from, source, { context: ends.to, path: prepared.path });
+        await moveFile(ends.from, source, { context: ends.to, path: prepared.path });
       });
 
-      // The rename carries the file as it stands, so the destination is described by what
+      // The move carries the file as it stands, so the destination is described by what
       // the source held: its bytes and the time they were last written.
       return describe(to, source.stats.size, source.stats.mtime);
     } finally {
@@ -538,8 +555,9 @@ class FileSystemStorage implements FsStorage {
   }
 
   /**
-   * Spec 4.3: the storage declares no capability an `onlyIf` needs, so every one is refused
-   * before anything is written or removed, against the key that carries it.
+   * Spec 4.3: an `onlyIf` the storage declares no capability for, or one of no form, is
+   * refused before anything is written or removed, against the key that carries it. What
+   * passes on a write is `"absent"`, which no step checks until the write lands (spec 6).
    */
   #refusePrecondition(
     onlyIf: unknown,
