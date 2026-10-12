@@ -16,7 +16,7 @@ import {
   presignPutOptionKeys,
   requireKnownOptions,
 } from "./options.ts";
-import { preconditionHeaders, refusePrecondition } from "./precondition.ts";
+import { preconditionHeaders, readWritePrecondition } from "./precondition.ts";
 import { pathOf, urlOf } from "./request.ts";
 import { presignRequest } from "./sign.ts";
 import { inStorage, s3Error } from "./storage-error.ts";
@@ -109,10 +109,10 @@ export async function presignGet(
 
 /**
  * Spec 7.10: `PutObject` on a writable key, with the content type, the content length, each
- * content header given and the precondition bound through signed headers. Nothing else is signed in: no user
- * metadata and no checksum, which the browser would have to match exactly for a `403` that
- * names nothing (ADR 0011). All but the length are handed back to send beside the body
- * (spec 4.13).
+ * content header given and the precondition bound through signed headers. Nothing else is
+ * signed in: no user metadata and no checksum, which the browser would have to match exactly
+ * for a `403` that names nothing (ADR 0011). All but the length are handed back to send
+ * beside the body (spec 4.13).
  */
 export async function presignPut(
   configuration: S3Configuration,
@@ -137,12 +137,14 @@ export async function presignPut(
     capabilities,
   );
 
-  refusePrecondition(configuration.bucket, options.onlyIf, "write", operation, key, capabilities);
-
-  const handedBack = [
-    ...contentHeaders.headers,
-    ...preconditionHeaders(options.onlyIf === "absent"),
-  ];
+  const onlyIf = readWritePrecondition(
+    configuration.bucket,
+    options.onlyIf,
+    operation,
+    key,
+    capabilities,
+  );
+  const handedBack = [...contentHeaders.headers, ...preconditionHeaders(onlyIf)];
   const url = await presignedUrl(configuration, {
     method: "PUT",
     operation,

@@ -42,8 +42,8 @@ const providerCodes: ReadonlyMap<string, StorageErrorCode> = new Map([
   ["InvalidObjectName", "InvalidKey"],
   ["KeyTooLongError", "InvalidKey"],
   ["PreconditionFailed", "PreconditionFailed"],
-  // AWS's, answered at `409` to a multipart commit a `PUT` that landed after the upload
-  // began overtook, which leaves the caller the way out of a `412` (ADR 0071).
+  // AWS's, answered at `409` where a `PUT` that landed after a multipart upload began
+  // overtook its commit. The caller's way out is the same as after a `412` (ADR 0071).
   ["ConditionalRequestConflict", "PreconditionFailed"],
   ["NoSuchUpload", "ProviderError"],
   ["SlowDown", "ProviderError"],
