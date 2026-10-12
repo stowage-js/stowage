@@ -41,7 +41,7 @@
     "@stowage/adapter-memory": "workspace:^",
     "@stowage/adapter-s3": "workspace:^",
     "@stowage/http": "workspace:^",
-    "next": "16.3.8",
+    "next": "16.4.0",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },

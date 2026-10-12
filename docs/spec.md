@@ -902,7 +902,8 @@ export function decodeUserMetadataValue(value: string): string;
 /** What section 4.3 bounds at 2 KB: every key and its value as `encodeUserMetadataValue` writes it. */
 export function userMetadataByteLength(userMetadata: Readonly<Record<string, string>>): number;
 export type UserMetadataCheck =
-  { readonly held: Readonly<Record<string, string>> } | { readonly refusal: Refusal };
+  | { readonly held: Readonly<Record<string, string>> }
+  | { readonly refusal: Refusal };
 /** Runs the checks of section 4.3 in order; `held` has its keys folded to lower case. */
 export function checkUserMetadata(
   userMetadata: Record<string, string> | undefined,
@@ -2930,7 +2931,7 @@ adapters, tested in this repository and not by the suite:
   and a value holding a run of spaces, and the content headers of `put/content-headers`, a tab and a
   run of spaces among them, on `Put Blob` and on `Put Block List`; `presignGet` as a service SAS;
   `presignPut` refused before any request; and a `copy`, once the pinned Azurite carries `Put Blob
-From URL`. Against Azurite on every commit and the account in the `slow` tier.
+  From URL`. Against Azurite on every commit and the account in the `slow` tier.
 - The refresh of `adapter-s3` after `SignatureDoesNotMatch` under a session token (section 7.3),
   against a stubbed `fetch`: one resolver call with `forceRefresh: true`, then success, or
   `InvalidCredentials` with `attempts: 2` after a second one; one attempt for the same answer to a
