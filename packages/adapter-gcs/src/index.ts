@@ -25,7 +25,7 @@ import {
 } from "./configuration.ts";
 import { heldContentHeaders } from "./content-headers.ts";
 import { copyObject, moveObject, type ObjectCopy } from "./copy.ts";
-import { deleteBelow, deleteKeys } from "./delete.ts";
+import { deleteBelow, deleteIfUnchanged, deleteKeys } from "./delete.ts";
 import { defaultContentType, readDescription } from "./description.ts";
 import { getObject } from "./download.ts";
 import { requireKey } from "./key.ts";
@@ -39,7 +39,7 @@ import {
   putOptionKeys,
   requireKnownOptions,
 } from "./options.ts";
-import { readWritePrecondition, refusePrecondition } from "./precondition.ts";
+import { readDeletePrecondition, readWritePrecondition } from "./precondition.ts";
 import {
   type GcsPresignGetOptions,
   type GcsPresignPutOptions,
@@ -60,8 +60,9 @@ export interface GcsStorage extends Storage {
   /** Sends at most one batch request per 100 keys. */
   delete(...keys: readonly string[]): Promise<DeleteReport>;
   /**
-   * Deletes the key as `delete(key)` does, under the signal. Refuses every `onlyIf` while the
-   * storage declares no `deleteIfUnchanged`.
+   * Deletes the key as `delete(key)` does, under the signal. With `onlyIf: { etag }` it sends
+   * one `DELETE` carrying the generation as `ifGenerationMatch`, and a key that holds another
+   * generation, or none, is one `PreconditionFailed` entry.
    */
   delete(key: string, options: DeleteOptions): Promise<DeleteReport>;
 }
@@ -98,23 +99,27 @@ export function gcsStorage(options: GcsAdapterOptions): GcsStorage {
     : new GcsSigningBucketStorage(configuration, configuration.signer);
 }
 
-// Spec 9.1 and ADR 0032, in the order of `capabilityNames`.
+// Spec 9.1, ADR 0032 and ADR 0071, in the order of `capabilityNames`.
 const gcsCapabilities: readonly CapabilityName[] = Object.freeze([
   "contentHeaders",
+  "deleteIfUnchanged",
   "keyBytesPreserved",
   "rangeReads",
   "userMetadata",
   "userMetadataTokenKeys",
   "writeIfAbsent",
+  "writeIfUnchanged",
 ]);
 const gcsSigningCapabilities: readonly CapabilityName[] = Object.freeze([
   "contentHeaders",
+  "deleteIfUnchanged",
   "keyBytesPreserved",
   "presignedUrls",
   "rangeReads",
   "userMetadata",
   "userMetadataTokenKeys",
   "writeIfAbsent",
+  "writeIfUnchanged",
 ]);
 
 const utf8 = new TextEncoder();
@@ -230,9 +235,13 @@ class GcsBucketStorage implements GcsStorage {
     const [key, options] = args;
 
     requireKnownOptions(this.bucket, options, deleteOptionKeys, "delete");
-    refusePrecondition(this.bucket, options.onlyIf, "delete", "delete", key, this.capabilities);
+    const onlyIf = readDeletePrecondition(this.bucket, options.onlyIf, key, this.capabilities);
 
     options.signal?.throwIfAborted();
+
+    if (onlyIf !== undefined) {
+      return await deleteIfUnchanged(this.configuration, key, onlyIf, options.signal);
+    }
 
     return await deleteKeys(this.configuration, [key], {
       operation: "delete",

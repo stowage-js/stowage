@@ -1,17 +1,17 @@
-import type { ObjectStat } from "@stowage/core";
+import type { ObjectStat, Precondition } from "@stowage/core";
 
 import { type AnsweredRequest, malformedAnswer, readAnswerJson } from "./answer.ts";
 import type { GcsConfiguration } from "./configuration.ts";
 import { describeResource, readResource } from "./description.ts";
 import { fieldOf, stringOf } from "./json.ts";
-import { preconditionQuery, preconditionRule, type WritePrecondition } from "./precondition.ts";
+import { preconditionQuery, preconditionRule } from "./precondition.ts";
 import { encodeSegment, objectPath, type QueryParameter, send } from "./request.ts";
 
 /** What `copy` and `move` write, and the precondition of `to` they write under. */
 export interface ObjectCopy {
   readonly from: string;
   readonly to: string;
-  readonly onlyIf?: WritePrecondition;
+  readonly onlyIf?: Precondition;
   readonly signal?: AbortSignal;
 }
 

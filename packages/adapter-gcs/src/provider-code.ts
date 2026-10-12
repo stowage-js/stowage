@@ -60,6 +60,8 @@ export interface ProviderAnswer {
   readonly sessionUri: boolean;
   /** Whether the request went out under a token the resolver had just refreshed. */
   readonly underRefreshedToken: boolean;
+  /** Whether the request carried `ifGenerationMatch`, which a `DELETE` of no object fails. */
+  readonly conditional?: boolean;
   readonly headers: Headers;
 }
 
@@ -98,6 +100,17 @@ export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
       code: "ProviderError",
       message: `The resumable session is gone, and the bytes sent to it with it: ${said}`,
     };
+  }
+
+  // Spec 9.8: under `ifGenerationMatch` a key that holds no object is a refusal, where without
+  // one it is the success of spec 4.7 (ADR 0071).
+  if (
+    answer.conditional === true &&
+    answer.method === "DELETE" &&
+    answer.status === notFound &&
+    answer.providerCode === "notFound"
+  ) {
+    return { code: "PreconditionFailed", message: said };
   }
 
   // ADR 0038: a path the JSON API does not serve answers `404` without a provider code, and read

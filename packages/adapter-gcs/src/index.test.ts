@@ -154,26 +154,30 @@ test("the storage names its provider and its bucket", () => {
   expect(constructed.bucket).toBe("conformance");
 });
 
-test("without a signer it declares `contentHeaders`, `keyBytesPreserved`, `rangeReads`, `userMetadata`, `userMetadataTokenKeys` and `writeIfAbsent`", () => {
+test("without a signer it declares `contentHeaders`, `deleteIfUnchanged`, `keyBytesPreserved`, `rangeReads`, `userMetadata`, `userMetadataTokenKeys`, `writeIfAbsent` and `writeIfUnchanged`", () => {
   expect(storage().capabilities).toEqual([
     "contentHeaders",
+    "deleteIfUnchanged",
     "keyBytesPreserved",
     "rangeReads",
     "userMetadata",
     "userMetadataTokenKeys",
     "writeIfAbsent",
+    "writeIfUnchanged",
   ]);
 });
 
 test("with a signer it declares `presignedUrls` as well", () => {
   expect(signingStorage().capabilities).toEqual([
     "contentHeaders",
+    "deleteIfUnchanged",
     "keyBytesPreserved",
     "presignedUrls",
     "rangeReads",
     "userMetadata",
     "userMetadataTokenKeys",
     "writeIfAbsent",
+    "writeIfUnchanged",
   ]);
 });
 
@@ -2321,23 +2325,18 @@ test("`delete` of one key rejects before any request where the signal already fi
   expect(sent).toEqual([]);
 });
 
-// Until the adapter declares `deleteIfUnchanged`, spec 4.3 refuses an `onlyIf` object on `delete`
-// before any request, and `"absent"`, which has no kind there, on every storage.
-test.each([
-  ["an `etag`", { etag: "1" }, "Unsupported", "deleteIfUnchanged"],
-  ['`"absent"`', "absent", "InvalidOption", undefined],
-] as const)(
-  "`delete` refuses `onlyIf` as %s before any request",
-  async (_, onlyIf, code, capability) => {
-    const sent = stubFetch(everyKey(deleted));
+// Spec 4.3: `"absent"` has no kind on a delete, so it is no precondition there at all.
+test('`delete` refuses `onlyIf` as `"absent"` as `InvalidOption` before any request', async () => {
+  const sent = stubFetch(everyKey(deleted));
+  const failure = await failureOf(() =>
     // oxlint-disable-next-line no-unsafe-type-assertion -- `"absent"` has no kind on a delete
-    const failure = await failureOf(() => storage().delete("one", { onlyIf } as DeleteOptions));
+    storage().delete("one", { onlyIf: "absent" } as unknown as DeleteOptions),
+  );
 
-    expect(failure).toMatchObject({ code, capability, operation: "delete", key: "one" });
-    expect(failure.attempts).toBe(0);
-    expect(sent).toEqual([]);
-  },
-);
+  expect(failure).toMatchObject({ code: "InvalidOption", operation: "delete", key: "one" });
+  expect(failure.attempts).toBe(0);
+  expect(sent).toEqual([]);
+});
 
 test("`delete` of one key refuses an option key it does not list before any request", async () => {
   const sent = stubFetch(everyKey(deleted));

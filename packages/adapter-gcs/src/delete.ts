@@ -4,8 +4,10 @@ import {
   batchContentType,
   type BatchSubresponse,
   type DeleteReport,
+  isStorageError,
   readSubresponses,
   type StorageError,
+  type StorageErrorCode,
   type SubresponseReading,
 } from "@stowage/core";
 
@@ -13,8 +15,15 @@ import { type AnsweredRequest, malformedAnswer, readAnswerText } from "./answer.
 import type { GcsConfiguration } from "./configuration.ts";
 import { keyRefusal } from "./key.ts";
 import { maxPageSize, walkPages } from "./listing.ts";
+import {
+  type DeletePrecondition,
+  noGenerationRefusal,
+  preconditionQuery,
+  preconditionRule,
+} from "./precondition.ts";
 import { providerError, readErrorBody } from "./provider-code.ts";
 import { batchPath, objectPath, requestIdHeader, send } from "./request.ts";
+import { isMissingObject } from "./storage-error.ts";
 
 /** What one batch carries at most, and so what spec 9.1 sends one request per. */
 const subrequestsPerBatch = 100;
@@ -61,6 +70,69 @@ export async function deleteKeys(
   }
 
   return { requested: keys.length, failed };
+}
+
+/**
+ * Spec 9.1: a conditional `delete` is one `DELETE`, never a batch, whose answer is read as
+ * that key's entry would be in a batch (spec 4.7, ADR 0071).
+ */
+export async function deleteIfUnchanged(
+  configuration: GcsConfiguration,
+  key: string,
+  onlyIf: DeletePrecondition,
+  signal: AbortSignal | undefined,
+): Promise<DeleteReport> {
+  const operation = "delete";
+  const refusal =
+    keyRefusal(configuration.bucket, key, "addressable", operation) ??
+    noGenerationRefusal(configuration.bucket, onlyIf, operation, key);
+
+  if (refusal !== undefined) return { requested: 1, failed: [refusal] };
+
+  let lastRefusal: StorageErrorCode | undefined;
+
+  try {
+    const response = await send(configuration, {
+      method: "DELETE",
+      operation,
+      key,
+      path: objectPath(configuration, key),
+      query: preconditionQuery(onlyIf),
+      precondition: preconditionRule(onlyIf),
+      onRefusal: (reading) => {
+        lastRefusal = reading.code;
+      },
+      signal,
+    });
+
+    await response.body?.cancel();
+
+    return { requested: 1, failed: [] };
+  } catch (failure) {
+    if (!isStorageError(failure)) throw failure;
+
+    // ADR 0073: a refusal after an attempt without a response or with a `5xx` arrives as that
+    // attempt's failure, and is the key's entry all the same.
+    if (lastRefusal === "PreconditionFailed" || !failsWholeRequest(failure)) {
+      return { requested: 1, failed: [failure] };
+    }
+
+    throw failure;
+  }
+}
+
+/**
+ * Spec 4.7: what would refuse a batch as a whole rather than one of its subrequests: no
+ * answer, a credential refused, a `5xx` the budget ran out on, and the missing bucket of
+ * spec 9.4.
+ */
+function failsWholeRequest(failure: StorageError): boolean {
+  return (
+    failure.code === "NetworkError" ||
+    failure.code === "InvalidCredentials" ||
+    failure.retryable ||
+    (failure.code === "NotFound" && !isMissingObject(failure))
+  );
 }
 
 /**

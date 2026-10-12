@@ -299,6 +299,25 @@ test('`presignPut` with `onlyIf: "absent"` signs `x-goog-if-generation-match: 0`
   });
 });
 
+test("`presignPut` with `onlyIf: { etag }` signs the generation as `x-goog-if-generation-match` and hands it back", async () => {
+  refuseFetch();
+
+  const presigned = await keySigningStorage(pem).presignPut("object.txt", {
+    ...putOptions,
+    cacheControl: "no-store",
+    onlyIf: { etag: "1790665923456000" },
+  });
+
+  expect(queryOf(presigned.url)["X-Goog-SignedHeaders"]).toBe(
+    "cache-control;content-length;content-type;host;x-goog-if-generation-match",
+  );
+  expect(presigned.headers).toEqual({
+    "content-type": "text/plain",
+    "cache-control": "no-store",
+    "x-goog-if-generation-match": "1790665923456000",
+  });
+});
+
 test("a content header left out is neither signed nor handed back", async () => {
   refuseFetch();
 
@@ -442,25 +461,29 @@ test("an empty `contentType` is refused", async () => {
   expect(refusal.message).toContain("`contentType`");
 });
 
-test("`onlyIf: { etag }` is `Unsupported` naming `writeIfUnchanged` before anything is signed", async () => {
-  const sent = stubFetch(() => signedBlob(new Uint8Array(256)));
-  const failure = await failureOf(
-    async () =>
-      await iamSigningStorage({ accessToken: signerToken }).presignPut("object", {
-        ...putOptions,
-        onlyIf: { etag: "1" },
-      }),
-  );
+// Spec 9.1 and ADR 0074: an `etag` that is no generation never matches, so no URL is signed.
+test.each(["0", "01", "9223372036854775808", "abc"])(
+  "`onlyIf: { etag: %j }` is `PreconditionFailed` before anything is signed",
+  async (etag) => {
+    const sent = stubFetch(() => signedBlob(new Uint8Array(256)));
+    const failure = await failureOf(
+      async () =>
+        await iamSigningStorage({ accessToken: signerToken }).presignPut("object", {
+          ...putOptions,
+          onlyIf: { etag },
+        }),
+    );
 
-  expect(failure).toMatchObject({
-    code: "Unsupported",
-    capability: "writeIfUnchanged",
-    operation: "presignPut",
-    key: "object",
-    attempts: 0,
-  });
-  expect(sent).toEqual([]);
-});
+    expect(failure).toMatchObject({
+      code: "PreconditionFailed",
+      operation: "presignPut",
+      key: "object",
+      retryable: false,
+      attempts: 0,
+    });
+    expect(sent).toEqual([]);
+  },
+);
 
 test('`onlyIf` as another string than `"absent"` is `InvalidOption` before anything is signed', async () => {
   const sent = stubFetch(() => signedBlob(new Uint8Array(256)));
