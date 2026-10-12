@@ -66,14 +66,15 @@ test("the README of @stowage/conformance carries the shape spec 16 gives it", as
   expect(headingsOf(text)).toContain("Specification");
 });
 
-function sectionOf(text: string, heading: string): string {
-  const start = text.indexOf(`\n## ${heading}\n`);
+/** The section under `heading` at `depth`, up to the next heading at that depth or above. */
+function sectionOf(text: string, heading: string, depth = 2): string {
+  const start = text.indexOf(`\n${"#".repeat(depth)} ${heading}\n`);
 
   if (start === -1) return "";
 
-  const end = text.indexOf("\n## ", start + 1);
+  const end = text.slice(start + 1).search(new RegExp(`\\n#{2,${depth}} `, "u"));
 
-  return text.slice(start, end === -1 ? undefined : end);
+  return text.slice(start, end === -1 ? undefined : start + 1 + end);
 }
 
 test("the README of @stowage/conformance names the five adapters of this repository", async () => {
@@ -166,21 +167,17 @@ test("the README of @stowage/adapter-s3 names the limits of spec 16 on precondit
     text.startsWith("`deleteIfUnchanged` is not declared"),
   );
 
+  expect(deleteBullet, "names no bullet for `deleteIfUnchanged`").toBeDefined();
   expect(proseOf(deleteBullet ?? "")).toContain("R2 drops");
   expect(limits).toContain("`cf-copy-destination-if-*`");
   expect(proseOf(limits)).toContain("Cloudflare marks beta");
 });
 
-/** The rows of a table in the section under `heading`, by the text of their first cell. */
-function pointsOf(text: string, heading: string): string[] {
-  const start = text.indexOf(`\n### ${heading}\n`);
-  const end = text.slice(start + 1).search(/\n##+ /u);
-  const section = text.slice(start, end === -1 ? undefined : start + 1 + end);
-
-  return [...section.matchAll(/^\| (.+?) +\|/gmu)]
+/** The first cell of each table row in a section, the header and the divider left out. */
+const pointsOf = (section: string): string[] =>
+  [...section.matchAll(/^\| (.+?) +\|/gmu)]
     .map(([, point = ""]) => point)
     .filter((point) => point !== "Point" && !/^-+$/u.test(point));
-}
 
 /**
  * Spec 16 has the limits of each cloud adapter carry the rows of its promised provider. The
@@ -199,9 +196,8 @@ const providerTables = [
 test.each(providerTables)(
   "the README of $manifest.name carries the rows of spec $heading",
   async ({ manifest, heading, besideTable }) => {
-    const promised = pointsOf(await read("docs/spec.md"), heading);
-    const limits = sectionOf(await readmeOf(manifest), "Limits");
-    const carried = [...limits.matchAll(/^\| (.+?) +\|/gmu)].map(([, point = ""]) => point);
+    const promised = pointsOf(sectionOf(await read("docs/spec.md"), heading, 3));
+    const carried = pointsOf(sectionOf(await readmeOf(manifest), "Limits"));
 
     expect(promised.length).toBeGreaterThan(0);
 
@@ -297,6 +293,13 @@ test("the README of @stowage/adapter-azure-blob orders its notes as spec 16 does
   expect(positions).toEqual(positions.toSorted((left, right) => left - right));
 });
 
+/** The paragraph of a README that states the CORS rule flow 2 needs. */
+function corsRuleOf(text: string): string {
+  const start = text.indexOf("CORS");
+
+  return text.slice(start, text.indexOf("\n\n", start));
+}
+
 /** Flow 2: the CORS rule allows `always` on every upload and `bound` where the URL binds them. */
 const corsHeaders = [
   {
@@ -318,9 +321,7 @@ const corsHeaders = [
 test.each(corsHeaders)(
   "the README of $manifest.name states the CORS rule flow 2 needs",
   async ({ manifest, always, bound }) => {
-    const notes = sectionOf(await readmeOf(manifest), "Notes");
-    const ruleStart = notes.indexOf("CORS");
-    const rule = notes.slice(ruleStart, notes.indexOf("```", ruleStart));
+    const rule = corsRuleOf(sectionOf(await readmeOf(manifest), "Notes"));
     const positionOf = (header: string): number => rule.indexOf(`\`${header}\``);
 
     for (const header of [...always, ...bound]) expect(positionOf(header)).not.toBe(-1);
@@ -331,33 +332,24 @@ test.each(corsHeaders)(
   },
 );
 
-/** Flow 2: what a CORS rule allows where the URL binds a precondition. */
+/** Flow 2: what a CORS rule allows where the URL binds a precondition, and what else it says. */
 const corsPreconditionHeaders = [
-  { manifest: adapterS3, headers: ["if-none-match", "if-match"] },
-  { manifest: adapterAzureBlob, headers: ["if-match"] },
-  { manifest: adapterGcs, headers: ["x-goog-if-generation-match"] },
+  { manifest: adapterS3, headers: ["if-none-match", "if-match"], says: [] },
+  { manifest: adapterAzureBlob, headers: ["if-match"], says: ['`"absent"` needs no entry'] },
+  { manifest: adapterGcs, headers: ["x-goog-if-generation-match"], says: [] },
 ];
 
 test.each(corsPreconditionHeaders)(
   "the README of $manifest.name names the CORS entries a bound precondition needs",
-  async ({ manifest, headers }) => {
-    const text = await readmeOf(manifest);
-    const ruleStart = text.indexOf("CORS");
-    const rule = text.slice(ruleStart, text.indexOf("\n\n", ruleStart));
+  async ({ manifest, headers, says }) => {
+    const rule = corsRuleOf(await readmeOf(manifest));
 
     for (const header of headers) expect(rule).toContain(`\`${header}\``);
+    for (const statement of says) expect(proseOf(rule)).toContain(statement);
 
     expect(rule).toContain("#flow-2-browser-upload-through-a-presigned-put");
   },
 );
-
-test('the README of @stowage/adapter-azure-blob says that "absent" needs no CORS entry', async () => {
-  const notes = sectionOf(await readmeOf(adapterAzureBlob), "Notes");
-  const ruleStart = notes.indexOf("CORS");
-  const rule = proseOf(notes.slice(ruleStart, notes.indexOf("\n\n", ruleStart)));
-
-  expect(rule).toContain('`"absent"` needs no entry');
-});
 
 test("the README of @stowage/adapter-gcs writes its example with an access token", async () => {
   const example = sectionOf(await readmeOf(adapterGcs), "Example");
@@ -661,8 +653,8 @@ const statementsOf = (text: string): string[] =>
     .split(/\n\n+|\n(?=- )/u)
     .filter((part) => part.trim() !== "" && !/^\s*[|#]/u.test(part));
 
-const onPreconditions =
-  /onlyIf|precondition|PreconditionFailed|writeIfAbsent|writeIfUnchanged|deleteIfUnchanged|If-Match|If-None-Match/iu;
+const preconditionTerms =
+  /onlyIf|precondition|writeIfAbsent|writeIfUnchanged|deleteIfUnchanged|If-Match|If-None-Match/iu;
 
 // Spec 16: a README states no promise of its own. Each statement on preconditions points to
 // the place in the spec that makes it.
@@ -670,7 +662,7 @@ test.each(published)(
   "every statement of the README of $name on preconditions links the spec",
   async (manifest) => {
     const statements = statementsOf(await readmeOf(manifest)).filter((statement) =>
-      onPreconditions.test(statement),
+      preconditionTerms.test(statement),
     );
 
     for (const statement of statements) expect(statement).toMatch(/docs\/spec\.md#/u);
