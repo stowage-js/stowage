@@ -201,6 +201,36 @@ describe.skipIf(!scheduled)(firstRunSuite, () => {
     expect((await storage().stat(key)).contentType).toBe("text/plain");
   });
 
+  // Spec 8.9 and ADR 0074: `presignPut` binds "absent" through Create alone, so the refusal of
+  // an upload onto an existing blob is the service's answer to the permission, which
+  // `presign/put-if-absent` asserts only as a `4xx`. The same URL uploads twice.
+  test(azureProbeNames.createPermission, async ({ task }) => {
+    const key = `${prefix}create-permission.txt`;
+    const body = utf8.encode("an upload through a URL bound to a free key");
+    const { url, headers } = await storage().presignPut(key, {
+      expiresIn: 300,
+      contentType: "text/plain",
+      contentLength: body.byteLength,
+      onlyIf: "absent",
+    });
+    const upload = async (): Promise<{ status: number; code: string }> => {
+      const response = await fetch(url, { method: "PUT", headers, body });
+
+      await response.arrayBuffer();
+
+      return { status: response.status, code: response.headers.get("x-ms-error-code") ?? "" };
+    };
+    const ontoFreeKey = await upload();
+    const ontoExistingBlob = await upload();
+
+    task.meta.observed =
+      `${ontoFreeKey.status} onto the free key, ` +
+      `then ${ontoExistingBlob.status} \`${ontoExistingBlob.code}\` onto the blob it wrote`;
+
+    expect([ontoFreeKey.status, ontoExistingBlob.status]).toEqual([201, 403]);
+    expect((await storage().stat(key)).size).toBe(body.byteLength);
+  });
+
   // Spec 18 records whether Azure collapses runs of spaces in a value `srh` binds before it
   // compares, as SigV4 and GOOG4 do. The adapter signs the value as given, so a service that
   // collapses admits two spaces sent where one was signed, and refuses a value signed with two.
