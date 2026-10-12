@@ -108,16 +108,14 @@ export async function renameObjectFile(
     // refuses concerns the file it takes away from the source. The lease stays with the
     // caller, which still has to take back the directories it created for the destination
     // before anyone else may remove or reuse them.
-    const concerned = refusesName(thrown) ? destination.context : context;
-
-    throw fsErrorFrom(thrown, { ...concerned, access: "write" });
+    throw fsErrorFrom(thrown, { ...concernedBy(thrown, context, destination), access: "write" });
   }
 
-  try {
-    await pruneEmptyDirectories(context.realRoot, dirname(file.path));
-  } finally {
-    file.release();
-  }
+  // POSIX has a rename between two names of one file leave both in place, and a conditional
+  // `move` of a key holding a link leaves two keys naming one file (ADR 0072).
+  if (await namesOneFile(context, file.path, destination)) await unlinkSource(context, file);
+
+  await leaveSource(context, file);
 }
 
 /**
@@ -139,20 +137,53 @@ export async function linkObjectFile(
   try {
     await linkWhereAbsent(resolved, destination);
   } catch (thrown) {
-    // As for a rename: a name the file system refuses is the destination's, and anything
-    // else `link` refuses concerns the file it was handed. The lease stays with the caller.
-    const concerned = refusesName(thrown) ? destination.context : context;
-
-    throw asFailure(thrown, { ...concerned, access: "write" });
+    // The lease stays with the caller, as after a refused rename.
+    throw asFailure(thrown, { ...concernedBy(thrown, context, destination), access: "write" });
   }
 
+  await unlinkSource(context, file);
+  await leaveSource(context, file);
+}
+
+/**
+ * The key a failed move names. The source already holds its name, so a name the file system
+ * refuses is the destination's, and anything else concerns the file taken from the source.
+ */
+function concernedBy(
+  thrown: unknown,
+  context: FsAccessContext,
+  destination: WriteDestination,
+): FsAccessContext {
+  return refusesName(thrown) ? destination.context : context;
+}
+
+/** Whether the source still names the file the destination now names. */
+async function namesOneFile(
+  context: FsAccessContext,
+  source: string,
+  destination: WriteDestination,
+): Promise<boolean> {
+  const left = await lookUp(context, async () => await lstat(source));
+
+  if (left === undefined) return false;
+
+  const landed = await lookUp(destination.context, async () => await lstat(destination.path));
+
+  return landed?.ino === left.ino && landed.dev === left.dev;
+}
+
+/** Removes the source once the destination holds the file. */
+async function unlinkSource(context: FsAccessContext, file: ObjectFile): Promise<void> {
   try {
     await unlink(file.path);
   } catch (thrown) {
     // Spec 4.10: the delete failed, and the destination stays where it landed.
     if (!isAbsence(thrown)) throw fsErrorFrom(thrown, { ...context, access: "write" });
   }
+}
 
+/** Removes what the source left empty behind it, and hands back the lease. */
+async function leaveSource(context: FsAccessContext, file: ObjectFile): Promise<void> {
   try {
     await pruneEmptyDirectories(context.realRoot, dirname(file.path));
   } finally {
@@ -184,11 +215,12 @@ async function linkRefusal(
   thrown: unknown,
   { context, path }: WriteDestination,
 ): Promise<StorageError | undefined> {
+  const errno = errnoOf(thrown);
   const failure = {
     operation: context.operation,
     key: context.key,
     attempts: 1,
-    providerCode: errnoOf(thrown),
+    providerCode: errno,
     cause: thrown,
   };
 
@@ -201,11 +233,11 @@ async function linkRefusal(
     });
   }
 
-  if (errnoOf(thrown) !== "EEXIST") return undefined;
+  if (errno !== "EEXIST") return undefined;
 
   // A name that holds no object, which answers `exists` with `false`, is no precondition
   // failing: a caller reading the key back would meet `NotFound` and go around again.
-  if (!(await holdsObject(context, path))) {
+  if (!(await heldByObject(context, path))) {
     return fsError(context.root, {
       ...failure,
       code: "InvalidRequest",
@@ -220,8 +252,11 @@ async function linkRefusal(
   });
 }
 
-/** What holds the path is a file, or a link resolving to one below the root (spec 6). */
-async function holdsObject(context: FsAccessContext, path: string): Promise<boolean> {
+/**
+ * Whether an object held the name `link` met: a file, or a link resolving to one below the
+ * root (spec 6).
+ */
+async function heldByObject(context: FsAccessContext, path: string): Promise<boolean> {
   const held = await lookUp(context, async () => await lstat(path));
 
   // Another caller removed what `link` met before it could be looked at. It held the name

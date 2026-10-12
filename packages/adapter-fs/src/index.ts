@@ -205,9 +205,10 @@ class FileSystemStorage implements FsStorage {
   }
 
   /**
-   * Spec 6: the bytes land in a file beside the object and are renamed into place, so a
-   * reader sees the object as it was or as it now is and never half of a write. A write
-   * that broke takes its file with it, so that no listing names what never became one.
+   * Spec 6: the bytes land in a file beside the object and are renamed into place, or linked
+   * where the key must be free, so a reader sees the object as it was or as it now is and
+   * never half of a write. A write that broke takes its file with it, so that no listing
+   * names what never became one.
    */
   async #land(
     context: FsAccessContext,

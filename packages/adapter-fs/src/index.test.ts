@@ -1,5 +1,6 @@
 import {
   chmod,
+  link,
   mkdir,
   mkdtemp,
   readdir,
@@ -1230,6 +1231,20 @@ test("moves the link at the key and leaves the object it points to", async () =>
 
   expect((await iterate(storage.list())).toSorted()).toEqual(["moved", "object"]);
   expect(await (await storage.get("object")).text()).toBe("a body");
+});
+
+test("moves a key onto another name of the same file", async () => {
+  const root = await temporaryRoot();
+  const storage = fsStorage({ root });
+
+  // A conditional `move` of a key holding a link leaves two keys naming one file (ADR 0072).
+  await storage.put("object", "a body");
+  await link(join(root, "object"), join(root, "twin"));
+
+  await storage.move("object", "twin");
+
+  expect(await iterate(storage.list())).toEqual(["twin"]);
+  expect(await (await storage.get("twin")).text()).toBe("a body");
 });
 
 test("rejects a copy or a move against a root that is gone", async () => {
