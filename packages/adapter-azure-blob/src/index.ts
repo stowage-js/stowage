@@ -25,7 +25,7 @@ import {
   readConfiguration,
 } from "./configuration.ts";
 import { contentHeaderFields } from "./content-headers.ts";
-import { copyBlob } from "./copy.ts";
+import { type BlobCopy, copyBlob } from "./copy.ts";
 import { deleteBelow, deleteKeys } from "./delete.ts";
 import { defaultContentType, describeResponse } from "./description.ts";
 import { requireKey } from "./key.ts";
@@ -39,7 +39,7 @@ import {
   putOptionKeys,
   requireKnownOptions,
 } from "./options.ts";
-import { refusePrecondition } from "./precondition.ts";
+import { readWritePrecondition, refusePrecondition } from "./precondition.ts";
 import {
   type AzureBlobPresignGetOptions,
   type AzureBlobPresignPutOptions,
@@ -94,6 +94,7 @@ const azureBlobCapabilities: readonly CapabilityName[] = Object.freeze([
   "presignedUrls",
   "rangeReads",
   "userMetadata",
+  "writeIfAbsent",
 ]);
 
 const utf8 = new TextEncoder();
@@ -124,7 +125,13 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
   async #put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat> {
     requireKey(this.bucket, key, "writable", "put");
     requireKnownOptions(this.bucket, options, putOptionKeys, "put");
-    refusePrecondition(this.bucket, options?.onlyIf, "write", "put", key, this.capabilities);
+    const onlyIf = readWritePrecondition(
+      this.bucket,
+      options?.onlyIf,
+      "put",
+      key,
+      this.capabilities,
+    );
     const userMetadata = userMetadataHeaders(
       this.bucket,
       options?.userMetadata,
@@ -144,6 +151,7 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
         this.capabilities,
       ),
       userMetadata,
+      onlyIf,
       signal: options?.signal,
     };
 
@@ -243,20 +251,17 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
   }
 
   async copy(from: string, to: string, options?: CopyOptions): Promise<ObjectStat> {
-    this.#requireCopyKeys(from, to, options, "copy");
-
-    return await copyBlob(this.#configuration, from, to, "copy", options?.signal);
+    return await copyBlob(this.#configuration, this.#readCopy(from, to, options, "copy"));
   }
 
   /**
    * Spec 8.7: the copy and then `Delete Blob` on `from`, sent without a condition. The copy
    * has finished when it resolves, so no pending copy is there for the delete to break, and
-   * a source already gone counts as deleted, as it does for `delete` (spec 4.7).
+   * a source already gone counts as deleted, as it does for `delete` (spec 4.7). A copy its
+   * precondition refused deletes nothing.
    */
   async move(from: string, to: string, options?: CopyOptions): Promise<ObjectStat> {
-    this.#requireCopyKeys(from, to, options, "move");
-
-    const written = await copyBlob(this.#configuration, from, to, "move", options?.signal);
+    const written = await copyBlob(this.#configuration, this.#readCopy(from, to, options, "move"));
 
     try {
       const response = await send(this.#configuration, {
@@ -302,18 +307,25 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
    * onto itself stop before it leaves the process; a `move` onto itself would otherwise
    * delete the one object it named.
    */
-  #requireCopyKeys(
+  #readCopy(
     from: string,
     to: string,
     options: CopyOptions | undefined,
     operation: string,
-  ): void {
+  ): BlobCopy {
     requireKey(this.bucket, from, "addressable", operation);
     requireKey(this.bucket, to, "writable", operation);
     requireKnownOptions(this.bucket, options, copyOptionKeys, operation);
-    refusePrecondition(this.bucket, options?.onlyIf, "write", operation, to, this.capabilities);
 
-    if (from !== to) return;
+    const onlyIf = readWritePrecondition(
+      this.bucket,
+      options?.onlyIf,
+      operation,
+      to,
+      this.capabilities,
+    );
+
+    if (from !== to) return { from, to, operation, onlyIf, signal: options?.signal };
 
     throw azureBlobError(this.bucket, {
       code: "InvalidRequest",

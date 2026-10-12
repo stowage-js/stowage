@@ -38,6 +38,8 @@ const providerCodes: ReadonlyMap<string, StorageErrorCode> = new Map([
   // On a block upload, usually another writer won (spec 8.6).
   ["InvalidBlockList", "ProviderError"],
   ["InvalidBlobOrBlock", "ProviderError"],
+  // Azure's answer to a failed `If-None-Match: *`, at `409` where it documents `412`.
+  ["BlobAlreadyExists", "PreconditionFailed"],
   // States of the blob stowage does not create.
   ["PendingCopyOperation", "ProviderError"],
   ["BlobArchived", "ProviderError"],

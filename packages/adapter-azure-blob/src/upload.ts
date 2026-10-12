@@ -3,6 +3,7 @@ import { type ObjectStat, type SendParts, uploadStream } from "@stowage/core";
 import type { AzureBlobConfiguration } from "./configuration.ts";
 import type { ContentHeaderFields } from "./content-headers.ts";
 import { describeWrite, type WrittenObject } from "./description.ts";
+import { preconditionHeaders, preconditionRule, type WritePrecondition } from "./precondition.ts";
 import { send } from "./request.ts";
 import type { UserMetadataHeaders } from "./user-metadata.ts";
 
@@ -12,6 +13,8 @@ export interface ObjectWrite {
   readonly contentType: string;
   readonly contentHeaders: ContentHeaderFields;
   readonly userMetadata: UserMetadataHeaders;
+  /** Carried by the request that writes the blob, `Put Blob` or `Put Block List` (spec 8.4). */
+  readonly onlyIf?: WritePrecondition;
   readonly signal?: AbortSignal;
 }
 
@@ -41,9 +44,11 @@ export async function putBlob(
       ["x-ms-blob-type", "BlockBlob"],
       ...write.contentHeaders.headers,
       ...write.userMetadata.headers,
+      ...preconditionHeaders(write.onlyIf),
     ],
     body: bytes,
     signal: write.signal,
+    precondition: preconditionRule(write.onlyIf),
   });
 
   await response.body?.cancel();
@@ -147,7 +152,8 @@ async function putBlock(
  * Spec 8.5: repeated like every other request, a lost response included, since a repeat
  * commits the same blocks in the same order. The object's own headers travel here,
  * because a commit without them resets the content type and clears the content headers
- * and the user metadata.
+ * and the user metadata. A commit its precondition refused leaves the staged blocks as any
+ * stopped block upload does (spec 8.6).
  */
 async function commitBlocks(
   configuration: AzureBlobConfiguration,
@@ -164,9 +170,11 @@ async function commitBlocks(
       ["x-ms-blob-content-type", write.contentType],
       ...write.contentHeaders.headers,
       ...write.userMetadata.headers,
+      ...preconditionHeaders(write.onlyIf),
     ],
     body: utf8.encode(blockListDocument(blockIds)),
     signal: write.signal,
+    precondition: preconditionRule(write.onlyIf),
   });
 
   await response.body?.cancel();

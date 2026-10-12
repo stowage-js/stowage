@@ -167,33 +167,45 @@ test("an unknown option key is `InvalidOption` naming it", async () => {
   expect(put.message).toContain("`userMetadata`");
 });
 
-test.each([
-  ["absent", "writeIfAbsent"],
-  [{ etag: "abc" }, "writeIfUnchanged"],
-] as const)(
-  "`onlyIf` as %j is `Unsupported` naming `%s` before anything is sent",
-  async (onlyIf, capability) => {
-    const sent = stubFetch(delegationKey);
-    const failure = await failureOf(
-      async () =>
-        await storage().presignPut("a.txt", {
-          expiresIn: 300,
-          contentType: "text/plain",
-          contentLength: 1,
-          onlyIf,
-        }),
-    );
+test("`onlyIf: { etag }` is `Unsupported` naming `writeIfUnchanged` before anything is sent", async () => {
+  const sent = stubFetch(delegationKey);
+  const failure = await failureOf(
+    async () =>
+      await storage().presignPut("a.txt", {
+        expiresIn: 300,
+        contentType: "text/plain",
+        contentLength: 1,
+        onlyIf: { etag: "abc" },
+      }),
+  );
 
-    expect(failure).toMatchObject({
-      code: "Unsupported",
-      capability,
-      operation: "presignPut",
-      key: "a.txt",
-      attempts: 0,
-    });
-    expect(sent).toEqual([]);
-  },
-);
+  expect(failure).toMatchObject({
+    code: "Unsupported",
+    capability: "writeIfUnchanged",
+    operation: "presignPut",
+    key: "a.txt",
+    attempts: 0,
+  });
+  expect(sent).toEqual([]);
+});
+
+test("`onlyIf` of neither form is `InvalidOption` before the user delegation key is requested", async () => {
+  const sent = stubFetch(delegationKey);
+  const failure = await failureOf(
+    async () =>
+      await storage().presignPut("a.txt", {
+        expiresIn: 300,
+        contentType: "text/plain",
+        contentLength: 1,
+        // A caller writing JavaScript may hand over a string the type rules out.
+        // oxlint-disable-next-line no-unsafe-type-assertion -- the point of the test
+        onlyIf: "present" as "absent",
+      }),
+  );
+
+  expect(failure).toMatchObject({ code: "InvalidOption", operation: "presignPut", attempts: 0 });
+  expect(sent).toEqual([]);
+});
 
 test("an empty response override and an empty content type are `InvalidOption`", async () => {
   const override = await failureOf(
@@ -359,6 +371,23 @@ test("`presignPut` binds four headers through `srh` and hands back the three a c
     ["srh", "content-type,content-length,x-ms-blob-type,x-ms-blob-content-type"],
     ["sig", expect.any(String)],
   ]);
+});
+
+// Spec 8.9 and ADR 0074: Azure refuses an upload onto an existing blob under `sp=c` before it
+// reads any header, so the binding needs none.
+test('`presignPut` with `onlyIf: "absent"` signs `sp=c` in place of `sp=w`, with `srh` and `headers` as without it', async () => {
+  stubFetch(delegationKey);
+
+  const presigner = storage();
+  const putOptions = { expiresIn: 300, contentType: "text/plain", contentLength: 11 };
+  const unconditional = await presigner.presignPut("a.txt", putOptions);
+  const absent = await presigner.presignPut("a.txt", { ...putOptions, onlyIf: "absent" });
+
+  expect(queryOf(absent.url)).toContainEqual(["sp", "c"]);
+  expect(queryOf(absent.url).filter(([name]) => name !== "sp" && name !== "sig")).toEqual(
+    queryOf(unconditional.url).filter(([name]) => name !== "sp" && name !== "sig"),
+  );
+  expect(absent.headers).toEqual(unconditional.headers);
 });
 
 test("`presignPut` appends the `x-ms-blob-*` name of each content header given to `srh` and hands it back", async () => {

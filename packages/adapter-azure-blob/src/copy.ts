@@ -4,6 +4,7 @@ import type { AzureBlobConfiguration } from "./configuration.ts";
 import type { AzureBlobCredentials } from "./credentials.ts";
 import { contentHeaderNames } from "./content-headers.ts";
 import { describeResponse } from "./description.ts";
+import { preconditionHeaders, preconditionRule, type WritePrecondition } from "./precondition.ts";
 import { blobUrl, send } from "./request.ts";
 import { sasWindow, signServiceSas } from "./sas.ts";
 import type { HeaderField } from "./sign.ts";
@@ -21,6 +22,15 @@ const sourceSasLifetime = 60 * minute;
  */
 const copyAttempts = 3;
 
+/** What `copy` and `move` copy, and the precondition of `to` they copy under. */
+export interface BlobCopy {
+  readonly from: string;
+  readonly to: string;
+  readonly operation: string;
+  readonly onlyIf?: WritePrecondition;
+  readonly signal?: AbortSignal;
+}
+
 /**
  * Spec 8.7: a `HEAD` of the source, then one `Put Blob From URL` pinned to the entity tag the
  * `HEAD` read, which is synchronous and leaves the destination as it was where it fails. It
@@ -29,11 +39,10 @@ const copyAttempts = 3;
  */
 export async function copyBlob(
   configuration: AzureBlobConfiguration,
-  from: string,
-  to: string,
-  operation: string,
-  signal: AbortSignal | undefined,
+  blobCopy: BlobCopy,
 ): Promise<ObjectStat> {
+  const { to, operation, signal } = blobCopy;
+
   signal?.throwIfAborted();
 
   let attempts = 0;
@@ -41,7 +50,7 @@ export async function copyBlob(
   for (let copy = 1; ; copy += 1) {
     try {
       // oxlint-disable-next-line no-await-in-loop -- a repeat reads the source the last one missed
-      await copyPinned(configuration, from, to, operation, signal);
+      await copyPinned(configuration, blobCopy);
 
       break;
     } catch (failure) {
@@ -59,13 +68,13 @@ export async function copyBlob(
   return describeResponse(configuration.container, to, operation, described);
 }
 
-/** ADR 0068: the blob properties the copy restates and the pin both come from one `HEAD`. */
+/**
+ * ADR 0068: the blob properties the copy restates and the pin both come from one `HEAD`. The
+ * precondition of `to` travels beside the pin of the source, on every repeat (spec 8.7).
+ */
 async function copyPinned(
   configuration: AzureBlobConfiguration,
-  from: string,
-  to: string,
-  operation: string,
-  signal: AbortSignal | undefined,
+  { from, to, operation, onlyIf, signal }: BlobCopy,
 ): Promise<void> {
   const source = await send(configuration, { method: "HEAD", operation, key: from, signal });
   const etag = source.headers.get("etag");
@@ -83,11 +92,13 @@ async function copyPinned(
       // unpinned rather than refused for an empty condition.
       ...(etag === null ? [] : [["x-ms-source-if-match", etag] as const]),
       ...restatedFields(source.headers),
+      ...preconditionHeaders(onlyIf),
       ...(await sourceAuthorization(configuration, from, credentials)),
     ],
     // Azure requires `Content-Length: 0`, which `fetch` sends for an empty body alone.
     body: new Uint8Array(0),
     signal,
+    precondition: preconditionRule(onlyIf),
   });
 
   await response.body?.cancel();
@@ -95,9 +106,10 @@ async function copyPinned(
 
 /**
  * ADR 0068: a source replaced between the `HEAD` and the copy fails the pin, which the
- * service answers as a failure on the source with the status of the failed condition. The
- * copy carries no condition on the destination, so a `412` has no other cause, and the
- * source's own status, which no `StorageError` carries, need not be read.
+ * service answers as a failure on the source with the status of the failed condition. A
+ * failed condition on the destination arrives under a code of its own, so a `412` under
+ * this one has no other cause, and the source's own status, which no `StorageError`
+ * carries, need not be read.
  */
 function isReplacedSource(failure: unknown): failure is StorageError {
   return (
