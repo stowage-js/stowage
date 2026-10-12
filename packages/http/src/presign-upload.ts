@@ -2,6 +2,8 @@ import {
   capabilityNames,
   checkContentHeaders,
   isHeaderValue,
+  type Precondition,
+  preconditionRefusal,
   type PresignedPut,
 } from "@stowage/core";
 
@@ -22,6 +24,7 @@ export interface PresignsPut {
       cacheControl?: string;
       contentDisposition?: string;
       contentLanguage?: string;
+      onlyIf?: Precondition;
     },
   ): Promise<PresignedPut>;
 }
@@ -62,20 +65,28 @@ export interface PresignUploadOptions {
    * are the three content headers past 2,048 bytes of names and values with `Content-Type`.
    */
   contentLanguage?: string;
+  /**
+   * The precondition the signature binds, passed to `presignPut` where given and never read
+   * from a request: a caller hands over an `etag` the client sent in the body. A value of
+   * the wrong form is `400` before signing. A storage without the capability the form needs
+   * refuses it in `presignPut`, answered `500`.
+   */
+  onlyIf?: Precondition;
 }
 
 /**
  * Answers with what `presignPut` returns, as JSON (spec 10.6). It takes no `Request`: the
  * caller names the key first, usually from the request body, and hands over the values the
  * client sent (ADR 0049). A storage that does not declare `contentHeaders` refuses the three
- * content headers in `presignPut`, answered `500`.
+ * content headers in `presignPut`, answered `500`, as one without the capability `onlyIf`
+ * needs refuses it there (ADR 0074).
  */
 export async function presignUpload(
   storage: PresignsPut,
   key: string,
   options: PresignUploadOptions,
 ): Promise<Response> {
-  const { contentType, contentLength } = options;
+  const { contentType, contentLength, onlyIf } = options;
 
   // The client's values arrive unchecked by any type, and an adapter refusing one would
   // answer `500` for what is the client's mistake.
@@ -87,10 +98,12 @@ export async function presignUpload(
   if (typeof contentType !== "string" || !isHeaderValue(contentType)) return refusal(400);
 
   // Every capability is assumed, so that only the client's value is refused here: a storage
-  // that holds no content headers is the caller's, and its own refusal answers `500`.
+  // that holds no content headers or no precondition is the caller's, and its own refusal
+  // answers `500`.
   const contentHeaders = checkContentHeaders(options, contentType, capabilityNames);
 
   if ("refusal" in contentHeaders) return refusal(400);
+  if (preconditionRefusal(onlyIf, "write", capabilityNames) !== undefined) return refusal(400);
 
   let presigned: PresignedPut;
 
@@ -100,6 +113,7 @@ export async function presignUpload(
       contentType,
       contentLength,
       ...contentHeaders.held,
+      ...(onlyIf === undefined ? {} : { onlyIf }),
     });
   } catch (thrown) {
     return answerFor(thrown);

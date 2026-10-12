@@ -1,4 +1,4 @@
-import type { PresignedPut } from "@stowage/core";
+import { type PresignedPut, preconditionRefusal } from "@stowage/core";
 import { describe, expect, test } from "vitest";
 
 import {
@@ -92,6 +92,22 @@ describe("a signed upload", () => {
       "expiresIn",
     ]);
   });
+
+  test.each(["absent", { etag: "e1" }] as const)(
+    "`onlyIf` %j is passed on unchanged",
+    async (onlyIf) => {
+      const storage = signing();
+
+      await presignUpload(storage, "uploads/report.pdf", options({ onlyIf }));
+
+      expect(storage.calls).toEqual([
+        [
+          "uploads/report.pdf",
+          { expiresIn: 60, contentType: "application/pdf", contentLength: 11, onlyIf },
+        ],
+      ]);
+    },
+  );
 
   test("the answer's headers are the caller's to change", async () => {
     const response = await presignUpload(signing(), "uploads/report.pdf", options());
@@ -255,6 +271,58 @@ describe("a content header the client sent", () => {
   });
 });
 
+describe("an `onlyIf` the caller passes", () => {
+  test.each([
+    ['a string other than `"absent"`', "present"],
+    ["an empty string", ""],
+    ["null", null],
+    ["a number", 1],
+    ["an object without `etag`", {}],
+    ["an empty `etag`", { etag: "" }],
+    ["a weak `etag`", { etag: "W/e1" }],
+    ['an `etag` holding `"`', { etag: 'e"1' }],
+    ["an `etag` holding a space", { etag: "e 1" }],
+    ["an `etag` beyond ASCII", { etag: "é1" }],
+    ["an `etag` that is no string", { etag: 1 }],
+    ["an `etag` beside another key", { etag: "e1", key: "a" }],
+  ])("%s answers `400`", async (_, onlyIf) => {
+    // oxlint-disable-next-line no-unsafe-type-assertion -- a client's value, which no type holds back
+    expect(await refusalOf({ onlyIf: onlyIf as PresignUploadOptions["onlyIf"] })).toEqual(
+      refused(400),
+    );
+  });
+
+  // The form alone decides here, so the capability is the storage's to refuse: that is the
+  // caller's storage, not the client's value (ADR 0074).
+  test.each(["absent", { etag: "e1" }] as const)(
+    "%j on a storage without the capability answers `500`",
+    async (onlyIf) => {
+      const response = await presignUpload(
+        withoutPreconditions,
+        "uploads/report.pdf",
+        options({ onlyIf }),
+      );
+
+      expect(response.status).toBe(500);
+      expect(await response.text()).toBe("");
+      expect(storageErrorOf(response)?.code).toBe("Unsupported");
+    },
+  );
+});
+
+/** A storage declaring neither precondition capability, refusing `onlyIf` as an adapter does. */
+const withoutPreconditions: PresignsPut = {
+  presignPut: async (key, { onlyIf }) => {
+    const refusal = preconditionRefusal(onlyIf, "write", []);
+
+    if (refusal !== undefined) {
+      throw storageError({ ...refusal, operation: "presignPut", key, attempts: 0 });
+    }
+
+    return signed;
+  },
+};
+
 /** A storage whose `presignPut` rejects with `thrown`. */
 const refusing = (thrown: unknown): PresignsPut => ({
   presignPut: async () => {
@@ -274,6 +342,25 @@ describe("a `StorageError` from `presignPut`", () => {
 
     expect(response.status).toBe(status);
     expect(response.headers.has("content-type")).toBe(false);
+    expect(await response.text()).toBe("");
+    expect(storageErrorOf(response)).toBe(error);
+  });
+
+  test("`PreconditionFailed` answers `412` with an empty body and no `ETag`", async () => {
+    const error = storageError({
+      code: "PreconditionFailed",
+      operation: "presignPut",
+      key: "uploads/report.pdf",
+      attempts: 0,
+    });
+    const response = await presignUpload(
+      refusing(error),
+      "uploads/report.pdf",
+      options({ onlyIf: { etag: "e1" } }),
+    );
+
+    expect(response.status).toBe(412);
+    expect(response.headers.has("etag")).toBe(false);
     expect(await response.text()).toBe("");
     expect(storageErrorOf(response)).toBe(error);
   });
