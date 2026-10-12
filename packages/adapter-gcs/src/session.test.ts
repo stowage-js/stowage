@@ -787,7 +787,8 @@ test("a commit refused after an attempt without a response rejects with `Precond
 });
 
 // Spec 9.6 and ADR 0073: the cancel of a session its precondition refused answers `412`, which
-// says how the commit went.
+// says how the commit went. `attempts` counts the cancel, the request that carried the refusal,
+// and not the commit's attempts, none of which received an answer.
 test("a commit that spent its budget unanswered and whose cancel answers `412` rejects with `PreconditionFailed`", async () => {
   withoutBackoff();
   const { sent } = stubSession({ 2: unanswered, 3: unanswered, 4: unanswered, 5: conditionNotMet });
@@ -805,6 +806,7 @@ test("a commit that spent its budget unanswered and whose cancel answers `412` r
     key: "object.bin",
     status: 412,
     retryable: false,
+    attempts: 1,
   });
   expect(sent.map(({ method }) => method)).toEqual(["POST", "PUT", "PUT", "PUT", "PUT", "DELETE"]);
 });
