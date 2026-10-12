@@ -1,4 +1,4 @@
-import type { Storage, StorageErrorFields } from "@stowage/core";
+import { preconditionRefusal, type Storage, type StorageErrorFields } from "@stowage/core";
 import { describe, expect, test } from "vitest";
 
 import { acceptUpload, type AcceptUploadOptions, objectStatOf, storageErrorOf } from "./index.ts";
@@ -483,6 +483,15 @@ describe("a body already read", () => {
     await expect(acceptUpload(storage, "a", sent, limited())).rejects.toThrow(TypeError);
     expect(storage.puts).toEqual([]);
   });
+
+  // Spec 10.5: the `TypeError`s come before `405`, since they are the caller's mistake.
+  test("rejects with a `TypeError` under any other method too", async () => {
+    const sent = upload(bytes("x"), { method: "POST" });
+
+    await sent.arrayBuffer();
+
+    await expect(acceptUpload(holdingStorage(), "a", sent, limited())).rejects.toThrow(TypeError);
+  });
 });
 
 type Failure = Partial<StorageErrorFields> & Pick<StorageErrorFields, "code">;
@@ -529,6 +538,23 @@ describe("a `StorageError` from `put`", () => {
     expect(objectStatOf(response)).toBeUndefined();
   });
 
+  test("`PreconditionFailed` under the request's `If-Match` answers `412` with an empty body and no `ETag`", async () => {
+    const error = storageError({ code: "PreconditionFailed", operation: "put", key: "a" });
+    const storage = stubStorage({
+      capabilities: ["writeIfUnchanged"],
+      put: async () => {
+        throw error;
+      },
+    });
+    const sent = upload(bytes("x"), { headers: { "if-match": '"e1"' } });
+    const response = await acceptUpload(storage, "a", sent, limited());
+
+    expect(response.status).toBe(412);
+    expect(response.headers.has("etag")).toBe(false);
+    expect(await response.text()).toBe("");
+    expect(storageErrorOf(response)).toBe(error);
+  });
+
   test("anything else thrown is thrown on, an `AbortError` among it", async () => {
     const thrown = new DOMException("The client went away", "AbortError");
 
@@ -536,4 +562,350 @@ describe("a `StorageError` from `put`", () => {
       thrown,
     );
   });
+});
+
+const bothWrites = ["writeIfAbsent", "writeIfUnchanged"] as const;
+
+describe("the request's preconditions", () => {
+  test('`If-None-Match: *` hands `put` `"absent"` and answers `201` with the `ETag` of `put`', async () => {
+    const storage = holdingStorage({ capabilities: bothWrites });
+    const sent = upload(bytes("x"), { headers: { "if-none-match": "*" } });
+    const response = await acceptUpload(storage, "a", sent, limited());
+
+    expect(storage.puts[0]?.options?.onlyIf).toBe("absent");
+    expect(response.status).toBe(201);
+    expect(response.headers.get("etag")).toBe('"e1"');
+  });
+
+  test("`If-Match` with one strong tag hands `put` its `etag` and answers `204` with the `ETag` of `put`", async () => {
+    const storage = holdingStorage({ capabilities: bothWrites, etag: "e2", held: { a: "before" } });
+    const sent = upload(bytes("after"), { headers: { "if-match": '"e1"' } });
+    const response = await acceptUpload(storage, "a", sent, limited());
+
+    expect(storage.puts[0]?.options?.onlyIf).toEqual({ etag: "e1" });
+    expect(response.status).toBe(204);
+    expect(response.headers.get("etag")).toBe('"e2"');
+    expect(await response.text()).toBe("");
+    expect(objectStatOf(response)?.etag).toBe("e2");
+  });
+
+  test.each([
+    ["a weak tag beside it", 'W/"e0", "e1"'],
+    ["an empty tag beside it", '"", "e1"'],
+    ["a tag starting with `W/` beside it", '"W/e0", "e1"'],
+    ["a tag beyond ASCII beside it", '"\u00e90", "e1"'],
+    ["the same tag twice", '"e1", "e1"'],
+  ])("`If-Match` with %s names the one tag left", async (_, ifMatch) => {
+    const storage = holdingStorage({ capabilities: bothWrites });
+    const sent = upload(bytes("x"), { headers: { "if-match": ifMatch } });
+
+    expect((await acceptUpload(storage, "a", sent, limited())).status).toBe(204);
+    expect(storage.puts[0]?.options?.onlyIf).toEqual({ etag: "e1" });
+  });
+
+  test.each([
+    ["a weak tag alone", 'W/"e1"'],
+    ["an empty tag alone", '""'],
+    ["no tag at all", ""],
+  ])(
+    "`If-Match` with %s answers `412` before the body is read and without `put`",
+    async (_, ifMatch) => {
+      const storage = holdingStorage({ capabilities: bothWrites, held: { a: "before" } });
+      const sent = upload(bytes("after"), { headers: { "if-match": ifMatch } });
+      const response = await acceptUpload(storage, "a", sent, limited());
+
+      expect(response.status).toBe(412);
+      expect(await response.text()).toBe("");
+      expect(storageErrorOf(response)).toBeUndefined();
+      expect(sent.bodyUsed).toBe(false);
+      expect(storage.puts).toEqual([]);
+      expect(text(storage.held.get("a"))).toBe("before");
+    },
+  );
+
+  test("`If-Match` beside `If-None-Match: *` answers `412` before the body is read and without `put`", async () => {
+    const storage = holdingStorage({ capabilities: bothWrites });
+    const sent = upload(bytes("x"), { headers: { "if-match": '"e1"', "if-none-match": "*" } });
+
+    expect((await acceptUpload(storage, "a", sent, limited())).status).toBe(412);
+    expect(sent.bodyUsed).toBe(false);
+    expect(storage.puts).toEqual([]);
+  });
+
+  test.each([
+    ["if-match", "abc"],
+    ["if-match", '"a'],
+    ["if-match", '"a" "b"'],
+    ["if-match", '*, "a"'],
+    ["if-match", 'w/"a"'],
+    ["if-none-match", '"a'],
+    ["if-none-match", "abc"],
+    ["if-none-match", '*, "a"'],
+  ])(
+    "`%s: %s`, no list of entity tags, answers `400` before the body is read and without `put`",
+    async (field, value) => {
+      const storage = holdingStorage({ capabilities: bothWrites });
+      const sent = upload(bytes("x"), { headers: { [field]: value } });
+      const response = await acceptUpload(storage, "a", sent, limited());
+
+      expect(response.status).toBe(400);
+      expect(await response.text()).toBe("");
+      expect(storageErrorOf(response)).toBeUndefined();
+      expect(sent.bodyUsed).toBe(false);
+      expect(storage.puts).toEqual([]);
+    },
+  );
+
+  test.each([
+    ["`405`", 405, "POST", {}],
+    ["`415`", 415, "PUT", { "content-encoding": "gzip" }],
+    ["`413` for a `Content-Length` above `maxSize`", 413, "PUT", { "content-length": "2" }],
+  ])("%s comes before the `400` of a malformed field", async (_, status, method, headers) => {
+    const storage = holdingStorage({ capabilities: bothWrites });
+    const sent = upload(bytes("xy"), { method, headers: { ...headers, "if-match": "abc" } });
+
+    expect((await acceptUpload(storage, "a", sent, limited(1))).status).toBe(status);
+  });
+
+  test.each([
+    ["`If-Match: *`", { "if-match": "*" }],
+    ["`If-Match` with two tags", { "if-match": '"e1", "e2"' }],
+    ["`If-Match` with two tags beside a weak one", { "if-match": '"e1", W/"e0", "e2"' }],
+    ["`If-None-Match` with a tag", { "if-none-match": '"e1"' }],
+    ["`If-None-Match` with a weak tag", { "if-none-match": 'W/"e1"' }],
+    ["`If-Unmodified-Since` alone", { "if-unmodified-since": "Tue, 01 Sep 2026 10:20:30 GMT" }],
+    [
+      "`If-Unmodified-Since` beside `If-None-Match: *`",
+      { "if-none-match": "*", "if-unmodified-since": "Tue, 01 Sep 2026 10:20:30 GMT" },
+    ],
+  ])(
+    "%s, which no `onlyIf` expresses, answers `501` before the body is read and without `put`",
+    async (_, headers) => {
+      const storage = holdingStorage({ capabilities: bothWrites, held: { a: "before" } });
+      const sent = upload(bytes("after"), { headers });
+      const response = await acceptUpload(storage, "a", sent, limited());
+
+      expect(response.status).toBe(501);
+      expect(await response.text()).toBe("");
+      expect(storageErrorOf(response)).toBeUndefined();
+      expect(sent.bodyUsed).toBe(false);
+      expect(storage.puts).toEqual([]);
+    },
+  );
+
+  test.each([
+    ["`If-None-Match: *` without `writeIfAbsent`", ["writeIfUnchanged"], { "if-none-match": "*" }],
+    ["`If-Match` without `writeIfUnchanged`", ["writeIfAbsent"], { "if-match": '"e1"' }],
+    ["`If-Match` with no tag left without `writeIfUnchanged`", [], { "if-match": 'W/"e1"' }],
+    [
+      "`If-Match` beside `If-None-Match: *` without `writeIfAbsent`",
+      ["writeIfUnchanged"],
+      { "if-match": '"e1"', "if-none-match": "*" },
+    ],
+  ] as const)(
+    "%s answers `501` before the body is read and without `put`",
+    async (_, capabilities, headers) => {
+      const storage = holdingStorage({ capabilities });
+      const sent = upload(bytes("x"), { headers });
+
+      expect((await acceptUpload(storage, "a", sent, limited())).status).toBe(501);
+      expect(sent.bodyUsed).toBe(false);
+      expect(storage.puts).toEqual([]);
+    },
+  );
+
+  test.each([
+    [
+      "`If-Match: abc` beside `If-Unmodified-Since`",
+      { "if-match": "abc", "if-unmodified-since": "Tue, 01 Sep 2026 10:20:30 GMT" },
+    ],
+    ['`If-None-Match: "a`', { "if-none-match": '"a' }],
+  ])(
+    "%s answers `400` before the `501` of a storage without either capability",
+    async (_, headers) => {
+      const storage = holdingStorage();
+
+      expect(
+        (await acceptUpload(storage, "a", upload(bytes("x"), { headers }), limited())).status,
+      ).toBe(400);
+    },
+  );
+
+  test.each([
+    ["`If-Modified-Since` in the past", { "if-modified-since": "Tue, 01 Sep 2026 10:20:30 GMT" }],
+    ["`If-Modified-Since` in the future", { "if-modified-since": "Fri, 01 Sep 2100 10:20:30 GMT" }],
+    ["`If-Range` with a tag", { "if-range": '"e1"' }],
+    ["`If-Range` with a date", { "if-range": "Tue, 01 Sep 2026 10:20:30 GMT" }],
+    ["`If-Unmodified-Since` that is no HTTP-date", { "if-unmodified-since": "yesterday" }],
+  ])("%s is ignored, and the body is stored with `201`", async (_, headers) => {
+    const storage = holdingStorage();
+    const response = await acceptUpload(storage, "a", upload(bytes("x"), { headers }), limited());
+
+    expect(response.status).toBe(201);
+    expect(storage.puts[0]?.options?.onlyIf).toBeUndefined();
+    expect(text(storage.held.get("a"))).toBe("x");
+  });
+
+  test("`If-Unmodified-Since` beside `If-Match` is ignored", async () => {
+    const storage = holdingStorage({ capabilities: bothWrites });
+    const sent = upload(bytes("x"), {
+      headers: { "if-match": '"e1"', "if-unmodified-since": "Tue, 01 Sep 2026 10:20:30 GMT" },
+    });
+
+    expect((await acceptUpload(storage, "a", sent, limited())).status).toBe(204);
+    expect(storage.puts[0]?.options?.onlyIf).toEqual({ etag: "e1" });
+  });
+});
+
+describe("an `onlyIf` the caller passes", () => {
+  test.each([
+    ['`"absent"`', "absent", 201],
+    ["`{ etag }`", { etag: "e1" }, 204],
+  ] as const)("%s alone is handed to `put` and answers `%s`", async (_, onlyIf, status) => {
+    const storage = holdingStorage({ capabilities: bothWrites });
+    const response = await acceptUpload(
+      storage,
+      "a",
+      upload(bytes("x")),
+      limited(1024, { onlyIf }),
+    );
+
+    expect(response.status).toBe(status);
+    expect(storage.puts[0]?.options?.onlyIf).toEqual(onlyIf);
+  });
+
+  test.each<
+    [string, AcceptUploadOptions["onlyIf"], Record<string, string>, AcceptUploadOptions["onlyIf"]]
+  >([
+    ['`"absent"` beside `If-None-Match: *`', "absent", { "if-none-match": "*" }, "absent"],
+    [
+      "`{ etag }` beside an `If-Match` naming it",
+      { etag: "e1" },
+      { "if-match": '"e1"' },
+      { etag: "e1" },
+    ],
+    ["`{ etag }` beside `If-Match: *`", { etag: "e1" }, { "if-match": "*" }, { etag: "e1" }],
+    [
+      "`{ etag }` beside an `If-Match` naming it among two tags",
+      { etag: "e1" },
+      { "if-match": '"e0", "e1"' },
+      { etag: "e1" },
+    ],
+  ])("%s hands `put` the caller's `onlyIf`", async (_, onlyIf, headers, expected) => {
+    const storage = holdingStorage({ capabilities: bothWrites });
+    const sent = upload(bytes("x"), { headers });
+
+    await acceptUpload(storage, "a", sent, limited(1024, { onlyIf }));
+
+    expect(storage.puts[0]?.options?.onlyIf).toEqual(expected);
+  });
+
+  test.each<[string, AcceptUploadOptions["onlyIf"], Record<string, string>]>([
+    ['`"absent"` beside an `If-Match`', "absent", { "if-match": '"e1"' }],
+    ["`{ etag }` beside an `If-Match` naming another", { etag: "e1" }, { "if-match": '"e2"' }],
+    [
+      "`{ etag }` beside an `If-Match` naming two others",
+      { etag: "e1" },
+      { "if-match": '"e2", "e3"' },
+    ],
+    [
+      "`{ etag }` beside an `If-Match` naming it as a weak tag",
+      { etag: "e1" },
+      { "if-match": 'W/"e1"' },
+    ],
+    ["`{ etag }` beside `If-None-Match: *`", { etag: "e1" }, { "if-none-match": "*" }],
+  ])(
+    "%s contradict each other and answer `412` before the body is read and without `put`",
+    async (_, onlyIf, headers) => {
+      const storage = holdingStorage({ capabilities: bothWrites, held: { a: "before" } });
+      const sent = upload(bytes("after"), { headers });
+      const response = await acceptUpload(storage, "a", sent, limited(1024, { onlyIf }));
+
+      expect(response.status).toBe(412);
+      expect(await response.text()).toBe("");
+      expect(storageErrorOf(response)).toBeUndefined();
+      expect(sent.bodyUsed).toBe(false);
+      expect(storage.puts).toEqual([]);
+      expect(text(storage.held.get("a"))).toBe("before");
+    },
+  );
+
+  test.each<[string, AcceptUploadOptions["onlyIf"], Record<string, string>]>([
+    ['`"absent"` beside `If-Match: *`', "absent", { "if-match": "*" }],
+    ['`"absent"` beside `If-Match` with two tags', "absent", { "if-match": '"e1", "e2"' }],
+    ["`{ etag }` beside `If-None-Match` with a tag", { etag: "e1" }, { "if-none-match": '"e2"' }],
+    [
+      "`{ etag }` beside `If-Unmodified-Since` alone",
+      { etag: "e1" },
+      { "if-unmodified-since": "Tue, 01 Sep 2026 10:20:30 GMT" },
+    ],
+  ])("%s answers `501`, which comes before a contradiction", async (_, onlyIf, headers) => {
+    const storage = holdingStorage({ capabilities: bothWrites });
+    const sent = upload(bytes("x"), { headers });
+
+    expect((await acceptUpload(storage, "a", sent, limited(1024, { onlyIf }))).status).toBe(501);
+    expect(storage.puts).toEqual([]);
+  });
+
+  test.each([
+    ['a string other than `"absent"`', "present"],
+    ["an empty string", ""],
+    ["null", null],
+    ["a number", 1],
+    ["an object without `etag`", {}],
+    ["an empty `etag`", { etag: "" }],
+    ["a weak `etag`", { etag: "W/e1" }],
+    ['an `etag` holding `"`', { etag: 'e"1' }],
+    ["an `etag` beyond ASCII", { etag: "é1" }],
+    ["an `etag` beside another key", { etag: "e1", key: "a" }],
+  ])("%s answers `400` before the body is read and without `put`", async (_, onlyIf) => {
+    const storage = holdingStorage({ capabilities: bothWrites });
+    const sent = upload(bytes("x"));
+    // oxlint-disable-next-line no-unsafe-type-assertion -- a value a caller may pass on from a client, which no type holds back
+    const options = limited(1024, { onlyIf: onlyIf as AcceptUploadOptions["onlyIf"] });
+    const response = await acceptUpload(storage, "a", sent, options);
+
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe("");
+    expect(storageErrorOf(response)).toBeUndefined();
+    expect(sent.bodyUsed).toBe(false);
+    expect(storage.puts).toEqual([]);
+  });
+
+  test("of the wrong form answers `400` before the `501` of the request's field", async () => {
+    const storage = holdingStorage({ capabilities: bothWrites });
+    // oxlint-disable-next-line no-unsafe-type-assertion -- a value a caller may pass on from a client, which no type holds back
+    const options = limited(1024, { onlyIf: "present" as AcceptUploadOptions["onlyIf"] });
+    const sent = upload(bytes("x"), { headers: { "if-match": "*" } });
+
+    expect((await acceptUpload(storage, "a", sent, options)).status).toBe(400);
+  });
+
+  // ADR 0075: that is the caller's storage, not the client's value, as on `presignUpload`.
+  test.each(["absent", { etag: "e1" }] as const)(
+    "%j on a storage without the capability stays with `put`, which refuses it with `500`",
+    async (onlyIf) => {
+      const response = await acceptUpload(
+        withoutPreconditions,
+        "a",
+        upload(bytes("x")),
+        limited(1024, { onlyIf }),
+      );
+
+      expect(response.status).toBe(500);
+      expect(storageErrorOf(response)?.code).toBe("Unsupported");
+    },
+  );
+});
+
+/** A storage declaring neither write capability, refusing `onlyIf` in `put` as an adapter does. */
+const withoutPreconditions = stubStorage({
+  put: async (key, _body, options) => {
+    const refused = preconditionRefusal(options?.onlyIf, "write", []);
+
+    if (refused !== undefined)
+      throw storageError({ ...refused, operation: "put", key, attempts: 0 });
+
+    return statOf({ key });
+  },
 });

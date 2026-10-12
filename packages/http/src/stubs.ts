@@ -57,6 +57,7 @@ export function holdingStorage(
     /** `e1` where it is left out; `undefined` stands for a storage that hands over none. */
     readonly etag?: string | undefined;
     readonly held?: Record<string, string>;
+    readonly capabilities?: readonly CapabilityName[];
   } = {},
 ): Storage & { readonly held: Map<string, Uint8Array>; readonly puts: Put[] } {
   const held = new Map<string, Uint8Array>(
@@ -67,6 +68,7 @@ export function holdingStorage(
   const puts: Put[] = [];
   const etag = "etag" in fields ? fields.etag : "e1";
   const storage = stubStorage({
+    capabilities: fields.capabilities,
     put: async (key, body, options): Promise<ObjectStat> => {
       puts.push({ key, body, options });
 

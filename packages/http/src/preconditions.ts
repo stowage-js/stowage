@@ -79,7 +79,7 @@ export function rangeHolds(ifRange: string | undefined, stat: ObjectStat): boole
   return opaque !== undefined && weak === undefined && opaque === stat.etag;
 }
 
-interface EntityTag {
+export interface EntityTag {
   readonly weak: boolean;
   readonly opaque: string;
 }
@@ -91,7 +91,10 @@ interface EntityTag {
 function matches(field: string, { etag }: ObjectStat, comparison: "strong" | "weak"): boolean {
   if (field === "*") return true;
 
-  return tagsOf(field).some((tag) => tag.opaque === etag && (comparison === "weak" || !tag.weak));
+  // Spec 10.3: a field that is no list of entity tags names nothing here.
+  return (entityTagsOf(field) ?? []).some(
+    (tag) => tag.opaque === etag && (comparison === "weak" || !tag.weak),
+  );
 }
 
 // RFC 9110 8.8.3: `W/` is case-sensitive, and a tag holds any visible character but `"`,
@@ -101,15 +104,15 @@ const listMember = new RegExp(String.raw`[ \t]*(?:${entityTag})?[ \t]*(?:,|$)`, 
 // RFC 9110 13.1.5: `If-Range` names one tag, not a list.
 const singleTag = new RegExp(`^${entityTag}$`, "u");
 
-/** The tags a list names, none for a field that is no list of entity tags. */
-function tagsOf(field: string): readonly EntityTag[] {
+/** The tags a list names, `undefined` for a field that is no list of entity tags. */
+export function entityTagsOf(field: string): readonly EntityTag[] | undefined {
   const member = new RegExp(listMember);
   const tags: EntityTag[] = [];
 
   while (member.lastIndex < field.length) {
     const found = member.exec(field);
 
-    if (found === null) return [];
+    if (found === null) return undefined;
 
     const [, weak, opaque] = found;
 

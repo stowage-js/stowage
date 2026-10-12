@@ -23,11 +23,12 @@ export function objectStatOf(response: Response): ObjectStat | undefined {
 }
 
 /**
- * Spec 10.5's `201` for a stored object. The body stays empty, since the `key` and the
- * `userMetadata` of the `ObjectStat` may say more than the client should learn.
+ * Spec 10.5's answer for a stored object: `201`, or `204` for one written over the object an
+ * `etag` named. The body stays empty, since the `key` and the `userMetadata` of the
+ * `ObjectStat` may say more than the client should learn.
  */
-export function storedAnswer(stat: ObjectStat): Response {
-  const response = new Response(null, { status: 201 });
+export function storedAnswer(stat: ObjectStat, status: 201 | 204): Response {
+  const response = new Response(null, { status });
 
   if (stat.etag !== undefined) response.headers.set("etag", `"${stat.etag}"`);
 

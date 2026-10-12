@@ -1,6 +1,7 @@
-import type { ObjectStat, Storage } from "@stowage/core";
+import type { ObjectStat, Precondition, Storage } from "@stowage/core";
 
 import { answerFor, methodNotAllowed, refusal, storedAnswer } from "./answers.ts";
+import { uploadPreconditionOf } from "./upload-preconditions.ts";
 
 export interface AcceptUploadOptions {
   /**
@@ -32,14 +33,25 @@ export interface AcceptUploadOptions {
   contentLanguage?: string;
   /** The user metadata stored with the object. Request headers never add to it. */
   userMetadata?: Record<string, string>;
+  /**
+   * The caller's precondition, such as `"absent"` for a route that never overwrites. It
+   * holds together with the request's `If-Match` and `If-None-Match`, which no option
+   * switches off: where none can satisfy both, the answer is `412` without `put`. A value
+   * of the wrong form is `400`. A storage without the capability the form needs refuses it
+   * in `put`, answered `500` (ADR 0075).
+   */
+  onlyIf?: Precondition;
 }
 
 /**
- * Streams the body of a `PUT` into `put` and answers `201` with the `etag` as `ETag`
- * (spec 10.5). Any other method is `405`. A body above `maxSize` is `413`, one that
- * contradicts its `Content-Length` or fails while it is read `400`, a content coding `415`;
- * the key then holds what it held before. `objectStatOf(response)` answers what `put`
- * resolved with.
+ * Streams the body of a `PUT` into `put` and answers `201` with the `etag` as `ETag`, or
+ * `204` where the write replaced the object an `etag` named (spec 10.5). Any other method is
+ * `405`. A body above `maxSize` is `413`, one that contradicts its `Content-Length` or fails
+ * while it is read `400`, a content coding `415`; the key then holds what it held before.
+ * The request's `If-Match` and `If-None-Match` hold together with `onlyIf`, and before the
+ * body is read a malformed one is `400`, one no `onlyIf` expresses or the storage holds
+ * `501`, and preconditions that cannot hold together `412`. `objectStatOf(response)`
+ * answers what `put` resolved with.
  */
 export async function acceptUpload(
   storage: Storage,
@@ -53,13 +65,13 @@ export async function acceptUpload(
     throw new TypeError(`\`maxSize\` is ${String(maxSize)}, no non-negative integer or Infinity`);
   }
 
-  if (request.method !== "PUT") return methodNotAllowed("PUT");
-
   // ADR 0052: a body a validator or a parser read before the call would be stored empty
   // or partial, and that is the caller's programmer error, not a client's.
   if (request.bodyUsed) {
     throw new TypeError("The request body was read before `acceptUpload` could store it");
   }
+
+  if (request.method !== "PUT") return methodNotAllowed("PUT");
 
   // RFC 9110 8.4.1: no runtime decodes a request body, so the coded bytes would be stored
   // without their coding.
@@ -73,6 +85,11 @@ export async function acceptUpload(
 
   if (contentLength !== undefined && contentLength > maxSize) return refusal(413);
 
+  const precondition = uploadPreconditionOf(request.headers, options.onlyIf, storage.capabilities);
+
+  if ("refusal" in precondition) return refusal(precondition.refusal);
+
+  const { onlyIf } = precondition;
   const counted = countedBody(request.body ?? emptyBody(), { maxSize, contentLength });
   let stat: ObjectStat;
 
@@ -83,6 +100,7 @@ export async function acceptUpload(
       contentDisposition: options.contentDisposition,
       contentLanguage: options.contentLanguage,
       userMetadata: options.userMetadata,
+      onlyIf,
       signal: request.signal,
     });
   } catch (thrown) {
@@ -93,7 +111,11 @@ export async function acceptUpload(
     return refused === undefined ? answerFor(thrown) : refusal(refused);
   }
 
-  return storedAnswer(stat);
+  // ADR 0075: telling a replacement apart without `{ etag }` would take a `stat` that races
+  // the upload, so only that write answers RFC 9110 9.3.4's `204`.
+  const replaced = typeof onlyIf === "object";
+
+  return storedAnswer(stat, replaced ? 204 : 201);
 }
 
 function isIdentity(contentEncoding: string | null): boolean {
