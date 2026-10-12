@@ -26,18 +26,43 @@ type Flaw =
   | "post-stored"
   | "other-allow"
   | "invalid-key-400"
-  | "header-metadata";
+  | "header-metadata"
+  | "absent-ignored"
+  | "unsupported-stored"
+  | "if-match-201"
+  | "weak-matches"
+  | "free-key-written"
+  | "if-match-wins"
+  | "star-held"
+  | "unmodified-since-ignored"
+  | "malformed-ignored"
+  | "malformed-after-501"
+  | "if-modified-since-evaluated"
+  | "if-range-501";
 
 interface Held {
   readonly bytes: Uint8Array<ArrayBuffer>;
+  readonly etag: string;
   readonly contentType: string;
   readonly userMetadata: Record<string, string>;
 }
 
 const maxSize = 1048576;
 
-/** A storage reading what the server holds, with an `etag` where `etags` is set. */
-function heldStorage(held: Map<string, Held>, etags: boolean): Storage {
+/** The writes of the run so far, which name the `etag` of each object written: `e1`, `e2`… */
+let writes = 0;
+
+const nextEtag = (): string => `e${++writes}`;
+
+/**
+ * A storage reading what the server holds, with an `etag` where `etags` is set, and
+ * declaring `capabilities`.
+ */
+function heldStorage(
+  held: Map<string, Held>,
+  etags: boolean,
+  capabilities: readonly string[],
+): Storage {
   const statOf = (key: string): ObjectStat => {
     const object = held.get(key);
 
@@ -47,18 +72,20 @@ function heldStorage(held: Map<string, Held>, etags: boolean): Storage {
       key,
       size: object.bytes.byteLength,
       lastModified: new Date("2026-09-01T10:20:30.456Z"),
-      etag: etags ? "e1" : undefined,
+      etag: etags ? object.etag : undefined,
       contentType: object.contentType,
       userMetadata: object.userMetadata,
     };
   };
 
   return stubStorage({
+    capabilities,
     put: async (key: string, body: PutBody, options) => {
       if (!(body instanceof Uint8Array)) throw new Error("The stub stores bytes alone");
 
       held.set(key, {
         bytes: new Uint8Array(body),
+        etag: nextEtag(),
         contentType: options?.contentType ?? "application/octet-stream",
         userMetadata: {},
       });
@@ -86,6 +113,11 @@ interface Server {
   /** Whether the storage hands over an `etag`, which `adapter-fs` does not. */
   readonly etags?: boolean;
   /**
+   * What the storage declares: both write capabilities, or `writeIfAbsent` alone where it
+   * hands over no `etag`, as `adapter-fs` does, where it is left out.
+   */
+  readonly declares?: readonly string[];
+  /**
    * Where the connection is reset instead of answered: under a body sent with its length past
    * `maxSize`, as `workerd` does to a client still writing a body it refused unread (ADR
    * 0056), or under every request.
@@ -109,7 +141,7 @@ async function answer(
   held: Map<string, Held>,
   request: Request,
   streamed: boolean,
-  { flaw, etags = true, resets }: Server,
+  { flaw, etags = true, declares = etags ? bothWrites : ["writeIfAbsent"], resets }: Server,
 ): Promise<Response> {
   if (resets === "always") throw connectionReset();
 
@@ -131,6 +163,7 @@ async function answer(
   const coded = request.headers.has("content-encoding");
   const stored: Held = {
     bytes: flaw === "truncated-stream" && streamed ? bytes.slice(0, 1024) : bytes,
+    etag: nextEtag(),
     contentType:
       flaw === "content-type-dropped"
         ? "application/octet-stream"
@@ -145,6 +178,10 @@ async function answer(
 
     return new Response(null, { status: 415 });
   }
+
+  const precondition = preconditionOf(request.headers, declares, flaw);
+
+  if ("status" in precondition) return new Response(null, { status: precondition.status });
 
   const bounded = flaw !== "no-limit" && (flaw !== "unbounded-stream" || !streamed);
 
@@ -164,20 +201,89 @@ async function answer(
 
   if (bytes.byteLength === 0 && flaw === "empty-refused")
     return new Response(null, { status: 400 });
+
+  const { onlyIf } = precondition;
+
+  if (!holds(onlyIf, held.get(key), flaw)) return new Response(null, { status: 412 });
   if (!(flaw === "first-write-wins" && held.has(key))) held.set(key, stored);
 
+  const etag = held.get(key)?.etag ?? "";
   const tagged = etags || flaw === "invented-etag";
+  const replaced = typeof onlyIf === "object" && flaw !== "if-match-201";
 
   return new Response(flaw === "with-body" ? "Created" : null, {
-    status: 201,
-    headers: tagged ? { etag: flaw === "unquoted-etag" ? "e1" : '"e1"' } : {},
+    status: replaced ? 204 : 201,
+    headers: tagged ? { etag: flaw === "unquoted-etag" ? etag : `"${etag}"` } : {},
   });
 }
+
+type Precondition = "absent" | { readonly etag: string | undefined } | undefined;
+
+const listOfTags = /^(?:W\/)?"[^"]*"(?:[ \t]*,[ \t]*(?:W\/)?"[^"]*")*$/u;
+
+/**
+ * What spec 10.5 has a server make of the request's preconditions before the body, short of
+ * what `flaw` breaks: the status that refuses the request, or the precondition `put` holds.
+ */
+function preconditionOf(
+  headers: Headers,
+  declares: readonly string[],
+  flaw: Flaw | undefined,
+): { readonly status: number } | { readonly onlyIf: Precondition } {
+  const ifMatch = headers.get("if-match");
+  const ifNoneMatch = headers.get("if-none-match");
+  const malformed = [ifMatch, ifNoneMatch].some(
+    (field) => field !== null && field !== "*" && !listOfTags.test(field),
+  );
+  const tags = [...(ifMatch ?? "").matchAll(/(W\/)?"([^"]*)"/gu)]
+    .filter(([, weak, opaque]) => (weak === undefined || flaw === "weak-matches") && opaque !== "")
+    .map(([, , opaque]) => opaque);
+  const named = new Set(tags);
+  const inexpressible =
+    (ifMatch === "*" && flaw !== "star-held") ||
+    named.size > 1 ||
+    (ifNoneMatch !== null && ifNoneMatch !== "*") ||
+    (ifMatch === null && headers.has("if-unmodified-since") && flaw !== "unmodified-since-ignored");
+  const unsupported =
+    flaw !== "unsupported-stored" &&
+    ((ifNoneMatch === "*" && !declares.includes("writeIfAbsent")) ||
+      (ifMatch !== null && !declares.includes("writeIfUnchanged")));
+
+  if (flaw === "malformed-after-501" && (inexpressible || unsupported)) return { status: 501 };
+  if (malformed && flaw !== "malformed-ignored") return { status: 400 };
+  if (inexpressible || unsupported) return { status: 501 };
+  if (flaw === "if-modified-since-evaluated" && headers.has("if-modified-since")) {
+    return { status: 412 };
+  }
+  if (flaw === "if-range-501" && headers.has("if-range")) return { status: 501 };
+  if (ifMatch !== null && ifNoneMatch === "*" && flaw !== "if-match-wins") return { status: 412 };
+  if (ifMatch === null) return { onlyIf: ifNoneMatch === "*" ? "absent" : undefined };
+
+  return { onlyIf: { etag: ifMatch === "*" ? "*" : [...named][0] } };
+}
+
+/** Whether the object the key holds lets `onlyIf` through at the commit. */
+function holds(onlyIf: Precondition, held: Held | undefined, flaw: Flaw | undefined): boolean {
+  if (onlyIf === undefined) return true;
+  if (onlyIf === "absent") return held === undefined || flaw === "absent-ignored";
+  if (held === undefined) return flaw === "free-key-written";
+
+  return onlyIf.etag === "*" || onlyIf.etag === held.etag;
+}
+
+const bothWrites = ["writeIfAbsent", "writeIfUnchanged"];
 
 /** Runs one case against a server that answers as `answer` does, as `server` describes it. */
 async function runAgainst(name: string, server: Server = {}): Promise<void> {
   const held = new Map<string, Held>();
-  const storage = heldStorage(held, server.etags ?? true);
+  const etags = server.etags ?? true;
+  const storage = heldStorage(
+    held,
+    etags,
+    server.declares ?? (etags ? bothWrites : ["writeIfAbsent"]),
+  );
+
+  writes = 0;
   const target: HttpConformanceTarget = {
     name: "reference",
     createStorage: () => storage,
@@ -211,6 +317,13 @@ test.each(uploadCases.map((source) => source.name))(
   "`%s` passes against a storage that hands over no `etag`",
   async (name) => {
     await expect(runAgainst(name, { etags: false })).resolves.toBeUndefined();
+  },
+);
+
+test.each(uploadCases.map((source) => source.name))(
+  "`%s` passes against a storage declaring neither write capability",
+  async (name) => {
+    await expect(runAgainst(name, { declares: [] })).resolves.toBeUndefined();
   },
 );
 
@@ -251,6 +364,35 @@ test.each<[string, Server, string]>([
   ["upload/method-not-allowed", { flaw: "other-allow" }, "allow"],
   ["upload/invalid-key", { flaw: "invalid-key-400" }, "answers 400 and not 404"],
   ["upload/no-header-metadata", { flaw: "header-metadata" }, "user metadata"],
+  ["upload/if-none-match", { flaw: "absent-ignored" }, "answers 201 and not 412"],
+  ["upload/if-none-match", { flaw: "unsupported-stored", declares: [] }, "answers 201 and not 501"],
+  ["upload/if-match", { flaw: "if-match-201" }, "answers 201 and not 204"],
+  ["upload/if-match", { flaw: "weak-matches" }, "as `W/` in `If-Match` answers 204 and not 412"],
+  ["upload/if-match", { flaw: "free-key-written" }, "onto a free key answers 204 and not 412"],
+  ["upload/if-match", { flaw: "unsupported-stored", declares: [] }, "answers 204 and not 501"],
+  ["upload/both-preconditions", { flaw: "if-match-wins" }, "answers 204 and not 412"],
+  [
+    "upload/inexpressible-precondition",
+    { flaw: "star-held" },
+    "`If-Match: *` answers 204 and not 501",
+  ],
+  [
+    "upload/inexpressible-precondition",
+    { flaw: "unmodified-since-ignored" },
+    "`If-Unmodified-Since` alone answers 201 and not 501",
+  ],
+  ["upload/malformed-precondition", { flaw: "malformed-ignored" }, "answers 412 and not 400"],
+  [
+    "upload/malformed-precondition",
+    { flaw: "malformed-after-501", declares: [] },
+    "answers 501 and not 400",
+  ],
+  [
+    "upload/ignored-preconditions",
+    { flaw: "if-modified-since-evaluated" },
+    "in the past answers 412 and not 201",
+  ],
+  ["upload/ignored-preconditions", { flaw: "if-range-501" }, "`If-Range` answers 501 and not 201"],
 ])("`%s` fails against a server with the flaw %o", async (name, server, message) => {
   await expect(runAgainst(name, server)).rejects.toThrow(message);
 });
