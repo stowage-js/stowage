@@ -16,6 +16,7 @@ import { platform } from "node:process";
 import {
   isStorageError,
   type ObjectListing,
+  type DeleteOptions,
   type OperationOptions,
   type PutOptions,
   type StorageError,
@@ -577,6 +578,7 @@ test("rejects with the runtime's AbortError for a signal that already fired", as
     rejection(storage.get("object", { signal: AbortSignal.abort() })),
     rejection(storage.stat("object", { signal: AbortSignal.abort() })),
     rejection(storage.exists("object", { signal: AbortSignal.abort() })),
+    rejection(storage.delete("object", { signal: AbortSignal.abort() })),
   ]);
 
   for (const thrown of aborted) {
@@ -890,6 +892,39 @@ test("leaves what is no object of this storage where it is", async () => {
   expect(await readFile(outside, "utf8")).toBe("not this storage's");
   expect(await iterate(storage.list())).toEqual(["docs/one.txt"]);
   expect((await readdir(root)).toSorted()).toEqual(["docs", "link"]);
+});
+
+test("deletes one key given with options as it deletes the key alone", async () => {
+  const storage = await storageWith("one", "two");
+
+  expect(await storage.delete("one", {})).toEqual({ requested: 1, failed: [] });
+  expect(await iterate(storage.list())).toEqual(["two"]);
+});
+
+test.each([
+  ["an `etag`", { etag: "abc" }, "Unsupported", "deleteIfUnchanged"],
+  ['`"absent"`', "absent", "InvalidOption", undefined],
+])(
+  "refuses `onlyIf` as %s before `delete` removes anything",
+  async (_, onlyIf, code, capability) => {
+    const storage = await storageWith("object");
+
+    // `"absent"` has no kind on a delete, which the type rules out and JavaScript does not.
+    // oxlint-disable-next-line no-unsafe-type-assertion -- the point of the test
+    const options = { onlyIf } as DeleteOptions;
+    const refused = await storageErrorOf(storage.delete("object", options));
+
+    expect(refused).toMatchObject({ code, capability, operation: "delete", key: "object" });
+    expect(refused.attempts).toBe(0);
+    expect(await storage.exists("object")).toBe(true);
+  },
+);
+
+test("refuses an option key `delete` does not list", async () => {
+  const storage = await storageWith("object");
+
+  expect(await codeOf(storage.delete("object", withUnknownOption({})))).toBe("InvalidOption");
+  expect(await storage.exists("object")).toBe(true);
 });
 
 test("deletes every object below the prefix and none beside it", async () => {

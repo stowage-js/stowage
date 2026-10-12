@@ -15,6 +15,7 @@ export {
   isHeaderValue,
 } from "./content-headers.ts";
 export type { Resolvable, ResolverOptions } from "./credentials.ts";
+export { isOneKeyWithOptions, type OneKeyWithOptions } from "./delete-form.ts";
 export { readEnvironment } from "./environment.ts";
 export {
   isStorageError,
@@ -51,6 +52,7 @@ export { errorCodeForStatus, isTransientStatus } from "./status.ts";
 export type {
   ByteRange,
   CopyOptions,
+  DeleteOptions,
   DeleteReport,
   GetOptions,
   ListOptions,

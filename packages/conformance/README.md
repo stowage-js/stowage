@@ -220,7 +220,7 @@ is the implementation to read: one application of four routes, which `@hono/node
 is the implementation a third-party adapter is read against, out of the five adapters of this
 repository that pass these cases: `@stowage/adapter-memory`, `@stowage/adapter-fs`,
 `@stowage/adapter-s3`, `@stowage/adapter-azure-blob` and `@stowage/adapter-gcs`. It enforces the
-key rule exactly, declares seven of the eight capabilities, and has no network in the way. The cases
+key rule exactly, declares eight of the nine capabilities, and has no network in the way. The cases
 themselves are written against the behavior of S3, not against it.
 
 What the suite leaves to an adapter's own tests, such as flat memory during a large upload or the

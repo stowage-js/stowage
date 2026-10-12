@@ -71,6 +71,8 @@ const specified: readonly SpecifiedCase[] = [
   ["delete/nothing", [], "fast"],
   ["delete/invalid-key-reported", [], "fast"],
   ["delete/past-one-thousand", [], "slow"],
+  ["delete/if-unchanged", ["deleteIfUnchanged"], "fast"],
+  ["delete/options", [], "fast"],
   ["deleteAll/below-prefix", [], "fast"],
   ["deleteAll/nothing", [], "fast"],
   ["deleteAll/past-one-thousand", [], "slow"],

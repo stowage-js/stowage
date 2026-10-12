@@ -2,11 +2,14 @@ import {
   type CapabilityName,
   type DeleteReport,
   type GetOptions,
+  isOneKeyWithOptions,
   isStorageError,
   type ListOptions,
   type ObjectListing,
   type ObjectStat,
   type CopyOptions,
+  type DeleteOptions,
+  type OneKeyWithOptions,
   type OperationOptions,
   type PresignedPut,
   type PutBody,
@@ -29,6 +32,7 @@ import { requireKey } from "./key.ts";
 import { createListing } from "./listing.ts";
 import {
   copyOptionKeys,
+  deleteOptionKeys,
   getOptionKeys,
   operationOptionKeys,
   optionError,
@@ -57,6 +61,11 @@ export interface AzureBlobStorage extends Storage {
   readonly provider: "azure-blob";
   /** Sends at most one Blob Batch request per 256 keys. */
   delete(...keys: readonly string[]): Promise<DeleteReport>;
+  /**
+   * Deletes the key as `delete(key)` does, under the signal. Refuses every `onlyIf` while the
+   * storage declares no `deleteIfUnchanged`.
+   */
+  delete(key: string, options: DeleteOptions): Promise<DeleteReport>;
   /**
    * A SAS a client holding no credential calls with a plain `GET` for this one key until it
    * expires: a service SAS under an account key, a user delegation SAS under an access
@@ -115,7 +124,7 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
   async #put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat> {
     requireKey(this.bucket, key, "writable", "put");
     requireKnownOptions(this.bucket, options, putOptionKeys, "put");
-    refusePrecondition(this.bucket, options?.onlyIf, "put", key, this.capabilities);
+    refusePrecondition(this.bucket, options?.onlyIf, "write", "put", key, this.capabilities);
     const userMetadata = userMetadataHeaders(
       this.bucket,
       options?.userMetadata,
@@ -204,8 +213,24 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
     return createListing(this.#configuration, options);
   }
 
-  async delete(...keys: readonly string[]): Promise<DeleteReport> {
-    return await deleteKeys(this.#configuration, keys, { operation: "delete" });
+  delete(...keys: readonly string[]): Promise<DeleteReport>;
+  delete(key: string, options: DeleteOptions): Promise<DeleteReport>;
+  async delete(...args: readonly string[] | OneKeyWithOptions): Promise<DeleteReport> {
+    if (!isOneKeyWithOptions(args)) {
+      return await deleteKeys(this.#configuration, args, { operation: "delete" });
+    }
+
+    const [key, options] = args;
+
+    requireKnownOptions(this.bucket, options, deleteOptionKeys, "delete");
+    refusePrecondition(this.bucket, options.onlyIf, "delete", "delete", key, this.capabilities);
+
+    options.signal?.throwIfAborted();
+
+    return await deleteKeys(this.#configuration, [key], {
+      operation: "delete",
+      signal: options.signal,
+    });
   }
 
   async deleteAll(prefix: string, options?: OperationOptions): Promise<DeleteReport> {
@@ -286,7 +311,7 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
     requireKey(this.bucket, from, "addressable", operation);
     requireKey(this.bucket, to, "writable", operation);
     requireKnownOptions(this.bucket, options, copyOptionKeys, operation);
-    refusePrecondition(this.bucket, options?.onlyIf, operation, to, this.capabilities);
+    refusePrecondition(this.bucket, options?.onlyIf, "write", operation, to, this.capabilities);
 
     if (from !== to) return;
 

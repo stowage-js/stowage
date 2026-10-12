@@ -1,5 +1,6 @@
 import {
   capabilityNames,
+  type DeleteOptions,
   isStorageError,
   type ObjectListing,
   type PutOptions,
@@ -82,6 +83,7 @@ test("names the provider and the bucket it is bound to", () => {
 test("declares the capabilities it implements", () => {
   expect(memoryStorage().capabilities.toSorted()).toEqual([
     "contentHeaders",
+    "deleteIfUnchanged",
     "keyBytesPreserved",
     "rangeReads",
     "userMetadata",
@@ -661,6 +663,7 @@ test.each([
   ["get", (storage: MemoryStorage) => storage.get("greeting", withUnknownOption({}))],
   ["stat", (storage: MemoryStorage) => storage.stat("greeting", withUnknownOption({}))],
   ["exists", (storage: MemoryStorage) => storage.exists("greeting", withUnknownOption({}))],
+  ["delete", (storage: MemoryStorage) => storage.delete("greeting", withUnknownOption({}))],
   ["deleteAll", (storage: MemoryStorage) => storage.deleteAll("", withUnknownOption({}))],
   ["copy", (storage: MemoryStorage) => storage.copy("greeting", "servus", withUnknownOption({}))],
   ["move", (storage: MemoryStorage) => storage.move("greeting", "servus", withUnknownOption({}))],
@@ -755,6 +758,72 @@ test("cancels a stream body whose precondition it refuses by its form", async ()
   expect(canceled).toBe(true);
 });
 
+test("deletes the object the `etag` describes", async () => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello");
+
+  const report = await storage.delete("greeting", { onlyIf: { etag: helloDigest } });
+
+  expect(report).toEqual({ requested: 1, failed: [] });
+  expect(await storage.exists("greeting")).toBe(false);
+});
+
+test("reports a stale `etag` on `delete` as the key's entry and keeps the object", async () => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello");
+  await storage.put("greeting", "servus");
+
+  const report = await storage.delete("greeting", { onlyIf: { etag: helloDigest } });
+
+  expect(report.requested).toBe(1);
+  expect(report.failed).toHaveLength(1);
+
+  const [failure] = report.failed;
+
+  expect(isStorageError(failure)).toBe(true);
+  expect(failure).toMatchObject({
+    code: "PreconditionFailed",
+    operation: "delete",
+    key: "greeting",
+    retryable: false,
+    attempts: 1,
+  });
+  expect(failure?.status).toBeUndefined();
+  expect(failure?.providerCode).toBeUndefined();
+  expect(await (await storage.get("greeting")).text()).toBe("servus");
+});
+
+test("reports an `etag` on a key that holds no object as the key's entry, not as a success", async () => {
+  const report = await memoryStorage().delete("greeting", { onlyIf: { etag: helloDigest } });
+
+  expect(report.requested).toBe(1);
+  expect(report.failed.map((failure) => [failure.code, failure.key])).toEqual([
+    ["PreconditionFailed", "greeting"],
+  ]);
+});
+
+test.each([
+  ['`"absent"`', "absent"],
+  ["an `etag` starting with `W/`", { etag: `W/${helloDigest}` }],
+  ["an empty `etag`", { etag: "" }],
+])("refuses %s on `delete` before it deletes anything", async (_, onlyIf) => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello");
+
+  const error = await storageErrorOf(
+    // oxlint-disable-next-line no-unsafe-type-assertion -- the wrong form is the point
+    storage.delete("greeting", { onlyIf } as DeleteOptions),
+  );
+
+  expect(error).toMatchObject({
+    code: "InvalidOption",
+    operation: "delete",
+    key: "greeting",
+    attempts: 0,
+  });
+  expect(await storage.exists("greeting")).toBe(true);
+});
+
 test("copies the bytes it was handed", async () => {
   const storage = memoryStorage();
   const body = new Uint8Array([1, 2, 3]);
@@ -846,6 +915,7 @@ test.each([
   ["get", async (signal: AbortSignal) => await memoryStorage().get("greeting", { signal })],
   ["stat", async (signal: AbortSignal) => await memoryStorage().stat("greeting", { signal })],
   ["exists", async (signal: AbortSignal) => await memoryStorage().exists("greeting", { signal })],
+  ["delete", async (signal: AbortSignal) => await memoryStorage().delete("greeting", { signal })],
   ["deleteAll", async (signal: AbortSignal) => await memoryStorage().deleteAll("", { signal })],
   [
     "copy",
@@ -867,6 +937,7 @@ test.each([
   ["get", (signal: AbortSignal) => memoryStorage().get("greeting", { signal })],
   ["stat", (signal: AbortSignal) => memoryStorage().stat("greeting", { signal })],
   ["exists", (signal: AbortSignal) => memoryStorage().exists("greeting", { signal })],
+  ["delete", (signal: AbortSignal) => memoryStorage().delete("greeting", { signal })],
   ["deleteAll", (signal: AbortSignal) => memoryStorage().deleteAll("", { signal })],
   ["copy", (signal: AbortSignal) => memoryStorage().copy("greeting", "formal", { signal })],
   ["move", (signal: AbortSignal) => memoryStorage().move("greeting", "formal", { signal })],
@@ -1037,6 +1108,30 @@ test("reports an invalid key in the report and deletes the other keys", async ()
   expect(report.failed[0]?.operation).toBe("delete");
   expect(report.failed[0]?.attempts).toBe(0);
   expect(await storage.exists("greeting")).toBe(false);
+});
+
+test("deletes one key given with options as it deletes the key alone", async () => {
+  const storage = memoryStorage();
+  await storage.put("greeting", "hello");
+  await storage.put("greetings/formal", "servus");
+
+  const report = await storage.delete("greeting", {});
+
+  expect(report).toEqual({ requested: 1, failed: [] });
+  expect(await storage.exists("greeting")).toBe(false);
+  expect(await storage.exists("greetings/formal")).toBe(true);
+});
+
+test("reports an invalid key given with options in the report", async () => {
+  const report = await memoryStorage().delete("greetings//formal", {});
+
+  expect(report.requested).toBe(1);
+  expect(report.failed[0]).toMatchObject({
+    code: "InvalidKey",
+    key: "greetings//formal",
+    operation: "delete",
+    attempts: 0,
+  });
 });
 
 test("deletes every object below a prefix and none beside it", async () => {

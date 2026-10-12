@@ -6,12 +6,15 @@ import {
   type CapabilityName,
   checkContentHeaders,
   type CopyOptions,
+  type DeleteOptions,
   type DeleteReport,
   type GetOptions,
+  isOneKeyWithOptions,
   isStorageError,
   type ListOptions,
   type ObjectListing,
   type ObjectStat,
+  type OneKeyWithOptions,
   type OperationOptions,
   type PutBody,
   type PutOptions,
@@ -37,6 +40,7 @@ import {
 import {
   adapterOptionKeys,
   copyOptionKeys,
+  deleteOptionKeys,
   getOptionKeys,
   operationOptionKeys,
   optionError,
@@ -124,7 +128,7 @@ class FileSystemStorage implements FsStorage {
     this.#requireContentType(options?.contentType);
     this.#requireNoUserMetadata(options?.userMetadata, key);
     this.#requireNoContentHeaders(options, key);
-    this.#refusePrecondition(options?.onlyIf, "put", key);
+    this.#refusePrecondition(options?.onlyIf, "write", "put", key);
 
     // Spec 4.3: a signal that already fired rejects in front of the write, before a
     // directory has been created for a body that is not going to be stored.
@@ -286,7 +290,22 @@ class FileSystemStorage implements FsStorage {
     );
   }
 
-  async delete(...keys: readonly string[]): Promise<DeleteReport> {
+  delete(...keys: readonly string[]): Promise<DeleteReport>;
+  delete(key: string, options: DeleteOptions): Promise<DeleteReport>;
+  async delete(...args: readonly string[] | OneKeyWithOptions): Promise<DeleteReport> {
+    if (!isOneKeyWithOptions(args)) return await this.#deleteKeys(args);
+
+    const [key, options] = args;
+
+    requireKnownOptions(this.#root, options, deleteOptionKeys, "delete");
+    this.#refusePrecondition(options.onlyIf, "delete", "delete", key);
+
+    options.signal?.throwIfAborted();
+
+    return await this.#deleteKeys([key]);
+  }
+
+  async #deleteKeys(keys: readonly string[]): Promise<DeleteReport> {
     // Spec 4.7 rejects the call for what fails the request as a whole and fills the
     // report for what fails one key. A root that is gone is the first of the two: it is
     // no reason any single key could not be deleted.
@@ -431,7 +450,7 @@ class FileSystemStorage implements FsStorage {
     requireKey(this.#root, from, "addressable", operation);
     requireKey(this.#root, to, "writable", operation);
     requireKnownOptions(this.#root, options, copyOptionKeys, operation);
-    this.#refusePrecondition(options?.onlyIf, operation, to);
+    this.#refusePrecondition(options?.onlyIf, "write", operation, to);
 
     options?.signal?.throwIfAborted();
 
@@ -519,11 +538,16 @@ class FileSystemStorage implements FsStorage {
   }
 
   /**
-   * Spec 4.3: the storage declares neither `writeIfAbsent` nor `writeIfUnchanged`, so every
-   * `onlyIf` is refused before anything is written, against the key that carries it.
+   * Spec 4.3: the storage declares no capability an `onlyIf` needs, so every one is refused
+   * before anything is written or removed, against the key that carries it.
    */
-  #refusePrecondition(onlyIf: unknown, operation: string, key: string): void {
-    const refusal = preconditionRefusal(onlyIf, "write", this.capabilities);
+  #refusePrecondition(
+    onlyIf: unknown,
+    on: "write" | "delete",
+    operation: string,
+    key: string,
+  ): void {
+    const refusal = preconditionRefusal(onlyIf, on, this.capabilities);
 
     if (refusal === undefined) return;
 

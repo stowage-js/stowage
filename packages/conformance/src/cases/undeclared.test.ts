@@ -1,6 +1,7 @@
 import {
   type CapabilityName,
   checkContentHeaders,
+  type DeleteOptions,
   isUserMetadataKey,
   type ObjectStat,
   preconditionRefusal,
@@ -28,6 +29,8 @@ interface UndeclaredBehavior {
   readonly readsContentHeadersAsUndefined?: boolean;
   /** Writes as if `onlyIf` were not there, which no path may do in silence (ADR 0070). */
   readonly readsPastPreconditions?: boolean;
+  /** Deletes past a signal that already fired, which spec 4.3 refuses before any request. */
+  readonly readsPastAbortedSignals?: boolean;
 }
 
 // Spec 4.9: a storage declaring no `keyBytesPreserved` hands a key back Unicode-
@@ -53,8 +56,13 @@ const undeclaring = (behavior: UndeclaredBehavior = {}): Storage => {
       behavior.readsUserMetadata === true ? { "written-by": "stowage" } : (held.get(key) ?? {}),
   });
 
-  const requireNoPrecondition = (onlyIf: unknown, operation: string, key: string): void => {
-    const refusal = preconditionRefusal(onlyIf, "write", []);
+  const requireNoPrecondition = (
+    onlyIf: unknown,
+    on: "write" | "delete",
+    operation: string,
+    key: string,
+  ): void => {
+    const refusal = preconditionRefusal(onlyIf, on, []);
 
     if (refusal === undefined || behavior.readsPastPreconditions === true) return;
 
@@ -72,7 +80,7 @@ const undeclaring = (behavior: UndeclaredBehavior = {}): Storage => {
     put: async (key, body, options) => {
       const userMetadata = options?.userMetadata ?? {};
 
-      requireNoPrecondition(options?.onlyIf, "put", key);
+      requireNoPrecondition(options?.onlyIf, "write", "put", key);
 
       if (Object.keys(userMetadata).length > 0 && behavior.storesUserMetadata !== true) {
         throw unsupported("userMetadata", "put");
@@ -117,19 +125,41 @@ const undeclaring = (behavior: UndeclaredBehavior = {}): Storage => {
           .map((key) => describe(key)),
       ),
     copy: async (from, to, options) => {
-      requireNoPrecondition(options?.onlyIf, "copy", to);
+      requireNoPrecondition(options?.onlyIf, "write", "copy", to);
       held.set(storedKey(to), held.get(storedKey(from)) ?? {});
 
       return describe(storedKey(to));
     },
     move: async (from, to, options) => {
-      requireNoPrecondition(options?.onlyIf, "move", to);
+      requireNoPrecondition(options?.onlyIf, "write", "move", to);
       held.set(storedKey(to), held.get(storedKey(from)) ?? {});
       held.delete(storedKey(from));
 
       return describe(storedKey(to));
     },
     exists: async (key) => held.has(storedKey(key)),
+    delete: async (...args: readonly unknown[]) => {
+      const [first, second] = args;
+      // oxlint-disable-next-line no-unsafe-type-assertion -- the stub reads both forms of `delete`
+      const options = (typeof second === "object" ? second : undefined) as
+        | DeleteOptions
+        | undefined;
+      // oxlint-disable-next-line no-unsafe-type-assertion -- what is no options object is a key
+      const keys = (options === undefined ? args : [first]) as readonly string[];
+
+      if (options !== undefined) {
+        requireNoPrecondition(options.onlyIf, "delete", "delete", String(first));
+
+        if (behavior.readsPastAbortedSignals !== true) options.signal?.throwIfAborted();
+      }
+
+      for (const key of keys) {
+        held.delete(storedKey(key));
+        bodies.delete(storedKey(key));
+      }
+
+      return { requested: keys.length, failed: [] };
+    },
   });
 };
 
@@ -372,6 +402,26 @@ test.each([
   "move/if-unchanged",
 ])("`%s` holds where the storage declares no `writeIfUnchanged`", async (name) => {
   await expect(runWithout(name, undeclaring())).resolves.toBe("without");
+});
+
+test("`delete/if-unchanged` holds where the storage declares no `deleteIfUnchanged`", async () => {
+  await expect(runWithout("delete/if-unchanged", undeclaring())).resolves.toBe("without");
+});
+
+test("the `delete/if-unchanged` half refuses a storage deleting past an `onlyIf` it cannot hold", async () => {
+  await expect(
+    runWithout("delete/if-unchanged", undeclaring({ readsPastPreconditions: true })),
+  ).rejects.toThrow('`code: "Unsupported"`');
+});
+
+test("`delete/options` holds on a storage declaring nothing", async () => {
+  await expect(runWithout("delete/options", undeclaring())).resolves.toBe("declared");
+});
+
+test("`delete/options` refuses a storage deleting past a signal that already fired", async () => {
+  await expect(
+    runWithout("delete/options", undeclaring({ readsPastAbortedSignals: true })),
+  ).rejects.toThrow("AbortError");
 });
 
 test("`put/only-if-no-kind` holds on a storage declaring neither write capability", async () => {

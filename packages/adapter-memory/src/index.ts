@@ -1,20 +1,23 @@
-import type {
-  CapabilityName,
-  ContentHeaders,
-  CopyOptions,
-  DeleteReport,
-  GetOptions,
-  ListOptions,
-  ObjectEntry,
-  ObjectListing,
-  ObjectStat,
-  OperationOptions,
-  Precondition,
-  PutBody,
-  PutOptions,
-  Storage,
-  StorageError,
-  StoredObject,
+import {
+  type CapabilityName,
+  type ContentHeaders,
+  type CopyOptions,
+  type DeleteOptions,
+  type DeleteReport,
+  type GetOptions,
+  isOneKeyWithOptions,
+  type ListOptions,
+  type ObjectEntry,
+  type ObjectListing,
+  type ObjectStat,
+  type OneKeyWithOptions,
+  type OperationOptions,
+  type Precondition,
+  type PutBody,
+  type PutOptions,
+  type Storage,
+  type StorageError,
+  type StoredObject,
 } from "@stowage/core";
 
 import { cancelBody, readBody } from "./bytes.ts";
@@ -24,6 +27,7 @@ import { keyError, requireKey } from "./key.ts";
 import { createListing } from "./listing.ts";
 import {
   copyOptionKeys,
+  deleteOptionKeys,
   getOptionKeys,
   operationOptionKeys,
   putOptionKeys,
@@ -49,6 +53,7 @@ const defaultContentType = "application/octet-stream";
 // constructed, and a caller reaching past the `readonly` type reaches all of them.
 const memoryCapabilities: readonly CapabilityName[] = Object.freeze([
   "contentHeaders",
+  "deleteIfUnchanged",
   "keyBytesPreserved",
   "rangeReads",
   "userMetadata",
@@ -117,7 +122,7 @@ class InMemoryStorage implements MemoryStorage {
         contentType,
         userMetadata,
         contentHeaders: readContentHeaders(options ?? {}, contentType, key, this.capabilities),
-        precondition: readPrecondition(options?.onlyIf, "put", key, this.capabilities),
+        precondition: readPrecondition(options?.onlyIf, "write", "put", key, this.capabilities),
       };
     } catch (refusal) {
       await cancelBody(body, refusal);
@@ -160,7 +165,12 @@ class InMemoryStorage implements MemoryStorage {
     return createListing(() => this.#entries(), options);
   }
 
-  async delete(...keys: readonly string[]): Promise<DeleteReport> {
+  delete(...keys: readonly string[]): Promise<DeleteReport>;
+  delete(key: string, options: DeleteOptions): Promise<DeleteReport>;
+  async delete(...args: readonly string[] | OneKeyWithOptions): Promise<DeleteReport> {
+    if (isOneKeyWithOptions(args)) return this.#deleteOne(...args);
+
+    const keys = args;
     const failed: StorageError[] = [];
 
     for (const key of keys) {
@@ -171,6 +181,32 @@ class InMemoryStorage implements MemoryStorage {
     }
 
     return { requested: keys.length, failed };
+  }
+
+  /**
+   * Spec 4.7 reads a failed precondition as the key's entry, as an invalid key is. Nothing
+   * awaits between the check and the removal, so no other call runs between them (ADR 0072).
+   */
+  #deleteOne(key: string, options: DeleteOptions): DeleteReport {
+    requireKnownOptions(options, deleteOptionKeys, "delete");
+
+    const precondition = readPrecondition(
+      options.onlyIf,
+      "delete",
+      "delete",
+      key,
+      this.capabilities,
+    );
+
+    options.signal?.throwIfAborted();
+
+    const error =
+      keyError(key, "addressable", "delete") ??
+      preconditionFailure(precondition, this.#objects.get(key), "delete", key);
+
+    if (error === undefined) this.#objects.delete(key);
+
+    return { requested: 1, failed: error === undefined ? [] : [error] };
   }
 
   async deleteAll(prefix: string, options?: OperationOptions): Promise<DeleteReport> {
@@ -203,7 +239,13 @@ class InMemoryStorage implements MemoryStorage {
     requireKey(to, "writable", operation);
     requireKnownOptions(options, copyOptionKeys, operation);
 
-    const precondition = readPrecondition(options?.onlyIf, operation, to, this.capabilities);
+    const precondition = readPrecondition(
+      options?.onlyIf,
+      "write",
+      operation,
+      to,
+      this.capabilities,
+    );
 
     options?.signal?.throwIfAborted();
 

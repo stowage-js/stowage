@@ -2,10 +2,13 @@ import {
   type CapabilityName,
   type DeleteReport,
   type GetOptions,
+  isOneKeyWithOptions,
   type ListOptions,
   type ObjectListing,
   type ObjectStat,
   type CopyOptions,
+  type DeleteOptions,
+  type OneKeyWithOptions,
   type OperationOptions,
   type PresignedPut,
   type PutBody,
@@ -29,6 +32,7 @@ import { requireKey } from "./key.ts";
 import { createListing } from "./listing.ts";
 import {
   copyOptionKeys,
+  deleteOptionKeys,
   getOptionKeys,
   operationOptionKeys,
   optionError,
@@ -55,6 +59,11 @@ export interface GcsStorage extends Storage {
   readonly provider: "gcs";
   /** Sends at most one batch request per 100 keys. */
   delete(...keys: readonly string[]): Promise<DeleteReport>;
+  /**
+   * Deletes the key as `delete(key)` does, under the signal. Refuses every `onlyIf` while the
+   * storage declares no `deleteIfUnchanged`.
+   */
+  delete(key: string, options: DeleteOptions): Promise<DeleteReport>;
 }
 
 export interface GcsSigningStorage extends GcsStorage {
@@ -133,7 +142,7 @@ class GcsBucketStorage implements GcsStorage {
   async #put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat> {
     requireKey(this.bucket, key, "writable", "put");
     requireKnownOptions(this.bucket, options, putOptionKeys, "put");
-    refusePrecondition(this.bucket, options?.onlyIf, "put", key, this.capabilities);
+    refusePrecondition(this.bucket, options?.onlyIf, "write", "put", key, this.capabilities);
 
     const userMetadata = heldUserMetadata(
       this.bucket,
@@ -202,8 +211,24 @@ class GcsBucketStorage implements GcsStorage {
     return createListing(this.configuration, options);
   }
 
-  async delete(...keys: readonly string[]): Promise<DeleteReport> {
-    return await deleteKeys(this.configuration, keys, { operation: "delete" });
+  delete(...keys: readonly string[]): Promise<DeleteReport>;
+  delete(key: string, options: DeleteOptions): Promise<DeleteReport>;
+  async delete(...args: readonly string[] | OneKeyWithOptions): Promise<DeleteReport> {
+    if (!isOneKeyWithOptions(args)) {
+      return await deleteKeys(this.configuration, args, { operation: "delete" });
+    }
+
+    const [key, options] = args;
+
+    requireKnownOptions(this.bucket, options, deleteOptionKeys, "delete");
+    refusePrecondition(this.bucket, options.onlyIf, "delete", "delete", key, this.capabilities);
+
+    options.signal?.throwIfAborted();
+
+    return await deleteKeys(this.configuration, [key], {
+      operation: "delete",
+      signal: options.signal,
+    });
   }
 
   async deleteAll(prefix: string, options?: OperationOptions): Promise<DeleteReport> {
@@ -248,7 +273,7 @@ class GcsBucketStorage implements GcsStorage {
     requireKey(this.bucket, from, "addressable", operation);
     requireKey(this.bucket, to, "writable", operation);
     requireKnownOptions(this.bucket, options, copyOptionKeys, operation);
-    refusePrecondition(this.bucket, options?.onlyIf, operation, to, this.capabilities);
+    refusePrecondition(this.bucket, options?.onlyIf, "write", operation, to, this.capabilities);
 
     if (from === to) {
       throw gcsError(this.bucket, {

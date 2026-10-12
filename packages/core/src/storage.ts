@@ -66,6 +66,15 @@ export interface CopyOptions extends OperationOptions {
   onlyIf?: Precondition;
 }
 
+export interface DeleteOptions extends OperationOptions {
+  /**
+   * Deletes only the object `etag` describes, in one request of its own. A key that holds
+   * another object, or none, is a `PreconditionFailed` entry of the report, and the object
+   * stays. Needs `deleteIfUnchanged`, else the call is `Unsupported`.
+   */
+  onlyIf?: { etag: string };
+}
+
 /** Both ends inclusive; `end` absent means to the end of the object. */
 export interface ByteRange {
   /**
@@ -173,6 +182,11 @@ export interface Storage {
    * size. A per-key failure fills the report; a failure of a request as a whole rejects.
    */
   delete(...keys: readonly string[]): Promise<DeleteReport>;
+  /**
+   * Deletes one key under the signal, as `delete(key)` does where `onlyIf` is absent. With
+   * `onlyIf` it is one request, never part of a batch, and its answer is that key's entry.
+   */
+  delete(key: string, options: DeleteOptions): Promise<DeleteReport>;
   deleteAll(prefix: string, options?: OperationOptions): Promise<DeleteReport>;
   copy(from: string, to: string, options?: CopyOptions): Promise<ObjectStat>;
   move(from: string, to: string, options?: CopyOptions): Promise<ObjectStat>;
