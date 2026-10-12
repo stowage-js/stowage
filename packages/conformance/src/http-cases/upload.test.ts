@@ -125,6 +125,10 @@ interface Server {
   readonly resets?: "refused-with-length" | "always";
 }
 
+/** What the storage behind `server` declares, as `Server.declares` describes it. */
+const declarationOf = ({ etags = true, declares }: Server): readonly string[] =>
+  declares ?? (etags ? ["writeIfAbsent", "writeIfUnchanged"] : ["writeIfAbsent"]);
+
 /** What `fetch` rejects with where the server reset the connection under the body. */
 function connectionReset(): TypeError {
   return new TypeError("fetch failed", {
@@ -141,8 +145,11 @@ async function answer(
   held: Map<string, Held>,
   request: Request,
   streamed: boolean,
-  { flaw, etags = true, declares = etags ? bothWrites : ["writeIfAbsent"], resets }: Server,
+  server: Server,
 ): Promise<Response> {
+  const { flaw, etags = true, resets } = server;
+  const declares = declarationOf(server);
+
   if (resets === "always") throw connectionReset();
 
   const key = decodeURIComponent(new URL(request.url).pathname.slice("/upload/".length));
@@ -271,19 +278,12 @@ function holds(onlyIf: Precondition, held: Held | undefined, flaw: Flaw | undefi
   return onlyIf.etag === "*" || onlyIf.etag === held.etag;
 }
 
-const bothWrites = ["writeIfAbsent", "writeIfUnchanged"];
-
 /** Runs one case against a server that answers as `answer` does, as `server` describes it. */
 async function runAgainst(name: string, server: Server = {}): Promise<void> {
-  const held = new Map<string, Held>();
-  const etags = server.etags ?? true;
-  const storage = heldStorage(
-    held,
-    etags,
-    server.declares ?? (etags ? bothWrites : ["writeIfAbsent"]),
-  );
-
   writes = 0;
+
+  const held = new Map<string, Held>();
+  const storage = heldStorage(held, server.etags ?? true, declarationOf(server));
   const target: HttpConformanceTarget = {
     name: "reference",
     createStorage: () => storage,
