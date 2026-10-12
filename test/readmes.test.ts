@@ -122,13 +122,15 @@ const undeclaredCapabilities = [
     manifest: adapterFs,
     names: [
       "contentHeaders",
+      "deleteIfUnchanged",
       "keyBytesPreserved",
       "presignedUrls",
       "userMetadata",
       "userMetadataTokenKeys",
+      "writeIfUnchanged",
     ],
   },
-  { manifest: adapterS3, names: ["keyBytesPreserved"] },
+  { manifest: adapterS3, names: ["deleteIfUnchanged", "keyBytesPreserved"] },
   { manifest: adapterAzureBlob, names: ["userMetadataTokenKeys"] },
 ];
 
@@ -144,6 +146,67 @@ test.each(undeclaredCapabilities)(
 
       expect(bullet, `names no bullet for \`${name}\``).toBeDefined();
       expect(bullet).toContain("#49-capabilities");
+    }
+  },
+);
+
+test("the README of @stowage/adapter-fs names the hard links `writeIfAbsent` needs", async () => {
+  const bullet = bulletsOf(sectionOf(await readmeOf(adapterFs), "Limits")).find((text) =>
+    text.includes("`writeIfAbsent`"),
+  );
+
+  expect(bullet, "names no bullet for `writeIfAbsent`").toBeDefined();
+  expect(proseOf(bullet ?? "")).toContain("hard links");
+  expect(bullet).toContain("#6-stowageadapter-fs");
+});
+
+test("the README of @stowage/adapter-s3 names the limits of spec 16 on preconditions", async () => {
+  const limits = sectionOf(await readmeOf(adapterS3), "Limits");
+  const deleteBullet = bulletsOf(limits).find((text) =>
+    text.startsWith("`deleteIfUnchanged` is not declared"),
+  );
+
+  expect(proseOf(deleteBullet ?? "")).toContain("R2 drops");
+  expect(limits).toContain("`cf-copy-destination-if-*`");
+  expect(proseOf(limits)).toContain("Cloudflare marks beta");
+});
+
+/** The rows of a table in the section under `heading`, by the text of their first cell. */
+function pointsOf(text: string, heading: string): string[] {
+  const start = text.indexOf(`\n### ${heading}\n`);
+  const end = text.slice(start + 1).search(/\n##+ /u);
+  const section = text.slice(start, end === -1 ? undefined : start + 1 + end);
+
+  return [...section.matchAll(/^\| (.+?) +\|/gmu)]
+    .map(([, point = ""]) => point)
+    .filter((point) => point !== "Point" && !/^-+$/u.test(point));
+}
+
+/**
+ * Spec 16 has the limits of each cloud adapter carry the rows of its promised provider. The
+ * README of `adapter-s3` states the row on Unicode-equivalent keys beside `keyBytesPreserved`.
+ */
+const providerTables = [
+  {
+    manifest: adapterS3,
+    heading: "7.2 Promised providers",
+    besideTable: ["Unicode-equivalent keys"],
+  },
+  { manifest: adapterAzureBlob, heading: "8.2 Promised provider", besideTable: [] },
+  { manifest: adapterGcs, heading: "9.2 Promised provider", besideTable: [] },
+];
+
+test.each(providerTables)(
+  "the README of $manifest.name carries the rows of spec $heading",
+  async ({ manifest, heading, besideTable }) => {
+    const promised = pointsOf(await read("docs/spec.md"), heading);
+    const limits = sectionOf(await readmeOf(manifest), "Limits");
+    const carried = [...limits.matchAll(/^\| (.+?) +\|/gmu)].map(([, point = ""]) => point);
+
+    expect(promised.length).toBeGreaterThan(0);
+
+    for (const point of promised.filter((entry) => !besideTable.includes(entry))) {
+      expect(carried, `carries no row for ${point}`).toContain(point);
     }
   },
 );
@@ -190,6 +253,7 @@ test("the README of @stowage/core covers the exports of spec 4.13", async () => 
     "userMetadataByteLength",
     "isHeaderValue",
     "checkContentHeaders",
+    "preconditionRefusal",
     "PresignedPut",
   ]) {
     expect(text).toContain(`\`${name}\``);
@@ -266,6 +330,34 @@ test.each(corsHeaders)(
     expect(rule).toContain("#flow-2-browser-upload-through-a-presigned-put");
   },
 );
+
+/** Flow 2: what a CORS rule allows where the URL binds a precondition. */
+const corsPreconditionHeaders = [
+  { manifest: adapterS3, headers: ["if-none-match", "if-match"] },
+  { manifest: adapterAzureBlob, headers: ["if-match"] },
+  { manifest: adapterGcs, headers: ["x-goog-if-generation-match"] },
+];
+
+test.each(corsPreconditionHeaders)(
+  "the README of $manifest.name names the CORS entries a bound precondition needs",
+  async ({ manifest, headers }) => {
+    const text = await readmeOf(manifest);
+    const ruleStart = text.indexOf("CORS");
+    const rule = text.slice(ruleStart, text.indexOf("\n\n", ruleStart));
+
+    for (const header of headers) expect(rule).toContain(`\`${header}\``);
+
+    expect(rule).toContain("#flow-2-browser-upload-through-a-presigned-put");
+  },
+);
+
+test('the README of @stowage/adapter-azure-blob says that "absent" needs no CORS entry', async () => {
+  const notes = sectionOf(await readmeOf(adapterAzureBlob), "Notes");
+  const ruleStart = notes.indexOf("CORS");
+  const rule = proseOf(notes.slice(ruleStart, notes.indexOf("\n\n", ruleStart)));
+
+  expect(rule).toContain('`"absent"` needs no entry');
+});
 
 test("the README of @stowage/adapter-gcs writes its example with an access token", async () => {
   const example = sectionOf(await readmeOf(adapterGcs), "Example");
@@ -379,6 +471,13 @@ const integrationContents = [
       "maxRequestBodySize",
       "128 MiB",
       "TypeError",
+      "428",
+      "If-Match",
+      "If-None-Match",
+      "if-match",
+      "if-none-match",
+      "Access-Control-Expose-Headers",
+      "ETag",
     ],
   },
   {
@@ -550,6 +649,29 @@ test("every README links the spec at the same release", async () => {
 
   expect([...releases]).toHaveLength(1);
 });
+
+/** A README's paragraphs and list items, its code blocks, tables and headings left out. */
+const statementsOf = (text: string): string[] =>
+  text
+    .replaceAll(/^```[\s\S]*?^```$/gmu, "")
+    .split(/\n\n+|\n(?=- )/u)
+    .filter((part) => part.trim() !== "" && !/^\s*[|#]/u.test(part));
+
+const onPreconditions =
+  /onlyIf|precondition|PreconditionFailed|writeIfAbsent|writeIfUnchanged|deleteIfUnchanged|If-Match|If-None-Match/iu;
+
+// Spec 16: a README states no promise of its own. Each statement on preconditions points to
+// the place in the spec that makes it.
+test.each(published)(
+  "every statement of the README of $name on preconditions links the spec",
+  async (manifest) => {
+    const statements = statementsOf(await readmeOf(manifest)).filter((statement) =>
+      onPreconditions.test(statement),
+    );
+
+    for (const statement of statements) expect(statement).toMatch(/docs\/spec\.md#/u);
+  },
+);
 
 const callsAfterConstruction = (block: string): string =>
   block.slice(block.indexOf("await storage.put"));

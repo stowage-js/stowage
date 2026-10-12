@@ -191,7 +191,8 @@ await signedThroughSignBlob.presignGet("avatars/alice.png", { expiresIn: 300 });
 A browser upload through `presignPut` is preflighted, so the bucket needs a CORS rule that allows
 the uploading origin, `PUT`, and the header `content-type`, and `cache-control`,
 `content-disposition` and `content-language` where `presignPut` binds them through `cacheControl`,
-`contentDisposition` and `contentLanguage`. stowage configures none
+`contentDisposition` and `contentLanguage`, and `x-goog-if-generation-match` where it binds a
+precondition through `onlyIf`. stowage configures none
 ([flow 2](https://github.com/stowage-js/stowage/blob/@stowage/adapter-gcs@0.6.0/docs/spec.md#flow-2-browser-upload-through-a-presigned-put)).
 With the Google Cloud CLI:
 

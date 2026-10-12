@@ -89,6 +89,9 @@ this package rather than writing it again
   `userMetadataByteLength` carry user metadata in headers, and measure the 2 KB of spec 4.3.
 - `isHeaderValue` is the form a header value takes, and `checkContentHeaders` runs the checks spec
   4.3 makes on the content headers, in its order, and hands back what passed.
+- `preconditionRefusal` runs the checks spec 4.3 makes on `onlyIf`, in its order, and hands back
+  the refusal of the first that fails
+  ([spec 4.3](https://github.com/stowage-js/stowage/blob/@stowage/core@0.6.0/docs/spec.md#43-options)).
 - `PresignedPut` is what `presignPut` resolves with on every adapter that declares
   `presignedUrls`.
 

@@ -84,6 +84,7 @@ The bundle measures 14.9 kB minified and gzipped, `@stowage/core` included.
 | Presigned URL host                 | The endpoint that signed it                                                                                                                                                            |
 | Response overrides on `presignGet` | Answered as the three response headers; Azure has no override for `Expires`                                                                                                            |
 | Objects stored compressed          | An object another tool stored with a content coding may read decoded and longer than its `size`, which is the stored size, or as stored; a range starting inside it is `ProviderError` |
+| A key that is not free             | Answered `409 BlobAlreadyExists` where Azure documents `412`; `PreconditionFailed` either way                                                                                          |
 
 ## Notes
 
@@ -178,7 +179,9 @@ A browser upload through `presignPut` is preflighted, so the account needs a COR
 Blob service that allows the uploading origin, `PUT`, and the headers `content-type`,
 `x-ms-blob-type` and `x-ms-blob-content-type`, and `x-ms-blob-cache-control`,
 `x-ms-blob-content-disposition` and `x-ms-blob-content-language` where `presignPut` binds them
-through `cacheControl`, `contentDisposition` and `contentLanguage`. stowage configures none
+through `cacheControl`, `contentDisposition` and `contentLanguage`, and `if-match` where it binds
+`onlyIf: { etag }`; `"absent"` needs no entry, since the URL binds it through its permission.
+stowage configures none
 ([flow 2](https://github.com/stowage-js/stowage/blob/@stowage/adapter-azure-blob@0.6.0/docs/spec.md#flow-2-browser-upload-through-a-presigned-put)).
 With the Azure CLI:
 

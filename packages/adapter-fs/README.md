@@ -36,6 +36,9 @@ The bundle measures 6.5 kB minified and gzipped, `@stowage/core` included.
 - `contentHeaders` is not declared: `put` with `cacheControl`, `contentDisposition` or
   `contentLanguage` set to any value but `undefined` is `Unsupported`, and reads report none
   ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.6.0/docs/spec.md#49-capabilities)).
+- `deleteIfUnchanged` is not declared: `delete` with an `onlyIf` object is `Unsupported`, since no
+  `etag` is set
+  ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.6.0/docs/spec.md#49-capabilities)).
 - `keyBytesPreserved` is not declared: a key comes back Unicode-equivalent to what was written
   ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.6.0/docs/spec.md#49-capabilities)).
 - `presignedUrls` is not declared: `FsStorage` has neither `presignGet` nor `presignPut`
@@ -46,6 +49,13 @@ The bundle measures 6.5 kB minified and gzipped, `@stowage/core` included.
 - `userMetadataTokenKeys` is not declared: without `userMetadata`, a key beyond identifiers is
   `Unsupported` naming `userMetadata` like any other
   ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.6.0/docs/spec.md#49-capabilities)).
+- `writeIfUnchanged` is not declared: `put`, `copy` and `move` with an `onlyIf` object are
+  `Unsupported`, since no `etag` is set
+  ([spec 4.9](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.6.0/docs/spec.md#49-capabilities)).
+- `writeIfAbsent` needs a file system with hard links, since a write under `onlyIf: "absent"` ends
+  in `link(2)`. On one without them, as FAT, exFAT and some network mounts are, that write is
+  `ProviderError` with `retryable: false`
+  ([spec 6](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.6.0/docs/spec.md#6-stowageadapter-fs)).
 - A key segment longer than 255 bytes is `InvalidKey`, and so is a key whose whole path is longer
   than the file system holds. macOS bounds one path at 1024 bytes with the root counted in
   ([spec 6](https://github.com/stowage-js/stowage/blob/@stowage/adapter-fs@0.6.0/docs/spec.md#6-stowageadapter-fs)).

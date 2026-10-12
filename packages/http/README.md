@@ -167,6 +167,90 @@ validator or a body parser, makes it reject with a `TypeError` before `put` star
 ([spec 10.5](https://github.com/stowage-js/stowage/blob/@stowage/http@0.6.0/docs/spec.md#105-accepting-an-upload)).
 A parser mounted with `app.use` in front of every route reaches the upload routes too.
 
+### Demand a precondition
+
+`acceptUpload` holds the request's `If-Match` and `If-None-Match` together with `onlyIf`, and
+demands neither. A route that refuses an upload without one answers `428` itself, before the call
+([spec 10.5](https://github.com/stowage-js/stowage/blob/@stowage/http@0.6.0/docs/spec.md#105-accepting-an-upload)):
+
+```ts
+import { fromEnv, s3Storage } from "@stowage/adapter-s3";
+import { acceptUpload } from "@stowage/http";
+
+const storage = s3Storage({ bucket: "my-app-files", region: "eu-north-1", credentials: fromEnv });
+
+export async function replaceDocument(key: string, request: Request): Promise<Response> {
+  if (!request.headers.has("if-match") && !request.headers.has("if-none-match")) {
+    return new Response(null, { status: 428 });
+  }
+
+  return await acceptUpload(storage, key, request, { maxSize: 10 * 1024 * 1024 });
+}
+```
+
+### Drop the client's preconditions
+
+No option switches the request's fields off. A route that means to ignore them hands
+`acceptUpload` a `Request` built without `If-Match` and `If-None-Match`, and without
+`If-Unmodified-Since`, which is `501` without an `If-Match`
+([spec 10.5](https://github.com/stowage-js/stowage/blob/@stowage/http@0.6.0/docs/spec.md#105-accepting-an-upload)):
+
+```ts
+import { fromEnv, s3Storage } from "@stowage/adapter-s3";
+import { acceptUpload } from "@stowage/http";
+
+const storage = s3Storage({ bucket: "my-app-files", region: "eu-north-1", credentials: fromEnv });
+
+export async function overwrite(key: string, request: Request): Promise<Response> {
+  const headers = new Headers(request.headers);
+
+  for (const name of ["if-match", "if-none-match", "if-unmodified-since"]) headers.delete(name);
+
+  return await acceptUpload(storage, key, new Request(request, { headers }), {
+    maxSize: 10 * 1024 * 1024,
+  });
+}
+```
+
+### Preconditions across origins
+
+A page on another origin sends `If-Match` or `If-None-Match` only where the route's preflight
+answer allows `if-match` and `if-none-match`, and reads the `ETag` it sends back only where the
+route names `ETag` in `Access-Control-Expose-Headers`. The layer writes neither
+([spec 10.5](https://github.com/stowage-js/stowage/blob/@stowage/http@0.6.0/docs/spec.md#105-accepting-an-upload)):
+
+```ts
+import { fromEnv, s3Storage } from "@stowage/adapter-s3";
+import { acceptUpload, serveObject } from "@stowage/http";
+
+const storage = s3Storage({ bucket: "my-app-files", region: "eu-north-1", credentials: fromEnv });
+const origin = "https://app.example.com";
+
+export async function handleFile(key: string, request: Request): Promise<Response> {
+  if (request.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "access-control-allow-origin": origin,
+        "access-control-allow-methods": "GET, HEAD, PUT",
+        "access-control-allow-headers": "content-type, if-match, if-none-match",
+        "access-control-max-age": "3600",
+      },
+    });
+  }
+
+  const response =
+    request.method === "PUT"
+      ? await acceptUpload(storage, key, request, { maxSize: 10 * 1024 * 1024 })
+      : await serveObject(storage, key, request);
+
+  response.headers.set("access-control-allow-origin", origin);
+  response.headers.set("access-control-expose-headers", "ETag");
+
+  return response;
+}
+```
+
 ## Specification
 
 [`docs/spec.md` at `@stowage/http@0.6.0`](https://github.com/stowage-js/stowage/blob/@stowage/http@0.6.0/docs/spec.md#10-stowagehttp)
