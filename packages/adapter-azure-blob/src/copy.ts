@@ -22,11 +22,12 @@ const sourceSasLifetime = 60 * minute;
  */
 const copyAttempts = 3;
 
-/** What `copy` and `move` copy, and the precondition of `to` they copy under. */
-export interface BlobCopy {
+/** What `copy` and `move` copy. */
+export interface ObjectCopy {
   readonly from: string;
   readonly to: string;
   readonly operation: string;
+  /** Applies to `to`. */
   readonly onlyIf?: WritePrecondition;
   readonly signal?: AbortSignal;
 }
@@ -39,9 +40,9 @@ export interface BlobCopy {
  */
 export async function copyBlob(
   configuration: AzureBlobConfiguration,
-  blobCopy: BlobCopy,
+  objectCopy: ObjectCopy,
 ): Promise<ObjectStat> {
-  const { to, operation, signal } = blobCopy;
+  const { to, operation, signal } = objectCopy;
 
   signal?.throwIfAborted();
 
@@ -50,7 +51,7 @@ export async function copyBlob(
   for (let copy = 1; ; copy += 1) {
     try {
       // oxlint-disable-next-line no-await-in-loop -- a repeat reads the source the last one missed
-      await copyPinned(configuration, blobCopy);
+      await copyPinned(configuration, objectCopy);
 
       break;
     } catch (failure) {
@@ -74,7 +75,7 @@ export async function copyBlob(
  */
 async function copyPinned(
   configuration: AzureBlobConfiguration,
-  { from, to, operation, onlyIf, signal }: BlobCopy,
+  { from, to, operation, onlyIf, signal }: ObjectCopy,
 ): Promise<void> {
   const source = await send(configuration, { method: "HEAD", operation, key: from, signal });
   const etag = source.headers.get("etag");

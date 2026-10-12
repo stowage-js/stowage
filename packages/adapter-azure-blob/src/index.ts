@@ -25,7 +25,7 @@ import {
   readConfiguration,
 } from "./configuration.ts";
 import { contentHeaderFields } from "./content-headers.ts";
-import { type BlobCopy, copyBlob } from "./copy.ts";
+import { type ObjectCopy, copyBlob } from "./copy.ts";
 import { deleteBelow, deleteKeys } from "./delete.ts";
 import { defaultContentType, describeResponse } from "./description.ts";
 import { requireKey } from "./key.ts";
@@ -312,7 +312,7 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
     to: string,
     options: CopyOptions | undefined,
     operation: string,
-  ): BlobCopy {
+  ): ObjectCopy {
     requireKey(this.bucket, from, "addressable", operation);
     requireKey(this.bucket, to, "writable", operation);
     requireKnownOptions(this.bucket, options, copyOptionKeys, operation);
