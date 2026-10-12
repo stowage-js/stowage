@@ -517,6 +517,30 @@ test.each(
   },
 );
 
+// ADR 0073: a `408` or a `429` says the provider did not act on the attempt, so the refusal stands.
+test.each([408, 429])(
+  "a conditional `delete` refused after a `%i` reports `PreconditionFailed` as the key's entry",
+  async (status) => {
+    withoutBackoff();
+    stubFetch(
+      answeringInTurn(
+        () => errorDocument(status, "rateLimitExceeded", "Slow down."),
+        conditionNotMet,
+      ),
+    );
+
+    const report = await storage().delete("object.txt", { onlyIf: { etag: generation } });
+
+    expect(report.failed).toHaveLength(1);
+    expect(report.failed[0]).toMatchObject({
+      code: "PreconditionFailed",
+      key: "object.txt",
+      retryable: false,
+      attempts: 2,
+    });
+  },
+);
+
 // Spec 4.7: a failure of the request as a whole rejects the call instead of filling the report.
 test.each([
   ["receives no response", noResponse, "NetworkError"],
