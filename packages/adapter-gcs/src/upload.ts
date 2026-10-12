@@ -8,6 +8,7 @@ import {
 
 import type { GcsConfiguration } from "./configuration.ts";
 import { describeResource, readResource } from "./description.ts";
+import { preconditionQuery, preconditionRule, type WritePrecondition } from "./precondition.ts";
 import { send, uploadPath } from "./request.ts";
 import { startSession } from "./session.ts";
 
@@ -16,6 +17,8 @@ export interface ObjectWrite {
   readonly contentType: string;
   readonly contentHeaders: ContentHeaders;
   readonly userMetadata: Readonly<Record<string, string>>;
+  /** Carried by the insert and the start of a session, which GCS checks at the commit (spec 9.4). */
+  readonly onlyIf?: WritePrecondition;
   readonly signal?: AbortSignal;
 }
 
@@ -37,10 +40,11 @@ export async function putBytes(
     operation: "put",
     key: write.key,
     path: uploadPath(configuration),
-    query: [["uploadType", "multipart"]],
+    query: [["uploadType", "multipart"], ...preconditionQuery(write.onlyIf)],
     headers: [["content-type", `multipart/related; boundary=${boundary}`]],
     body: multipartBody(boundary, write, bytes),
     signal: write.signal,
+    precondition: preconditionRule(write.onlyIf),
   });
   const resource = await readResource(configuration.bucket, write.key, "put", response);
 
@@ -82,7 +86,8 @@ export async function putStream(
  *
  * A failed or aborted upload cancels its session. Where the commit went unanswered, the
  * cancel's answer says whether the session committed after all, and a committed session's
- * object is what `put` resolves with (spec 9.6).
+ * object is what `put` resolves with (spec 9.6). A commit its precondition refused left the
+ * session dead, with nothing to cancel.
  */
 async function resumableUpload(
   configuration: GcsConfiguration,
@@ -92,6 +97,7 @@ async function resumableUpload(
   const session = await startSession(configuration, {
     key: write.key,
     resource: objectResource(write),
+    onlyIf: write.onlyIf,
     signal: write.signal,
   });
   const { partSize } = configuration;
@@ -122,6 +128,8 @@ async function resumableUpload(
       write.signal,
     );
   } catch (failure) {
+    if (isStorageError(failure) && failure.code === "PreconditionFailed") throw failure;
+
     const object = await session.cancel(committing && isUnanswered(failure, write.signal));
 
     if (object !== undefined) return object;

@@ -154,13 +154,14 @@ test("the storage names its provider and its bucket", () => {
   expect(constructed.bucket).toBe("conformance");
 });
 
-test("without a signer it declares every capability of spec 9.1 but `presignedUrls`", () => {
+test("without a signer it declares `contentHeaders`, `keyBytesPreserved`, `rangeReads`, `userMetadata`, `userMetadataTokenKeys` and `writeIfAbsent`", () => {
   expect(storage().capabilities).toEqual([
     "contentHeaders",
     "keyBytesPreserved",
     "rangeReads",
     "userMetadata",
     "userMetadataTokenKeys",
+    "writeIfAbsent",
   ]);
 });
 
@@ -172,6 +173,7 @@ test("with a signer it declares `presignedUrls` as well", () => {
     "rangeReads",
     "userMetadata",
     "userMetadataTokenKeys",
+    "writeIfAbsent",
   ]);
 });
 
@@ -417,30 +419,6 @@ test.each([[".well-known/acme-challenge/token"], ["a￾b"]])(
 );
 
 // `put` options
-
-// Until the adapter declares `writeIfAbsent` and `writeIfUnchanged`, spec 4.3 refuses every
-// `onlyIf` before any request, naming the capability its form needs.
-test.each([
-  ["put", "writeIfAbsent", () => storage().put("to", "hello", { onlyIf: "absent" })],
-  ["put", "writeIfUnchanged", () => storage().put("to", "hello", { onlyIf: { etag: "1" } })],
-  ["copy", "writeIfAbsent", () => storage().copy("from", "to", { onlyIf: "absent" })],
-  ["move", "writeIfUnchanged", () => storage().move("from", "to", { onlyIf: { etag: "1" } })],
-] as const)(
-  "`%s` refuses `onlyIf` as `Unsupported` naming `%s` before any request",
-  async (operation, capability, call) => {
-    const sent = stubFetch(() => resource());
-    const failure = await failureOf(call);
-
-    expect(failure).toMatchObject({
-      code: "Unsupported",
-      capability,
-      operation,
-      key: "to",
-      attempts: 0,
-    });
-    expect(sent).toEqual([]);
-  },
-);
 
 test("an unknown option of `put` is `InvalidOption` naming it, before any request", async () => {
   const sent = stubFetch(() => resource());
@@ -1563,7 +1541,7 @@ test.each([
   ["requestedRangeNotSatisfiable", 416, "InvalidRequest"],
   ["uploadTooLarge", 400, "InvalidRequest"],
   ["invalid", 400, "ProviderError"],
-  ["conditionNotMet", 412, "ProviderError"],
+  ["conditionNotMet", 412, "PreconditionFailed"],
   ["conflict", 409, "ProviderError"],
   ["clientClosedRequest", 499, "ProviderError"],
 ])("the provider code `%s` answered with %i is `%s`", async (providerCode, status, code) => {

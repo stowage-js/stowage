@@ -3,6 +3,7 @@ import { isStorageError, type ObjectStat, type StorageError, withRetry } from "@
 import { type AnsweredRequest, malformedAnswer } from "./answer.ts";
 import type { GcsConfiguration } from "./configuration.ts";
 import { describeResource, readResource } from "./description.ts";
+import { preconditionQuery, type WritePrecondition } from "./precondition.ts";
 import { resumeIncomplete, send, sendToSession, uploadPath } from "./request.ts";
 import { gcsError, withoutSecrets } from "./storage-error.ts";
 
@@ -10,6 +11,8 @@ import { gcsError, withoutSecrets } from "./storage-error.ts";
 export interface SessionStart {
   readonly key: string;
   readonly resource: string;
+  /** Stored with the session and checked at its commit, which a refusal leaves dead (spec 9.6). */
+  readonly onlyIf?: WritePrecondition;
   readonly signal?: AbortSignal;
 }
 
@@ -45,7 +48,7 @@ export async function startSession(
     operation: "put",
     key: start.key,
     path: uploadPath(configuration),
-    query: [["uploadType", "resumable"]],
+    query: [["uploadType", "resumable"], ...preconditionQuery(start.onlyIf)],
     headers: [["content-type", "application/json; charset=UTF-8"]],
     body: utf8.encode(start.resource),
     signal: start.signal,
@@ -119,7 +122,9 @@ export class ResumableSession {
    * Spec 9.6: the `DELETE` that ends a session, under a timeout of its own, since the caller's
    * signal may be the one that just fired. `499` answers an open session and a `200` with the
    * object a committed one, which `readCommitted` has read. A failure of the cancel is not
-   * reported: the failure that led here is what the caller is owed.
+   * reported: the failure that led here is what the caller is owed. The one exception is the
+   * `412` of a session whose commit its precondition refused, which `readCommitted` rejects
+   * with, since it is the commit's answer (ADR 0073).
    */
   async cancel(readCommitted: boolean): Promise<ObjectStat | undefined> {
     const timeout = new AbortController();
@@ -146,7 +151,11 @@ export class ResumableSession {
           }),
         { maxAttempts: this.#configuration.maxAttempts, signal: timeout.signal },
       );
-    } catch {
+    } catch (failure) {
+      if (readCommitted && isStorageError(failure) && failure.code === "PreconditionFailed") {
+        throw failure;
+      }
+
       return undefined;
     } finally {
       clearTimeout(timer);

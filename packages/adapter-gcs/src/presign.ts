@@ -9,7 +9,7 @@ import {
   presignPutOptionKeys,
   requireKnownOptions,
 } from "./options.ts";
-import { refusePrecondition } from "./precondition.ts";
+import { preconditionHeaders, readWritePrecondition } from "./precondition.ts";
 import type { HeaderField, QueryParameter } from "./request.ts";
 import { resolvePrivateKey, signWith } from "./private-key.ts";
 import { signBlobAs } from "./sign-blob.ts";
@@ -56,8 +56,10 @@ export interface GcsPresignPutOptions {
   /** Bound as `content-language`, as `cacheControl` is. */
   contentLanguage?: string;
   /**
-   * `Unsupported` before anything is signed, since the storage declares neither
-   * `writeIfAbsent` nor `writeIfUnchanged`.
+   * Checked as `put` checks it, before anything is signed. `"absent"` is signed as
+   * `x-goog-if-generation-match: 0` and handed back in `headers` under that name, so an upload
+   * onto a key that holds an object is refused with `412` (ADR 0074). `{ etag }` is
+   * `Unsupported`, since the storage does not declare `writeIfUnchanged`.
    */
   onlyIf?: Precondition;
 }
@@ -105,9 +107,10 @@ export async function presignGet(
 }
 
 /**
- * Spec 9.9: `PUT` on a writable key, with the content type, the content length and each
- * content header given bound through signed headers beside `host`. All but the length are
- * handed back to send beside the body, since a client sets the length itself (spec 4.13).
+ * Spec 9.9: `PUT` on a writable key, with the content type, the content length, each content
+ * header given and the precondition bound through signed headers beside `host`. All but the
+ * length are handed back to send beside the body, since a client sets the length itself (spec
+ * 4.13).
  */
 export async function presignPut(
   configuration: GcsConfiguration,
@@ -133,20 +136,27 @@ export async function presignPut(
     capabilities,
   );
 
-  refusePrecondition(configuration.bucket, options.onlyIf, "write", operation, key, capabilities);
-
-  const contentHeaders = signedContentHeaders(held);
+  const onlyIf = readWritePrecondition(
+    configuration.bucket,
+    options.onlyIf,
+    operation,
+    key,
+    capabilities,
+  );
+  // The XML `PUT` ignores `If-None-Match` even where it is signed, so the generation is the
+  // only form a precondition is bound in (ADR 0074).
+  const handedBack = [...signedContentHeaders(held), ...preconditionHeaders(onlyIf)];
 
   const url = await presignedUrl(configuration, signer, {
     method: "PUT",
     operation,
     key,
     query: [],
-    headers: [["content-type", contentType], ["content-length", contentLength], ...contentHeaders],
+    headers: [["content-type", contentType], ["content-length", contentLength], ...handedBack],
     expiresIn,
   });
 
-  return { url, headers: { "content-type": contentType, ...Object.fromEntries(contentHeaders) } };
+  return { url, headers: { "content-type": contentType, ...Object.fromEntries(handedBack) } };
 }
 
 interface Presignable {

@@ -1,5 +1,6 @@
 import {
   type FailureReading,
+  type PreconditionRule,
   type RefusedAnswer,
   type Resolvable,
   sendRequest,
@@ -22,6 +23,11 @@ export interface GcsRequest {
   readonly credentials?: Resolvable<GcsCredentials>;
   /** The key the request addresses, which a failure is told against. */
   readonly key?: string;
+  /**
+   * The key a `rewriteTo` or `objects.move` writes, which carries the precondition and which
+   * a refused one is told against (spec 4.10).
+   */
+  readonly destination?: string;
   /** Encoded, as the request line carries it: `objectPath` or `uploadPath`. */
   readonly path: string;
   readonly query?: readonly QueryParameter[];
@@ -37,6 +43,11 @@ export interface GcsRequest {
   readonly sessionUri?: boolean;
   /** What follows an attempt the request's effect may have happened in (ADR 0057). */
   readonly unanswered?: UnansweredRule;
+  /**
+   * Set on a request that carries `ifGenerationMatch`, whose refusal after an attempt without
+   * a response or with a `5xx` is that attempt's failure (spec 9.5, ADR 0073).
+   */
+  readonly precondition?: PreconditionRule;
   readonly signal?: AbortSignal;
 }
 
@@ -81,6 +92,7 @@ export async function send(
     maxAttempts: configuration.maxAttempts,
     signal: request.signal,
     unanswered: request.unanswered,
+    precondition: request.precondition,
     prepare: async ({ forceRefresh }) => {
       const credentials = await resolveCredentials(
         request.credentials ?? configuration.credentials,
@@ -207,7 +219,7 @@ function readFailure(request: GcsRequest, answer: RefusedAnswer): FailureReading
   const requestId =
     request.session === true ? undefined : (answer.headers.get(requestIdHeader) ?? undefined);
 
-  return readFailedAnswer(request.key, requestId, {
+  const reading = readFailedAnswer(request.key, requestId, {
     status: answer.status,
     method: request.method,
     providerCode: body.providerCode,
@@ -218,6 +230,10 @@ function readFailure(request: GcsRequest, answer: RefusedAnswer): FailureReading
     underRefreshedToken: answer.refreshed,
     headers: answer.headers,
   });
+
+  if (reading.code !== "PreconditionFailed" || request.destination === undefined) return reading;
+
+  return { ...reading, key: request.destination };
 }
 
 /**

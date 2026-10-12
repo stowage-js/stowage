@@ -707,3 +707,124 @@ test("a commit answered with a failure is no unanswered one: `put` rejects with 
   expect(failure).toMatchObject({ code: "ProviderError", status: 503, attempts: 3 });
   expect(sent.at(-1)?.method).toBe("DELETE");
 });
+
+/**
+ * What the service answers a commit its precondition refused, and every later request to the
+ * session it left dead, the cancel included.
+ */
+const conditionNotMet: Answer = () =>
+  Response.json(
+    {
+      error: {
+        code: 412,
+        message: "At least one of the pre-conditions you specified did not hold.",
+        errors: [
+          {
+            message: "At least one of the pre-conditions you specified did not hold.",
+            reason: "conditionNotMet",
+          },
+        ],
+      },
+    },
+    { status: 412, headers: { "x-guploader-uploadid": uploadId } },
+  );
+
+test("a conditional session carries `ifGenerationMatch=0` on its start, and no chunk carries it", async () => {
+  const { sent } = stubSession();
+
+  await storage().put("object.bin", streamOf(pattern(2 * partSize + 10)).body, {
+    onlyIf: "absent",
+  });
+
+  expect(
+    sent.map(({ method, url }) => [method, new URL(url).searchParams.get("ifGenerationMatch")]),
+  ).toEqual([
+    ["POST", "0"],
+    ["PUT", null],
+    ["PUT", null],
+    ["PUT", null],
+  ]);
+});
+
+// Spec 9.6: a commit its precondition refused leaves the session dead and nothing to cancel.
+test("a commit its precondition refused rejects with `PreconditionFailed`, and no cancel follows", async () => {
+  const { sent } = stubSession({ 2: conditionNotMet });
+
+  const failure = await failureOf(
+    async () =>
+      await storage().put("object.bin", streamOf(pattern(partSize + 10)).body, {
+        onlyIf: "absent",
+      }),
+  );
+
+  expect(failure).toMatchObject({
+    code: "PreconditionFailed",
+    operation: "put",
+    key: "object.bin",
+    status: 412,
+    providerCode: "conditionNotMet",
+    retryable: false,
+    attempts: 1,
+  });
+  expect(sent.map(({ method }) => method)).toEqual(["POST", "PUT", "PUT"]);
+});
+
+// Spec 9.5: the requests of a session take no part in the rule of section 4.10, since a
+// repeated commit that went through answers with its object rather than a refusal.
+test("a commit refused after an attempt without a response rejects with `PreconditionFailed`", async () => {
+  withoutBackoff();
+  const { sent } = stubSession({ 2: unanswered, 3: conditionNotMet });
+
+  const failure = await failureOf(
+    async () =>
+      await storage().put("object.bin", streamOf(pattern(partSize + 10)).body, {
+        onlyIf: "absent",
+      }),
+  );
+
+  expect(failure).toMatchObject({ code: "PreconditionFailed", key: "object.bin" });
+  expect(sent.map(({ method }) => method)).toEqual(["POST", "PUT", "PUT", "PUT"]);
+});
+
+// Spec 9.6 and ADR 0073: the cancel of a session its precondition refused answers `412`, which
+// says how the commit went.
+test("a commit that spent its budget unanswered and whose cancel answers `412` rejects with `PreconditionFailed`", async () => {
+  withoutBackoff();
+  const { sent } = stubSession({ 2: unanswered, 3: unanswered, 4: unanswered, 5: conditionNotMet });
+
+  const failure = await failureOf(
+    async () =>
+      await storage().put("object.bin", streamOf(pattern(partSize + 10)).body, {
+        onlyIf: "absent",
+      }),
+  );
+
+  expect(failure).toMatchObject({
+    code: "PreconditionFailed",
+    operation: "put",
+    key: "object.bin",
+    status: 412,
+    retryable: false,
+  });
+  expect(sent.map(({ method }) => method)).toEqual(["POST", "PUT", "PUT", "PUT", "PUT", "DELETE"]);
+});
+
+test("a cancel that answers `412` after a part failed leaves `put` rejecting with the part's failure", async () => {
+  withoutBackoff();
+  const { sent } = stubSession({
+    1: unavailable,
+    2: unavailable,
+    3: unavailable,
+    4: conditionNotMet,
+  });
+
+  const failure = await failureOf(
+    async () =>
+      await storage().put("object.bin", streamOf(pattern(2 * partSize)).body, {
+        onlyIf: "absent",
+      }),
+  );
+
+  expect(failure).toMatchObject({ code: "ProviderError", status: 503, attempts: 3 });
+  expect(sent.at(-1)?.method).toBe("DELETE");
+});
