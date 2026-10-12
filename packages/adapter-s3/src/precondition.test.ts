@@ -655,6 +655,19 @@ test.each(
   },
 );
 
+// The error document escapes the key it names as XML, which reads back to the key `to` is.
+test("a `NoSuchKey` naming an escaped `to` is `PreconditionFailed` against it", async () => {
+  const to = "über & <ä>.txt";
+
+  stubFetch(() => noSuchKey("&#xFC;ber &amp; &lt;ä&gt;.txt"));
+
+  const failure = await rejection(() =>
+    s3Storage(options()).copy("from.txt", to, { onlyIf: { etag: "abc" } }),
+  );
+
+  expect(failure).toMatchObject({ code: "PreconditionFailed", key: to });
+});
+
 // Only "unchanged" turns a missing key into a refusal; under "absent" a missing key is the source.
 test('`copy` under `onlyIf: "absent"` answered `NoSuchKey` naming `to` is the missing source', async () => {
   stubFetch(() => noSuchKey("to.txt"));
