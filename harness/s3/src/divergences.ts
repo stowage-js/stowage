@@ -41,7 +41,18 @@ interface Unrun {
 
 // Kept in the private harness and never in `@stowage/conformance`: it describes an
 // endpoint this repository happens to test against, not the API an adapter implements.
-export const divergences: readonly Divergence[] = [];
+export const divergences: readonly Divergence[] = [
+  {
+    case: "put/concurrent-if-absent-multipart",
+    endpoint: "seaweedfs",
+    differs:
+      "SeaweedFS 4.48 checks `If-None-Match: *` on `CompleteMultipartUpload` outside the lock that orders the completions, and let both of two racing commits onto a free key succeed",
+    // ADR 0076: measured in 19 of 20 rounds, so an expected failure would pass now and then.
+    unrunBecause:
+      "both commits succeed in most rounds and one is refused in some, so an expected failure would pass now and then and fail the run",
+    settledBy: "aws-s3",
+  },
+];
 
 /**
  * The cases as a run against `endpoint` performs them: a case with an entry for that
