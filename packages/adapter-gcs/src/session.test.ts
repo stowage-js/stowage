@@ -112,7 +112,7 @@ function resumeIncomplete(persisted: number): Response {
   });
 }
 
-function committedObject(size: number): Response {
+function committedObject(size: number, fields: Record<string, unknown> = {}): Response {
   return Response.json(
     {
       kind: "storage#object",
@@ -124,6 +124,7 @@ function committedObject(size: number): Response {
       etag: "CIDw3uCR2YgDEAE=",
       metadata: { origin: "stream" },
       updated,
+      ...fields,
     },
     { headers: { "x-guploader-uploadid": uploadId } },
   );
@@ -251,6 +252,7 @@ test("a stream above one part goes as one session: a start, the parts at their o
   expect(stat).toMatchObject({
     key: "object.bin",
     size: 2 * partSize + 1000,
+    etag: "1790665923456000",
     contentType: "application/x-stowage",
     userMetadata: { origin: "stream" },
   });
@@ -656,6 +658,23 @@ test("a start answered without a session URI is a `ProviderError`, and no chunk 
   expect(failure).toMatchObject({ code: "ProviderError", status: 200 });
   expect(failure.message).toContain("no session URI");
   expect(sent).toHaveLength(1);
+});
+
+test("a commit answered without a generation is a `ProviderError`, not an `etag` made up", async () => {
+  stubSession({
+    2: (_request, service) => {
+      service();
+
+      return committedObject(partSize + 10, { generation: undefined });
+    },
+  });
+
+  const failure = await failureOf(
+    async () => await storage().put("object.bin", streamOf(pattern(partSize + 10)).body),
+  );
+
+  expect(failure).toMatchObject({ code: "ProviderError", status: 200, key: "object.bin" });
+  expect(failure.message).toContain("no generation");
 });
 
 test("a `404` without a provider code on the start says that the endpoint serves no such path", async () => {

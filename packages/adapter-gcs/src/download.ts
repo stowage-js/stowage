@@ -1,7 +1,7 @@
 import { type ByteRange, rangeHeader, type StoredObject } from "@stowage/core";
 
 import type { GcsConfiguration } from "./configuration.ts";
-import { type DescribedObject, readDescription } from "./description.ts";
+import { type GenerationStat, readDescription } from "./description.ts";
 import { answeredRangeRefusal, isUnsatisfiedRange, reportedDownloadFailure } from "./range.ts";
 import { objectPath, pinnedTo, send } from "./request.ts";
 import { isMissingObject } from "./storage-error.ts";
@@ -12,7 +12,7 @@ const generationHeader = "x-goog-generation";
 
 /** A body and the description of the generation it carries. */
 interface Download {
-  readonly described: DescribedObject;
+  readonly stat: GenerationStat;
   readonly response: Response;
 }
 
@@ -38,7 +38,7 @@ export async function getObject(
     configuration.bucket,
     key,
     range,
-    download.described,
+    download.stat,
     download.response,
   );
 
@@ -48,7 +48,7 @@ export async function getObject(
     throw refusal;
   }
 
-  return createStoredObject(configuration.bucket, download.described.stat, download.response);
+  return createStoredObject(configuration.bucket, download.stat, download.response);
 }
 
 /**
@@ -103,7 +103,7 @@ async function sideBySide(
     );
   }
 
-  return { described: described.value, response: download.value };
+  return { stat: described.value, response: download.value };
 }
 
 /**
@@ -120,11 +120,9 @@ async function ofOneGeneration(
   first: Download,
 ): Promise<Download> {
   const bodyGeneration = first.response.headers.get(generationHeader);
-  const { generation } = first.described;
+  const generation = first.stat.etag;
 
-  if (bodyGeneration === null || generation === undefined || bodyGeneration === generation) {
-    return first;
-  }
+  if (bodyGeneration === null || bodyGeneration === generation) return first;
 
   const described = await readDescription(configuration, key, "get", {
     signal,
@@ -137,7 +135,7 @@ async function ofOneGeneration(
     throw failure;
   });
 
-  if (described !== undefined) return { described, response: first.response };
+  if (described !== undefined) return { stat: described, response: first.response };
 
   await cancelBody(first.response);
 
@@ -145,11 +143,11 @@ async function ofOneGeneration(
   // a newer object, which `get` called again reads.
   const response = await sendDownload(configuration, key, range, signal, generation).catch(
     (failure: unknown) => {
-      throw reportedDownloadFailure(configuration.bucket, key, range, first.described, failure);
+      throw reportedDownloadFailure(configuration.bucket, key, range, first.stat, failure);
     },
   );
 
-  return { described: first.described, response };
+  return { stat: first.stat, response };
 }
 
 async function sendDownload(
