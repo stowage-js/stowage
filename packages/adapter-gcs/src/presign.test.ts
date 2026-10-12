@@ -299,13 +299,16 @@ test('`presignPut` with `onlyIf: "absent"` signs `x-goog-if-generation-match: 0`
   });
 });
 
+/** The generation an earlier write reported as `etag`. */
+const generation = "1790665923456000";
+
 test("`presignPut` with `onlyIf: { etag }` signs the generation as `x-goog-if-generation-match` and hands it back", async () => {
   refuseFetch();
 
   const presigned = await keySigningStorage(pem).presignPut("object.txt", {
     ...putOptions,
     cacheControl: "no-store",
-    onlyIf: { etag: "1790665923456000" },
+    onlyIf: { etag: generation },
   });
 
   expect(queryOf(presigned.url)["X-Goog-SignedHeaders"]).toBe(
@@ -314,7 +317,7 @@ test("`presignPut` with `onlyIf: { etag }` signs the generation as `x-goog-if-ge
   expect(presigned.headers).toEqual({
     "content-type": "text/plain",
     "cache-control": "no-store",
-    "x-goog-if-generation-match": "1790665923456000",
+    "x-goog-if-generation-match": generation,
   });
 });
 
