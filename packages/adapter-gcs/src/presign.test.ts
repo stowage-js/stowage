@@ -281,6 +281,24 @@ test("`presignPut` adds each content header given to the signed headers and hand
   });
 });
 
+// ADR 0074: the XML `PUT` ignores `If-None-Match`, so the generation is the only form.
+test('`presignPut` with `onlyIf: "absent"` signs `x-goog-if-generation-match: 0` and hands it back', async () => {
+  refuseFetch();
+
+  const presigned = await keySigningStorage(pem).presignPut("object.txt", {
+    ...putOptions,
+    onlyIf: "absent",
+  });
+
+  expect(queryOf(presigned.url)["X-Goog-SignedHeaders"]).toBe(
+    "content-length;content-type;host;x-goog-if-generation-match",
+  );
+  expect(presigned.headers).toEqual({
+    "content-type": "text/plain",
+    "x-goog-if-generation-match": "0",
+  });
+});
+
 test("a content header left out is neither signed nor handed back", async () => {
   refuseFetch();
 
@@ -424,31 +442,40 @@ test("an empty `contentType` is refused", async () => {
   expect(refusal.message).toContain("`contentType`");
 });
 
-test.each([
-  ["absent", "writeIfAbsent"],
-  [{ etag: "1" }, "writeIfUnchanged"],
-] as const)(
-  "`onlyIf` as %j is `Unsupported` naming `%s` before anything is signed",
-  async (onlyIf, capability) => {
-    const sent = stubFetch(() => signedBlob(new Uint8Array(256)));
-    const failure = await failureOf(
-      async () =>
-        await iamSigningStorage({ accessToken: signerToken }).presignPut("object", {
-          ...putOptions,
-          onlyIf,
-        }),
-    );
+test("`onlyIf: { etag }` is `Unsupported` naming `writeIfUnchanged` before anything is signed", async () => {
+  const sent = stubFetch(() => signedBlob(new Uint8Array(256)));
+  const failure = await failureOf(
+    async () =>
+      await iamSigningStorage({ accessToken: signerToken }).presignPut("object", {
+        ...putOptions,
+        onlyIf: { etag: "1" },
+      }),
+  );
 
-    expect(failure).toMatchObject({
-      code: "Unsupported",
-      capability,
-      operation: "presignPut",
-      key: "object",
-      attempts: 0,
-    });
-    expect(sent).toEqual([]);
-  },
-);
+  expect(failure).toMatchObject({
+    code: "Unsupported",
+    capability: "writeIfUnchanged",
+    operation: "presignPut",
+    key: "object",
+    attempts: 0,
+  });
+  expect(sent).toEqual([]);
+});
+
+test('`onlyIf` as another string than `"absent"` is `InvalidOption` before anything is signed', async () => {
+  const sent = stubFetch(() => signedBlob(new Uint8Array(256)));
+  const failure = await failureOf(
+    async () =>
+      await iamSigningStorage({ accessToken: signerToken }).presignPut(
+        "object",
+        untyped({ ...putOptions, onlyIf: "present" }),
+      ),
+  );
+
+  expect(failure).toMatchObject({ code: "InvalidOption", operation: "presignPut", attempts: 0 });
+  expect(failure.message).toContain("`onlyIf`");
+  expect(sent).toEqual([]);
+});
 
 test("an override spec 9.9 leaves off the type is an unknown option", async () => {
   refuseFetch();

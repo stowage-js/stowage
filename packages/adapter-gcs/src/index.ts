@@ -24,7 +24,7 @@ import {
   readConfiguration,
 } from "./configuration.ts";
 import { heldContentHeaders } from "./content-headers.ts";
-import { copyObject, moveObject } from "./copy.ts";
+import { copyObject, moveObject, type ObjectCopy } from "./copy.ts";
 import { deleteBelow, deleteKeys } from "./delete.ts";
 import { defaultContentType, readDescription } from "./description.ts";
 import { getObject } from "./download.ts";
@@ -39,7 +39,7 @@ import {
   putOptionKeys,
   requireKnownOptions,
 } from "./options.ts";
-import { refusePrecondition } from "./precondition.ts";
+import { readWritePrecondition, refusePrecondition } from "./precondition.ts";
 import {
   type GcsPresignGetOptions,
   type GcsPresignPutOptions,
@@ -77,7 +77,8 @@ export interface GcsSigningStorage extends GcsStorage {
    * A V4 signed URL a client holding no credential calls with a plain `PUT` of one body
    * under this key until it expires. `contentType` and `contentLength` bind exactly, so a
    * body of unknown length cannot be uploaded through it. Resolves with the URL and the
-   * `content-type` the `PUT` sends beside the body.
+   * headers the `PUT` sends beside the body: `content-type`, each content header and the
+   * precondition it binds.
    */
   presignPut(key: string, options: GcsPresignPutOptions): Promise<PresignedPut>;
 }
@@ -104,6 +105,7 @@ const gcsCapabilities: readonly CapabilityName[] = Object.freeze([
   "rangeReads",
   "userMetadata",
   "userMetadataTokenKeys",
+  "writeIfAbsent",
 ]);
 const gcsSigningCapabilities: readonly CapabilityName[] = Object.freeze([
   "contentHeaders",
@@ -112,6 +114,7 @@ const gcsSigningCapabilities: readonly CapabilityName[] = Object.freeze([
   "rangeReads",
   "userMetadata",
   "userMetadataTokenKeys",
+  "writeIfAbsent",
 ]);
 
 const utf8 = new TextEncoder();
@@ -142,7 +145,13 @@ class GcsBucketStorage implements GcsStorage {
   async #put(key: string, body: PutBody, options?: PutOptions): Promise<ObjectStat> {
     requireKey(this.bucket, key, "writable", "put");
     requireKnownOptions(this.bucket, options, putOptionKeys, "put");
-    refusePrecondition(this.bucket, options?.onlyIf, "write", "put", key, this.capabilities);
+    const onlyIf = readWritePrecondition(
+      this.bucket,
+      options?.onlyIf,
+      "put",
+      key,
+      this.capabilities,
+    );
 
     const userMetadata = heldUserMetadata(
       this.bucket,
@@ -163,6 +172,7 @@ class GcsBucketStorage implements GcsStorage {
         this.capabilities,
       ),
       userMetadata,
+      onlyIf,
       signal: options?.signal,
     };
 
@@ -241,15 +251,11 @@ class GcsBucketStorage implements GcsStorage {
   }
 
   async copy(from: string, to: string, options?: CopyOptions): Promise<ObjectStat> {
-    this.#requireCopyKeys(from, to, options, "copy");
-
-    return await copyObject(this.configuration, from, to, options?.signal);
+    return await copyObject(this.configuration, this.#readCopy(from, to, options, "copy"));
   }
 
   async move(from: string, to: string, options?: CopyOptions): Promise<ObjectStat> {
-    this.#requireCopyKeys(from, to, options, "move");
-
-    return await moveObject(this.configuration, from, to, options?.signal);
+    return await moveObject(this.configuration, this.#readCopy(from, to, options, "move"));
   }
 
   #requireAddressable(key: string, options: OperationOptions | undefined, operation: string): void {
@@ -263,16 +269,22 @@ class GcsBucketStorage implements GcsStorage {
    * Spec 4.8 checks both keys before acting on either, and spec 9.7 has a copy of a key
    * onto itself refused before any request.
    */
-  #requireCopyKeys(
+  #readCopy(
     from: string,
     to: string,
     options: CopyOptions | undefined,
     operation: string,
-  ): void {
+  ): ObjectCopy {
     requireKey(this.bucket, from, "addressable", operation);
     requireKey(this.bucket, to, "writable", operation);
     requireKnownOptions(this.bucket, options, copyOptionKeys, operation);
-    refusePrecondition(this.bucket, options?.onlyIf, "write", operation, to, this.capabilities);
+    const onlyIf = readWritePrecondition(
+      this.bucket,
+      options?.onlyIf,
+      operation,
+      to,
+      this.capabilities,
+    );
 
     if (from === to) {
       throw gcsError(this.bucket, {
@@ -286,6 +298,8 @@ class GcsBucketStorage implements GcsStorage {
 
     // Spec 4.3: a signal that already fired rejects before the request goes out.
     options?.signal?.throwIfAborted();
+
+    return { from, to, onlyIf, signal: options?.signal };
   }
 
   #readContentType(contentType: string | undefined): string {

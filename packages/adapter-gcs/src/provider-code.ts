@@ -29,7 +29,9 @@ const providerCodes: ReadonlyMap<string, StorageErrorCode> = new Map([
   ["requestedRangeNotSatisfiable", "InvalidRequest"],
   ["uploadTooLarge", "InvalidRequest"],
   ["invalid", "ProviderError"],
-  ["conditionNotMet", "ProviderError"],
+  // At `412`, answered to a request that carries `ifGenerationMatch` and to the commit and
+  // cancel of a session its start carried it on (spec 9.6).
+  ["conditionNotMet", "PreconditionFailed"],
   ["conflict", "ProviderError"],
   ["clientClosedRequest", "ProviderError"],
 ]);
