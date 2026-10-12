@@ -109,13 +109,12 @@ export const gcsDivergences: readonly Divergence<GcsEmulator, GcsRealEndpoint>[]
     failureMessagePart: "over an `etag` the write before made stale, and the call resolved",
     settledBy: "gcs",
   },
-  // Measured against the emulator for #461: a `DELETE` under a stale `ifGenerationMatch` answers
-  // `200` and deletes the object.
+  // Measured against the emulator for #461.
   {
     case: "delete/if-unchanged",
     endpoint: fakeGcsServer,
     differs:
-      "fake-gcs-server 1.56.1 ignores `ifGenerationMatch` on `DELETE` and deletes the object",
+      "fake-gcs-server 1.56.1 ignores `ifGenerationMatch` on `DELETE`, answers `200` and deletes the object",
     failureMessagePart: "made stale reports 0 failures",
     settledBy: "gcs",
   },
