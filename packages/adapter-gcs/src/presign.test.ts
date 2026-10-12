@@ -462,6 +462,21 @@ test("`onlyIf: { etag }` is `Unsupported` naming `writeIfUnchanged` before anyth
   expect(sent).toEqual([]);
 });
 
+test('`onlyIf` as another string than `"absent"` is `InvalidOption` before anything is signed', async () => {
+  const sent = stubFetch(() => signedBlob(new Uint8Array(256)));
+  const failure = await failureOf(
+    async () =>
+      await iamSigningStorage({ accessToken: signerToken }).presignPut(
+        "object",
+        untyped({ ...putOptions, onlyIf: "present" }),
+      ),
+  );
+
+  expect(failure).toMatchObject({ code: "InvalidOption", operation: "presignPut", attempts: 0 });
+  expect(failure.message).toContain("`onlyIf`");
+  expect(sent).toEqual([]);
+});
+
 test("an override spec 9.9 leaves off the type is an unknown option", async () => {
   refuseFetch();
 

@@ -46,6 +46,12 @@ async function rejection(act: () => Promise<unknown>): Promise<StorageError> {
   throw new Error("The call resolved");
 }
 
+/** Options as a caller outside TypeScript may hand them over, where the types refuse them. */
+function untyped(options: Record<string, unknown>): never {
+  // oxlint-disable-next-line no-unsafe-type-assertion -- a caller outside TypeScript
+  return options as never;
+}
+
 function withoutBackoff(): void {
   vi.spyOn(Math, "random").mockReturnValue(0);
 }
@@ -309,6 +315,24 @@ test.each([
       key: "to",
       attempts: 0,
     });
+    expect(sent).toEqual([]);
+  },
+);
+
+// Spec 4.3: with `writeIfAbsent` declared, a string other than `"absent"` is no precondition
+// at all rather than one the storage does not hold.
+test.each([
+  ["put", () => storage().put("to", "body", untyped({ onlyIf: "present" }))],
+  ["copy", () => storage().copy("from", "to", untyped({ onlyIf: "present" }))],
+  ["move", () => storage().move("from", "to", untyped({ onlyIf: "present" }))],
+] as const)(
+  '`%s` refuses `onlyIf` as another string than `"absent"` as `InvalidOption` before any request',
+  async (operation, call) => {
+    const sent = stubFetch(written);
+    const failure = await rejection(call);
+
+    expect(failure).toMatchObject({ code: "InvalidOption", operation, attempts: 0 });
+    expect(failure.message).toContain("`onlyIf`");
     expect(sent).toEqual([]);
   },
 );
