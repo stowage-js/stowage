@@ -96,6 +96,7 @@ const s3Capabilities: readonly CapabilityName[] = Object.freeze([
   "rangeReads",
   "userMetadata",
   "userMetadataTokenKeys",
+  "writeIfAbsent",
 ]);
 
 const utf8 = new TextEncoder();
@@ -142,6 +143,7 @@ class SimpleStorageServiceStorage implements S3Storage {
         "put",
         this.capabilities,
       ),
+      onlyIfAbsent: options?.onlyIf === "absent",
       signal: options?.signal,
     };
 
@@ -243,7 +245,14 @@ class SimpleStorageServiceStorage implements S3Storage {
   async copy(from: string, to: string, options?: CopyOptions): Promise<ObjectStat> {
     this.#requireCopyKeys(from, to, options, "copy");
 
-    return await copyObject(this.#configuration, from, to, "copy", options?.signal);
+    return await copyObject(
+      this.#configuration,
+      from,
+      to,
+      "copy",
+      options?.onlyIf === "absent",
+      options?.signal,
+    );
   }
 
   /**
@@ -254,7 +263,14 @@ class SimpleStorageServiceStorage implements S3Storage {
   async move(from: string, to: string, options?: CopyOptions): Promise<ObjectStat> {
     this.#requireCopyKeys(from, to, options, "move");
 
-    const written = await copyObject(this.#configuration, from, to, "move", options?.signal);
+    const written = await copyObject(
+      this.#configuration,
+      from,
+      to,
+      "move",
+      options?.onlyIf === "absent",
+      options?.signal,
+    );
     const response = await send(this.#configuration, {
       method: "DELETE",
       operation: "move",

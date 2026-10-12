@@ -5,6 +5,7 @@ import { encodePath } from "./canonical.ts";
 import type { S3Configuration } from "./configuration.ts";
 import { describeResponse } from "./description.ts";
 import { sendHead } from "./head.ts";
+import { copyPreconditionHeaders } from "./precondition.ts";
 import { send } from "./request.ts";
 import { inStorage } from "./storage-error.ts";
 
@@ -20,6 +21,7 @@ export async function copyObject(
   from: string,
   to: string,
   operation: string,
+  onlyIfAbsent: boolean,
   signal: AbortSignal | undefined,
 ): Promise<ObjectStat> {
   const { bucket } = configuration;
@@ -32,8 +34,12 @@ export async function copyObject(
     key: to,
     // The source is named as the bucket and the key, never as the path the destination
     // is addressed through, and it is percent-encoded as the path is.
-    headers: [["x-amz-copy-source", encodePath(`/${bucket}/${from}`)]],
+    headers: [
+      ["x-amz-copy-source", encodePath(`/${bucket}/${from}`)],
+      ...copyPreconditionHeaders(onlyIfAbsent),
+    ],
     signal,
+    precondition: onlyIfAbsent ? {} : undefined,
   }).catch((failure: unknown) => {
     // The request addresses the destination, and the key it did not find is the source.
     if (isStorageError(failure) && failure.providerCode === "NoSuchKey") {

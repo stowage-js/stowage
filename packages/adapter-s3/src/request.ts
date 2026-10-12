@@ -1,5 +1,6 @@
 import {
   type FailureReading,
+  type PreconditionRule,
   type PreparedAttempt,
   type RefusedAnswer,
   sendRequest,
@@ -29,6 +30,11 @@ export interface S3Request {
    * for any other request: the provider answered, so it did not commit.
    */
   readonly repeatWithoutResponse?: boolean;
+  /**
+   * Set on a request that carries a precondition, whose refusal after an attempt without a
+   * response or with a `5xx` is that attempt's failure (spec 7.5, ADR 0073).
+   */
+  readonly precondition?: PreconditionRule;
   /** Told when an attempt is signed under a credential resolved with `forceRefresh: true`. */
   readonly onRefresh?: () => void;
 }
@@ -63,6 +69,7 @@ export async function send(configuration: S3Configuration, request: S3Request): 
     maxAttempts: configuration.maxAttempts,
     signal: request.signal,
     unanswered: request.repeatWithoutResponse === false ? "stop" : "repeat",
+    precondition: request.precondition,
     prepare: async ({ forceRefresh }) =>
       await prepare(configuration, request, payloadHash, forceRefresh),
     readFailure: (answer) => readFailure(request, answer),

@@ -41,6 +41,10 @@ const providerCodes: ReadonlyMap<string, StorageErrorCode> = new Map([
   // Reached only for a key the core accepted, which an adapter may narrow further.
   ["InvalidObjectName", "InvalidKey"],
   ["KeyTooLongError", "InvalidKey"],
+  ["PreconditionFailed", "PreconditionFailed"],
+  // AWS's, answered at `409` to a multipart commit a `PUT` that landed after the upload
+  // began overtook, which leaves the caller the way out of a `412` (ADR 0071).
+  ["ConditionalRequestConflict", "PreconditionFailed"],
   ["NoSuchUpload", "ProviderError"],
   ["SlowDown", "ProviderError"],
   ["TooManyRequests", "ProviderError"],

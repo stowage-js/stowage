@@ -12,6 +12,7 @@ import type { HeaderField } from "./canonical.ts";
 import type { S3Configuration } from "./configuration.ts";
 import type { ContentHeaderFields } from "./content-headers.ts";
 import { describeWrite, unquotedEtag, type WrittenObject } from "./description.ts";
+import { preconditionHeaders } from "./precondition.ts";
 import { send } from "./request.ts";
 import { s3Error } from "./storage-error.ts";
 import type { UserMetadataHeaders } from "./user-metadata.ts";
@@ -23,6 +24,8 @@ export interface ObjectWrite {
   readonly contentType: string;
   readonly contentHeaders: ContentHeaderFields;
   readonly userMetadata: UserMetadataHeaders;
+  /** Whether the request that commits carries `If-None-Match: *` (spec 7.4). */
+  readonly onlyIfAbsent: boolean;
   readonly signal?: AbortSignal;
 }
 
@@ -56,9 +59,10 @@ export async function putObject(
     method: "PUT",
     operation: "put",
     key: write.key,
-    headers: objectHeaders(write),
+    headers: [...objectHeaders(write), ...preconditionHeaders(write.onlyIfAbsent)],
     body: bytes,
     signal: write.signal,
+    precondition: write.onlyIfAbsent ? {} : undefined,
   });
 
   await response.body?.cancel();
@@ -201,10 +205,12 @@ async function completeUpload(
       operation: "put",
       key: write.key,
       query: [["uploadId", uploadId]],
-      headers: [["content-type", "application/xml"]],
+      headers: [["content-type", "application/xml"], ...preconditionHeaders(write.onlyIfAbsent)],
       body: utf8.encode(completeDocument(uploaded)),
       signal: write.signal,
       repeatWithoutResponse: false,
+      // Spec 7.5: R2 answers the repeat of a commit that went through `NoSuchUpload`.
+      precondition: write.onlyIfAbsent ? { alsoRefusedBy: ["NoSuchUpload"] } : undefined,
     });
     document = await readAnswerDocument(
       answeredRequest(configuration, write, "the completion of the upload"),

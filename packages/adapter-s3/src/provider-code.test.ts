@@ -32,6 +32,8 @@ test.each([
   ["InvalidDigest", 400, "InvalidRequest"],
   ["InvalidObjectName", 400, "InvalidKey"],
   ["KeyTooLongError", 400, "InvalidKey"],
+  ["PreconditionFailed", 412, "PreconditionFailed"],
+  ["ConditionalRequestConflict", 409, "PreconditionFailed"],
   ["NoSuchUpload", 404, "ProviderError"],
   ["SlowDown", 503, "ProviderError"],
   ["TooManyRequests", 429, "ProviderError"],

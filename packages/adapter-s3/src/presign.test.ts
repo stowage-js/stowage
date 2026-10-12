@@ -340,25 +340,40 @@ test("an unknown option is refused by name", async () => {
   }
 });
 
-test.each([
-  ["absent", "writeIfAbsent"],
-  [{ etag: "abc" }, "writeIfUnchanged"],
-] as const)(
-  "`onlyIf` as %j is `Unsupported` naming `%s` before signing",
-  async (onlyIf, capability) => {
-    const failure = await rejection(
-      async () => await s3Storage(options()).presignPut("object.txt", { ...putOptions, onlyIf }),
-    );
+// Spec 7.10 and ADR 0074: AWS also honors the precondition as a query parameter, which R2
+// ignores and overwrites, so it travels as a signed header the client has to send.
+test('`presignPut` with `onlyIf: "absent"` signs `If-None-Match: *` and hands it back', async () => {
+  const { url, headers } = await s3Storage(options()).presignPut("object.txt", {
+    ...putOptions,
+    onlyIf: "absent",
+  });
 
-    expect(failure).toMatchObject({
-      code: "Unsupported",
-      capability,
-      operation: "presignPut",
-      key: "object.txt",
-      attempts: 0,
-    });
-  },
-);
+  expect(queryOf(url)["X-Amz-SignedHeaders"]).toBe(
+    "content-length;content-type;host;if-none-match",
+  );
+  expect(Object.keys(queryOf(url)).filter((name) => !name.startsWith("X-Amz-"))).toEqual([]);
+  expect(headers).toEqual({ "content-type": "text/plain", "if-none-match": "*" });
+});
+
+test("`onlyIf: { etag }` is `Unsupported` naming `writeIfUnchanged` before signing", async () => {
+  const resolve = vi.fn<() => S3Credentials>(() => credentials);
+  const failure = await rejection(
+    async () =>
+      await s3Storage(options({ credentials: resolve })).presignPut("object.txt", {
+        ...putOptions,
+        onlyIf: { etag: "abc" },
+      }),
+  );
+
+  expect(failure).toMatchObject({
+    code: "Unsupported",
+    capability: "writeIfUnchanged",
+    operation: "presignPut",
+    key: "object.txt",
+    attempts: 0,
+  });
+  expect(resolve).not.toHaveBeenCalled();
+});
 
 test("options that are no group are `InvalidOption`", async () => {
   const failure = await rejection(
