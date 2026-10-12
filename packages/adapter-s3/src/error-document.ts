@@ -3,17 +3,23 @@ import { predefinedEntities } from "./xml.ts";
 export interface S3ErrorDocument {
   readonly code?: string;
   readonly message?: string;
+  /** The key AWS names on a `NoSuchKey`, which on `CopyObject` tells source from destination. */
+  readonly key?: string;
 }
 
 /**
- * The `Code` and `Message` a provider answers a failed request with. The parser spec 7.4
+ * The `Code`, `Message` and `Key` a provider answers a failed request with. The parser spec 7.4
  * puts in front of a listing reads a structure; a failure needs two texts out of one flat
  * element, and a body that is no error document — an HTML page from a proxy in between,
- * a body the provider left empty — leaves both unset rather than failing on its way to
+ * a body the provider left empty — leaves them unset rather than failing on its way to
  * reporting a failure.
  */
 export function readErrorDocument(body: string): S3ErrorDocument {
-  return { code: textOf(body, "Code"), message: textOf(body, "Message") };
+  return {
+    code: textOf(body, "Code"),
+    message: textOf(body, "Message"),
+    key: textOf(body, "Key"),
+  };
 }
 
 function textOf(body: string, element: string): string | undefined {

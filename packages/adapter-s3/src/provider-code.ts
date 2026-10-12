@@ -1,5 +1,7 @@
 import { errorCodeForStatus, type StorageErrorCode } from "@stowage/core";
 
+import type { NoSuchKeyRefusal } from "./precondition.ts";
+
 /**
  * The table of spec 7.9, holding both vendors' strings and the compatible endpoints' that
  * ADR 0041 admits: a code recognized here decides the error code alone, and an unrecognized
@@ -72,6 +74,10 @@ export interface ProviderAnswer {
   readonly underSessionToken?: boolean;
   /** Whether the request went out under a credential the resolver had just refreshed. */
   readonly underRefreshedCredential?: boolean;
+  /** The `<Key>` of the error document. */
+  readonly providerKey?: string;
+  /** Set where the request carried `{ etag }`. */
+  readonly noSuchKeyRefusal?: NoSuchKeyRefusal;
 }
 
 export interface ProviderFailure {
@@ -164,6 +170,11 @@ export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
     };
   }
 
+  // Spec 7.9: AWS refuses `If-Match` against a key that holds no object as that key missing.
+  if (answer.providerCode === "NoSuchKey" && refusesPrecondition(answer)) {
+    return { code: "PreconditionFailed", message: said };
+  }
+
   const recognized =
     answer.providerCode === undefined ? undefined : providerCodes.get(answer.providerCode);
 
@@ -171,6 +182,12 @@ export function readProviderFailure(answer: ProviderAnswer): ProviderFailure {
     code: recognized ?? errorCodeForStatus(answer.status) ?? "ProviderError",
     message: said,
   };
+}
+
+function refusesPrecondition(answer: ProviderAnswer): boolean {
+  if (answer.noSuchKeyRefusal === "namingAddressedKey") return answer.providerKey === answer.key;
+
+  return answer.noSuchKeyRefusal === "every";
 }
 
 /**

@@ -1,12 +1,16 @@
-import { type CapabilityName, type PreconditionRule, preconditionRefusal } from "@stowage/core";
+import {
+  type CapabilityName,
+  type Precondition,
+  type PreconditionRule,
+  preconditionRefusal,
+} from "@stowage/core";
 
 import type { HeaderField } from "./canonical.ts";
 import { s3Error } from "./storage-error.ts";
 
 /**
- * Spec 4.3: an `onlyIf` the storage declares no capability for, `{ etag }` on a write and every
- * one on a `delete`, is refused before anything is sent or signed, against the key that
- * carries it.
+ * Spec 4.3: an `onlyIf` the storage declares no capability for, every one on a `delete`, is
+ * refused before anything is sent or signed, against the key that carries it.
  */
 export function refusePrecondition(
   bucket: string,
@@ -23,12 +27,6 @@ export function refusePrecondition(
   throw s3Error(bucket, { ...refusal, operation, key, attempts: 0 });
 }
 
-/**
- * The precondition a write carries. `"absent"` alone, since the storage does not declare
- * `writeIfUnchanged` and `refusePrecondition` refuses an `etag`.
- */
-export type WritePrecondition = "absent";
-
 /** Spec 4.3: the `onlyIf` of a write refused or read, before anything is sent or signed. */
 export function readWritePrecondition(
   bucket: string,
@@ -36,28 +34,49 @@ export function readWritePrecondition(
   operation: string,
   key: string,
   capabilities: readonly CapabilityName[],
-): WritePrecondition | undefined {
+): Precondition | undefined {
   refusePrecondition(bucket, onlyIf, "write", operation, key, capabilities);
+
+  if (typeof onlyIf === "object" && onlyIf !== null) {
+    return { etag: String(Reflect.get(onlyIf, "etag")) };
+  }
 
   return onlyIf === "absent" ? onlyIf : undefined;
 }
 
-/** Spec 7.4: `"absent"` travels as `If-None-Match: *`, signed as every header is. */
-export function preconditionHeaders(onlyIf: WritePrecondition | undefined): HeaderField[] {
-  return onlyIf === "absent" ? [["if-none-match", "*"]] : [];
+/**
+ * Spec 7.4: `"absent"` travels as `If-None-Match: *`, `{ etag }` as `If-Match` with the `etag`
+ * quoted as a strong tag, signed as every header is.
+ */
+export function preconditionHeaders(onlyIf: Precondition | undefined): HeaderField[] {
+  if (onlyIf === undefined) return [];
+  if (onlyIf === "absent") return [["if-none-match", "*"]];
+
+  return [["if-match", `"${onlyIf.etag}"`]];
 }
 
 /**
  * Spec 7.8: the precondition of a copy's destination, sent twice. R2 ignores `If-None-Match`
- * there and holds `cf-copy-destination-if-none-match`, which AWS ignores in turn (ADR 0071).
+ * and `If-Match` there and holds their `cf-copy-destination-` twins, which AWS ignores in
+ * turn (ADR 0071).
  */
-export function copyPreconditionHeaders(onlyIf: WritePrecondition | undefined): HeaderField[] {
-  return onlyIf === "absent"
-    ? [
-        ["if-none-match", "*"],
-        ["cf-copy-destination-if-none-match", "*"],
-      ]
-    : [];
+export function copyPreconditionHeaders(onlyIf: Precondition | undefined): HeaderField[] {
+  return preconditionHeaders(onlyIf).flatMap(([name, value]): HeaderField[] => [
+    [name, value],
+    [`cf-copy-destination-${name}`, value],
+  ]);
+}
+
+/**
+ * Spec 7.9: which `NoSuchKey` refuses `{ etag }`, AWS's answer to `If-Match` against a key that
+ * holds no object. On `CopyObject` the same answer reports a missing source, so there only one
+ * whose `<Key>` names the key the request addresses, the destination, refuses it (ADR 0071).
+ */
+export type NoSuchKeyRefusal = "every" | "namingAddressedKey";
+
+export interface S3PreconditionRule extends PreconditionRule {
+  /** Set under `{ etag }` alone: under `"absent"` a `NoSuchKey` is the missing key it names. */
+  readonly noSuchKeyRefusal?: NoSuchKeyRefusal;
 }
 
 /**
@@ -65,8 +84,16 @@ export function copyPreconditionHeaders(onlyIf: WritePrecondition | undefined): 
  * response or with a `5xx` as that attempt's failure (ADR 0073).
  */
 export function preconditionRule(
-  onlyIf: WritePrecondition | undefined,
-  alsoRefusedBy?: readonly string[],
-): PreconditionRule | undefined {
-  return onlyIf === undefined ? undefined : { alsoRefusedBy };
+  onlyIf: Precondition | undefined,
+  {
+    alsoRefusedBy,
+    noSuchKeyRefusal = "every",
+  }: {
+    readonly alsoRefusedBy?: readonly string[];
+    readonly noSuchKeyRefusal?: NoSuchKeyRefusal;
+  } = {},
+): S3PreconditionRule | undefined {
+  if (onlyIf === undefined) return undefined;
+
+  return onlyIf === "absent" ? { alsoRefusedBy } : { alsoRefusedBy, noSuchKeyRefusal };
 }

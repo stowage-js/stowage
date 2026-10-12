@@ -18,7 +18,7 @@ export function describeResponse(
     key,
     size: sizeOf(bucket, key, operation, response),
     lastModified: lastModifiedOf(bucket, key, operation, response),
-    etag: etagOf(response),
+    etag: etagOf(bucket, key, operation, response.headers.get("etag")),
     contentType: response.headers.get("content-type") ?? defaultContentType,
     ...readContentHeaders(response.headers),
     ...readContentEncoding(response.headers),
@@ -41,13 +41,13 @@ export type WrittenObject = Omit<ObjectStat, "lastModified" | "etag">;
  * tag and the time the provider accepted the object, and neither length, type nor content
  * headers. Spec 4.4 has that time come from the provider, so an answer without one is
  * reported rather than dated from this clock. `CompleteMultipartUpload` carries its entity
- * tag in the body instead, and hands it in as `etag`.
+ * tag in the body instead, and hands it in as `quotedEtag`.
  */
 export function describeWrite(
   bucket: string,
   written: WrittenObject,
   response: Response,
-  etag: string | undefined = etagOf(response),
+  quotedEtag: string | null | undefined = response.headers.get("etag"),
 ): ObjectStat {
   const accepted = Date.parse(response.headers.get("date") ?? "");
 
@@ -55,21 +55,41 @@ export function describeWrite(
     throw incomplete(bucket, written.key, "put", "no time it was accepted");
   }
 
-  return { ...written, lastModified: new Date(accepted), etag };
+  return {
+    ...written,
+    lastModified: new Date(accepted),
+    etag: etagOf(bucket, written.key, "put", quotedEtag),
+  };
 }
 
-function etagOf(response: Response): string | undefined {
-  const etag = response.headers.get("etag");
+function etagOf(
+  bucket: string,
+  key: string,
+  operation: string,
+  quotedEtag: string | null | undefined,
+): string {
+  const etag = readEtag(quotedEtag);
 
-  if (etag === null) return undefined;
+  if (etag === undefined) throw incomplete(bucket, key, operation, "no entity tag");
 
-  return unquotedEtag(etag);
+  return etag;
+}
+
+/**
+ * The `etag` an answer carries, `undefined` where it carries none or an empty one. Spec 7.4
+ * has every caller report that as `ProviderError`: the adapter declares `writeIfUnchanged`,
+ * so spec 4.4 promises an `etag` on every description (ADR 0071).
+ */
+export function readEtag(quotedEtag: string | null | undefined): string | undefined {
+  const etag = unquotedEtag(quotedEtag ?? "");
+
+  return etag === "" ? undefined : etag;
 }
 
 // The quotes belong to the header field and to the listing XML rather than to the value,
 // which spec 4.4 leaves opaque; stripping them is what makes `get`, `stat` and a listing
 // answer the same string.
-export function unquotedEtag(etag: string): string {
+function unquotedEtag(etag: string): string {
   return etag.replace(/^"|"$/gu, "");
 }
 

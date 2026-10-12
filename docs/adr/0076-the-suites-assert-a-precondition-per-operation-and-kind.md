@@ -115,7 +115,10 @@ it, the case runs against the real endpoint alone (ADR 0012, ADR 0023, ADR 0034)
   rounds. An expected failure would pass in the twentieth round and fail the run, so
   `put/concurrent-if-absent-multipart` is unrun there, the reason naming the measured rate.
   SeaweedFS answers `If-Match` on a free key `412` where AWS answers `404`, and `adapter-s3` reads
-  both as `PreconditionFailed`, so that needs no entry.
+  both as `PreconditionFailed`, so that needs no entry. A conditional `CopyObject` of a missing
+  source it answers `404 NoSuchKey` with the destination in `<Key>`, where AWS names the source
+  (ADR 0071), so `adapter-s3` reads it as the destination's refusal: `copy/if-unchanged` and
+  `move/if-unchanged` are expected to fail there, measured against SeaweedFS 4.48 on 2026-10-12.
 
 ## Presigned uploads
 
@@ -245,7 +248,8 @@ entries are private and reach no changeset.
   `delete/if-unchanged` as expected failures, and `move/if-absent` and `move/if-unchanged` under
   `moveUnserved`; on Azurite, the four copy and move cases under `copyUnimplemented`, and
   `presign/put-if-unchanged` and `presign/put-rejects-precondition` under `signedHeadersUnbound`;
-  on SeaweedFS, `put/concurrent-if-absent-multipart` unrun.
+  on SeaweedFS, `put/concurrent-if-absent-multipart` unrun, and `copy/if-unchanged` and
+  `move/if-unchanged` as expected failures.
 - The CORS rules of the conformance account and bucket are unchanged.
 - The changeset of `@stowage/conformance` is a minor without `**Breaking:**`.
 - Settled while writing the v0.7 spec (#447): fake-gcs-server 1.56.1 ignores

@@ -1,0 +1,5 @@
+---
+"@stowage/adapter-s3": minor
+---
+
+`adapter-s3` declares `writeIfUnchanged`. `put` with `onlyIf: { etag }` sends `If-Match` with the `etag` quoted as a strong tag, signed, on `PutObject`, and on a multipart upload on `CompleteMultipartUpload` alone. `copy` and `move` send it on `CopyObject` beside `cf-copy-destination-if-match` of the same value, since AWS holds the one and R2 the other. `presignPut` signs it and hands it back in `headers` as `if-match`. An object that changed rejects with `PreconditionFailed`, and so does a key that holds none: R2 answers `412`, AWS `404 NoSuchKey`. On `CopyObject` AWS answers a missing source the same way, so a `NoSuchKey` is `PreconditionFailed` only where its `<Key>` names `to`, and otherwise the missing source it was, `NotFound` against `from`. Since the capability promises `etag`, an answer that describes an object without `ETag`, a listing entry among them, is `ProviderError`. `deleteIfUnchanged` stays undeclared, since R2 drops the precondition of a delete in silence (ADR 0071).

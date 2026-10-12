@@ -97,6 +97,7 @@ const s3Capabilities: readonly CapabilityName[] = Object.freeze([
   "userMetadata",
   "userMetadataTokenKeys",
   "writeIfAbsent",
+  "writeIfUnchanged",
 ]);
 
 const utf8 = new TextEncoder();

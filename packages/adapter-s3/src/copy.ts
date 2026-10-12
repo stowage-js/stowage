@@ -1,15 +1,16 @@
-import { isStorageError, type ObjectStat } from "@stowage/core";
+import {
+  isStorageError,
+  type ObjectStat,
+  type Precondition,
+  type StorageError,
+} from "@stowage/core";
 
 import { readAnswerDocument } from "./answer-document.ts";
 import { encodePath } from "./canonical.ts";
 import type { S3Configuration } from "./configuration.ts";
 import { describeResponse } from "./description.ts";
 import { sendHead } from "./head.ts";
-import {
-  copyPreconditionHeaders,
-  preconditionRule,
-  type WritePrecondition,
-} from "./precondition.ts";
+import { copyPreconditionHeaders, preconditionRule } from "./precondition.ts";
 import { send } from "./request.ts";
 import { inStorage } from "./storage-error.ts";
 
@@ -19,7 +20,7 @@ export interface ObjectCopy {
   readonly to: string;
   readonly operation: string;
   /** Applies to `to`. */
-  readonly onlyIf?: WritePrecondition;
+  readonly onlyIf?: Precondition;
   readonly signal?: AbortSignal;
 }
 
@@ -49,12 +50,9 @@ export async function copyObject(
       ...copyPreconditionHeaders(onlyIf),
     ],
     signal,
-    precondition: preconditionRule(onlyIf),
+    precondition: preconditionRule(onlyIf, { noSuchKeyRefusal: "namingAddressedKey" }),
   }).catch((failure: unknown) => {
-    // The request addresses the destination, and the key it did not find is the source.
-    if (isStorageError(failure) && failure.providerCode === "NoSuchKey") {
-      throw inStorage(failure, bucket, operation, from);
-    }
+    if (isMissingSource(failure)) throw inStorage(failure, bucket, operation, from);
 
     throw failure;
   });
@@ -68,4 +66,14 @@ export async function copyObject(
   const described = await sendHead(configuration, { operation, key: to, signal });
 
   return describeResponse(bucket, to, operation, described);
+}
+
+/**
+ * The request addresses the destination, so a key it did not find is the source, unless
+ * the `NoSuchKey` was read as the destination's refused precondition.
+ */
+function isMissingSource(failure: unknown): failure is StorageError {
+  return (
+    isStorageError(failure) && failure.code === "NotFound" && failure.providerCode === "NoSuchKey"
+  );
 }

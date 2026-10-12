@@ -2,12 +2,16 @@ import { expect, test } from "vitest";
 
 import { readErrorDocument } from "./error-document.ts";
 
-test("it reads the code and the message a provider answered with", () => {
+test("it reads the code, the message and the key a provider answered with", () => {
   expect(
     readErrorDocument(
       '<?xml version="1.0" encoding="UTF-8"?>\n<Error><Code>NoSuchKey</Code><Message>The specified key does not exist.</Message><Key>absent.txt</Key><RequestId>abc</RequestId></Error>',
     ),
-  ).toEqual({ code: "NoSuchKey", message: "The specified key does not exist." });
+  ).toEqual({
+    code: "NoSuchKey",
+    message: "The specified key does not exist.",
+    key: "absent.txt",
+  });
 });
 
 test.each([
@@ -33,6 +37,6 @@ test.each([
   ["a body the provider left empty", ""],
   ["an HTML page from something in between", "<html><body>502 Bad Gateway</body></html>"],
   ["an error document without the two elements", "<Error><RequestId>abc</RequestId></Error>"],
-])("%s carries neither code nor message", (_case, body) => {
-  expect(readErrorDocument(body)).toEqual({ code: undefined, message: undefined });
+])("%s carries neither code, message nor key", (_case, body) => {
+  expect(readErrorDocument(body)).toEqual({ code: undefined, message: undefined, key: undefined });
 });

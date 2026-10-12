@@ -7,7 +7,7 @@ import {
 } from "@stowage/core";
 
 import { textOf } from "./answer-document.ts";
-import { unquotedEtag } from "./description.ts";
+import { readEtag } from "./description.ts";
 import { s3Error } from "./storage-error.ts";
 
 /** The response a listing document came in, which a failure to read it is told against. */
@@ -113,7 +113,13 @@ function readEntry(answer: ListingAnswer, entry: XmlElement, readName: NameReade
     throw malformed(answer, `the object under ${JSON.stringify(key)} with no last-modified time`);
   }
 
-  return { key, size, lastModified: new Date(lastModified), etag: etagOf(textOf(entry, "ETag")) };
+  const etag = readEtag(textOf(entry, "ETag"));
+
+  if (etag === undefined) {
+    throw malformed(answer, `the object under ${JSON.stringify(key)} with no entity tag`);
+  }
+
+  return { key, size, lastModified: new Date(lastModified), etag };
 }
 
 const decimalDigits = /^\d+$/u;
@@ -124,12 +130,6 @@ function sizeOf(text: string | undefined): number | undefined {
   const size = Number(text);
 
   return Number.isSafeInteger(size) ? size : undefined;
-}
-
-function etagOf(text: string | undefined): string | undefined {
-  if (text === undefined || text === "") return undefined;
-
-  return unquotedEtag(text);
 }
 
 /**

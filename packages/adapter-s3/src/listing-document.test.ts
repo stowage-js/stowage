@@ -76,19 +76,8 @@ test("a key and an entity tag arrive through their entities", () => {
   expect(document.objects[0]?.size).toBe(0);
 });
 
-test("an entry without an entity tag reads as one without", () => {
-  const document = readListingDocument(
-    answered,
-    answer(
-      "<Contents><Key>a</Key><LastModified>2026-09-23T08:00:00Z</LastModified><Size>1</Size></Contents>",
-    ),
-  );
-
-  expect(document.objects[0]?.etag).toBeUndefined();
-});
-
-// Spec 4.6: an entry that arrives without one of its three parts is a `ProviderError`
-// rather than an entry with a value made up for it.
+// Spec 4.6 and 7.4: an entry that arrives without one of its parts, the entity tag among
+// them, is a `ProviderError` rather than an entry with a value made up for it.
 test.each([
   ["a key", "<Contents><LastModified>2026-09-23T08:00:00Z</LastModified><Size>1</Size></Contents>"],
   [
@@ -104,6 +93,14 @@ test.each([
   [
     "a last-modified time that is no time",
     "<Contents><Key>a</Key><LastModified>yesterday</LastModified><Size>1</Size></Contents>",
+  ],
+  [
+    "an entity tag",
+    "<Contents><Key>a</Key><LastModified>2026-09-23T08:00:00Z</LastModified><Size>1</Size></Contents>",
+  ],
+  [
+    "an entity tag that is empty",
+    "<Contents><Key>a</Key><LastModified>2026-09-23T08:00:00Z</LastModified><ETag></ETag><Size>1</Size></Contents>",
   ],
   ["a prefix in a pseudo-directory", "<CommonPrefixes></CommonPrefixes>"],
 ])("an entry without %s is a `ProviderError`", (_part, inside) => {
