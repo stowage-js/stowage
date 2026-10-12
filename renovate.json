@@ -55,6 +55,22 @@
       "matchStrings": ["^(?<currentValue>\\S+)"],
       "depNameTemplate": "deno",
       "datasourceTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "description": "Spec 1: each README names the Bun version CI last ran green, which the \"Bun and Deno\" group moves with `.bun-version`",
+      "managerFilePatterns": ["/^packages/[^/]+/README\\.md$/"],
+      "matchStrings": ["CI last ran green on Bun (?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "bun",
+      "datasourceTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "description": "Spec 1: each README names the Deno version CI last ran green, which the \"Bun and Deno\" group moves with `.dvmrc`",
+      "managerFilePatterns": ["/^packages/[^/]+/README\\.md$/"],
+      "matchStrings": ["and Deno (?<currentValue>\\d+\\.\\d+\\.\\d+)\\."],
+      "depNameTemplate": "deno",
+      "datasourceTemplate": "npm"
     }
   ]
 }

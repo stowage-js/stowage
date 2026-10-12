@@ -54,7 +54,7 @@ the service account it names, one request per URL, under a token of its own
 ## Runtimes
 
 Node 24 and later, Bun, Deno and `workerd` at the compatibility date `2026-09-01` without Node APIs. There is no
-`fromEnv`, and nothing is read from the host or the environment. CI last ran green on Bun 1.4.2 and Deno 2.9.6.
+`fromEnv`, and nothing is read from the host or the environment. CI last ran green on Bun 1.4.3 and Deno 2.9.6.
 
 The bundle measures 14.8 kB minified and gzipped, `@stowage/core` included.
 
