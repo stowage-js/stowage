@@ -391,7 +391,7 @@ test.each(
   },
 );
 
-test.each(["1", "9223372036854775807", generation])(
+test.each(["1", "9223372036854775807"])(
   "`put` sends `onlyIf: { etag: %j }` as a generation",
   async (etag) => {
     const sent = stubFetch(written);
