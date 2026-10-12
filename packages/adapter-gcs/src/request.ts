@@ -48,6 +48,11 @@ export interface GcsRequest {
    * a response or with a `5xx` is that attempt's failure (spec 9.5, ADR 0073).
    */
   readonly precondition?: PreconditionRule;
+  /**
+   * Told what each refused attempt reads as, in turn, so that a conditional `delete` can tell
+   * a refusal reported as the failure before it from that failure alone (spec 4.7).
+   */
+  readonly onRefusal?: (reading: FailureReading) => void;
   readonly signal?: AbortSignal;
 }
 
@@ -109,7 +114,13 @@ export async function send(
         refreshable: true,
       };
     },
-    readFailure: (answer) => readFailure(request, answer),
+    readFailure: (answer) => {
+      const reading = readFailure(request, answer);
+
+      request.onRefusal?.(reading);
+
+      return reading;
+    },
   });
 
   return request.session === true ? withoutRequestId(response) : response;
@@ -228,6 +239,7 @@ function readFailure(request: GcsRequest, answer: RefusedAnswer): FailureReading
     carriesCursor: request.carriesCursor === true,
     sessionUri: request.sessionUri === true,
     underRefreshedToken: answer.refreshed,
+    conditional: request.precondition !== undefined,
     headers: answer.headers,
   });
 

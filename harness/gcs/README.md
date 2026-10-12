@@ -149,13 +149,16 @@ of a page towards `maxResults`, where GCS counts the pseudo-directories as well,
 flow lists arrives as one page without a cursor. `presign/expired-url`,
 `presign/put-rejects-length`, `presign/put-rejects-type` and `presign/put-rejects-content-headers`
 are on it because the emulator checks neither the signature nor the expiry of a signed URL, as its
-README states, so it serves the URL each case expects refused. `presign/put-if-absent` is on it
-because the emulator ignores a signed `x-goog-if-generation-match` and overwrites, and
-`copy/if-absent` because it ignores `ifGenerationMatch` on `rewriteTo` and overwrites the
-destination; it checks the precondition of an insert and of a resumable session, so the cases of
+README states, so it serves the URL each case expects refused, `presign/put-rejects-precondition`
+among them. `presign/put-if-absent` and `presign/put-if-unchanged` are on it because the emulator
+ignores a signed `x-goog-if-generation-match` and overwrites, `copy/if-absent` and
+`copy/if-unchanged` because it ignores `ifGenerationMatch` on `rewriteTo` and overwrites the
+destination, and `delete/if-unchanged` because it ignores `ifGenerationMatch` on `DELETE` and deletes
+the object; it checks the precondition of an insert and of a resumable session, so the cases of
 `put` are not on it (ADR 0076).
-`move/round-trip`, `move/missing-source`, `move/content-headers` and `move/if-absent` are on it
-because the emulator serves no `objects.move` and answers every `moveTo` with `400 invalid`, the
+`move/round-trip`, `move/missing-source`, `move/content-headers`, `move/if-absent`,
+`move/if-unchanged` and `stat/etag-promised`, which reads the `etag` a `move` resolves with, are on
+it because the emulator serves no `objects.move` and answers every `moveTo` with `400 invalid`, the
 source left where it was (ADR 0037).
 `errors/missing-bucket` is on it because the emulator answers every request to a missing bucket
 with the `404 Not Found` of a missing object and never names the bucket as GCS does, so `exists`

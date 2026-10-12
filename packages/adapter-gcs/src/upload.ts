@@ -2,13 +2,14 @@ import {
   type ContentHeaders,
   isStorageError,
   type ObjectStat,
+  type Precondition,
   type SendParts,
   uploadStream,
 } from "@stowage/core";
 
 import type { GcsConfiguration } from "./configuration.ts";
 import { describeResource, readResource } from "./description.ts";
-import { preconditionQuery, preconditionRule, type WritePrecondition } from "./precondition.ts";
+import { preconditionQuery, preconditionRule } from "./precondition.ts";
 import { send, uploadPath } from "./request.ts";
 import { startSession } from "./session.ts";
 
@@ -18,7 +19,7 @@ export interface ObjectWrite {
   readonly contentHeaders: ContentHeaders;
   readonly userMetadata: Readonly<Record<string, string>>;
   /** Carried by the insert and the start of a session, which GCS checks at the commit (spec 9.4). */
-  readonly onlyIf?: WritePrecondition;
+  readonly onlyIf?: Precondition;
   readonly signal?: AbortSignal;
 }
 

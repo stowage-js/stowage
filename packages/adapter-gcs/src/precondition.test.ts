@@ -296,26 +296,109 @@ test.each([
   expect(failure).toMatchObject({ code: "ProviderError", providerCode, status });
 });
 
-// Until the adapter declares `writeIfUnchanged`, spec 4.3 refuses `onlyIf: { etag }` before
-// any request.
-test.each([
-  ["put", () => storage().put("to", "body", { onlyIf: { etag: "1" } })],
-  ["copy", () => storage().copy("from", "to", { onlyIf: { etag: "1" } })],
-  ["move", () => storage().move("from", "to", { onlyIf: { etag: "1" } })],
-] as const)(
-  "`%s` refuses `onlyIf: { etag }` as `Unsupported` naming `writeIfUnchanged` before any request",
-  async (operation, call) => {
+/** The generation an earlier write reported as `etag`. */
+const generation = "1790665923456000";
+
+test("`put` with `onlyIf: { etag }` sends the generation as `ifGenerationMatch` on the insert", async () => {
+  const sent = stubFetch(written);
+
+  await storage().put("to", "body", { onlyIf: { etag: generation } });
+
+  expect(sent).toHaveLength(1);
+  expect(sent[0]?.url.searchParams.get("ifGenerationMatch")).toBe(generation);
+});
+
+test("`copy` with `onlyIf: { etag }` sends the generation on every call of the rewrite", async () => {
+  const sent = stubFetch(answeringInTurn(rewriting, rewritten));
+
+  await storage().copy("from", "to", { onlyIf: { etag: generation } });
+
+  expect(sent.map(({ url }) => url.searchParams.get("ifGenerationMatch"))).toEqual([
+    generation,
+    generation,
+  ]);
+});
+
+test("`move` with `onlyIf: { etag }` sends the generation on `objects.move`", async () => {
+  const sent = stubFetch(written);
+
+  await storage().move("from", "to", { onlyIf: { etag: generation } });
+
+  expect(sent).toHaveLength(1);
+  expect(sent[0]?.url.searchParams.get("ifGenerationMatch")).toBe(generation);
+});
+
+test("`put` onto a key that holds another generation, or none, rejects with `PreconditionFailed`", async () => {
+  const sent = stubFetch(conditionNotMet);
+
+  const failure = await rejection(() =>
+    storage().put("to", "body", { onlyIf: { etag: generation } }),
+  );
+
+  expect(failure).toMatchObject({
+    code: "PreconditionFailed",
+    operation: "put",
+    key: "to",
+    status: 412,
+    providerCode: "conditionNotMet",
+    attempts: 1,
+  });
+  expect(sent).toHaveLength(1);
+});
+
+/** Well-formed `etag`s that name no generation, which GCS would never match (spec 9.1). */
+const noGenerations = [
+  "0",
+  "01",
+  "00",
+  "9223372036854775808",
+  "18446744073709551616",
+  "-1",
+  "+1",
+  "1.0",
+  "1e3",
+  "abc",
+  "0x1F",
+] as const;
+
+// Spec 9.1 and ADR 0071: `0` would turn "unchanged" into "absent" in silence, and the rest
+// never match, so each is refused as GCS would refuse it, without a request.
+test.each(
+  noGenerations.flatMap((etag) =>
+    (
+      [
+        ["put", "to", () => storage().put("to", "body", { onlyIf: { etag } })],
+        ["copy", "to", () => storage().copy("from", "to", { onlyIf: { etag } })],
+        ["move", "to", () => storage().move("from", "to", { onlyIf: { etag } })],
+      ] as const
+    ).map(([operation, key, call]) => [operation, etag, key, call] as const),
+  ),
+)(
+  "`%s` refuses `onlyIf: { etag: %j }` as `PreconditionFailed` without a request",
+  async (operation, _etag, key, call) => {
     const sent = stubFetch(written);
     const failure = await rejection(call);
 
     expect(failure).toMatchObject({
-      code: "Unsupported",
-      capability: "writeIfUnchanged",
+      code: "PreconditionFailed",
       operation,
-      key: "to",
+      key,
+      retryable: false,
       attempts: 0,
     });
+    expect(failure.status).toBeUndefined();
     expect(sent).toEqual([]);
+  },
+);
+
+test.each(["1", "9223372036854775807"])(
+  "`put` sends `onlyIf: { etag: %j }` as a generation",
+  async (etag) => {
+    const sent = stubFetch(written);
+
+    await storage().put("to", "body", { onlyIf: { etag } });
+
+    expect(sent[0]?.url.searchParams.get("ifGenerationMatch")).toBe(etag);
   },
 );
 
@@ -333,6 +416,199 @@ test.each([
 
     expect(failure).toMatchObject({ code: "InvalidOption", operation, attempts: 0 });
     expect(failure.message).toContain("`onlyIf`");
+    expect(sent).toEqual([]);
+  },
+);
+
+/** What GCS answers a `DELETE` it carried out with. */
+const deleted = (): Response => new Response(null, { status: 204 });
+
+/** GCS's answer to a `DELETE` of a key that holds no object. */
+const objectNotFound = (): Response =>
+  errorDocument(404, "notFound", "No such object: conformance/object.txt");
+
+// Spec 9.1 and ADR 0071: a conditional `delete` is one `DELETE`, never a batch.
+test("`delete` with `onlyIf: { etag }` sends one `DELETE` carrying the generation", async () => {
+  const sent = stubFetch(deleted);
+
+  const report = await storage().delete("a b.txt", { onlyIf: { etag: generation } });
+
+  expect(report).toEqual({ requested: 1, failed: [] });
+  expect(sent).toHaveLength(1);
+  expect(sent[0]?.method).toBe("DELETE");
+  expect(sent[0]?.url.pathname).toBe("/storage/v1/b/conformance/o/a%20b.txt");
+  expect(sent[0]?.url.searchParams.get("ifGenerationMatch")).toBe(generation);
+});
+
+// Spec 4.7 and 9.8: a key that holds another generation, or none, is the key's entry, and a
+// missing key is no success under a precondition.
+test.each([
+  ["another generation", conditionNotMet, 412, "conditionNotMet"],
+  ["no object", objectNotFound, 404, "notFound"],
+] as const)(
+  "a conditional `delete` of a key that holds %s reports one `PreconditionFailed` entry",
+  async (_, answer, status, providerCode) => {
+    const sent = stubFetch(answer);
+
+    const report = await storage().delete("object.txt", { onlyIf: { etag: generation } });
+
+    expect(report.requested).toBe(1);
+    expect(report.failed).toHaveLength(1);
+    expect(report.failed[0]).toMatchObject({
+      code: "PreconditionFailed",
+      operation: "delete",
+      key: "object.txt",
+      status,
+      providerCode,
+      requestId: "upload-1",
+      retryable: false,
+      attempts: 1,
+    });
+    expect(sent).toHaveLength(1);
+  },
+);
+
+test("a conditional `delete` in a missing bucket rejects with `NotFound` without `key`", async () => {
+  stubFetch(() => errorDocument(404, "notFound", "The specified bucket does not exist."));
+
+  const failure = await rejection(() =>
+    storage().delete("object.txt", { onlyIf: { etag: generation } }),
+  );
+
+  expect(failure).toMatchObject({ code: "NotFound", operation: "delete", key: undefined });
+});
+
+// Spec 4.7 and ADR 0073: whether this call deleted the object is open, and the entry says so.
+test.each(
+  (
+    [
+      ["no response", noResponse, { code: "NetworkError" }],
+      [
+        "a `503`",
+        () => errorDocument(503, "backendError", "Backend Error"),
+        { code: "ProviderError", status: 503, providerCode: "backendError" },
+      ],
+    ] as const
+  ).flatMap(([first, answer, reported]) =>
+    (
+      [
+        ["`412 conditionNotMet`", conditionNotMet],
+        ["`404 notFound`", objectNotFound],
+      ] as const
+    ).map(([refusal, refuse]) => [refusal, first, answer, refuse, reported] as const),
+  ),
+)(
+  "a conditional `delete` refused with %s after %s reports that failure as the key's entry",
+  async (_refusal, _first, answer, refuse, reported) => {
+    withoutBackoff();
+    stubFetch(answeringInTurn(answer, refuse));
+
+    const report = await storage().delete("object.txt", { onlyIf: { etag: generation } });
+
+    expect(report.requested).toBe(1);
+    expect(report.failed).toHaveLength(1);
+    expect(report.failed[0]).toMatchObject({
+      ...reported,
+      operation: "delete",
+      key: "object.txt",
+      retryable: true,
+      attempts: 2,
+    });
+  },
+);
+
+// ADR 0073: a `408` or a `429` says the provider did not act on the attempt, so the refusal stands.
+test.each([408, 429])(
+  "a conditional `delete` refused after a `%i` reports `PreconditionFailed` as the key's entry",
+  async (status) => {
+    withoutBackoff();
+    stubFetch(
+      answeringInTurn(
+        () => errorDocument(status, "rateLimitExceeded", "Slow down."),
+        conditionNotMet,
+      ),
+    );
+
+    const report = await storage().delete("object.txt", { onlyIf: { etag: generation } });
+
+    expect(report.failed).toHaveLength(1);
+    expect(report.failed[0]).toMatchObject({
+      code: "PreconditionFailed",
+      key: "object.txt",
+      retryable: false,
+      attempts: 2,
+    });
+  },
+);
+
+// Spec 4.7: a failure of the request as a whole rejects the call instead of filling the report.
+test.each([
+  ["receives no response", noResponse, "NetworkError"],
+  [
+    "is answered `503` on every attempt",
+    () => errorDocument(503, "backendError", "Backend Error"),
+    "ProviderError",
+  ],
+  [
+    "is refused its credential",
+    () => errorDocument(401, "required", "Anonymous caller does not have storage.objects.delete."),
+    "InvalidCredentials",
+  ],
+] as const)("a conditional `delete` that %s rejects", async (_, answer, code) => {
+  withoutBackoff();
+  stubFetch(answer);
+
+  const failure = await rejection(() =>
+    storage().delete("object.txt", { onlyIf: { etag: generation } }),
+  );
+
+  expect(failure).toMatchObject({ code, operation: "delete", key: "object.txt" });
+});
+
+// Spec 4.7: the answer is read as the entry of that key in a batch would be.
+test("a conditional `delete` the principal may not perform reports `AccessDenied` as the key's entry", async () => {
+  stubFetch(() =>
+    errorDocument(
+      403,
+      "insufficientPermissions",
+      "stowage-conformance-denied does not have storage.objects.delete access.",
+    ),
+  );
+
+  const report = await storage().delete("object.txt", { onlyIf: { etag: generation } });
+
+  expect(report.failed).toHaveLength(1);
+  expect(report.failed[0]).toMatchObject({ code: "AccessDenied", key: "object.txt" });
+});
+
+test("a conditional `delete` of an invalid key reports `InvalidKey` without a request", async () => {
+  const sent = stubFetch(deleted);
+
+  const report = await storage().delete("", { onlyIf: { etag: generation } });
+
+  expect(report.requested).toBe(1);
+  expect(report.failed[0]).toMatchObject({ code: "InvalidKey", attempts: 0 });
+  expect(sent).toEqual([]);
+});
+
+// Spec 4.7 and 9.1: an `etag` that is no generation is refused as GCS would refuse it, which is
+// the key's entry on a `delete`.
+test.each(noGenerations)(
+  "a conditional `delete` under `{ etag: %j }` reports `PreconditionFailed` without a request",
+  async (etag) => {
+    const sent = stubFetch(deleted);
+
+    const report = await storage().delete("object.txt", { onlyIf: { etag } });
+
+    expect(report.requested).toBe(1);
+    expect(report.failed).toHaveLength(1);
+    expect(report.failed[0]).toMatchObject({
+      code: "PreconditionFailed",
+      operation: "delete",
+      key: "object.txt",
+      retryable: false,
+      attempts: 0,
+    });
     expect(sent).toEqual([]);
   },
 );

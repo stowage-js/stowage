@@ -1,9 +1,15 @@
-import { isStorageError, type ObjectStat, type StorageError, withRetry } from "@stowage/core";
+import {
+  isStorageError,
+  type ObjectStat,
+  type Precondition,
+  type StorageError,
+  withRetry,
+} from "@stowage/core";
 
 import { type AnsweredRequest, malformedAnswer } from "./answer.ts";
 import type { GcsConfiguration } from "./configuration.ts";
 import { describeResource, readResource } from "./description.ts";
-import { preconditionQuery, type WritePrecondition } from "./precondition.ts";
+import { preconditionQuery } from "./precondition.ts";
 import { resumeIncomplete, send, sendToSession, uploadPath } from "./request.ts";
 import { gcsError, withoutSecrets } from "./storage-error.ts";
 
@@ -12,7 +18,7 @@ export interface SessionStart {
   readonly key: string;
   readonly resource: string;
   /** Stored with the session and checked at its commit, which a refusal leaves dead (spec 9.6). */
-  readonly onlyIf?: WritePrecondition;
+  readonly onlyIf?: Precondition;
   readonly signal?: AbortSignal;
 }
 

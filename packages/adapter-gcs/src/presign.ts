@@ -56,10 +56,10 @@ export interface GcsPresignPutOptions {
   /** Bound as `content-language`, as `cacheControl` is. */
   contentLanguage?: string;
   /**
-   * Checked as `put` checks it, before anything is signed. `"absent"` is signed as
-   * `x-goog-if-generation-match: 0` and handed back in `headers` under that name, so an upload
-   * onto a key that holds an object is refused with `412` (ADR 0074). `{ etag }` is
-   * `Unsupported`, since the storage does not declare `writeIfUnchanged`.
+   * Checked as `put` checks it, before anything is signed, an `etag` that is no generation
+   * refused with `PreconditionFailed` and no URL. Signed as `x-goog-if-generation-match`, `0`
+   * for `"absent"` and the generation for `{ etag }`, and handed back in `headers` under that
+   * name, so an upload the precondition does not hold for is refused with `412` (ADR 0074).
    */
   onlyIf?: Precondition;
 }

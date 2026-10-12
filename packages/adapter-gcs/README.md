@@ -67,7 +67,10 @@ The bundle measures 14.8 kB minified and gzipped, `@stowage/core` included.
   one starting with `.well-known/acme-challenge/`, and one holding `U+FFFE` or `U+FFFF`. An
   addressable key and a prefix are refused by nothing beyond the key rule
   ([spec 9.1](https://github.com/stowage-js/stowage/blob/@stowage/adapter-gcs@0.6.0/docs/spec.md#91-construction)).
-- `delete` sends at most one batch request per 100 keys
+- `delete` sends at most one batch request per 100 keys, and a conditional `delete` one `DELETE`
+  ([spec 9.1](https://github.com/stowage-js/stowage/blob/@stowage/adapter-gcs@0.6.0/docs/spec.md#91-construction)).
+- An `etag` in `onlyIf` is a generation: decimal digits without a leading zero, other than `0`, up
+  to 2⁶³−1. Any other `etag` never matches and is `PreconditionFailed` without a request
   ([spec 9.1](https://github.com/stowage-js/stowage/blob/@stowage/adapter-gcs@0.6.0/docs/spec.md#91-construction)).
 - `get` sends two requests side by side, the object's resource and its media download, since the
   download carries no user metadata. Where a writer replaces the object between them, `get` takes
