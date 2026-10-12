@@ -716,6 +716,14 @@ describe("`If-None-Match`", () => {
     expect(calls).toEqual(["stat", "get"]);
   });
 
+  // Spec 10.3: unlike `acceptUpload`, a read lets such a field through and costs a body.
+  test("with a field that is no list of tags names nothing and is `200`", async () => {
+    const response = await serveConditional({ "if-none-match": '"0123abcd' });
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(sixteenBytes);
+  });
+
   test("without an `etag` holds for any tag and fails for `*` alone", async () => {
     const storage = holding({ etag: undefined });
 
