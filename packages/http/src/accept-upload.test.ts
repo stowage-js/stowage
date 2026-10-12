@@ -500,6 +500,7 @@ describe("a `StorageError` from `put`", () => {
     { row: "`InvalidKey`", fields: { code: "InvalidKey", key: "a/" }, status: 404 },
     { row: "`NotFound` with `key`", fields: { code: "NotFound", key: "a" }, status: 404 },
     { row: "`NotFound` without `key`", fields: { code: "NotFound" }, status: 500 },
+    { row: "`PreconditionFailed`", fields: { code: "PreconditionFailed" }, status: 412 },
     { row: "`NetworkError`", fields: { code: "NetworkError", retryable: true }, status: 503 },
     {
       row: "a retryable `ProviderError`",

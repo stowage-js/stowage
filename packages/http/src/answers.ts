@@ -75,6 +75,8 @@ function statusOf(error: StorageError): number {
       return error.key === undefined ? 500 : 404;
     case "InvalidKey":
       return 404;
+    case "PreconditionFailed":
+      return 412;
     case "NetworkError":
       return 503;
     case "ProviderError":
