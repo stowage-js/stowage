@@ -238,12 +238,13 @@ async function completeUpload(
  * could meet a commit still on its way. The same holds for a `200` that broke before its
  * body said how the commit went, since S3 sends that status before it has decided, and
  * for the caller's abort while the completion was out: the request may have arrived.
- * Only the provider's answer that it did not commit is aborted.
+ * Only the provider's answer that it did not commit is aborted, even where the caller's
+ * signal fired as it arrived: AWS would let a later commit complete a refused upload.
  */
 function mayHaveCommitted(failure: unknown, signal: AbortSignal | undefined): boolean {
-  if (signal?.aborted) return true;
+  if (isStorageError(failure)) return failure.code === "NetworkError";
 
-  return isStorageError(failure) && failure.code === "NetworkError";
+  return signal?.aborted === true;
 }
 
 /**

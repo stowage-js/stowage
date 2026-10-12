@@ -328,6 +328,28 @@ test("a commit its precondition refused aborts the upload without the caller's s
   expect(abort?.headers.has("if-none-match")).toBe(false);
 });
 
+// The refusal says the commit did not happen, whenever the caller's signal fired.
+test("a commit refused while the caller's signal fired still aborts the upload", async () => {
+  const caller = new AbortController();
+  const sent = stubFetch(
+    multipartProvider({
+      complete: () => {
+        caller.abort();
+
+        return preconditionFailed();
+      },
+    }),
+  );
+
+  const failure = await rejection(() =>
+    multipartStorage().put("object.bin", twoParts(), { onlyIf: "absent", signal: caller.signal }),
+  );
+
+  expect(failure).toMatchObject({ code: "PreconditionFailed" });
+  expect(sent.map(stepOf).at(-1)).toBe("abort");
+  expect(sent.at(-1)?.signal).toBeUndefined();
+});
+
 test("an abort that fails after a refused commit is not reported", async () => {
   immediateRetries();
 
