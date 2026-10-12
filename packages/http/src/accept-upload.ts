@@ -65,13 +65,13 @@ export async function acceptUpload(
     throw new TypeError(`\`maxSize\` is ${String(maxSize)}, no non-negative integer or Infinity`);
   }
 
-  if (request.method !== "PUT") return methodNotAllowed("PUT");
-
   // ADR 0052: a body a validator or a parser read before the call would be stored empty
   // or partial, and that is the caller's programmer error, not a client's.
   if (request.bodyUsed) {
     throw new TypeError("The request body was read before `acceptUpload` could store it");
   }
+
+  if (request.method !== "PUT") return methodNotAllowed("PUT");
 
   // RFC 9110 8.4.1: no runtime decodes a request body, so the coded bytes would be stored
   // without their coding.

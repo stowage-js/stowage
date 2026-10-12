@@ -483,6 +483,15 @@ describe("a body already read", () => {
     await expect(acceptUpload(storage, "a", sent, limited())).rejects.toThrow(TypeError);
     expect(storage.puts).toEqual([]);
   });
+
+  // Spec 10.5: the `TypeError`s come before `405`, since they are the caller's mistake.
+  test("rejects with a `TypeError` under any other method too", async () => {
+    const sent = upload(bytes("x"), { method: "POST" });
+
+    await sent.arrayBuffer();
+
+    await expect(acceptUpload(holdingStorage(), "a", sent, limited())).rejects.toThrow(TypeError);
+  });
 });
 
 type Failure = Partial<StorageErrorFields> & Pick<StorageErrorFields, "code">;
