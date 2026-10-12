@@ -68,6 +68,26 @@ export const gcsDivergences: readonly Divergence<GcsEmulator, GcsRealEndpoint>[]
     failureMessagePart: "carrying another `cacheControl` was answered 200",
     ...signatureUnchecked,
   },
+  // ADR 0076: the emulator overwrites under a signed `x-goog-if-generation-match: 0`, measured
+  // while writing the v0.7 spec (#447).
+  {
+    case: "presign/put-if-absent",
+    endpoint: fakeGcsServer,
+    differs:
+      "fake-gcs-server 1.56.1 ignores `x-goog-if-generation-match` on a signed `PUT` and overwrites the object",
+    failureMessagePart: 'bound to `"absent"` onto a key that holds an object was answered 200',
+    settledBy: "gcs",
+  },
+  // ADR 0076: the emulator checks a precondition on the insert and at the commit of a session,
+  // so the cases of `put` need no entry, and drops it on `rewriteTo`.
+  {
+    case: "copy/if-absent",
+    endpoint: fakeGcsServer,
+    differs:
+      "fake-gcs-server 1.56.1 ignores `ifGenerationMatch` on `rewriteTo` and overwrites the destination",
+    failureMessagePart: "onto a key that holds an object, and the call resolved",
+    settledBy: "gcs",
+  },
   {
     case: "move/round-trip",
     failureMessagePart: "Metadata in the request couldn't decode",
@@ -80,6 +100,11 @@ export const gcsDivergences: readonly Divergence<GcsEmulator, GcsRealEndpoint>[]
   },
   {
     case: "move/content-headers",
+    failureMessagePart: "Metadata in the request couldn't decode",
+    ...moveUnserved,
+  },
+  {
+    case: "move/if-absent",
     failureMessagePart: "Metadata in the request couldn't decode",
     ...moveUnserved,
   },
