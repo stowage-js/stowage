@@ -3,7 +3,7 @@ import type { ListOptions, ListPage, ObjectEntry, ObjectListing } from "@stowage
 import { type AnsweredRequest, malformedAnswer, readAnswerJson } from "./answer.ts";
 import type { GcsConfiguration } from "./configuration.ts";
 import { decodeCursor, encodeCursor } from "./cursor.ts";
-import { etagOf, lastModifiedOf, sizeOf } from "./description.ts";
+import { generationOf, lastModifiedOf, sizeOf } from "./description.ts";
 import { arrayOf, fieldOf, stringOf } from "./json.ts";
 import { requireKey } from "./key.ts";
 import { listOptionKeys, optionError, requireKnownOptions } from "./options.ts";
@@ -170,9 +170,9 @@ async function requestPage(
 }
 
 /**
- * Spec 4.6 makes an entry that arrives without a key, a size or a last-modified time a
- * `ProviderError`, which leaves the page unread rather than hand the caller a value made up
- * for what was missing.
+ * Spec 4.6 makes an entry that arrives without a key, a size, a last-modified time or, under
+ * ADR 0071, a generation a `ProviderError`, which leaves the page unread rather than hand the
+ * caller a value made up for what was missing.
  */
 function readListingDocument(answered: AnsweredRequest, document: unknown): ListingDocument {
   const items = fieldOf(document, "items");
@@ -224,5 +224,11 @@ function readEntry(answered: AnsweredRequest, item: unknown): ObjectEntry {
     );
   }
 
-  return { key, size, lastModified, ...etagOf(item) };
+  const generation = generationOf(item);
+
+  if (generation === undefined) {
+    throw malformedAnswer(answered, `the object under ${JSON.stringify(key)} with no generation`);
+  }
+
+  return { key, size, lastModified, etag: generation };
 }

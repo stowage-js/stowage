@@ -266,7 +266,7 @@ test("the bytes travel unchanged, whatever they hold", async () => {
 });
 
 test("`put` resolves with the object the answer describes", async () => {
-  stubFetch(() => resource({ name: "object", size: "5", contentType: "text/plain", etag: "CAE=" }));
+  stubFetch(() => resource({ name: "object", size: "5", contentType: "text/plain" }));
 
   const written = await storage().put("object", "hello", { contentType: "text/plain" });
 
@@ -274,7 +274,7 @@ test("`put` resolves with the object the answer describes", async () => {
     key: "object",
     size: 5,
     lastModified: new Date(updated),
-    etag: "CAE=",
+    etag: "1790665923456000",
     contentType: "text/plain",
     userMetadata: {},
   });
@@ -685,20 +685,20 @@ const codingOperations = [
   ["move", async () => await storage().move("from/a.txt", "to/b.txt")],
 ] as const;
 
-/** A bucket holding an object another tool stored under `coding`, which copies carry along. */
-function codedBucket(coding: string) {
+/** A bucket whose every answer describes its object with `fields`, copies and moves included. */
+function describedBucket(fields: Record<string, unknown>) {
   return (request: SentRequest): Response => {
-    if (request.url.includes("/rewriteTo/")) return rewriteDone({ contentEncoding: coding });
-    if (request.url.includes("/moveTo/")) return moved({ contentEncoding: coding });
+    if (request.url.includes("/rewriteTo/")) return rewriteDone(fields);
+    if (request.url.includes("/moveTo/")) return moved(fields);
 
-    return stored("hello", { contentEncoding: coding })(request);
+    return stored("hello", fields)(request);
   };
 }
 
 test.each(codingOperations)(
   "`%s` reports the stored coding as stored",
   async (_operation, describe) => {
-    stubFetch(codedBucket("GZIP"));
+    stubFetch(describedBucket({ contentEncoding: "GZIP" }));
 
     expect((await describe()).contentEncoding).toBe("GZIP");
   },
@@ -709,7 +709,7 @@ test.each(
     ["identity", ""].map((coding) => [operation, coding, describe] as const),
   ),
 )("`%s` reads %j as no coding", async (_operation, coding, describe) => {
-  stubFetch(codedBucket(coding));
+  stubFetch(describedBucket({ contentEncoding: coding }));
 
   expect("contentEncoding" in (await describe())).toBe(false);
 });
@@ -736,6 +736,40 @@ test("`put` reports no coding", async () => {
 
   expect("contentEncoding" in (await storage().put("object", "hello"))).toBe(false);
 });
+
+// The generation as `etag` (spec 9.4, ADR 0070, ADR 0071)
+
+const generationOperations = [
+  ["put", async () => await storage().put("object", "hello")],
+  ...codingOperations,
+] as const;
+
+test.each(generationOperations)(
+  "`%s` reports the generation as `etag`, not the JSON `etag`",
+  async (_operation, describe) => {
+    stubFetch(describedBucket({ generation: "1790665923456000", etag: "CIDw3uCR2YgDEAE=" }));
+
+    expect((await describe()).etag).toBe("1790665923456000");
+  },
+);
+
+test.each(
+  generationOperations.flatMap(([operation, describe]) =>
+    [undefined, "", 1790665923456000].map(
+      (generation) => [operation, generation, describe] as const,
+    ),
+  ),
+)(
+  "`%s` answered with the generation %j is a `ProviderError`, not an `etag` made up",
+  async (operation, generation, describe) => {
+    stubFetch(describedBucket({ generation }));
+
+    const failure = await failureOf(describe);
+
+    expect(failure).toMatchObject({ code: "ProviderError", operation, status: 200 });
+    expect(failure.message).toContain("no generation");
+  },
+);
 
 test("a signal that already fired rejects `put` with `AbortError` before any request", async () => {
   const sent = stubFetch(() => resource());
@@ -773,7 +807,7 @@ test("`get` sends the resource request and the media download side by side", asy
 });
 
 test("`get` describes the object by its resource and reads the body off the download", async () => {
-  stubFetch(stored("hello", { contentType: "text/markdown", etag: "CAE=" }));
+  stubFetch(stored("hello", { contentType: "text/markdown" }));
 
   const read = await storage().get("object");
 
@@ -781,7 +815,7 @@ test("`get` describes the object by its resource and reads the body off the down
     key: "object",
     size: 5,
     lastModified: new Date(updated),
-    etag: "CAE=",
+    etag: "1790665923456000",
     contentType: "text/markdown",
     userMetadata: {},
   });
@@ -1144,6 +1178,22 @@ test("where the two name different generations, the resource of the body's gener
     `https://storage.googleapis.com/storage/v1/b/conformance/o/object?generation=${laterGeneration}`,
   ]);
   expect(sent).toHaveLength(3);
+});
+
+test("where the resource of the body's generation names no generation, `get` is a `ProviderError`, the body canceled", async () => {
+  const cancel = vi.fn<() => void>();
+  stubFetch(
+    replacedBetween(
+      () => resource({ size: "12", generation: undefined }),
+      new ReadableStream({ cancel }),
+    ),
+  );
+
+  const failure = await failureOf(async () => await storage().get("object"));
+
+  expect(failure).toMatchObject({ code: "ProviderError", operation: "get", status: 200 });
+  expect(failure.message).toContain("no generation");
+  expect(cancel).toHaveBeenCalledOnce();
 });
 
 test.each([
@@ -1828,7 +1878,9 @@ function listingAnswer(fields: Record<string, unknown> = {}): Response {
 
 test("`page()` sends one `objects.list` with `maxResults` and reads its entries", async () => {
   const sent = stubFetch(() =>
-    listingAnswer({ items: [listed("a.txt"), listed("b.txt", { size: "12", etag: "CAE=" })] }),
+    listingAnswer({
+      items: [listed("a.txt"), listed("b.txt", { size: "12", generation: "1790665923457000" })],
+    }),
   );
 
   const page = await storage().list().page();
@@ -1838,8 +1890,8 @@ test("`page()` sends one `objects.list` with `maxResults` and reads its entries"
   ]);
   expect(page).toEqual({
     objects: [
-      { key: "a.txt", size: 5, lastModified: new Date(updated), etag: "CIDw3uCR2YgDEAE=" },
-      { key: "b.txt", size: 12, lastModified: new Date(updated), etag: "CAE=" },
+      { key: "a.txt", size: 5, lastModified: new Date(updated), etag: "1790665923456000" },
+      { key: "b.txt", size: 12, lastModified: new Date(updated), etag: "1790665923457000" },
     ],
     prefixes: [],
     cursor: undefined,
@@ -2023,6 +2075,8 @@ test.each([
   ["a size that is no count of bytes", { size: "-1" }, "no size"],
   ["no last-modified time", { updated: undefined }, "no last-modified time"],
   ["a last-modified time that is no time", { updated: "yesterday" }, "no last-modified time"],
+  ["no generation", { generation: undefined }, "no generation"],
+  ["an empty generation", { generation: "" }, "no generation"],
 ])("an entry with %s is a `ProviderError`, not a value made up", async (_, fields, said) => {
   stubFetch(() => listingAnswer({ items: [listed("a.txt", fields)] }));
 
@@ -2030,14 +2084,6 @@ test.each([
 
   expect(failure).toMatchObject({ code: "ProviderError", operation: "list", status: 200 });
   expect(failure.message).toContain(said);
-});
-
-test("an entry without an etag has none", async () => {
-  stubFetch(() => listingAnswer({ items: [listed("a.txt", { etag: undefined })] }));
-
-  const [entry] = (await storage().list().page()).objects;
-
-  expect(entry).toEqual({ key: "a.txt", size: 5, lastModified: new Date(updated) });
 });
 
 test("a listing answered with a body that is no JSON is a `ProviderError`", async () => {

@@ -154,7 +154,12 @@ test.each(undeclaredCapabilities)(
 test.each(sectioned.filter((manifest) => manifest !== adapterFs))(
   "the README of $name gives the content headers no limit",
   async (manifest) => {
-    const limits = sectionOf(await readmeOf(manifest), "Limits");
+    // ADR 0070 has the README of `adapter-gcs` say that a change another tool makes to the
+    // content headers alone keeps its `etag`: that row limits the `etag`, not the headers.
+    const limits = sectionOf(await readmeOf(manifest), "Limits").replaceAll(
+      /^\| `etag` .*$/gmu,
+      "",
+    );
 
     for (const marker of [
       "contentHeaders",

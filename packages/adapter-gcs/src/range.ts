@@ -2,13 +2,13 @@ import {
   type ByteRange,
   contentCodingRefusal,
   isStorageError,
+  type ObjectStat,
   rangeBoundsRefusal,
   rangeCoversWhole,
   rangeStartRefusal,
   type StorageError,
 } from "@stowage/core";
 
-import type { DescribedObject } from "./description.ts";
 import { requestIdHeader } from "./request.ts";
 import { gcsError } from "./storage-error.ts";
 
@@ -47,15 +47,15 @@ export function reportedDownloadFailure(
   bucket: string,
   key: string,
   range: ByteRange | undefined,
-  described: DescribedObject,
+  stat: ObjectStat,
   failure: unknown,
 ): unknown {
   if (range === undefined || !isUnsatisfiedRange(range, failure)) return failure;
 
   const changedBetweenRequests = { code: "InvalidRequest" as const, message: failure.message };
   const reported =
-    contentCodingRefusal(storedCodingOf(described), key) ??
-    rangeStartRefusal(range, described.stat.size, key) ??
+    contentCodingRefusal(storedCodingOf(stat), key) ??
+    rangeStartRefusal(range, stat.size, key) ??
     changedBetweenRequests;
 
   return gcsError(bucket, {
@@ -81,7 +81,7 @@ export function answeredRangeRefusal(
   bucket: string,
   key: string,
   range: ByteRange | undefined,
-  described: DescribedObject,
+  stat: ObjectStat,
   response: Response,
 ): StorageError | undefined {
   if (range === undefined) return undefined;
@@ -93,11 +93,11 @@ export function answeredRangeRefusal(
     status: response.status,
     requestId: response.headers.get(requestIdHeader) ?? undefined,
   };
-  const codingRefusal = contentCodingRefusal(storedCodingOf(described, response), key);
+  const codingRefusal = contentCodingRefusal(storedCodingOf(stat, response), key);
 
   if (codingRefusal !== undefined) return gcsError(bucket, { ...codingRefusal, ...answered });
 
-  const { size } = described.stat;
+  const { size } = stat;
 
   if (response.status === partialContent || rangeCoversWhole(range, size)) return undefined;
 
@@ -116,9 +116,6 @@ export function answeredRangeRefusal(
  * The value naming the object's stored content coding, off its resource or its media download.
  * GCS sends `identity` on the download of an object stored without one.
  */
-function storedCodingOf(
-  described: DescribedObject,
-  response?: Response,
-): string | null | undefined {
-  return described.stat.contentEncoding ?? response?.headers.get(storedCodingHeader);
+function storedCodingOf(stat: ObjectStat, response?: Response): string | null | undefined {
+  return stat.contentEncoding ?? response?.headers.get(storedCodingHeader);
 }

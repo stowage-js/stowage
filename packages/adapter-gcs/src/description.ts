@@ -12,10 +12,9 @@ export const defaultContentType = "application/octet-stream";
 /** A decimal count of bytes, which the JSON API sends as a string to keep 64 bits whole. */
 const decimalSize = /^(?:0|[1-9]\d*)$/u;
 
-/** The object's description, and what of its resource `get` compares with the media download. */
-export interface DescribedObject {
-  readonly stat: ObjectStat;
-  readonly generation?: string;
+/** A description whose `etag` is the generation of the object it describes (spec 9.4). */
+export interface GenerationStat extends ObjectStat {
+  readonly etag: string;
 }
 
 /**
@@ -27,7 +26,7 @@ export async function readDescription(
   key: string,
   operation: string,
   read: { readonly signal?: AbortSignal; readonly generation?: string } = {},
-): Promise<DescribedObject> {
+): Promise<GenerationStat> {
   const response = await send(configuration, {
     method: "GET",
     operation,
@@ -38,10 +37,7 @@ export async function readDescription(
   });
   const resource = await readResource(configuration.bucket, key, operation, response);
 
-  return {
-    stat: describeResource(configuration.bucket, key, operation, response, resource),
-    generation: stringOf(fieldOf(resource, "generation")),
-  };
+  return describeResource(configuration.bucket, key, operation, response, resource);
 }
 
 /** The object resource the JSON API answers a metadata read and an upload with, read to the end. */
@@ -55,9 +51,9 @@ export async function readResource(
 }
 
 /**
- * Spec 4.4 out of the object resource: `size`, the time of `updated`, the `etag`, the
- * content headers, the content coding and the user metadata. The key is the one the call
- * named, which the resource's `name` repeats byte for byte.
+ * Spec 4.4 out of the object resource: `size`, the time of `updated`, the generation as
+ * `etag`, the content headers, the content coding and the user metadata. The key is the one
+ * the call named, which the resource's `name` repeats byte for byte.
  */
 export function describeResource(
   bucket: string,
@@ -65,20 +61,22 @@ export function describeResource(
   operation: string,
   response: Response,
   resource: unknown,
-): ObjectStat {
+): GenerationStat {
   const size = sizeOf(resource);
   const lastModified = lastModifiedOf(resource);
+  const generation = generationOf(resource);
   const contentType = fieldOf(resource, "contentType");
   const answered = resourceAnswer(bucket, key, operation, response);
 
   if (size === undefined) throw malformedAnswer(answered, "no size");
   if (lastModified === undefined) throw malformedAnswer(answered, "no last-modified time");
+  if (generation === undefined) throw malformedAnswer(answered, "no generation");
 
   return {
     key,
     size,
     lastModified,
-    ...etagOf(resource),
+    etag: generation,
     contentType:
       typeof contentType === "string" && contentType !== "" ? contentType : defaultContentType,
     ...readContentHeaders(resource),
@@ -112,11 +110,12 @@ export function lastModifiedOf(resource: unknown): Date | undefined {
   return Number.isNaN(modified) ? undefined : new Date(modified);
 }
 
-/** The resource's `etag` as the field of a description, which has none where GCS sent none. */
-export function etagOf(resource: unknown): { readonly etag?: string } {
-  const etag = fieldOf(resource, "etag");
-
-  return typeof etag === "string" && etag !== "" ? { etag } : {};
+/**
+ * The resource's `generation`, which a description reports as `etag`: GCS checks a
+ * precondition against the generation alone, never against the JSON `etag` (ADR 0070).
+ */
+export function generationOf(resource: unknown): string | undefined {
+  return stringOf(fieldOf(resource, "generation"));
 }
 
 function resourceAnswer(
