@@ -23,6 +23,8 @@ export const azureProbeNames = {
   flowOneOnWorkerd: "flow/1-large-upload measured on workerd",
   createPermission:
     "a user delegation SAS with `sp=c` admits an upload onto a free key and refuses one onto an existing blob",
+  matchHeader:
+    "a user delegation SAS naming `if-match` in `srh` admits the signed `etag` and refuses another, none, or a blob that changed",
 } as const;
 
 const account = [azureBlobAccount];
@@ -110,6 +112,17 @@ export const azureBlobFirstRunPoints: readonly FirstRunPoint[] = [
     promise:
       "Azure Blob: a user delegation SAS with `sp=c` admits an upload onto a free key and refuses one onto an existing blob with `403` (ADR 0074)",
     tests: [conformanceCase("presign/put-if-absent"), probe(azureProbeNames.createPermission)],
+    endpoints: account,
+    runtime: "node",
+  },
+  {
+    promise:
+      "Azure Blob: a user delegation SAS naming `if-match` in `srh` admits the signed `etag`, refuses a request without it or with another with `403`, and answers `412` on a blob that changed (ADR 0074)",
+    tests: [
+      conformanceCase("presign/put-if-unchanged"),
+      conformanceCase("presign/put-rejects-precondition"),
+      probe(azureProbeNames.matchHeader),
+    ],
     endpoints: account,
     runtime: "node",
   },
