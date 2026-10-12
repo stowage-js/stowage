@@ -79,9 +79,9 @@ export const azureBlobDivergences: readonly Divergence<AzureBlobEmulator, AzureB
       failureMessagePart: "carrying the content headers answered 403 and not a success",
       ...signedHeadersUnbound,
     },
-    // ADR 0076: Azurite holds `sp=c`, admitting an upload onto a free key and refusing one
-    // onto an existing blob with `403 AuthorizationPermissionMismatch`, measured under a SAS
-    // whose `srh` names nothing; what fails is the binding of `srh` the URL also carries.
+    // Not `sp=c`, which ADR 0076 left unmeasured: a probe under a SAS whose `srh` names nothing
+    // found Azurite admitting an upload onto a free key and refusing one onto an existing blob
+    // with `403 AuthorizationPermissionMismatch`. What fails is the binding of `srh`.
     {
       case: "presign/put-if-absent",
       failureMessagePart: "onto a free key answered 403 and not a success",
