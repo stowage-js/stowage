@@ -2,6 +2,8 @@ name: CI
 
 on:
   pull_request:
+    # `ready_for_review` runs the checks a draft skipped.
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
 
@@ -15,6 +17,9 @@ permissions:
 jobs:
   checks:
     name: Node ${{ matrix.node }}
+    # A draft gets the title check of `pr-title.yml` alone, and every job here waits until it
+    # is ready for review. `sonar` is skipped with `checks`, which it needs.
+    if: github.event_name == 'push' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -103,6 +108,7 @@ jobs:
   # so neither a tarball missing a file nor a block failing at run time would show there.
   quickstart:
     name: Quickstart
+    if: github.event_name == 'push' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -146,6 +152,7 @@ jobs:
 
   runtimes:
     name: ${{ matrix.name }}
+    if: github.event_name == 'push' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -222,6 +229,7 @@ jobs:
   # from the macOS jobs of `conformance-full.yml`, and the required checks follow it.
   macos:
     name: ${{ matrix.name }} on macOS
+    if: github.event_name == 'push' || !github.event.pull_request.draft
     runs-on: macos-latest
     strategy:
       fail-fast: false
