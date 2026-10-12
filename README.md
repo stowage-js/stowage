@@ -59,7 +59,7 @@ await storage.delete("notes/hello.txt");
 - **No SDK beneath an adapter.** The adapters for S3, Azure Blob and GCS speak their provider's
   wire protocol themselves, over `fetch`, Web Crypto and web streams, and depend on
   `@stowage/core` alone ([ADR 0003](docs/adr/0003-own-the-s3-wire-protocol.md)). As measured for
-  0.6.0, each of them stays under 15 kB minified and gzipped with `@stowage/core` included
+  0.7.0, each of them stays under 18 kB minified and gzipped with `@stowage/core` included
   ([`adapter-s3`](packages/adapter-s3#runtimes),
   [`adapter-azure-blob`](packages/adapter-azure-blob#runtimes),
   [`adapter-gcs`](packages/adapter-gcs#runtimes)).
