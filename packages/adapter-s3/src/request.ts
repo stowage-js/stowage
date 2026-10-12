@@ -1,6 +1,5 @@
 import {
   type FailureReading,
-  type PreconditionRule,
   type PreparedAttempt,
   type RefusedAnswer,
   sendRequest,
@@ -11,6 +10,7 @@ import type { S3Configuration } from "./configuration.ts";
 import { resolveCredentials } from "./credentials.ts";
 import { readErrorDocument } from "./error-document.ts";
 import { sha256Hex } from "./hash.ts";
+import type { S3PreconditionRule } from "./precondition.ts";
 import { isRefusedTemporaryCredential, readProviderFailure } from "./provider-code.ts";
 import { signRequest } from "./sign.ts";
 
@@ -34,12 +34,7 @@ export interface S3Request {
    * Set on a request that carries a precondition, whose refusal after an attempt without a
    * response or with a `5xx` is that attempt's failure (spec 7.5, ADR 0073).
    */
-  readonly precondition?: PreconditionRule;
-  /**
-   * Set on a request under `onlyIf: { etag }`: whether a `NoSuchKey` naming `named` in its
-   * `<Key>` is the precondition's refusal rather than a missing key (spec 7.9).
-   */
-  readonly refusedByMissing?: (named: string | undefined) => boolean;
+  readonly precondition?: S3PreconditionRule;
   /** Told when an attempt is signed under a credential resolved with `forceRefresh: true`. */
   readonly onRefresh?: () => void;
 }
@@ -170,13 +165,12 @@ function readFailure(request: S3Request, answer: RefusedAnswer): FailureReading 
     bucketRegion: answer.headers.get("x-amz-bucket-region") ?? undefined,
     underSessionToken,
     underRefreshedCredential: answer.refreshed,
+    providerKey: document.key,
+    noSuchKeyRefusal: request.precondition?.noSuchKeyRefusal,
   });
 
-  const refusedByMissing =
-    document.code === "NoSuchKey" && request.refusedByMissing?.(document.key) === true;
-
   return {
-    code: refusedByMissing ? "PreconditionFailed" : failure.code,
+    code: failure.code,
     message: failure.message,
     // Spec 4.10: an unset `key` is what tells a missing bucket from a missing object, which
     // share the code `NotFound` (ADR 0043).
