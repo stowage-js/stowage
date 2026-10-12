@@ -1,10 +1,20 @@
 import type { Stats } from "node:fs";
-import { lstat, realpath, rename, rmdir, stat, unlink } from "node:fs/promises";
+import { link, lstat, realpath, rename, rmdir, stat, unlink } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 
+import type { StorageError } from "@stowage/core";
+
 import { holdDirectoryMutations } from "./directory-lock.ts";
-import { fsErrorFrom, isAbsence, refusesName } from "./errno.ts";
-import { type FsAccessContext, pathOf, within } from "./paths.ts";
+import {
+  asFailure,
+  errnoOf,
+  fsErrorFrom,
+  isAbsence,
+  refusesHardLinks,
+  refusesName,
+} from "./errno.ts";
+import { absent, type FsAccessContext, pathOf, within } from "./paths.ts";
+import { fsError } from "./storage-error.ts";
 
 /**
  * The file one key names, as the operations that act on the file itself reach it: the
@@ -88,7 +98,7 @@ export async function removeObjectFile(context: FsAccessContext, file: ObjectFil
 export async function renameObjectFile(
   context: FsAccessContext,
   file: ObjectFile,
-  destination: { readonly context: FsAccessContext; readonly path: string },
+  destination: WriteDestination,
 ): Promise<void> {
   try {
     await rename(file.path, destination.path);
@@ -98,16 +108,162 @@ export async function renameObjectFile(
     // refuses concerns the file it takes away from the source. The lease stays with the
     // caller, which still has to take back the directories it created for the destination
     // before anyone else may remove or reuse them.
-    const concerned = refusesName(thrown) ? destination.context : context;
-
-    throw fsErrorFrom(thrown, { ...concerned, access: "write" });
+    throw fsErrorFrom(thrown, { ...concernedBy(thrown, context, destination), access: "write" });
   }
 
+  // POSIX has a rename between two names of one file leave both in place, and a conditional
+  // `move` of a key holding a link leaves two keys naming one file (ADR 0072).
+  if (await namesOneFile(context, file.path, destination)) await unlinkSource(context, file);
+
+  await leaveSource(context, file);
+}
+
+/**
+ * Moves the file to the path where that path holds nothing yet: links it there, then removes
+ * it under the source, so that between the two steps the object is under both keys (spec 6).
+ * A key holding a symbolic link has the file it resolves to linked, since macOS `link` follows
+ * a link and Linux does not, and the destination holds the same bytes on both (ADR 0072).
+ */
+export async function linkObjectFile(
+  context: FsAccessContext,
+  file: ObjectFile,
+  destination: WriteDestination,
+): Promise<void> {
+  const resolved = await resolveWithin(context, file.path);
+
+  // The source went away since it was found, removed by a writer outside this process.
+  if (resolved === undefined) throw absent(context, 1);
+
+  try {
+    await linkWhereAbsent(resolved, destination);
+  } catch (thrown) {
+    // The lease stays with the caller, as after a refused rename.
+    throw asFailure(thrown, { ...concernedBy(thrown, context, destination), access: "write" });
+  }
+
+  await unlinkSource(context, file);
+  await leaveSource(context, file);
+}
+
+/**
+ * The key a failed move names. The source already holds its name, so a name the file system
+ * refuses is the destination's, and anything else concerns the file taken from the source.
+ */
+function concernedBy(
+  thrown: unknown,
+  context: FsAccessContext,
+  destination: WriteDestination,
+): FsAccessContext {
+  return refusesName(thrown) ? destination.context : context;
+}
+
+/** Whether the source still names the file the destination now names. */
+async function namesOneFile(
+  context: FsAccessContext,
+  source: string,
+  destination: WriteDestination,
+): Promise<boolean> {
+  const left = await lookUp(context, async () => await lstat(source));
+
+  if (left === undefined) return false;
+
+  const landed = await lookUp(destination.context, async () => await lstat(destination.path));
+
+  return landed?.ino === left.ino && landed.dev === left.dev;
+}
+
+/** Removes the source once the destination holds the file. */
+async function unlinkSource(context: FsAccessContext, file: ObjectFile): Promise<void> {
+  try {
+    await unlink(file.path);
+  } catch (thrown) {
+    // Spec 4.10: the delete failed, and the destination stays where it landed.
+    if (!isAbsence(thrown)) throw fsErrorFrom(thrown, { ...context, access: "write" });
+  }
+}
+
+/** Removes what the source left empty behind it, and hands back the lease. */
+async function leaveSource(context: FsAccessContext, file: ObjectFile): Promise<void> {
   try {
     await pruneEmptyDirectories(context.realRoot, dirname(file.path));
   } finally {
     file.release();
   }
+}
+
+/** Where a write puts the file it lands, together with the key that names it. */
+export interface WriteDestination {
+  readonly context: FsAccessContext;
+  readonly path: string;
+}
+
+/**
+ * Puts the file under the path where the path holds nothing yet. `link(2)` refuses a name
+ * that holds anything, atomically against every other process, where `rename` replaces it
+ * (ADR 0072). What spec 6 names for a refused `link` rejects as that, and every other failure
+ * as the syscall threw it.
+ */
+export async function linkWhereAbsent(file: string, destination: WriteDestination): Promise<void> {
+  try {
+    await link(file, destination.path);
+  } catch (thrown) {
+    throw (await linkRefusal(thrown, destination)) ?? thrown;
+  }
+}
+
+async function linkRefusal(
+  thrown: unknown,
+  { context, path }: WriteDestination,
+): Promise<StorageError | undefined> {
+  const errno = errnoOf(thrown);
+  const failure = {
+    operation: context.operation,
+    key: context.key,
+    attempts: 1,
+    providerCode: errno,
+    cause: thrown,
+  };
+
+  if (refusesHardLinks(thrown)) {
+    return fsError(context.root, {
+      ...failure,
+      code: "ProviderError",
+      message: 'The file system holds no hard links, which `onlyIf: "absent"` is held through',
+      retryable: false,
+    });
+  }
+
+  if (errno !== "EEXIST") return undefined;
+
+  // A name that holds no object, which answers `exists` with `false`, is no precondition
+  // failing: a caller reading the key back would meet `NotFound` and go around again.
+  if (!(await heldByObject(context, path))) {
+    return fsError(context.root, {
+      ...failure,
+      code: "InvalidRequest",
+      message: `The key ${JSON.stringify(context.key)} names no object, and something else holds its name`,
+    });
+  }
+
+  return fsError(context.root, {
+    ...failure,
+    code: "PreconditionFailed",
+    message: `The key ${JSON.stringify(context.key)} holds an object`,
+  });
+}
+
+/**
+ * Whether an object held the name `link` met: a file, or a link resolving to one below the
+ * root (spec 6).
+ */
+async function heldByObject(context: FsAccessContext, path: string): Promise<boolean> {
+  const held = await lookUp(context, async () => await lstat(path));
+
+  // Another caller removed what `link` met before it could be looked at. It held the name
+  // as the write was to take effect, which is the precondition failing.
+  if (held === undefined) return true;
+
+  return (await describe(context, path))?.isFile() === true;
 }
 
 async function pruneEmptyDirectories(realRoot: string, directory: string): Promise<void> {

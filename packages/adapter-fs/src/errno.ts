@@ -74,6 +74,18 @@ export function refusesName(thrown: unknown): boolean {
   return errnoOf(thrown) === "EILSEQ";
 }
 
+// What `link` answers on a file system without hard links, as FAT, exFAT and some network
+// mounts are. `EPERM` reads as `AccessDenied` everywhere else, but the file `link` was
+// handed is one this adapter just wrote, in a directory it just wrote to (ADR 0072).
+const noHardLinks = new Set(["EPERM", "ENOTSUP", "EOPNOTSUPP"]);
+
+/** The file system refuses `link` because it holds no hard links (spec 6). */
+export function refusesHardLinks(thrown: unknown): boolean {
+  const errno = errnoOf(thrown);
+
+  return errno !== undefined && noHardLinks.has(errno);
+}
+
 /**
  * The key names nothing this storage holds, which is what an absent file amounts to, and
  * so is a name a file system refuses on a lookup: no file can be held under it.
