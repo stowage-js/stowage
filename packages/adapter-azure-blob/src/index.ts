@@ -26,7 +26,7 @@ import {
 } from "./configuration.ts";
 import { contentHeaderFields } from "./content-headers.ts";
 import { type ObjectCopy, copyBlob } from "./copy.ts";
-import { deleteBelow, deleteKeys } from "./delete.ts";
+import { deleteBelow, deleteIfUnchanged, deleteKeys } from "./delete.ts";
 import { defaultContentType, describeResponse } from "./description.ts";
 import { requireKey } from "./key.ts";
 import { createListing } from "./listing.ts";
@@ -39,7 +39,7 @@ import {
   putOptionKeys,
   requireKnownOptions,
 } from "./options.ts";
-import { readWritePrecondition, refusePrecondition } from "./precondition.ts";
+import { readDeletePrecondition, readWritePrecondition } from "./precondition.ts";
 import {
   type AzureBlobPresignGetOptions,
   type AzureBlobPresignPutOptions,
@@ -62,8 +62,9 @@ export interface AzureBlobStorage extends Storage {
   /** Sends at most one Blob Batch request per 256 keys. */
   delete(...keys: readonly string[]): Promise<DeleteReport>;
   /**
-   * Deletes the key as `delete(key)` does, under the signal. Refuses every `onlyIf` while the
-   * storage declares no `deleteIfUnchanged`.
+   * Deletes the key as `delete(key)` does, under the signal. With `onlyIf: { etag }` it sends
+   * one `Delete Blob` carrying `If-Match`, and a key that holds another blob, or none, is one
+   * `PreconditionFailed` entry.
    */
   delete(key: string, options: DeleteOptions): Promise<DeleteReport>;
   /**
@@ -90,11 +91,13 @@ export function azureBlobStorage(options: AzureBlobAdapterOptions): AzureBlobSto
 
 const azureBlobCapabilities: readonly CapabilityName[] = Object.freeze([
   "contentHeaders",
+  "deleteIfUnchanged",
   "keyBytesPreserved",
   "presignedUrls",
   "rangeReads",
   "userMetadata",
   "writeIfAbsent",
+  "writeIfUnchanged",
 ]);
 
 const utf8 = new TextEncoder();
@@ -231,9 +234,13 @@ class AzureBlobContainerStorage implements AzureBlobStorage {
     const [key, options] = args;
 
     requireKnownOptions(this.bucket, options, deleteOptionKeys, "delete");
-    refusePrecondition(this.bucket, options.onlyIf, "delete", "delete", key, this.capabilities);
+    const onlyIf = readDeletePrecondition(this.bucket, options.onlyIf, key, this.capabilities);
 
     options.signal?.throwIfAborted();
+
+    if (onlyIf !== undefined) {
+      return await deleteIfUnchanged(this.#configuration, key, onlyIf, options.signal);
+    }
 
     return await deleteKeys(this.#configuration, [key], {
       operation: "delete",

@@ -167,7 +167,7 @@ test("an unknown option key is `InvalidOption` naming it", async () => {
   expect(put.message).toContain("`userMetadata`");
 });
 
-test("`onlyIf: { etag }` is `Unsupported` naming `writeIfUnchanged` before anything is sent", async () => {
+test("`onlyIf` naming a weak tag is `InvalidOption` before the user delegation key is requested", async () => {
   const sent = stubFetch(delegationKey);
   const failure = await failureOf(
     async () =>
@@ -175,13 +175,12 @@ test("`onlyIf: { etag }` is `Unsupported` naming `writeIfUnchanged` before anyth
         expiresIn: 300,
         contentType: "text/plain",
         contentLength: 1,
-        onlyIf: { etag: "abc" },
+        onlyIf: { etag: "W/abc" },
       }),
   );
 
   expect(failure).toMatchObject({
-    code: "Unsupported",
-    capability: "writeIfUnchanged",
+    code: "InvalidOption",
     operation: "presignPut",
     key: "a.txt",
     attempts: 0,
@@ -388,6 +387,33 @@ test('`presignPut` with `onlyIf: "absent"` signs `sp=c` in place of `sp=w`, with
     queryOf(unconditional.url).filter(([name]) => name !== "sp" && name !== "sig"),
   );
   expect(absent.headers).toEqual(unconditional.headers);
+});
+
+// Spec 8.9 and ADR 0074: Azure signs a name in `srh` as written there, so `if-match` goes in
+// lower case, after the content headers.
+test("`presignPut` with `onlyIf: { etag }` keeps `sp=w`, appends `if-match` to `srh` and hands it back quoted", async () => {
+  stubFetch(delegationKey);
+
+  const presigned = await storage().presignPut("a.txt", {
+    expiresIn: 300,
+    contentType: "text/plain",
+    contentLength: 11,
+    cacheControl: "no-cache",
+    onlyIf: { etag: "0x8DCA1B2C3D4E5F6" },
+  });
+
+  expect(queryOf(presigned.url)).toContainEqual(["sp", "w"]);
+  expect(queryOf(presigned.url)).toContainEqual([
+    "srh",
+    "content-type,content-length,x-ms-blob-type,x-ms-blob-content-type,x-ms-blob-cache-control,if-match",
+  ]);
+  expect(presigned.headers).toEqual({
+    "content-type": "text/plain",
+    "x-ms-blob-type": "BlockBlob",
+    "x-ms-blob-content-type": "text/plain",
+    "x-ms-blob-cache-control": "no-cache",
+    "if-match": '"0x8DCA1B2C3D4E5F6"',
+  });
 });
 
 test("`presignPut` appends the `x-ms-blob-*` name of each content header given to `srh` and hands it back", async () => {

@@ -69,6 +69,10 @@ export const azureBlobDivergences: readonly Divergence<AzureBlobEmulator, AzureB
     { case: "move/content-headers", failureMessagePart: notImplemented, ...copyUnimplemented },
     { case: "copy/if-absent", failureMessagePart: notImplemented, ...copyUnimplemented },
     { case: "move/if-absent", failureMessagePart: notImplemented, ...copyUnimplemented },
+    { case: "copy/if-unchanged", failureMessagePart: notImplemented, ...copyUnimplemented },
+    { case: "move/if-unchanged", failureMessagePart: notImplemented, ...copyUnimplemented },
+    // Spec 4.4: the case reads the `etag` that `copy` and `move` resolve with, too.
+    { case: "stat/etag-promised", failureMessagePart: notImplemented, ...copyUnimplemented },
     {
       case: "presign/put",
       failureMessagePart: "answered 403 and not a success",
@@ -87,6 +91,14 @@ export const azureBlobDivergences: readonly Divergence<AzureBlobEmulator, AzureB
       failureMessagePart: "onto a free key answered 403 and not a success",
       ...signedHeadersUnbound,
     },
+    {
+      case: "presign/put-if-unchanged",
+      failureMessagePart: "bound to the current `etag` answered 403 and not a success",
+      ...signedHeadersUnbound,
+    },
+    // Not `presign/put-rejects-precondition`, which passes: Azurite refuses every upload under
+    // a SAS whose `srh` names a header, so each deviation the case sends is refused whatever it
+    // carries. The account in the `slow` tier is what tells the binding apart.
     {
       case: "flow/2-presigned-put",
       failureMessagePart: "presigned URL was answered 403",

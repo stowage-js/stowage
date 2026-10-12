@@ -231,6 +231,56 @@ describe.skipIf(!scheduled)(firstRunSuite, () => {
     expect((await storage().stat(key)).size).toBe(body.byteLength);
   });
 
+  // Spec 8.9 and ADR 0074: `presignPut` binds "unchanged" as a signed `if-match`, so a request
+  // that drops or swaps it fails the signature with `403`, and one carrying the signed `etag`
+  // onto a blob that changed fails the precondition with `412`, which `presign/put-if-unchanged`
+  // asserts only as a `4xx`. The upload that succeeds is the change the last one meets.
+  test(azureProbeNames.matchHeader, async ({ task }) => {
+    const key = `${prefix}match-header.txt`;
+    const body = utf8.encode("an upload through a URL bound to an etag");
+
+    await storage().put(key, "the blob the URL is bound to", { contentType: "text/plain" });
+
+    const { etag = "" } = await storage().stat(key);
+    const { url, headers } = await storage().presignPut(key, {
+      expiresIn: 300,
+      contentType: "text/plain",
+      contentLength: body.byteLength,
+      onlyIf: { etag },
+    });
+    const upload = async (
+      ifMatch: string | undefined,
+    ): Promise<{ status: number; code: string }> => {
+      const sent = new Headers(headers);
+
+      if (ifMatch === undefined) sent.delete("if-match");
+      else sent.set("if-match", ifMatch);
+
+      const response = await fetch(url, { method: "PUT", headers: sent, body });
+
+      await response.arrayBuffer();
+
+      return { status: response.status, code: response.headers.get("x-ms-error-code") ?? "" };
+    };
+    const signed = headers["if-match"];
+    const answers = [
+      await upload(undefined),
+      await upload('"0x8D0000000000000"'),
+      await upload(signed),
+      await upload(signed),
+    ];
+    const [withoutIt, withAnother, withTheSigned, ontoChanged] = answers.map(({ status, code }) =>
+      code === "" ? `${status}` : `${status} \`${code}\``,
+    );
+
+    task.meta.observed =
+      `${withoutIt} without \`if-match\`, ${withAnother} with another \`etag\`, ` +
+      `${withTheSigned} with the signed one, then ${ontoChanged} onto the blob it wrote`;
+
+    expect(answers.map(({ status }) => status)).toEqual([403, 403, 201, 412]);
+    expect((await storage().stat(key)).size).toBe(body.byteLength);
+  });
+
   // Spec 18 records whether Azure collapses runs of spaces in a value `srh` binds before it
   // compares, as SigV4 and GOOG4 do. The adapter signs the value as given, so a service that
   // collapses admits two spaces sent where one was signed, and refuses a value signed with two.

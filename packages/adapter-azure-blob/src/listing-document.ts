@@ -64,12 +64,14 @@ function readEntry(answered: AnsweredRequest, entry: XmlElement): ObjectEntry {
     );
   }
 
-  return {
-    key,
-    size,
-    lastModified: new Date(lastModified),
-    etag: etagOf(textOf(properties, "Etag")),
-  };
+  const etag = unquotedEtag(textOf(properties, "Etag") ?? "");
+
+  // Spec 8.4: promised by spec 4.4 since the adapter declares `writeIfUnchanged`.
+  if (etag === "") {
+    throw malformedAnswer(answered, `the object under ${JSON.stringify(key)} with no entity tag`);
+  }
+
+  return { key, size, lastModified: new Date(lastModified), etag };
 }
 
 /**
@@ -104,12 +106,6 @@ function sizeOf(text: string | undefined): number | undefined {
   const size = Number(text);
 
   return Number.isSafeInteger(size) ? size : undefined;
-}
-
-function etagOf(text: string | undefined): string | undefined {
-  if (text === undefined || text === "") return undefined;
-
-  return unquotedEtag(text);
 }
 
 /** Azure ends a listing with an empty `NextMarker`, and one of text continues it. */

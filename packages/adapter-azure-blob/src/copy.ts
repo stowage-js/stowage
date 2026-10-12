@@ -1,10 +1,15 @@
-import { isStorageError, type ObjectStat, type StorageError } from "@stowage/core";
+import {
+  isStorageError,
+  type ObjectStat,
+  type Precondition,
+  type StorageError,
+} from "@stowage/core";
 
 import type { AzureBlobConfiguration } from "./configuration.ts";
 import type { AzureBlobCredentials } from "./credentials.ts";
 import { contentHeaderNames } from "./content-headers.ts";
 import { describeResponse } from "./description.ts";
-import { preconditionHeaders, preconditionRule, type WritePrecondition } from "./precondition.ts";
+import { preconditionHeaders, preconditionRule } from "./precondition.ts";
 import { blobUrl, send } from "./request.ts";
 import { sasWindow, signServiceSas } from "./sas.ts";
 import type { HeaderField } from "./sign.ts";
@@ -28,7 +33,7 @@ export interface ObjectCopy {
   readonly to: string;
   readonly operation: string;
   /** Applies to `to`. */
-  readonly onlyIf?: WritePrecondition;
+  readonly onlyIf?: Precondition;
   readonly signal?: AbortSignal;
 }
 

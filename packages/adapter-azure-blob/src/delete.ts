@@ -4,8 +4,10 @@ import {
   batchContentType,
   type BatchSubresponse,
   type DeleteReport,
+  isStorageError,
   readSubresponses,
   type StorageError,
+  type StorageErrorCode,
 } from "@stowage/core";
 
 import {
@@ -18,6 +20,7 @@ import type { AzureBlobConfiguration } from "./configuration.ts";
 import type { AzureBlobCredentials } from "./credentials.ts";
 import { keyRefusal } from "./key.ts";
 import { maxPageSize, walkPages } from "./listing.ts";
+import { type EtagPrecondition, preconditionHeaders, preconditionRule } from "./precondition.ts";
 import { providerError } from "./provider-code.ts";
 import { authorizeHeaders, errorMessageOf, requestPath, send } from "./request.ts";
 
@@ -62,6 +65,66 @@ export async function deleteKeys(
   }
 
   return { requested: keys.length, failed };
+}
+
+/**
+ * Spec 8.1: a conditional `delete` is one `Delete Blob`, never a Blob Batch, whose answer is
+ * read as that key's entry would be in a batch (spec 4.7, ADR 0071).
+ */
+export async function deleteIfUnchanged(
+  configuration: AzureBlobConfiguration,
+  key: string,
+  onlyIf: EtagPrecondition,
+  signal: AbortSignal | undefined,
+): Promise<DeleteReport> {
+  const operation = "delete";
+  const refusal = keyRefusal(configuration.container, key, "addressable", operation);
+
+  if (refusal !== undefined) return { requested: 1, failed: [refusal] };
+
+  let lastFailureRead: StorageErrorCode | undefined;
+
+  try {
+    const response = await send(configuration, {
+      method: "DELETE",
+      operation,
+      key,
+      headers: preconditionHeaders(onlyIf),
+      signal,
+      precondition: preconditionRule(onlyIf),
+      onRefusal: (reading) => {
+        lastFailureRead = reading.code;
+      },
+    });
+
+    await response.body?.cancel();
+
+    return { requested: 1, failed: [] };
+  } catch (failure) {
+    if (!isStorageError(failure)) throw failure;
+
+    // ADR 0073: a refusal after an attempt without a response or with a `5xx` arrives as that
+    // attempt's failure, and is the key's entry all the same.
+    if (lastFailureRead === "PreconditionFailed" || !failsWholeRequest(failure)) {
+      return { requested: 1, failed: [failure] };
+    }
+
+    throw failure;
+  }
+}
+
+/**
+ * Spec 4.7: what would refuse a Blob Batch as a whole rather than one of its subrequests: no
+ * answer, a credential refused, a `5xx` the budget ran out on, and the missing container of
+ * spec 8.4.
+ */
+function failsWholeRequest(failure: StorageError): boolean {
+  return (
+    failure.code === "NetworkError" ||
+    failure.code === "InvalidCredentials" ||
+    failure.retryable ||
+    isMissingContainer(failure)
+  );
 }
 
 /**
