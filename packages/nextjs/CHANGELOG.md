@@ -1,5 +1,16 @@
 # @stowage/nextjs
 
+## 0.7.0
+
+### Patch Changes
+
+- Updated dependencies [f9c788d]
+- Updated dependencies [f9c788d]
+- Updated dependencies [49c0158]
+- Updated dependencies [ec7e2d8]
+- Updated dependencies [2778693]
+  - @stowage/core@0.7.0
+
 ## 0.6.0
 
 ### Patch Changes

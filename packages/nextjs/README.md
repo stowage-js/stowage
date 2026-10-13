@@ -75,7 +75,7 @@ Next.js routes a `HEAD` to `GET` with the request's method kept, which `serveObj
 ## Runtimes
 
 Node 24 and later, with the peer `next` `^16.3.8`. Its floor is 16.3.8, and at this release
-CI ran 16.3.8 as the newest release of Next.js 16, each through `next build` and `next start` on
+CI ran 16.4.0 as the newest release of Next.js 16, each through `next build` and `next start` on
 Node 24 and Node 26.
 
 |                   | Node | Bun | Deno | `workerd` |

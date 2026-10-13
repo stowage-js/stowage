@@ -1,5 +1,21 @@
 # @stowage/adapter-fs
 
+## 0.7.0
+
+### Minor Changes
+
+- f9c788d: `delete` takes one key with options, `delete(key, options)`, beside the variadic form. Without `onlyIf` it deletes the key as `delete(key)` does, under the caller's signal: a signal already aborted rejects with `AbortError` before any request, and an invalid key is the report's `InvalidKey` entry. An option key the form does not list is `InvalidOption`. `adapter-fs`, `adapter-s3`, `adapter-azure-blob` and `adapter-gcs` refuse an `onlyIf` object as `Unsupported` naming `deleteIfUnchanged`, and any string as `InvalidOption` naming `onlyIf`, each with `attempts: 0` and before anything is sent or removed. `adapter-s3` and `adapter-fs` never declare `deleteIfUnchanged`: R2 drops the precondition of a delete in silence, and a file system reports no `etag` (ADR 0071, ADR 0072).
+- 713177a: `adapter-fs` declares `writeIfAbsent`. `put` and `copy` with `onlyIf: "absent"` fill their temporary file as every write does, then link it to the key's path with `link(2)`, which refuses a name that holds anything, atomically against every other process. A `move` with `onlyIf: "absent"` links the source, or the file a symbolic link at the source resolves to, and then removes the source. A key that holds an object rejects with `PreconditionFailed` and keeps what it held; a directory or a link that resolves to no object below the root is `InvalidRequest`. On a file system without hard links, the `link` is `ProviderError` with `retryable: false`. `onlyIf: { etag }` stays `Unsupported` naming `writeIfUnchanged`, and writes without `onlyIf` keep ending in `rename` (ADR 0072).
+
+### Patch Changes
+
+- Updated dependencies [f9c788d]
+- Updated dependencies [f9c788d]
+- Updated dependencies [49c0158]
+- Updated dependencies [ec7e2d8]
+- Updated dependencies [2778693]
+  - @stowage/core@0.7.0
+
 ## 0.6.0
 
 ### Minor Changes

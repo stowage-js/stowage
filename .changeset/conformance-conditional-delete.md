@@ -1,5 +1,0 @@
----
-"@stowage/conformance": minor
----
-
-The suite gains `delete/if-unchanged`, requiring `deleteIfUnchanged`, and `delete/options`, requiring nothing. `delete/options` has `delete(key, {})` delete the key, and a signal already aborted reject with `AbortError` and leave the key. A storage declaring `deleteIfUnchanged` deletes with the current `etag` and reports `requested: 1` with an empty `failed`; a stale `etag` and a key that holds no object each leave one `PreconditionFailed` entry with that `key`, `retryable: false`, `attempts: 1` and `operation: "delete"`, and the object stays; `onlyIf: "absent"` and an `etag` of the wrong form reject with `InvalidOption` naming `onlyIf`, `attempts: 0`. A storage without it refuses `onlyIf: { etag }` on `delete` as `Unsupported` naming `deleteIfUnchanged`, `attempts: 0`, and leaves the key as it was. A third-party adapter that implements the variadic `delete` alone fails `delete/options` until it implements the form for one key (ADR 0070, ADR 0076).

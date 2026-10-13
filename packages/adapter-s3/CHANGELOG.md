@@ -1,5 +1,22 @@
 # @stowage/adapter-s3
 
+## 0.7.0
+
+### Minor Changes
+
+- f9c788d: `delete` takes one key with options, `delete(key, options)`, beside the variadic form. Without `onlyIf` it deletes the key as `delete(key)` does, under the caller's signal: a signal already aborted rejects with `AbortError` before any request, and an invalid key is the report's `InvalidKey` entry. An option key the form does not list is `InvalidOption`. `adapter-fs`, `adapter-s3`, `adapter-azure-blob` and `adapter-gcs` refuse an `onlyIf` object as `Unsupported` naming `deleteIfUnchanged`, and any string as `InvalidOption` naming `onlyIf`, each with `attempts: 0` and before anything is sent or removed. `adapter-s3` and `adapter-fs` never declare `deleteIfUnchanged`: R2 drops the precondition of a delete in silence, and a file system reports no `etag` (ADR 0071, ADR 0072).
+- 6f89d81: `adapter-s3` declares `writeIfAbsent`. `put` with `onlyIf: "absent"` sends `If-None-Match: *`, signed, on `PutObject`, and on a multipart upload on `CompleteMultipartUpload` alone: AWS ignores it on `CreateMultipartUpload` and refuses it on `UploadPart`, and R2 checks it at the start without carrying it to the commit. `copy` and `move` send it on `CopyObject` beside `cf-copy-destination-if-none-match: *`, since AWS holds the one and R2 the other; the delete of `from` in a `move` stays unconditional. `presignPut` signs it and hands it back in `headers` as `if-none-match`, and never as the query parameter R2 ignores. A key that holds an object rejects with `PreconditionFailed`, `key` set to `to` for `copy` and `move`, and so does AWS's `409 ConditionalRequestConflict` for a commit another writer overtook. A commit its precondition refused leaves the key as it was and aborts the upload, which AWS would otherwise let a later commit without the header complete. A refusal after an attempt without a response or with a `5xx` rejects with that earlier failure, since the repeat of a write that went through meets its own object; a conditional commit repeated after a `5xx` reads R2's `NoSuchUpload` the same way, and a commit that received no response is still not repeated (ADR 0071, ADR 0073, ADR 0074).
+- 7fd3022: `adapter-s3` declares `writeIfUnchanged`. `put` with `onlyIf: { etag }` sends `If-Match` with the `etag` quoted as a strong tag, signed, on `PutObject`, and on a multipart upload on `CompleteMultipartUpload` alone. `copy` and `move` send it on `CopyObject` beside `cf-copy-destination-if-match` of the same value, since AWS holds the one and R2 the other. `presignPut` signs it and hands it back in `headers` as `if-match`. An object that changed rejects with `PreconditionFailed`, and so does a key that holds none: R2 answers `412`, AWS `404 NoSuchKey`. On `CopyObject` AWS answers a missing source the same way, so a `NoSuchKey` is `PreconditionFailed` only where its `<Key>` names `to`, and otherwise the missing source it was, `NotFound` against `from`. Since the capability promises `etag`, an answer that describes an object without `ETag`, a listing entry among them, is `ProviderError`. `deleteIfUnchanged` stays undeclared, since R2 drops the precondition of a delete in silence (ADR 0071).
+
+### Patch Changes
+
+- Updated dependencies [f9c788d]
+- Updated dependencies [f9c788d]
+- Updated dependencies [49c0158]
+- Updated dependencies [ec7e2d8]
+- Updated dependencies [2778693]
+  - @stowage/core@0.7.0
+
 ## 0.6.0
 
 ### Minor Changes

@@ -1,5 +1,22 @@
 # @stowage/conformance
 
+## 0.7.0
+
+### Minor Changes
+
+- f9c788d: The suite gains `delete/if-unchanged`, requiring `deleteIfUnchanged`, and `delete/options`, requiring nothing. `delete/options` has `delete(key, {})` delete the key, and a signal already aborted reject with `AbortError` and leave the key. A storage declaring `deleteIfUnchanged` deletes with the current `etag` and reports `requested: 1` with an empty `failed`; a stale `etag` and a key that holds no object each leave one `PreconditionFailed` entry with that `key`, `retryable: false`, `attempts: 1` and `operation: "delete"`, and the object stays; `onlyIf: "absent"` and an `etag` of the wrong form reject with `InvalidOption` naming `onlyIf`, `attempts: 0`. A storage without it refuses `onlyIf: { etag }` on `delete` as `Unsupported` naming `deleteIfUnchanged`, `attempts: 0`, and leaves the key as it was. A third-party adapter that implements the variadic `delete` alone fails `delete/options` until it implements the form for one key (ADR 0070, ADR 0076).
+- abf3c2a: The HTTP suite gains `upload/if-none-match`, requiring `writeIfAbsent`; `upload/if-match`, requiring `writeIfUnchanged`; `upload/both-preconditions`, requiring both; and `upload/inexpressible-precondition`, `upload/malformed-precondition` and `upload/ignored-preconditions`, requiring nothing. A server declaring the capability stores under `If-None-Match: *` onto a free key with `201` and refuses it onto a held one with `412`; it replaces the object under a current `If-Match` with `204` and the `ETag` of the object it wrote, and refuses a stale `ETag`, the current one as `W/` and an `If-Match` onto a free key with `412`; it refuses a current `If-Match` beside `If-None-Match: *` with `412`. Without the capability each is `501`. On every storage, `If-Match: *`, `If-Match` with two tags, `If-None-Match` with a tag and `If-Unmodified-Since` alone are `501`, `If-Match: abc` and `If-None-Match: "a` are `400`, and `If-Modified-Since` and `If-Range` are ignored with `201`; every refusal leaves the key as it was (spec 14.9, ADR 0075, ADR 0076).
+- 2778693: The suite gains `put/if-absent`, `put/if-absent-multipart`, `put/concurrent-if-absent`, `put/concurrent-if-absent-multipart`, `copy/if-absent` and `move/if-absent`, requiring `writeIfAbsent`; `put/if-unchanged`, `put/if-unchanged-multipart`, `stat/etag-promised`, `copy/if-unchanged` and `move/if-unchanged`, requiring `writeIfUnchanged`; `put/only-if-no-kind`, requiring nothing; and `presign/put-if-absent`, `presign/put-if-unchanged` and, in the `slow` tier, `presign/put-rejects-precondition`, requiring `presignedUrls` beside the write capabilities. A storage declaring the capability writes only where the precondition holds and otherwise rejects with `PreconditionFailed`, `retryable: false`, `attempts: 1`, `operation` the operation called and `key` the key that carries the precondition, leaving the key as it was; of two writers racing for a free key under `"absent"`, exactly one resolves; a URL `presignPut` signed with `onlyIf` uploads only where the precondition holds, and an upload leaving out or changing a header that binds it is refused. A storage without it refuses the `onlyIf` as `Unsupported` naming the capability its form needs, `attempts: 0`, and leaves every key the call names as it was. A third-party adapter that refuses `onlyIf` as an unknown option fails the cases until it handles it (ADR 0070, ADR 0076).
+
+### Patch Changes
+
+- Updated dependencies [f9c788d]
+- Updated dependencies [f9c788d]
+- Updated dependencies [49c0158]
+- Updated dependencies [ec7e2d8]
+- Updated dependencies [2778693]
+  - @stowage/core@0.7.0
+
 ## 0.6.0
 
 ### Minor Changes

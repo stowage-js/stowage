@@ -1,5 +1,15 @@
 # @stowage/core
 
+## 0.7.0
+
+### Minor Changes
+
+- f9c788d: **Breaking:** `Storage` carries a second form of `delete`, `delete(key: string, options: DeleteOptions): Promise<DeleteReport>`, beside the variadic one, so an adapter written elsewhere that implements `delete` with the variadic signature alone is no longer assignable to `Storage` until it implements the form for one key (spec 15, ADR 0070).
+- f9c788d: `@stowage/core` exports `isOneKeyWithOptions`, which tells the form of `delete` for one key, `delete(key, options)`, from the variadic one, and its argument type `OneKeyWithOptions`. Every adapter in this repository calls it. It is not part of the spec and may change in any minor release, as `sendRequest` may.
+- 49c0158: `DeleteOptions` extends `OperationOptions` with `onlyIf?: { etag: string }`. Without `onlyIf` the form of `delete` for one key deletes the key as `delete(key)` does, under the caller's signal; with it, it deletes only the object `etag` describes, in one request never part of a batch, and reports a failed precondition as the key's `PreconditionFailed` entry. `capabilityNames` gains `deleteIfUnchanged`, second in its order. `preconditionRefusal` takes `"delete"` beside `"write"`: there an `onlyIf` object needs `deleteIfUnchanged`, and any string, `"absent"` included, is `InvalidOption` naming `onlyIf` on every storage, since "absent" has no kind on a delete (spec 4.3, 4.7, 4.13, ADR 0070).
+- ec7e2d8: `sendRequest` takes `precondition` on a request that carries one: where an attempt received no response or answered a `5xx`, a later attempt refused as `PreconditionFailed` rejects with that earlier failure, `retryable: true` and `attempts` counting every attempt, because the repeat of a request that took effect meets its own result (ADR 0073). `408` and `429` leave no such doubt. `alsoRefusedBy` names provider codes that count as the refusal as well, such as `NoSuchUpload` on a conditional `CompleteMultipartUpload` (spec 7.5). The type is exported as `PreconditionRule`. `sendRequest` stays outside the spec, and `withRetry` is unchanged.
+- 2778693: `PutOptions` takes `onlyIf?: Precondition`, where `Precondition` is `"absent" | { etag: string }`, and `copy` and `move` on `Storage` take the new `CopyOptions`, whose `onlyIf` applies to `to`. `StorageErrorCode` gains `PreconditionFailed`, raised with `retryable: false` where the precondition did not hold. `capabilityNames` gains `writeIfAbsent` and `writeIfUnchanged`, last in its order. A name added to `StorageErrorCode` or `capabilityNames` is a minor release under spec 15, and a `switch` over either needs a default branch. `preconditionRefusal` gives an adapter the checks of spec 4.3 for `onlyIf`, in their order: `Unsupported` naming the capability the form needs, a string `writeIfAbsent` and an object `writeIfUnchanged`, whatever it holds; then `InvalidOption` naming `onlyIf` for a value of neither form, a string other than `"absent"`, and an `etag` that is no non-empty string of visible ASCII, holds a `"` or starts with `W/` (ADR 0070, ADR 0076).
+
 ## 0.6.0
 
 ### Minor Changes
