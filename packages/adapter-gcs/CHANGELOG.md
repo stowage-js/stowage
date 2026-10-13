@@ -1,5 +1,23 @@
 # @stowage/adapter-gcs
 
+## 0.7.0
+
+### Minor Changes
+
+- f9c788d: `delete` takes one key with options, `delete(key, options)`, beside the variadic form. Without `onlyIf` it deletes the key as `delete(key)` does, under the caller's signal: a signal already aborted rejects with `AbortError` before any request, and an invalid key is the report's `InvalidKey` entry. An option key the form does not list is `InvalidOption`. `adapter-fs`, `adapter-s3`, `adapter-azure-blob` and `adapter-gcs` refuse an `onlyIf` object as `Unsupported` naming `deleteIfUnchanged`, and any string as `InvalidOption` naming `onlyIf`, each with `attempts: 0` and before anything is sent or removed. `adapter-s3` and `adapter-fs` never declare `deleteIfUnchanged`: R2 drops the precondition of a delete in silence, and a file system reports no `etag` (ADR 0071, ADR 0072).
+- 7d80066: **Breaking:** `etag` on `adapter-gcs` is the object's generation, not the JSON `etag` GCS reports, on every `ObjectStat` that `put`, `stat`, `get`, `copy` and `move` resolve with and on every `ObjectEntry` of a listing, so an `etag` kept from v0.6 no longer matches. GCS checks a precondition against the generation alone and ignores `If-Match` on an upload, so the generation is the one value a precondition can name. A change another tool makes to the content headers or the user metadata alone keeps the generation, so `etag` no longer moves on it, and `serveObject` may answer `304` to a client whose cached content headers are older than the object's. An answer that feeds a description or a listing entry without `generation` is `ProviderError` (spec 9.4, ADR 0070, ADR 0071).
+- 92bc0f1: `adapter-gcs` declares `writeIfAbsent`. `put`, `copy` and `move` with `onlyIf: "absent"` send `ifGenerationMatch=0` on the `uploadType=multipart` insert, the start of a resumable session, every call of `rewriteTo` and `objects.move`. A key that holds an object rejects with `PreconditionFailed`, `key` set to `to` for `copy` and `move`: GCS answers it `412 conditionNotMet`, which is now `PreconditionFailed` rather than `ProviderError`. A rewrite is refused at the call that commits, so a `copy` that another writer's object overtakes between two calls leaves that object in place, and a `move` its precondition refused leaves both keys as they were. A refusal of the insert, a `rewriteTo` call or `objects.move` after an attempt without a response or with a `5xx` rejects with that earlier failure, since the repeat of a write that went through meets its own object. A resumable session takes no part in that rule: a commit its precondition refused is `PreconditionFailed` and leaves nothing to cancel, and where a commit spent its budget without a response and the cancel answers `412`, `put` rejects with `PreconditionFailed`. `presignPut` binds `"absent"` as the signed header `x-goog-if-generation-match: 0` and returns it in `headers` (ADR 0071, ADR 0073, ADR 0074).
+- 6baf858: `adapter-gcs` declares `writeIfUnchanged` and `deleteIfUnchanged`. `put`, `copy` and `move` with `onlyIf: { etag }` send the generation as `ifGenerationMatch` wherever `"absent"` sends `0`: on the `uploadType=multipart` insert, the start of a resumable session, every call of `rewriteTo` and `objects.move`. A key that holds another generation, or none, rejects with `PreconditionFailed`, `key` set to `to` for `copy` and `move`. `delete(key, { onlyIf: { etag } })` sends one `DELETE` carrying `ifGenerationMatch` rather than a batch, and reads its answer as that key's entry: `412 conditionNotMet` is a `PreconditionFailed` entry, and so is a `404 notFound` that is no missing bucket, which is no success under a precondition. A refusal after an attempt without a response or with a `5xx` is the entry of that earlier failure, `retryable: true`, since whether this call deleted the object is open. An `etag` that is no generation, decimal digits without a leading zero, other than `0` and at most 2⁶³−1, never matches: `put`, `copy`, `move` and `presignPut` reject it with `PreconditionFailed` and `attempts: 0` without a request or a URL, and a conditional `delete` reports it as the key's entry. `0` is no generation here, since `ifGenerationMatch=0` means that no object exists. `presignPut` signs `{ etag }` as `x-goog-if-generation-match` with the generation and returns it in `headers` (ADR 0071, ADR 0073, ADR 0074).
+
+### Patch Changes
+
+- Updated dependencies [f9c788d]
+- Updated dependencies [f9c788d]
+- Updated dependencies [49c0158]
+- Updated dependencies [ec7e2d8]
+- Updated dependencies [2778693]
+  - @stowage/core@0.7.0
+
 ## 0.6.0
 
 ### Minor Changes

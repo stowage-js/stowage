@@ -1,5 +1,0 @@
----
-"@stowage/conformance": minor
----
-
-The HTTP suite gains `upload/if-none-match`, requiring `writeIfAbsent`; `upload/if-match`, requiring `writeIfUnchanged`; `upload/both-preconditions`, requiring both; and `upload/inexpressible-precondition`, `upload/malformed-precondition` and `upload/ignored-preconditions`, requiring nothing. A server declaring the capability stores under `If-None-Match: *` onto a free key with `201` and refuses it onto a held one with `412`; it replaces the object under a current `If-Match` with `204` and the `ETag` of the object it wrote, and refuses a stale `ETag`, the current one as `W/` and an `If-Match` onto a free key with `412`; it refuses a current `If-Match` beside `If-None-Match: *` with `412`. Without the capability each is `501`. On every storage, `If-Match: *`, `If-Match` with two tags, `If-None-Match` with a tag and `If-Unmodified-Since` alone are `501`, `If-Match: abc` and `If-None-Match: "a` are `400`, and `If-Modified-Since` and `If-Range` are ignored with `201`; every refusal leaves the key as it was (spec 14.9, ADR 0075, ADR 0076).

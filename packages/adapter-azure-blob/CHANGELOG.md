@@ -1,5 +1,22 @@
 # @stowage/adapter-azure-blob
 
+## 0.7.0
+
+### Minor Changes
+
+- f9c788d: `delete` takes one key with options, `delete(key, options)`, beside the variadic form. Without `onlyIf` it deletes the key as `delete(key)` does, under the caller's signal: a signal already aborted rejects with `AbortError` before any request, and an invalid key is the report's `InvalidKey` entry. An option key the form does not list is `InvalidOption`. `adapter-fs`, `adapter-s3`, `adapter-azure-blob` and `adapter-gcs` refuse an `onlyIf` object as `Unsupported` naming `deleteIfUnchanged`, and any string as `InvalidOption` naming `onlyIf`, each with `attempts: 0` and before anything is sent or removed. `adapter-s3` and `adapter-fs` never declare `deleteIfUnchanged`: R2 drops the precondition of a delete in silence, and a file system reports no `etag` (ADR 0071, ADR 0072).
+- 78ae868: `adapter-azure-blob` declares `writeIfAbsent`. `put` with `onlyIf: "absent"` sends `If-None-Match: *` on `Put Blob`, and on a block upload on `Put Block List` alone, since Azure checks no precondition on `Put Block`. `copy` and `move` send it on `Put Blob From URL` beside the pin of the source, again on the repeat after a failed pin, which stays `CannotVerifyCopySource` and never becomes `PreconditionFailed`; the delete of `from` in a `move` stays unconditional. A key that holds an object rejects with `PreconditionFailed`, `key` set to `to` for `copy` and `move`: Azure answers it `409 BlobAlreadyExists` where it documents `412`. A commit its precondition refused leaves the key as it was and the staged blocks as any stopped block upload does. A refusal after an attempt without a response or with a `5xx` rejects with that earlier failure, since the repeat of a write that went through meets its own object. `presignPut` binds `"absent"` through the permission, `sp=c` in place of `sp=w`, which Azure refuses an upload onto an existing object under with `403`; neither `srh` nor `headers` changes (ADR 0071, ADR 0073, ADR 0074).
+- 16679e1: `adapter-azure-blob` declares `writeIfUnchanged` and `deleteIfUnchanged`. `put` with `onlyIf: { etag }` sends `If-Match` with the `etag` quoted as a strong tag on `Put Blob`, and on a block upload on `Put Block List` alone. `copy` and `move` send it on `Put Blob From URL` beside the pin of the source; the delete of `from` in a `move` stays unconditional. A key that holds another blob, or none, rejects with `PreconditionFailed` from Azure's `412 ConditionNotMet`, `key` set to `to` for `copy` and `move`. `delete(key, { onlyIf: { etag } })` sends one `Delete Blob` carrying `If-Match` rather than a Blob Batch, and reads its answer as that key's entry: a blob that changed is a `PreconditionFailed` entry, and so is a `404 BlobNotFound`, which is no success under a precondition, while a `404 ContainerNotFound` still rejects as the missing container. A refusal after an attempt without a response or with a `5xx` is the entry of that earlier failure, `retryable: true`, since whether this call deleted the blob is open. `presignPut` keeps `sp=w`, appends `if-match` to `srh` after the content headers and hands it back in `headers` with the quoted `etag`. Since the capabilities promise `etag`, an answer that describes an object without `ETag`, a listing entry among them, is `ProviderError` (ADR 0071, ADR 0073, ADR 0074).
+
+### Patch Changes
+
+- Updated dependencies [f9c788d]
+- Updated dependencies [f9c788d]
+- Updated dependencies [49c0158]
+- Updated dependencies [ec7e2d8]
+- Updated dependencies [2778693]
+  - @stowage/core@0.7.0
+
 ## 0.6.0
 
 ### Minor Changes

@@ -1,5 +1,22 @@
 # @stowage/adapter-memory
 
+## 0.7.0
+
+### Minor Changes
+
+- f9c788d: `delete` takes one key with options, `delete(key, options)`, beside the variadic form. Without `onlyIf` it deletes the key as `delete(key)` does, under the caller's signal: a signal already aborted rejects with `AbortError` before any request, and an invalid key is the report's `InvalidKey` entry. An option key the form does not list is `InvalidOption`. `adapter-fs`, `adapter-s3`, `adapter-azure-blob` and `adapter-gcs` refuse an `onlyIf` object as `Unsupported` naming `deleteIfUnchanged`, and any string as `InvalidOption` naming `onlyIf`, each with `attempts: 0` and before anything is sent or removed. `adapter-s3` and `adapter-fs` never declare `deleteIfUnchanged`: R2 drops the precondition of a delete in silence, and a file system reports no `etag` (ADR 0071, ADR 0072).
+- f9c788d: `adapter-memory` declares `deleteIfUnchanged`. `delete(key, { onlyIf: { etag } })` deletes the key only where it holds the object `etag` describes, checked in the synchronous step that removes it, so no other call on the storage runs between the check and the removal. A stale `etag` and a key that holds no object each leave one `PreconditionFailed` entry with that `key` in the report, `retryable: false` and without `status` or `providerCode`, and the object stays; a missing key is no success here (ADR 0072).
+- 2778693: `adapter-memory` declares `writeIfAbsent` and `writeIfUnchanged`. `put`, `copy` and `move` take `onlyIf: "absent"` or `onlyIf: { etag }`, checked in the synchronous step that stores the object, after the body is read and its `etag` computed, so no other call on the storage runs between the check and the store. A precondition that does not hold rejects with `PreconditionFailed`, `retryable: false` and without `status` or `providerCode`, and leaves the key as it was; a `move` refused at `to` leaves `from` in place. A write of the same bytes keeps the `etag`, so a precondition naming it still holds (ADR 0072).
+
+### Patch Changes
+
+- Updated dependencies [f9c788d]
+- Updated dependencies [f9c788d]
+- Updated dependencies [49c0158]
+- Updated dependencies [ec7e2d8]
+- Updated dependencies [2778693]
+  - @stowage/core@0.7.0
+
 ## 0.6.0
 
 ### Minor Changes

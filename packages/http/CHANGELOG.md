@@ -1,5 +1,24 @@
 # @stowage/http
 
+## 0.7.0
+
+### Minor Changes
+
+- 49c0158: `AcceptUploadOptions` takes `onlyIf?: Precondition`, the caller's policy, such as a route that never overwrites. The layer passes `put` the one `onlyIf` that satisfies it and the request's `If-Match` and `If-None-Match` together, and answers `412` without `put` where none can and no `400` or `501` answers first: `"absent"` beside an `If-Match`, two different `etag`s, and `{ etag }` beside `If-None-Match: *`. An `If-Match` with several tags or `*` holds beside a caller's `{ etag }` as that `etag` where it names it or is `*`, and is `412` where it does not; without a caller's `{ etag }`, beside `"absent"` too, it stays `501`. An `onlyIf` of the wrong form, checked with `preconditionRefusal`, is `400` before the body is read. An `onlyIf` the caller passes on a storage without the capability stays with `put`, answered `500` (spec 10.1, 10.5, ADR 0075).
+- abf3c2a: **Breaking:** `acceptUpload` reads the request's `If-Match` and `If-None-Match`, so a `PUT` carrying either is answered `412`, `501` or `204` where v0.6 stored it with `201`, and no option restores that: a caller who means to drop the fields builds a `Request` without them before the call (spec 15, ADR 0075). `If-None-Match: *` is `"absent"`, and an `If-Match` with one strong tag of the form of an `etag` left is `{ etag }`, passed to `put` as `onlyIf`. Before the body is read and without `put`, the first of these that applies answers: a field that is no list of entity tags is `400`; `If-Match: *` or with several tags without a caller's `{ etag }`, `If-None-Match` with tags, `If-Unmodified-Since` without `If-Match`, and a field the storage declares no capability for are `501`; `If-Match` beside `If-None-Match: *` and an `If-Match` with no tag left are `412`. `If-Modified-Since`, `If-Range`, and `If-Unmodified-Since` beside `If-Match` are ignored. A write under `{ etag }` is answered `204` with the `ETag` `put` resolved with, and one without a precondition or under `"absent"` stays `201` (spec 10.5, ADR 0075).
+- 25dedd3: A `PreconditionFailed` becomes `412` in every function of the layer, with an empty body, no `ETag` of the object that holds the key, and the error behind it for `storageErrorOf` (spec 10.2, ADR 0075).
+- 25dedd3: `presignUpload` takes `onlyIf?: Precondition` as an optional option, and `PresignsPut` names it as an optional member of the options it passes. `presignUpload` hands it to `presignPut` where given and never reads it from a request: a caller hands over an `etag` the client sent in the body. A value of the wrong form, checked with `preconditionRefusal` as if every capability were declared, is `400` before signing, so that a client's value never reaches `presignPut` as an `InvalidOption` answered `500`. A storage without the capability the form needs refuses it in `presignPut`, answered `500`. The `PreconditionFailed` `adapter-gcs` gives `presignPut` for an `etag` that is no generation is `412` (spec 10.1, 10.6, ADR 0074).
+
+### Patch Changes
+
+- abf3c2a: `acceptUpload` rejects with its `TypeError` for a request body read before the call whatever the method, where a method other than `PUT` was answered `405` before, so the caller's mistake comes before any refusal of the client's request (spec 10.5, ADR 0052).
+- Updated dependencies [f9c788d]
+- Updated dependencies [f9c788d]
+- Updated dependencies [49c0158]
+- Updated dependencies [ec7e2d8]
+- Updated dependencies [2778693]
+  - @stowage/core@0.7.0
+
 ## 0.6.0
 
 ### Minor Changes
