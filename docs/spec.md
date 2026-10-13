@@ -3621,17 +3621,13 @@ withdrawn (section 7.2, ADR 0045). The scheduled run against the Azure account a
 answered the two promises of v0.6, the user delegation SAS binding the `x-ms-blob-*` headers and
 the JSON resource returning the content headers as sent, and disproved neither; they are stated in
 sections 8.9 and 9.4, as is the answer to whether Azure collapses runs of spaces in a value `srh`
-binds. Each point left here names why no run has answered it.
+binds. The run on `main` that released v0.7.0 passed the presigned precondition cases against the
+Azure account under an access token, and so answered the two promises of v0.7 on
+`adapter-azure-blob`, `sp=c` refusing an existing blob and `if-match` in `srh`, and disproved
+neither; they are stated in section 8.9. Each point left here names why no run has answered it.
 
 Promises:
 
-- `adapter-azure-blob`: that a user delegation SAS with `sp=c` admits an upload onto a free key and
-  refuses one onto an existing blob with `403`, and that one naming `if-match` in `srh` admits the
-  signed `etag`, refuses a request without it or with another, and answers `412` on a blob that
-  changed (section 8.9). `sp=c` was measured under a service SAS, and `srh` only on a user
-  delegation SAS no real key signed, since no Entra token was at hand; both leave this list once the
-  scheduled run on `main` passes the presigned precondition cases against the account (ADR 0074, ADR
-  0076).
 - `adapter-s3`: that AWS and R2 admit a preflight naming `if-none-match` or `if-match` under a rule
   that allows them, and send `Access-Control-Allow-Origin` on the `412`, as flow 2 requires.
   Observing it takes CORS rules on both conformance buckets, which no run sets; it stays here for
@@ -3649,5 +3645,6 @@ What a run may add or loosen, in a minor release and without a withdrawal:
   on AWS S3 and R2. If one spelling does on both, these keys go back into the batch without a
   change to this document. No test of the scheduled run sends either body yet.
 - `adapter-azure-blob`: whether a key holding a character from `U+0080` to `U+009F` needs
-  refusing. A refusal shown needless is loosened. The first run sent `U+0085` alone, which the
-  account stored and listed as written; the scheduled run now sends each of the 32.
+  refusing. A refusal shown needless is loosened. The run that released v0.7.0 sent each of the 32:
+  the account stored and listed 27 as written, and refused `U+0081`, `U+008D`, `U+008F`, `U+0090`
+  and `U+009D`, the five that Windows-1252 leaves unassigned, with `400 InvalidUri`.
