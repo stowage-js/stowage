@@ -76,7 +76,7 @@ These are the package's cells in the
 The Node bridge covers Node, Bun and Deno, and not `workerd`, where the package loads but no
 `node:http` server hands it a request.
 
-The bundle measures 4.9 kB minified and gzipped, `@stowage/core` included.
+The bundle measures 6.2 kB minified and gzipped, `@stowage/core` included.
 
 ## Limits
 
