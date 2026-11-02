@@ -9,8 +9,12 @@ hoist: false
 strictPeerDependencies: true
 
 # `@nestjs/platform-fastify` 12 imports `rxjs` from the multipart interceptor its index loads,
-# without declaring it. Under the nested tree above it finds none.
+# and `@nestjs/platform-express` since 12.3 from the multer interceptors, both without
+# declaring it. Under the nested tree above they find none.
 packageExtensions:
+  "@nestjs/platform-express@12":
+    peerDependencies:
+      rxjs: "^7.1.0"
   "@nestjs/platform-fastify@12":
     peerDependencies:
       rxjs: "^7.1.0"
