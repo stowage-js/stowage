@@ -79,7 +79,7 @@ jobs:
             account-key: true
           - runtime: workerd
             slug: workerd
-            node: "24"
+            node: "26"
     # Every job gets the variables of both tiers. The environment fills those of its own
     # provider and leaves the others empty, and `STOWAGE_CONFORMANCE_ENDPOINTS` keeps the
     # other tier out of the run rather than failing its endpoint check.
@@ -195,7 +195,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24"
+          node-version: "26"
           cache: pnpm
 
       - if: matrix.name == 'Bun'
@@ -258,10 +258,10 @@ jobs:
             node: "26"
             command: pnpm exec vitest run harness/node --testTimeout=600000
           - name: Bun
-            node: "24"
+            node: "26"
             command: pnpm --filter @stowage/harness-bun exec bun test src --timeout 600000
           - name: Deno
-            node: "24"
+            node: "26"
             command: pnpm run test:deno
     env:
       STOWAGE_CONFORMANCE_ENDPOINTS: none
@@ -307,7 +307,7 @@ jobs:
       # The report reads the JSON files and imports nothing it would need installed.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24"
+          node-version: "26"
 
       # A called run shares its artifacts with the caller's jobs, such as the publish plan and
       # the packed tarballs of a release, and the report reads every directory as a column.

@@ -74,10 +74,10 @@ jobs:
         run: ./harness/gcs/start.sh | sed 's/^export //' >> "$GITHUB_ENV"
 
       # Spec 2: `test` holds the Node column. Bun, Deno and `workerd` are columns of their
-      # own, in the job below. Only Node 24 measures coverage, for the `sonar` job.
-      - run: pnpm run test ${{ matrix.node == '24' && '--coverage' || '' }}
+      # own, in the job below. Only Node 26 measures coverage, for the `sonar` job.
+      - run: pnpm run test ${{ matrix.node == '26' && '--coverage' || '' }}
 
-      - if: matrix.node == '24'
+      - if: matrix.node == '26'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage
@@ -117,7 +117,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24"
+          node-version: "26"
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
@@ -127,7 +127,7 @@ jobs:
       - run: pnpm run test:quickstart
 
   # SonarQube Cloud's automatic analysis reads no coverage report, so the scan runs here, on
-  # the report of the Node 24 run. A pull request from a fork gets no `SONAR_TOKEN`, so it
+  # the report of the Node 26 run. A pull request from a fork gets no `SONAR_TOKEN`, so it
   # gets no scan either.
   sonar:
     name: SonarQube Cloud
@@ -174,7 +174,7 @@ jobs:
       # harness bundles its worker and reports the results on it.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24"
+          node-version: "26"
           cache: pnpm
 
       # Spec 1: Bun and Deno have no floor. These two files pin the version the harnesses
@@ -243,10 +243,10 @@ jobs:
             node: "26"
             command: pnpm exec vitest run packages/adapter-fs harness/node
           - name: Bun
-            node: "24"
+            node: "26"
             command: pnpm run test:bun
           - name: Deno
-            node: "24"
+            node: "26"
             command: pnpm run test:deno
     env:
       STOWAGE_CONFORMANCE_ENDPOINTS: none
