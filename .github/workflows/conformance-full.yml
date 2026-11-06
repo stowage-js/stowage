@@ -195,7 +195,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24"
+          node-version: "26"
           cache: pnpm
 
       - if: matrix.name == 'Bun'
@@ -307,7 +307,7 @@ jobs:
       # The report reads the JSON files and imports nothing it would need installed.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "24"
+          node-version: "26"
 
       # A called run shares its artifacts with the caller's jobs, such as the publish plan and
       # the packed tarballs of a release, and the report reads every directory as a column.
