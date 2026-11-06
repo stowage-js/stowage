@@ -71,11 +71,11 @@ jobs:
           - runtime: Node 24
             slug: node-24
             node: "24"
+            copy-above-limit: "true"
             account-key: true
           - runtime: Node 26
             slug: node-26
             node: "26"
-            copy-above-limit: "true"
             account-key: true
           - runtime: workerd
             slug: workerd
