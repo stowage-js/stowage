@@ -10,9 +10,14 @@ bucket="${STOWAGE_S3_BUCKET:-stowage-conformance}"
 
 docker compose up --detach --wait >&2
 
-# `weed shell` is idempotent about a bucket that is already there, which is what a second
-# start of a container that outlived its run meets.
-echo "s3.bucket.create -name ${bucket}" | docker compose exec -T s3 weed shell >/dev/null
+# A second start of a container that outlived its run meets the bucket already there, and
+# `weed shell` refuses that with an error since SeaweedFS 4.53; only that refusal is fine.
+if ! created=$(echo "s3.bucket.create -name ${bucket}" | docker compose exec -T s3 weed shell 2>&1); then
+  case "${created}" in
+    *"bucket ${bucket} already exists"*) ;;
+    *) echo "${created}" >&2; exit 1 ;;
+  esac
+fi
 
 cat <<ENVIRONMENT
 export STOWAGE_S3_ENDPOINT_NAME=seaweedfs
